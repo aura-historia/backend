@@ -55,11 +55,15 @@ pub enum DomainFailureKind {
     /// crawler as such (`scraper::scrape_circuit`); the status is persisted as
     /// the circuit's diagnostic status code.
     HttpStatusBurst,
+    /// The shop's host accepted consecutive connections, robots.txt
+    /// included, and closed each without an HTTP answer, the way nginx's
+    /// `return 444` refuses a client ([`NetworkErrorKind::ConnectionDropped`]).
+    ConnectionDropped,
 }
 
 impl DomainFailureKind {
     /// Every kind, so a table keyed by kind can be checked for completeness.
-    pub const ALL: [DomainFailureKind; 10] = [
+    pub const ALL: [DomainFailureKind; 11] = [
         Self::Timeout,
         Self::Connect,
         Self::DnsTimeout,
@@ -70,6 +74,7 @@ impl DomainFailureKind {
         Self::Http504,
         Self::Http5xxBurst,
         Self::HttpStatusBurst,
+        Self::ConnectionDropped,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -84,13 +89,16 @@ impl DomainFailureKind {
             Self::Http504 => "HTTP_504",
             Self::Http5xxBurst => "HTTP_5XX_BURST",
             Self::HttpStatusBurst => "HTTP_STATUS_BURST",
+            Self::ConnectionDropped => "CONNECTION_DROPPED",
         }
     }
 
     /// Whether one observation of this kind opens the circuit. The other
-    /// kinds need sustained evidence first (`scraper::scrape_circuit`).
+    /// kinds need sustained evidence first (`scraper::scrape_circuit`): the
+    /// [slow-host kinds](Self::is_slow_host), and a dropped connection, which
+    /// on its own is a normal transient fault.
     pub const fn opens_on_first_failure(self) -> bool {
-        !self.is_slow_host()
+        !self.is_slow_host() && !matches!(self, Self::ConnectionDropped)
     }
 
     /// Whether the kind also comes from a slow host, which is the shop
@@ -106,7 +114,7 @@ impl DomainFailureKind {
             Self::Http429 => Duration::from_secs(10 * 60),
             Self::Http503 => Duration::from_secs(15 * 60),
             Self::Http504 => Duration::from_secs(15 * 60),
-            Self::HttpStatusBurst => Duration::from_secs(30 * 60),
+            Self::HttpStatusBurst | Self::ConnectionDropped => Duration::from_secs(30 * 60),
             Self::Http408
             | Self::Timeout
             | Self::Connect
@@ -296,6 +304,13 @@ pub enum NetworkErrorKind {
     /// ([`bot_challenge`](crate::network::bot_challenge)). It is not retried inline, since an
     /// immediate repeat meets the same challenge, and is retried after the transient cooldown.
     BotChallenge,
+    /// The host accepted the connection and closed it without any HTTP answer
+    /// ([`closed_without_answer`]). Once, it is a normal transient fault; repeated, it is how
+    /// nginx's `return 444` and bad-bot blockers refuse the crawler.
+    ConnectionDropped,
+    /// robots.txt of the shop's own host was [dropped](Self::ConnectionDropped): the shop
+    /// refuses the crawler before any page, so the scraper defers the rest of its batch.
+    RobotsConnectionDropped,
     Unknown,
 }
 
@@ -316,6 +331,9 @@ pub fn domain_failure_kind(kind: NetworkErrorKind) -> Option<DomainFailureKind> 
         NetworkErrorKind::HttpStatus(429) => Some(DomainFailureKind::Http429),
         NetworkErrorKind::HttpStatus(503) => Some(DomainFailureKind::Http503),
         NetworkErrorKind::HttpStatus(504) => Some(DomainFailureKind::Http504),
+        NetworkErrorKind::ConnectionDropped | NetworkErrorKind::RobotsConnectionDropped => {
+            Some(DomainFailureKind::ConnectionDropped)
+        }
         _ => None,
     }
 }
@@ -397,7 +415,7 @@ impl Default for RetryPolicy {
 /// The reqwest error surface the crawler classifies on. The workspace and the
 /// Spider library pin different reqwest major versions, so both error types
 /// implement this instead of each path keeping its own classifier.
-pub trait ReqwestErrorLike {
+pub trait ReqwestErrorLike: std::error::Error + 'static {
     fn is_timeout(&self) -> bool;
     fn is_connect(&self) -> bool;
     fn is_request(&self) -> bool;
@@ -432,6 +450,26 @@ pub fn error_with_sources(error: &dyn std::error::Error) -> String {
         .join(": ")
 }
 
+/// Whether a request that failed after connecting failed because the peer closed or reset the
+/// connection before any HTTP answer: hyper's incomplete message over plain HTTP, and an end of
+/// stream without TLS `close_notify`, a reset or a broken pipe beneath it. A connection the peer
+/// closes during the TLS handshake is a connect failure, which reqwest reports before this.
+fn closed_without_answer(error: &(dyn std::error::Error + 'static)) -> bool {
+    std::iter::successors(Some(error), |error| error.source()).any(|error| {
+        error
+            .downcast_ref::<hyper::Error>()
+            .is_some_and(hyper::Error::is_incomplete_message)
+            || error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::UnexpectedEof
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::BrokenPipe
+                )
+            })
+    })
+}
+
 pub fn classify_reqwest_error<E: ReqwestErrorLike>(err: &E) -> NetworkErrorKind {
     if err.is_timeout() {
         return NetworkErrorKind::Timeout;
@@ -440,7 +478,11 @@ pub fn classify_reqwest_error<E: ReqwestErrorLike>(err: &E) -> NetworkErrorKind 
         return NetworkErrorKind::Connect;
     }
     if err.is_request() {
-        return NetworkErrorKind::Request;
+        return if closed_without_answer(err) {
+            NetworkErrorKind::ConnectionDropped
+        } else {
+            NetworkErrorKind::Request
+        };
     }
     if let Some(status) = err.status_code() {
         return NetworkErrorKind::HttpStatus(status);
@@ -465,11 +507,13 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::Connect
         | NetworkErrorKind::DnsTimeout
         | NetworkErrorKind::DnsResolution
-        | NetworkErrorKind::Request => NetworkAction::Retry,
+        | NetworkErrorKind::Request
+        | NetworkErrorKind::ConnectionDropped => NetworkAction::Retry,
         NetworkErrorKind::UnsafeTarget
         | NetworkErrorKind::HttpStatus(_)
         | NetworkErrorKind::RobotsDisallowed
         | NetworkErrorKind::RobotsUnreachable
+        | NetworkErrorKind::RobotsConnectionDropped
         | NetworkErrorKind::PageDirectiveDisallowed
         | NetworkErrorKind::BotChallenge
         | NetworkErrorKind::Unknown => NetworkAction::Terminal,
@@ -491,6 +535,8 @@ impl NetworkErrorKind {
             Self::RobotsUnreachable => "ROBOTS_UNREACHABLE",
             Self::PageDirectiveDisallowed => "PAGE_DIRECTIVE_DISALLOWED",
             Self::BotChallenge => "BOT_CHALLENGE",
+            Self::ConnectionDropped => "CONNECTION_DROPPED",
+            Self::RobotsConnectionDropped => "ROBOTS_CONNECTION_DROPPED",
             Self::Unknown => "UNKNOWN",
         }
     }
@@ -568,6 +614,8 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
         | NetworkErrorKind::DnsTimeout
         | NetworkErrorKind::DnsResolution
         | NetworkErrorKind::Request
+        | NetworkErrorKind::ConnectionDropped
+        | NetworkErrorKind::RobotsConnectionDropped
         | NetworkErrorKind::BotChallenge
         | NetworkErrorKind::Unknown => Duration::from_secs(5 * 60),
         NetworkErrorKind::HttpStatus(_) => Duration::from_secs(24 * 60 * 60),
@@ -761,6 +809,163 @@ mod tests {
         assert_eq!(classify_reqwest_error(&error), NetworkErrorKind::Connect);
         let details = error_with_sources(&error);
         assert!(details.contains("UnknownIssuer"), "{details}");
+    }
+
+    /// A test server certificate is no trust anchor, so the TLS test client accepts any.
+    #[derive(Debug)]
+    struct AcceptAnyCertificate(rustls::crypto::WebPkiSupportedAlgorithms);
+
+    impl rustls::client::danger::ServerCertVerifier for AcceptAnyCertificate {
+        fn verify_server_cert(
+            &self,
+            _: &rustls::pki_types::CertificateDer<'_>,
+            _: &[rustls::pki_types::CertificateDer<'_>],
+            _: &rustls::pki_types::ServerName<'_>,
+            _: &[u8],
+            _: rustls::pki_types::UnixTime,
+        ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            certificate: &rustls::pki_types::CertificateDer<'_>,
+            signature: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls12_signature(message, certificate, signature, &self.0)
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            certificate: &rustls::pki_types::CertificateDer<'_>,
+            signature: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls13_signature(message, certificate, signature, &self.0)
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+            self.0.supported_schemes()
+        }
+    }
+
+    /// What a crawler request to a local server that reads the request and closes the
+    /// connection without an answer fails with; `tls` serves it over TLS and closes the TCP
+    /// connection without `close_notify`, as nginx's `return 444` does.
+    async fn request_to_a_server_that_drops_it(tls: bool) -> reqwest::Error {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            use std::io::Read;
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            if !tls {
+                let _ = socket.read(&mut request);
+                return;
+            }
+            let config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![rustls::pki_types::CertificateDer::from(
+                    include_bytes!("testdata/untrusted-localhost-cert.der").to_vec(),
+                )],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(
+                    include_bytes!("testdata/untrusted-localhost-key.der").to_vec(),
+                )
+                .into(),
+            )
+            .unwrap();
+            let mut connection =
+                rustls::ServerConnection::new(std::sync::Arc::new(config)).unwrap();
+            while connection.complete_io(&mut socket).is_ok()
+                && connection.reader().read(&mut request).is_err()
+            {}
+        });
+
+        let provider = rustls::crypto::ring::default_provider();
+        let algorithms = provider.signature_verification_algorithms;
+        let client_tls = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(std::sync::Arc::new(AcceptAnyCertificate(algorithms)))
+            .with_no_client_auth();
+        let scheme = if tls { "https" } else { "http" };
+        let error = crawler_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
+            .unwrap()
+            .use_preconfigured_tls(client_tls)
+            .resolve("localhost", addr)
+            .build()
+            .unwrap()
+            .get(format!("{scheme}://localhost:{}/robots.txt", addr.port()))
+            .send()
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        error
+    }
+
+    #[tokio::test]
+    async fn should_classify_a_connection_closed_without_an_answer_as_dropped() {
+        for tls in [false, true] {
+            let error = request_to_a_server_that_drops_it(tls).await;
+
+            assert_eq!(
+                classify_reqwest_error(&error),
+                NetworkErrorKind::ConnectionDropped,
+                "tls={tls}: {}",
+                error_with_sources(&error)
+            );
+        }
+    }
+
+    /// One dropped connection is a transient fault: it is retried inline and after the transient
+    /// cooldown, and counts towards the circuit without opening it on its own.
+    #[test]
+    fn should_retry_a_dropped_connection_and_count_it_as_sustained_circuit_evidence() {
+        assert_eq!(
+            action_for(NetworkErrorKind::ConnectionDropped),
+            NetworkAction::Retry
+        );
+        assert_eq!(
+            action_for(NetworkErrorKind::RobotsConnectionDropped),
+            NetworkAction::Terminal,
+            "a robots.txt failure is never retried inline"
+        );
+        for kind in [
+            NetworkErrorKind::ConnectionDropped,
+            NetworkErrorKind::RobotsConnectionDropped,
+        ] {
+            assert_eq!(
+                durable_retry_cooldown_for(kind),
+                durable_retry_cooldown_for(NetworkErrorKind::Timeout)
+            );
+            assert_eq!(
+                domain_failure_kind(kind),
+                Some(DomainFailureKind::ConnectionDropped)
+            );
+            assert!(!kind.is_robots_refusal(), "the shop was reached");
+            assert!(!should_adapt_domain_delay(kind));
+        }
+        assert!(!DomainFailureKind::ConnectionDropped.opens_on_first_failure());
+        assert!(!DomainFailureKind::ConnectionDropped.is_slow_host());
+    }
+
+    #[test]
+    fn should_cool_dropped_connections_down_for_thirty_minutes_growing_per_opening() {
+        assert_eq!(
+            domain_cooldown(DomainFailureKind::ConnectionDropped, 2, None),
+            Duration::from_secs(60 * 60)
+        );
+        assert_eq!(
+            domain_cooldown(DomainFailureKind::ConnectionDropped, 3, None),
+            Duration::from_secs(2 * 60 * 60)
+        );
     }
 
     #[test]

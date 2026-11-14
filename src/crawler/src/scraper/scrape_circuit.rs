@@ -707,6 +707,97 @@ mod tests {
         );
     }
 
+    fn dropped(transport_kind: NetworkErrorKind) -> DomainFetchHealth {
+        DomainFetchHealth::CircuitFailure {
+            kind: domain_failure_kind(transport_kind).expect("a dropped connection is evidence"),
+            status_code: None,
+            retry_after: None,
+        }
+    }
+
+    /// One dropped connection, of robots.txt or a page, is a normal transient fault: it is
+    /// recorded as evidence and the ListingSource keeps being scraped.
+    #[test]
+    fn should_record_a_single_dropped_connection_without_opening() {
+        for kind in [
+            NetworkErrorKind::RobotsConnectionDropped,
+            NetworkErrorKind::ConnectionDropped,
+        ] {
+            assert_eq!(
+                BatchEvidence::default().decide(&healthy(), &url("1"), kind, None, None),
+                ScrapeCircuitDecision::RecordFailure(DomainFailureKind::ConnectionDropped),
+                "{kind:?}"
+            );
+        }
+    }
+
+    /// A shop that drops the connections of robots.txt and of pages alike refuses the crawler:
+    /// the second drop in a row opens the circuit, within a batch or on the next pass.
+    #[test]
+    fn should_open_on_the_second_consecutive_dropped_connection() {
+        let after_robots_drop = recorded(DomainFailureKind::ConnectionDropped, 1);
+
+        for kind in [
+            NetworkErrorKind::RobotsConnectionDropped,
+            NetworkErrorKind::ConnectionDropped,
+        ] {
+            assert_eq!(
+                BatchEvidence::default().decide(&after_robots_drop, &url("2"), kind, None, None),
+                ScrapeCircuitDecision::Open(DomainFailureKind::ConnectionDropped),
+                "{kind:?}"
+            );
+        }
+        assert_eq!(
+            BatchEvidence::default().decide(
+                &recorded(DomainFailureKind::Timeout, 1),
+                &url("2"),
+                NetworkErrorKind::ConnectionDropped,
+                None,
+                None
+            ),
+            ScrapeCircuitDecision::RecordFailure(DomainFailureKind::ConnectionDropped),
+            "a timeout before is no dropped connection"
+        );
+    }
+
+    #[test]
+    fn should_reopen_the_circuit_when_its_probe_is_dropped_again() {
+        let mut cooled_down = recorded(DomainFailureKind::ConnectionDropped, 2);
+        cooled_down.next_scrape_at = Some(time::OffsetDateTime::now_utc());
+
+        assert_eq!(
+            BatchEvidence::default().decide(
+                &cooled_down,
+                &url("1"),
+                NetworkErrorKind::RobotsConnectionDropped,
+                None,
+                None
+            ),
+            ScrapeCircuitDecision::Open(DomainFailureKind::ConnectionDropped)
+        );
+    }
+
+    /// A dropped connection says nothing about the host's speed, so it never makes up the
+    /// slow-host share of a batch.
+    #[test]
+    fn should_not_count_dropped_connections_as_slow_host_urls() {
+        let mut evidence = BatchEvidence::default();
+        evidence.observe(&url("1"), &timed_out(), None);
+        evidence.observe(
+            &url("2"),
+            &dropped(NetworkErrorKind::ConnectionDropped),
+            None,
+        );
+        evidence.observe(&url("3"), &timed_out(), None);
+
+        assert_eq!(evidence.slow_host_urls(), 2);
+        assert_eq!(
+            evidence.decide(&healthy(), &url("4"), NetworkErrorKind::Timeout, None, None),
+            ScrapeCircuitDecision::Open(DomainFailureKind::Timeout),
+            "three of four attempted URLs timed out"
+        );
+    }
+
     fn platform_url(path: &str) -> Url {
         Url::parse(&format!("https://antiquariat.shopnetzwerk.com/{path}")).expect("test URL")
     }

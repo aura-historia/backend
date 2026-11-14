@@ -1728,6 +1728,40 @@ mod tests {
         }
     }
 
+    /// A shop that closes the connection of its robots.txt without an answer refuses the
+    /// crawler before any page: the fetch fails naming robots.txt, without a retry or a page
+    /// request, and the next fetch asks robots.txt again instead of caching the failure.
+    #[tokio::test]
+    async fn should_fail_without_a_page_request_when_the_shop_drops_robots_txt() {
+        let shop = spawn_shop(String::new(), vec![OK_PAGE], Duration::ZERO).await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(3),
+            throttle_config(Duration::ZERO),
+        );
+
+        let first = fetcher.fetch(&shop.url).await.unwrap_err();
+        let second = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(first.kind(), NetworkErrorKind::RobotsConnectionDropped);
+        assert_eq!(second.kind(), NetworkErrorKind::RobotsConnectionDropped);
+        assert!(shop.page_requests().is_empty());
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn should_retry_a_page_whose_connection_the_shop_drops_inline() {
+        let shop = spawn_shop(robots_status("404 Not Found"), vec!["", ""], Duration::ZERO).await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(2),
+            throttle_config(Duration::ZERO),
+        );
+
+        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::ConnectionDropped);
+        assert_eq!(shop.page_requests().len(), 2);
+    }
+
     #[tokio::test]
     async fn should_follow_a_robots_txt_redirect_to_another_host() {
         let robots_host = spawn_shop(

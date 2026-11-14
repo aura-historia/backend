@@ -246,6 +246,8 @@ enum DeferralReason {
     SchemaReviewPending,
     /// robots.txt of the batch's origin could not be reached.
     RobotsUnreachable,
+    /// The shop's host closed the connection of its robots.txt without an answer.
+    RobotsConnectionDropped,
     /// The URL's process-local lock was held.
     UrlLock,
     /// The ListingSource's scraper lock was held.
@@ -259,6 +261,7 @@ impl DeferralReason {
             Self::TimeBudget => "time_budget",
             Self::SchemaReviewPending => "schema_review_pending",
             Self::RobotsUnreachable => "robots_unreachable",
+            Self::RobotsConnectionDropped => "robots_connection_dropped",
             Self::UrlLock => "url_lock",
             Self::SourceLock => "source_lock",
         }
@@ -2029,10 +2032,13 @@ fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
 }
 
 /// Why a failure defers the rest of its batch: robots.txt of the URL's origin could not be
-/// reached, which disallows every URL there until it is fetched again.
+/// reached, which disallows every URL there until it is fetched again, or the shop dropped the
+/// connection of its robots.txt, which refuses the crawler before any page. A dropped connection
+/// of a page leaves the batch running, since once it is a normal transient fault.
 fn origin_deferral(error: &ScraperError) -> Option<DeferralReason> {
     match error.network_error_kind()? {
         NetworkErrorKind::RobotsUnreachable => Some(DeferralReason::RobotsUnreachable),
+        NetworkErrorKind::RobotsConnectionDropped => Some(DeferralReason::RobotsConnectionDropped),
         _ => None,
     }
 }
@@ -2224,8 +2230,9 @@ async fn scrape_batch_candidates(
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
             debug!(
                 event = "crawler.scraper.robots_unreachable_batch_stopped",
+                reason = reason.as_str(),
                 deferred_urls = remaining,
-                "Deferring remaining scraper URLs while robots.txt is unreachable"
+                "Deferring remaining scraper URLs while robots.txt cannot be read"
             );
             outcome.record_deferred(reason, remaining);
             break;
@@ -5820,6 +5827,102 @@ mod tests {
 
         assert_eq!(outcome.failed, 1);
         assert_eq!(outcome.deferred_urls, 2);
+    }
+
+    fn dropped_connection_outcome(url: url::Url, kind: NetworkErrorKind) -> ScrapeOutcome {
+        scrape_outcome(Err(ScraperError::HttpError {
+            url,
+            kind,
+            details: "connection closed before message completed".to_owned(),
+        }))
+    }
+
+    /// A shop that drops the connection of its robots.txt refuses the crawler before any page:
+    /// the failure is recorded as circuit evidence and the rest of the batch waits for a later
+    /// pass instead of asking robots.txt again for every URL.
+    #[tokio::test]
+    async fn should_defer_the_rest_of_the_batch_after_the_shop_drops_robots_txt() {
+        let (candidates, listing_source_id) = source_batch("dropping.example.com", 3);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_scrape_circuit()
+            .once()
+            .withf(|request| {
+                request.url_failure.error_kind == "RobotsConnectionDropped"
+                    && request.scrape_error_kind == DomainFailureKind::ConnectionDropped
+                    && request.next_scrape_at.is_none()
+            })
+            .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                dropped_connection_outcome(url, NetworkErrorKind::RobotsConnectionDropped)
+            })
+        });
+
+        let outcome = scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(
+            outcome.deferred_reasons.get("robots_connection_dropped"),
+            Some(&2)
+        );
+    }
+
+    /// A dropped page connection leaves the batch running, and the next dropped connection of
+    /// the batch opens the circuit, which skips the rest.
+    #[tokio::test]
+    async fn should_open_the_circuit_on_the_second_dropped_page_connection_of_a_batch() {
+        let (candidates, listing_source_id) = source_batch("dropping.example.com", 3);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        let mut writes = mockall::Sequence::new();
+        for opens in [false, true] {
+            scraper_candidates
+                .expect_mark_fetch_failure_and_open_scrape_circuit()
+                .once()
+                .in_sequence(&mut writes)
+                .withf(move |request| {
+                    request.url_failure.error_kind == "ConnectionDropped"
+                        && request.scrape_error_kind == DomainFailureKind::ConnectionDropped
+                        && request.next_scrape_at.is_some() == opens
+                })
+                .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
+        }
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(2)
+            .returning(|request| {
+                let url = request.url;
+                Box::pin(async move {
+                    dropped_connection_outcome(url, NetworkErrorKind::ConnectionDropped)
+                })
+            });
+
+        let outcome = scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 2);
+        assert_eq!(outcome.skip_reasons.get("scrape_circuit_open"), Some(&1));
+        assert_eq!(outcome.deferred_urls, 0);
     }
 
     #[tokio::test]

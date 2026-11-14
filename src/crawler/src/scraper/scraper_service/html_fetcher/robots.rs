@@ -1,8 +1,8 @@
 //! robots.txt policies for scraper fetches, cached per origin. The pacing a
 //! policy's `Crawl-delay` asks for lives in the auto-throttle.
 
-use super::{FetchAttemptError, ReqwestHtmlFetcher};
-use crate::network::policy::is_same_or_www_host;
+use super::{FetchAttemptError, FetchError, ReqwestHtmlFetcher};
+use crate::network::policy::{NetworkErrorKind, is_same_or_www_host};
 use crate::network::robots::{
     MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy, robots_txt_url,
 };
@@ -78,7 +78,8 @@ fn origin_key(url: &Url) -> String {
 impl ReqwestHtmlFetcher {
     /// The robots.txt policy for `url`'s origin, fetched once per cache
     /// lifetime. A transport failure is returned instead of cached so the
-    /// scrape circuit sees it like any other failed request.
+    /// scrape circuit sees it like any other failed request; the next
+    /// request fetches robots.txt again.
     pub(super) async fn robots_policy(
         &self,
         url: &Url,
@@ -119,7 +120,7 @@ impl ReqwestHtmlFetcher {
                         hop > 0,
                         shop_host,
                     )
-                    .ok_or(error);
+                    .ok_or_else(|| shop_robots_failure(error));
                 }
             }
         }
@@ -154,6 +155,24 @@ impl ReqwestHtmlFetcher {
             location,
             robots_url,
         ))
+    }
+}
+
+/// How a failed robots.txt request of the shop's own host fails the fetch: with its transport
+/// failure, except that a dropped connection names robots.txt, since the shop then refuses the
+/// crawler before any page (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
+fn shop_robots_failure(error: FetchAttemptError) -> FetchAttemptError {
+    match error.error {
+        FetchError::Network {
+            kind: NetworkErrorKind::ConnectionDropped,
+            details,
+        } => FetchAttemptError {
+            error: FetchError::Network {
+                kind: NetworkErrorKind::RobotsConnectionDropped,
+                details,
+            },
+        },
+        error => FetchAttemptError { error },
     }
 }
 
