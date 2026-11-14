@@ -5925,6 +5925,83 @@ mod tests {
         assert_eq!(outcome.deferred_urls, 0);
     }
 
+    /// Regression check for a host that drops every connection, robots.txt included, as the
+    /// shops of #2955 do for the crawler's user agent: the first pass records one failure and
+    /// defers the rest without a fetch, the next pass opens the circuit on its first URL with the
+    /// grown cooldown and skips the rest, so no pass asks robots.txt once per candidate URL.
+    #[tokio::test]
+    async fn should_open_the_circuit_on_the_next_pass_when_a_host_drops_every_connection() {
+        let first_pass = robots_dropping_pass(ScrapeHealthSnapshot::default(), |request| {
+            request.next_scrape_at.is_none()
+        })
+        .await;
+        let after_first_pass = ScrapeHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some(DomainFailureKind::ConnectionDropped.as_str().to_owned()),
+            next_scrape_at: None,
+        };
+        let second_pass = robots_dropping_pass(after_first_pass, |request| {
+            let cooldown = request
+                .next_scrape_at
+                .map(|at| at - time::OffsetDateTime::now_utc());
+            cooldown.is_some_and(|cooldown| {
+                (time::Duration::minutes(59)..=time::Duration::minutes(60)).contains(&cooldown)
+            })
+        })
+        .await;
+
+        assert_eq!(first_pass.failed, 1);
+        assert_eq!(
+            first_pass.deferred_reasons.get("robots_connection_dropped"),
+            Some(&99)
+        );
+        assert_eq!(second_pass.failed, 1);
+        assert_eq!(
+            second_pass.skip_reasons.get("scrape_circuit_open"),
+            Some(&99)
+        );
+        assert_eq!(second_pass.deferred_urls, 0);
+    }
+
+    /// One scraper pass of a 100-URL batch against a host whose robots.txt connection is always
+    /// dropped, selected with `scrape_health`; `expected_write` judges the one circuit write.
+    async fn robots_dropping_pass(
+        scrape_health: ScrapeHealthSnapshot,
+        expected_write: fn(&ScrapeCircuitOpenRequest) -> bool,
+    ) -> ScrapeBatchOutcome {
+        let (mut candidates, listing_source_id) = source_batch("dropping.example.com", 100);
+        for candidate in &mut candidates {
+            candidate.scrape_health = scrape_health.clone();
+        }
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_scrape_circuit()
+            .once()
+            .withf(move |request| {
+                request.scrape_error_kind == DomainFailureKind::ConnectionDropped
+                    && expected_write(request)
+            })
+            .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                dropped_connection_outcome(url, NetworkErrorKind::RobotsConnectionDropped)
+            })
+        });
+
+        scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await
+    }
+
     #[tokio::test]
     async fn should_defer_urls_left_when_the_scraper_batch_time_budget_runs_out() {
         let (candidates, listing_source_id) = source_batch("slow.example.com", 3);
