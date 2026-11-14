@@ -68,6 +68,9 @@ use search_filter_service::use_cases::{
 use serde::Serialize;
 use woocommerce_service::WoocommerceWebhookIntakeError;
 
+use content_notice_core::content_notice::ContentNoticeInvariantError;
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeError;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleError;
@@ -177,6 +180,20 @@ pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
     ApiErrorCode("BAD_QUERY_PARAMETER_VALUE");
 pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
 pub(crate) const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
+pub(crate) const CONTENT_NOTICE_EXPLANATION_REQUIRED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_EXPLANATION_REQUIRED");
+pub(crate) const CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED");
+pub(crate) const CONTENT_NOTICE_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_INTERNAL_ERROR");
+pub(crate) const CONTENT_NOTICE_INVALID_FIELD: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_INVALID_FIELD");
+pub(crate) const CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER");
+pub(crate) const CONTENT_NOTICE_TARGET_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_TARGET_NOT_FOUND");
+pub(crate) const CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE");
 pub(crate) const FORBIDDEN: ApiErrorCode = ApiErrorCode("FORBIDDEN");
@@ -293,9 +310,9 @@ impl Display for ApiErrorCode {
     }
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub(crate) struct ApiErrorSource {
-    field: &'static str,
+    field: Cow<'static, str>,
     #[serde(rename = "type")]
     source_type: ApiErrorSourceType,
 }
@@ -370,9 +387,9 @@ impl ApiError {
         )
     }
 
-    pub(crate) fn with_body_field(mut self, field: &'static str) -> Self {
+    pub(crate) fn with_body_field(mut self, field: impl Into<Cow<'static, str>>) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: field.into(),
             source_type: ApiErrorSourceType::Body,
         });
         self
@@ -380,7 +397,7 @@ impl ApiError {
 
     pub(crate) fn with_header_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Header,
         });
         self
@@ -388,7 +405,7 @@ impl ApiError {
 
     pub(crate) fn with_query_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Query,
         });
         self
@@ -396,7 +413,7 @@ impl ApiError {
 
     pub(crate) fn with_path_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Path,
         });
         self
@@ -2736,6 +2753,43 @@ impl From<SubmitPartnershipApplicationError> for ApiError {
             SubmitPartnershipApplicationError::InvalidPersistedState { .. }
             | SubmitPartnershipApplicationError::Internal { .. } => {
                 partnership_application_internal_error()
+            }
+        }
+    }
+}
+
+impl From<SubmitContentNoticeError> for ApiError {
+    fn from(error: SubmitContentNoticeError) -> Self {
+        match error {
+            SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::ExplanationRequired { .. },
+            ) => ApiError::bad_request(CONTENT_NOTICE_EXPLANATION_REQUIRED)
+                .with_body_field("/explanation")
+                .with_detail("An explanation is required for this reason category."),
+            SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::ProviderOptOutRequiresProvider { .. },
+            ) => ApiError::bad_request(CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER)
+                .with_body_field("/reasonCategory")
+                .with_detail("Only submitter role PROVIDER may choose PROVIDER_OPT_OUT."),
+            SubmitContentNoticeError::TargetNotFound => {
+                ApiError::not_found(CONTENT_NOTICE_TARGET_NOT_FOUND)
+                    .with_detail("The product listing or listing source was not found.")
+            }
+            SubmitContentNoticeError::TemporarilyUnavailable { source }
+            | SubmitContentNoticeError::BeginTransactionFailed(source)
+            | SubmitContentNoticeError::CommitTransactionFailed(source) => {
+                ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("The content notice could not be submitted right now.")
+                    .with_cause(source)
+            }
+            error @ (SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::TargetSnapshotMismatch,
+            )
+            | SubmitContentNoticeError::InvalidPersistedState { .. }
+            | SubmitContentNoticeError::Internal { .. }) => {
+                ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
+                    .with_detail("Content notice submission failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }

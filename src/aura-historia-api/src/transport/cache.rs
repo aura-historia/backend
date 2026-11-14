@@ -2,10 +2,19 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 
 const PRIVATE_NO_STORE: &str = "private, no-store";
+const NO_STORE: &str = "no-store";
 
 #[derive(Clone, Copy)]
 struct ApprovedPublicCache {
     shared_ttl_seconds: u32,
+}
+
+/// Marks a response of a public submission endpoint as never stored by any cache.
+pub(crate) fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(NO_STORE));
+    response
 }
 
 pub(crate) fn private_no_store(mut response: Response) -> Response {

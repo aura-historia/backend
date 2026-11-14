@@ -16,6 +16,14 @@ pub enum ContentNoticeTarget {
 }
 
 impl ContentNoticeTarget {
+    /// The persisted and public code of the target kind.
+    pub fn type_code(self) -> &'static str {
+        match self {
+            Self::ListingSource { .. } => "LISTING_SOURCE",
+            Self::ProductListing { .. } => "PRODUCT_LISTING",
+        }
+    }
+
     pub fn listing_source_id(self) -> ListingSourceId {
         match self {
             Self::ListingSource { listing_source_id }
@@ -104,6 +112,8 @@ mod tests {
             listing_source_id,
         };
 
+        assert_eq!("LISTING_SOURCE", source.type_code());
+        assert_eq!("PRODUCT_LISTING", listing.type_code());
         assert_eq!(listing_source_id, source.listing_source_id());
         assert_eq!(None, source.product_listing_id());
         assert_eq!(listing_source_id, listing.listing_source_id());

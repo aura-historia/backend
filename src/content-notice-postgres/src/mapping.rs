@@ -95,13 +95,6 @@ pub(crate) enum MappingError {
     Invariant(#[source] ContentNoticeInvariantError),
 }
 
-pub(crate) fn target_type(target: ContentNoticeTarget) -> &'static str {
-    match target {
-        ContentNoticeTarget::ListingSource { .. } => LISTING_SOURCE_TARGET,
-        ContentNoticeTarget::ProductListing { .. } => PRODUCT_LISTING_TARGET,
-    }
-}
-
 pub(crate) fn content_notice(
     row: ContentNoticeRow,
 ) -> Result<VersionedContentNotice, MappingError> {

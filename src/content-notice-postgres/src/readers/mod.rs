@@ -1,0 +1,3 @@
+mod content_notice_target_reader;
+
+pub use content_notice_target_reader::SqlxContentNoticeTargetReaderFactory;

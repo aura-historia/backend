@@ -83,7 +83,8 @@
   ],
   "excludedOperationIds": [
     "putNewsletterSubscription",
-    "confirmNewsletterSubscription"
+    "confirmNewsletterSubscription",
+    "submitContentNotice"
   ],
   "excludedClasses": [
     "private reads",

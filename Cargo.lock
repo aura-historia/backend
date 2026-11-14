@@ -323,6 +323,9 @@ dependencies = [
  "billing-service",
  "billing-stripe",
  "classifier-model",
+ "content-notice-core",
+ "content-notice-postgres",
+ "content-notice-service",
  "credential-core",
  "domain-primitives",
  "embedding",
@@ -2122,7 +2125,15 @@ dependencies = [
  "content-notice-core",
  "domain-primitives",
  "fake",
+ "listing-source-core",
+ "localization",
+ "product-listing-core",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]

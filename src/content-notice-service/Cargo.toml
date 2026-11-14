@@ -9,8 +9,18 @@ async-trait = { workspace = true }
 content-notice-core = { workspace = true }
 domain-primitives = { workspace = true }
 fake = { workspace = true, optional = true }
+listing-source-core = { workspace = true }
+product-listing-core = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [features]
 default = []
 test-data = ["fake"]
+
+[dev-dependencies]
+localization = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+url = { workspace = true }
+uuid = { workspace = true }
