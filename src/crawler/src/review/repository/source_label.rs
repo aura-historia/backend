@@ -1,14 +1,18 @@
 //! The label of a ListingSource the crawler should not crawl, and its removal
 //! (`docs/crawler/README.md#listingsource-scope`). A human labels any source; in `agent` mode the
 //! author agent labels the source of the pending review it works. Labelling switches crawling off;
-//! the scope sync keeps it off while the label stands. Only a human clears a label.
+//! the scope sync keeps it off while the label stands. Only a human clears a label. Every label
+//! set or cleared appends one entry to the source's history in the same transaction, so a relabel
+//! never loses the label and note it replaces.
 
 use super::review_log::{ReviewLogEntry, log_committed_source};
 use super::{CrawlerReviewRepository, ReviewRepositoryError, lock_review_for_change};
 use crate::CrawlerReviewId;
-use crate::review::model::{AppliedSourceLabel, ReviewActor, SourceLabelNote, SourceLabelRequest};
+use crate::review::model::{
+    AppliedSourceLabel, ReviewActor, SourceLabelEventKind, SourceLabelNote, SourceLabelRequest,
+};
 use listing_source_core::ListingSourceId;
-use sqlx::PgExecutor;
+use sqlx::{PgConnection, Postgres, Transaction};
 use time::OffsetDateTime;
 
 impl CrawlerReviewRepository {
@@ -20,11 +24,9 @@ impl CrawlerReviewRepository {
         actor: ReviewActor,
         request: &SourceLabelRequest,
     ) -> Result<AppliedSourceLabel, ReviewRepositoryError> {
-        let labelled_at = store_label(&self.pool, listing_source_id, actor, request)
-            .await?
-            .ok_or(ReviewRepositoryError::ListingSourceNotFound(
-                *listing_source_id,
-            ))?;
+        let mut transaction = self.pool.begin().await?;
+        let labelled_at = store_label(&mut transaction, listing_source_id, actor, request).await?;
+        transaction.commit().await?;
         Ok(self
             .labelled(listing_source_id, actor, request, labelled_at)
             .await)
@@ -33,7 +35,7 @@ impl CrawlerReviewRepository {
     /// Labels the ListingSource of the review `review_id` as [`Self::label_source`] does, for the
     /// actor that may change the review: the author agent on a pending review that does not wait
     /// for a human, or a human. A review agent names its evidence in the note. The reviewer agent
-    /// labels nothing.
+    /// labels nothing. An approach label must name the approach of the review it is set on.
     pub async fn label_review_source(
         &self,
         review_id: CrawlerReviewId,
@@ -47,12 +49,16 @@ impl CrawlerReviewRepository {
         let (review, _) =
             lock_review_for_change(&mut transaction, review_id, actor, &self.agent_decisions)
                 .await?;
+        if let Some(required) = request.label().required_artifact()
+            && required.as_str() != review.artifact_type
+        {
+            return Err(ReviewRepositoryError::SourceLabelDoesNotFitReview {
+                label: request.label().as_str(),
+                artifact_type: review.artifact_type,
+            });
+        }
         let listing_source_id = review.listing_source_id;
-        let labelled_at = store_label(&mut *transaction, &listing_source_id, actor, request)
-            .await?
-            .ok_or(ReviewRepositoryError::ListingSourceNotFound(
-                listing_source_id,
-            ))?;
+        let labelled_at = store_label(&mut transaction, &listing_source_id, actor, request).await?;
         transaction.commit().await?;
         Ok(self
             .labelled(&listing_source_id, actor, request, labelled_at)
@@ -90,6 +96,7 @@ impl CrawlerReviewRepository {
         listing_source_id: &ListingSourceId,
         actor: ReviewActor,
     ) -> Result<(), ReviewRepositoryError> {
+        let mut transaction = self.pool.begin().await?;
         let (found, cleared) = sqlx::query_as::<_, (bool, bool)>(
             "WITH cleared AS ( \
                  UPDATE listing_sources \
@@ -103,8 +110,19 @@ impl CrawlerReviewRepository {
                     EXISTS (SELECT 1 FROM cleared)",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *transaction)
         .await?;
+        if cleared {
+            append_label_event(
+                &mut transaction,
+                listing_source_id,
+                SourceLabelEventKind::Cleared,
+                None,
+                actor,
+            )
+            .await?;
+        }
+        transaction.commit().await?;
         if !found {
             return Err(ReviewRepositoryError::ListingSourceNotFound(
                 *listing_source_id,
@@ -122,15 +140,15 @@ impl CrawlerReviewRepository {
     }
 }
 
-/// Stores `actor`'s label on the ListingSource with crawling switched off, and answers when, or
-/// `None` when no such ListingSource exists.
-async fn store_label<'e>(
-    executor: impl PgExecutor<'e>,
+/// Stores `actor`'s label on the ListingSource with crawling switched off and appends it to the
+/// source's label history, and answers when; a ListingSource that does not exist is refused.
+async fn store_label(
+    transaction: &mut Transaction<'_, Postgres>,
     listing_source_id: &ListingSourceId,
     actor: ReviewActor,
     request: &SourceLabelRequest,
-) -> Result<Option<OffsetDateTime>, sqlx::Error> {
-    sqlx::query_scalar::<_, OffsetDateTime>(
+) -> Result<OffsetDateTime, ReviewRepositoryError> {
+    let labelled_at = sqlx::query_scalar::<_, OffsetDateTime>(
         "UPDATE listing_sources \
          SET source_label = $2, source_label_note = $3, \
              source_labelled_at = NOW(), source_labelled_by = $4, \
@@ -142,6 +160,46 @@ async fn store_label<'e>(
     .bind(request.label().as_str())
     .bind(request.note().map(SourceLabelNote::as_str))
     .bind(actor.as_str())
-    .fetch_optional(executor)
-    .await
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::ListingSourceNotFound(
+        *listing_source_id,
+    ))?;
+    append_label_event(
+        transaction,
+        listing_source_id,
+        SourceLabelEventKind::Labelled,
+        Some(request),
+        actor,
+    )
+    .await?;
+    Ok(labelled_at)
+}
+
+/// Appends one entry to the ListingSource's label history: the label `request` sets, or a clear
+/// without one.
+async fn append_label_event(
+    connection: &mut PgConnection,
+    listing_source_id: &ListingSourceId,
+    kind: SourceLabelEventKind,
+    request: Option<&SourceLabelRequest>,
+    actor: ReviewActor,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO listing_source_label_events \
+             (listing_source_id, event_kind, source_label, source_label_note, actor) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(kind.as_str())
+    .bind(request.map(|request| request.label().as_str()))
+    .bind(
+        request
+            .and_then(SourceLabelRequest::note)
+            .map(SourceLabelNote::as_str),
+    )
+    .bind(actor.as_str())
+    .execute(connection)
+    .await?;
+    Ok(())
 }

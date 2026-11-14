@@ -1426,10 +1426,11 @@ function renderSourceHealth(source) {
         : (Number(source.scrape_failure_streak) || 0) > 0 ? 'never scraped' : 'no failure streak';
     const errors = (source.url_error_kinds || []).filter(entry => !STATUS_ERROR_KINDS.has(entry.kind));
     return `<div class="card">
-      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an online shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
+      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an antique e-shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
+        ${renderSourceLabelHistory(source)}
         <dl class="kv">
           <dt>Crawl</dt><dd>${crawl} · next ${nextCrawlText(source)}</dd>
           <dt>Scrape</dt><dd>${scrape}</dd>
@@ -1591,22 +1592,34 @@ async function revokeMassRemovalConfirmation(listingSourceId) {
 
 // ───────────────────────────── ListingSource labels ─────────────────────────────
 // What a human labels a source with when the crawler should not crawl it, in the order the form
-// offers them. The keys are the labels the crawler persists.
+// offers them. The keys are the labels the crawler offers for a new label.
 const SOURCE_LABELS = {
     NOT_AN_ESHOP: 'NOT AN E-SHOP',
-    APPROACH_NOT_APPLICABLE: 'APPROACH NOT APPLICABLE',
+    NOT_AN_ANTIQUE_SHOP: 'NOT AN ANTIQUE SHOP',
+    URL_PATTERN_APPROACH_NOT_APPLICABLE: 'URL PATTERN APPROACH NOT APPLICABLE',
+    PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE: 'PRODUCT SCHEMA APPROACH NOT APPLICABLE',
+    ROBOTS_DISALLOWED: 'ROBOTS DISALLOWED',
+    SHOP_CLOSED: 'SHOP CLOSED',
     BOT_PROTECTION: 'BOT PROTECTION',
     JAVASCRIPT_RENDERED: 'JAVASCRIPT RENDERED',
     LOGIN_REQUIRED: 'LOGIN REQUIRED',
     OTHER: 'OTHER',
 };
 
-// A label's colour says what kind of reason it is: blue for a site that is no shop, nothing
-// broken; amber where the crawler's technique does not fit the shop; red where the shop keeps the
-// crawler out; grey for any other reason.
+// Labels a source may still carry but no new label may use.
+const RETIRED_SOURCE_LABELS = {
+    APPROACH_NOT_APPLICABLE: 'APPROACH NOT APPLICABLE (RETIRED)',
+};
+
+// A label's colour says what kind of reason it is: blue for a site that is not an antique e-shop,
+// nothing broken; amber where the crawler's technique does not fit the shop; red where the shop
+// keeps the crawler out or is gone; grey for any other reason.
 const SOURCE_LABEL_TONES = {
-    NOT_AN_ESHOP: 'info', APPROACH_NOT_APPLICABLE: 'warn', JAVASCRIPT_RENDERED: 'warn',
-    BOT_PROTECTION: 'bad', LOGIN_REQUIRED: 'bad', OTHER: 'neutral'
+    NOT_AN_ESHOP: 'info', NOT_AN_ANTIQUE_SHOP: 'info',
+    URL_PATTERN_APPROACH_NOT_APPLICABLE: 'warn', PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE: 'warn',
+    APPROACH_NOT_APPLICABLE: 'warn', JAVASCRIPT_RENDERED: 'warn',
+    ROBOTS_DISALLOWED: 'bad', SHOP_CLOSED: 'bad', BOT_PROTECTION: 'bad', LOGIN_REQUIRED: 'bad',
+    OTHER: 'neutral'
 };
 
 function sourceLabelTone(label) {
@@ -1614,7 +1627,22 @@ function sourceLabelTone(label) {
 }
 
 function sourceLabelName(label) {
-    return SOURCE_LABELS[label] || displayName(label);
+    return SOURCE_LABELS[label] || RETIRED_SOURCE_LABELS[label] || displayName(label);
+}
+
+// Every label the source was given or lost, oldest first, collapsed: the label a line replaced or
+// cleared is the line before it.
+function renderSourceLabelHistory(source) {
+    const events = source.label_history || [];
+    if (!events.length) return '';
+    const items = events.map(event => {
+        const what = event.event === 'CLEARED'
+            ? '<span class="badge badge-neutral">CLEARED</span>'
+            : `<span class="badge badge-${sourceLabelTone(event.label)}">${escapeHtml(sourceLabelName(event.label))}</span>`;
+        const note = event.note ? ` · ${escapeHtml(event.note)}` : '';
+        return `<li>${what} by ${escapeHtml(actorWord(event.actor))} ${timeBadge(event.occurred_at, event.event === 'CLEARED' ? 'Cleared' : 'Labelled')}${note}</li>`;
+    }).join('');
+    return `<details class="label-history"><summary>Label history (${formatCount(events.length)})</summary><ul>${items}</ul></details>`;
 }
 
 function renderSourceLabelLine(source) {

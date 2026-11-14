@@ -338,9 +338,10 @@ mod tests {
         }
     }
 
-    /// The labels the console offers are the ones the crawler persists, in their order.
+    /// The labels the console offers are the ones the crawler offers for a new label, in their
+    /// order; the retired one it only names.
     #[test]
-    fn should_offer_exactly_the_source_labels_the_crawler_persists() {
+    fn should_offer_exactly_the_source_labels_the_crawler_offers() {
         let table = APP_JS
             .split_once("const SOURCE_LABELS = {")
             .and_then(|(_, rest)| rest.split_once("\n};"))
@@ -351,7 +352,19 @@ mod tests {
             .filter_map(|line| line.trim_start().split_once(": '").map(|(key, _)| key))
             .collect();
 
-        assert_eq!(SourceLabel::ALL.map(SourceLabel::as_str).to_vec(), offered);
+        assert_eq!(
+            SourceLabel::OFFERED.map(SourceLabel::as_str).to_vec(),
+            offered
+        );
+        for label in SourceLabel::ALL
+            .into_iter()
+            .filter(|label| label.is_retired())
+        {
+            assert!(
+                APP_JS.contains(&format!("    {}: '", label.as_str())),
+                "app.js must name the retired label {label:?}"
+            );
+        }
     }
 
     #[test]

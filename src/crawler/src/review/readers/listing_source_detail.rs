@@ -5,7 +5,7 @@
 use super::ListingSourceOverviewReader;
 use crate::review::model::{
     FAILING_URL_EXAMPLES, FAILING_URL_MESSAGE_CHARS, FailingUrl, ListingSourceDetail, ReviewActor,
-    UrlPatternOverview,
+    SourceLabel, SourceLabelEvent, SourceLabelEventKind, UrlPatternOverview,
 };
 use crate::review::repository::crawler_review_id_from_uuid;
 use crate::scraper::css_selector::product_schema::decode_stored_product_schemas;
@@ -75,6 +75,13 @@ const FAILING_URLS: &str = "
     ORDER BY failure_count DESC, updated DESC, url
     LIMIT $3";
 
+/// The label history of a ListingSource, oldest first. Binds `$1`, the ListingSource.
+const LABEL_HISTORY: &str = "
+    SELECT event_kind, source_label, source_label_note, actor, occurred_at
+    FROM listing_source_label_events
+    WHERE listing_source_id = $1
+    ORDER BY occurred_at, event_id";
+
 impl ListingSourceDetailReader {
     pub fn new(overviews: ListingSourceOverviewReader) -> Self {
         Self {
@@ -111,8 +118,43 @@ impl ListingSourceDetailReader {
             .iter()
             .map(failing_url_of_row)
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Some(detail_of_row(overview, &row, failing_urls)?))
+        let label_history = sqlx::query(LABEL_HISTORY)
+            .bind(listing_source_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(label_event_of_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(detail_of_row(
+            overview,
+            &row,
+            failing_urls,
+            label_history,
+        )?))
     }
+}
+
+/// One entry of the label history; a kind, label or actor no entry may carry fails the read.
+fn label_event_of_row(row: &PgRow) -> Result<SourceLabelEvent, sqlx::Error> {
+    let invalid = |column: &str, value: &str| {
+        sqlx::Error::Decode(format!("invalid persisted {column} `{value}`").into())
+    };
+    let kind: String = row.try_get("event_kind")?;
+    let label = row
+        .try_get::<Option<String>, _>("source_label")?
+        .map(|name| {
+            SourceLabel::from_persisted(&name).ok_or_else(|| invalid("source_label", &name))
+        })
+        .transpose()?;
+    let actor: String = row.try_get("actor")?;
+    Ok(SourceLabelEvent {
+        event: SourceLabelEventKind::from_persisted(&kind)
+            .ok_or_else(|| invalid("event_kind", &kind))?,
+        label,
+        note: row.try_get("source_label_note")?,
+        actor: ReviewActor::from_persisted(&actor).ok_or_else(|| invalid("actor", &actor))?,
+        occurred_at: row.try_get("occurred_at")?,
+    })
 }
 
 fn failing_url_of_row(row: &PgRow) -> Result<FailingUrl, sqlx::Error> {
@@ -130,6 +172,7 @@ fn detail_of_row(
     overview: crate::review::model::ListingSourceOverview,
     row: &PgRow,
     failing_urls: Vec<FailingUrl>,
+    label_history: Vec<SourceLabelEvent>,
 ) -> Result<ListingSourceDetail, sqlx::Error> {
     let decode = |source: serde_json::Error| sqlx::Error::Decode(Box::new(source));
     let url_pattern = row
@@ -182,5 +225,6 @@ fn detail_of_row(
             .transpose()?,
         live_schemas_since: row.try_get("schemas_updated")?,
         failing_urls,
+        label_history,
     })
 }

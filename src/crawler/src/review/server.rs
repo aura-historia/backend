@@ -1254,6 +1254,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NoSoldPageUrlCount
         | ReviewRepositoryError::InvalidNoSoldPageNote
         | ReviewRepositoryError::AgentSourceLabelNeedsNote
+        | ReviewRepositoryError::SourceLabelDoesNotFitReview { .. }
         | ReviewRepositoryError::InvalidNotProductReason
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
@@ -5649,6 +5650,7 @@ Origin: http://127.0.0.1:7878/x
                 json!({ "label": "not_an_eshop" }),
                 json!({ "label": "NOT_AN_ESHOP", "extra": true }),
                 json!({ "label": "NOT_AN_ESHOP", "note": "  " }),
+                json!({ "label": "APPROACH_NOT_APPLICABLE", "note": "retired" }),
             ] {
                 let (status, error) =
                     send(&server, &format!("PUT {route}"), &refused.to_string()).await;
@@ -5671,6 +5673,37 @@ Origin: http://127.0.0.1:7878/x
             assert!(
                 status.starts_with("HTTP/1.1 200"),
                 "clearing twice succeeds"
+            );
+
+            let (_, detail) = send(
+                &server,
+                &format!("GET /api/listing-sources/{listing_source_id}"),
+                "",
+            )
+            .await;
+            let history = detail["label_history"]
+                .as_array()
+                .unwrap_or_else(|| panic!("no label history: {detail}"));
+            assert_eq!(
+                history
+                    .iter()
+                    .map(|event| (
+                        event["event"].clone(),
+                        event["label"].clone(),
+                        event["note"].clone(),
+                        event["actor"].clone()
+                    ))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (
+                        json!("LABELLED"),
+                        json!("OTHER"),
+                        json!("catalogue only"),
+                        json!("HUMAN")
+                    ),
+                    (json!("CLEARED"), json!(null), json!(null), json!("HUMAN")),
+                ],
+                "a clear of a source without a label records nothing"
             );
 
             let unknown = format!("/api/listing-sources/{}/label", ListingSourceId::new());
@@ -5710,6 +5743,21 @@ Origin: http://127.0.0.1:7878/x
             let (status, error) = send_as(&server, REVIEWER_TOKEN, &route, &labelled).await;
             assert!(status.starts_with("HTTP/1.1 403"), "{status} {error}");
             assert_eq!(error["reason"], "REVIEWER_CANNOT_CHANGE_CANDIDATES");
+
+            for refused in [
+                json!({ "label": "URL_PATTERN_APPROACH_NOT_APPLICABLE", "note": "on a schema review" }),
+                json!({ "label": "APPROACH_NOT_APPLICABLE", "note": "retired" }),
+            ] {
+                let (status, error) =
+                    send_as(&server, AUTHOR_TOKEN, &route, &refused.to_string()).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused} {status} {error}"
+                );
+            }
+            let (_, unlabelled) =
+                send(&server, "GET /api/listing_sources?status=labelled", "").await;
+            assert_eq!(unlabelled["total"], 0, "a refused label sets nothing");
 
             let (status, applied) = send_as(&server, AUTHOR_TOKEN, &route, &labelled).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {applied}");

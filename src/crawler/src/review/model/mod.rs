@@ -73,7 +73,7 @@ pub use sort_direction::SortDirection;
 pub use source_event::{SourceEvent, SourceEventKind};
 pub use source_label::{
     AppliedSourceLabel, MAX_SOURCE_LABEL_NOTE_CHARS, SourceLabel, SourceLabelError,
-    SourceLabelNote, SourceLabelRequest,
+    SourceLabelEvent, SourceLabelEventKind, SourceLabelNote, SourceLabelRequest,
 };
 pub use source_product_url::SourceProductUrl;
 pub use status::*;

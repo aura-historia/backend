@@ -1,8 +1,9 @@
-//! A human's label of a ListingSource the crawler should not crawl: a site that is not an online
-//! shop, or one the crawler's approach cannot scrape. Labelling switches crawling off and the
-//! scope sync keeps it off until a human clears the label (`docs/crawler/README.md#listingsource-scope`).
+//! The label of a ListingSource the crawler should not crawl: a site that is not an antique
+//! e-shop, one the crawler's approach cannot scrape, or one kept out of reach. Labelling switches
+//! crawling off and the scope sync keeps it off until a human clears the label
+//! (`docs/crawler/README.md#listingsource-scope`).
 
-use super::ReviewActor;
+use super::{ArtifactType, ReviewActor};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -17,8 +18,16 @@ pub const MAX_SOURCE_LABEL_NOTE_CHARS: usize = 500;
 pub enum SourceLabel {
     /// The site shows items but sells nothing online, such as a gallery's catalogue.
     NotAnEshop,
-    /// The shop sells online, but the crawler's approach does not fit how it is built.
-    ApproachNotApplicable,
+    /// The site sells online, but not antiques, art or collectibles.
+    NotAnAntiqueShop,
+    /// The shop's product URLs cannot be told apart by a URL pattern.
+    UrlPatternApproachNotApplicable,
+    /// No CSS or JSON-LD product schema extracts the shop's product pages reliably.
+    ProductSchemaApproachNotApplicable,
+    /// The shop's robots.txt refuses the crawler: a refused permission, not a technical block.
+    RobotsDisallowed,
+    /// The domain is parked or for sale, the business shut down, or the site is long gone.
+    ShopClosed,
     /// A bot protection keeps the crawler out.
     BotProtection,
     /// The product pages are rendered by JavaScript the crawler does not run.
@@ -27,12 +36,37 @@ pub enum SourceLabel {
     LoginRequired,
     /// Any other cause; the note names it.
     Other,
+    /// Retired: the shop sells online, but one of the crawler's approaches does not fit it. It
+    /// does not say which, so existing labels stay readable until the label is replaced, and no
+    /// new label may use it.
+    #[schemars(skip)]
+    ApproachNotApplicable,
 }
 
 impl SourceLabel {
-    pub const ALL: [Self; 6] = [
+    /// Every label a ListingSource may carry, the retired one included.
+    pub const ALL: [Self; 11] = [
         Self::NotAnEshop,
+        Self::NotAnAntiqueShop,
+        Self::UrlPatternApproachNotApplicable,
+        Self::ProductSchemaApproachNotApplicable,
+        Self::RobotsDisallowed,
+        Self::ShopClosed,
+        Self::BotProtection,
+        Self::JavascriptRendered,
+        Self::LoginRequired,
+        Self::Other,
         Self::ApproachNotApplicable,
+    ];
+
+    /// The labels a new label may use: every label but the retired one.
+    pub const OFFERED: [Self; 10] = [
+        Self::NotAnEshop,
+        Self::NotAnAntiqueShop,
+        Self::UrlPatternApproachNotApplicable,
+        Self::ProductSchemaApproachNotApplicable,
+        Self::RobotsDisallowed,
+        Self::ShopClosed,
         Self::BotProtection,
         Self::JavascriptRendered,
         Self::LoginRequired,
@@ -43,11 +77,30 @@ impl SourceLabel {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NotAnEshop => "NOT_AN_ESHOP",
-            Self::ApproachNotApplicable => "APPROACH_NOT_APPLICABLE",
+            Self::NotAnAntiqueShop => "NOT_AN_ANTIQUE_SHOP",
+            Self::UrlPatternApproachNotApplicable => "URL_PATTERN_APPROACH_NOT_APPLICABLE",
+            Self::ProductSchemaApproachNotApplicable => "PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE",
+            Self::RobotsDisallowed => "ROBOTS_DISALLOWED",
+            Self::ShopClosed => "SHOP_CLOSED",
             Self::BotProtection => "BOT_PROTECTION",
             Self::JavascriptRendered => "JAVASCRIPT_RENDERED",
             Self::LoginRequired => "LOGIN_REQUIRED",
             Self::Other => "OTHER",
+            Self::ApproachNotApplicable => "APPROACH_NOT_APPLICABLE",
+        }
+    }
+
+    pub const fn is_retired(self) -> bool {
+        matches!(self, Self::ApproachNotApplicable)
+    }
+
+    /// The review artifact a label set on a review must belong to: an approach label names the
+    /// approach of the review it was decided on; any other label fits every review.
+    pub const fn required_artifact(self) -> Option<ArtifactType> {
+        match self {
+            Self::UrlPatternApproachNotApplicable => Some(ArtifactType::UrlPattern),
+            Self::ProductSchemaApproachNotApplicable => Some(ArtifactType::ProductSchema),
+            _ => None,
         }
     }
 
@@ -65,6 +118,10 @@ pub enum SourceLabelError {
     NoteTooLong,
     #[error("the label OTHER needs a note")]
     OtherNeedsNote,
+    #[error(
+        "the label APPROACH_NOT_APPLICABLE is retired; use URL_PATTERN_APPROACH_NOT_APPLICABLE or PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE"
+    )]
+    RetiredLabel,
 }
 
 /// A free-text note on a label: trimmed, not blank, at most [`MAX_SOURCE_LABEL_NOTE_CHARS`]
@@ -94,7 +151,8 @@ impl TryFrom<String> for SourceLabelNote {
     }
 }
 
-/// What a human labels a ListingSource with: a label, with a note that `OTHER` requires.
+/// What a ListingSource is labelled with: a label that is not retired, with a note that `OTHER`
+/// requires.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "SourceLabelPayload")]
 pub struct SourceLabelRequest {
@@ -115,6 +173,9 @@ impl SourceLabelRequest {
         label: SourceLabel,
         note: Option<SourceLabelNote>,
     ) -> Result<Self, SourceLabelError> {
+        if label.is_retired() {
+            return Err(SourceLabelError::RetiredLabel);
+        }
         if label == SourceLabel::Other && note.is_none() {
             return Err(SourceLabelError::OtherNeedsNote);
         }
@@ -146,6 +207,43 @@ pub struct AppliedSourceLabel {
     #[serde(with = "time::serde::rfc3339")]
     pub labelled_at: OffsetDateTime,
     pub labelled_by: ReviewActor,
+}
+
+/// What one entry of a ListingSource's label history did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SourceLabelEventKind {
+    /// The source was labelled, replacing the label it had, if any.
+    Labelled,
+    /// The source's label was cleared.
+    Cleared,
+}
+
+impl SourceLabelEventKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Labelled => "LABELLED",
+            Self::Cleared => "CLEARED",
+        }
+    }
+
+    pub fn from_persisted(value: &str) -> Option<Self> {
+        [Self::Labelled, Self::Cleared]
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
+    }
+}
+
+/// One entry of a ListingSource's append-only label history: the label set, with its note, or a
+/// clear, with who did it and when. The label an entry replaced is the entry before it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourceLabelEvent {
+    pub event: SourceLabelEventKind,
+    pub label: Option<SourceLabel>,
+    pub note: Option<String>,
+    pub actor: ReviewActor,
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
 }
 
 #[cfg(test)]
@@ -191,6 +289,62 @@ mod tests {
             SourceLabelRequest::new(SourceLabel::Other, None)
         );
         assert!(SourceLabelRequest::new(SourceLabel::NotAnEshop, None).is_ok());
+    }
+
+    #[test]
+    fn should_offer_every_label_but_the_retired_one_and_refuse_it_for_a_new_label() {
+        assert_eq!(
+            SourceLabel::ALL
+                .into_iter()
+                .filter(|label| !label.is_retired())
+                .collect::<Vec<_>>(),
+            SourceLabel::OFFERED.to_vec()
+        );
+        assert_eq!(
+            Err(SourceLabelError::RetiredLabel),
+            SourceLabelRequest::new(SourceLabel::ApproachNotApplicable, None)
+        );
+        assert!(
+            serde_json::from_str::<SourceLabelRequest>(
+                r#"{"label":"APPROACH_NOT_APPLICABLE","note":"old"}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn should_tie_each_approach_label_to_its_review_artifact_only() {
+        assert_eq!(
+            Some(ArtifactType::UrlPattern),
+            SourceLabel::UrlPatternApproachNotApplicable.required_artifact()
+        );
+        assert_eq!(
+            Some(ArtifactType::ProductSchema),
+            SourceLabel::ProductSchemaApproachNotApplicable.required_artifact()
+        );
+        for label in SourceLabel::OFFERED.into_iter().filter(|label| {
+            !matches!(
+                label,
+                SourceLabel::UrlPatternApproachNotApplicable
+                    | SourceLabel::ProductSchemaApproachNotApplicable
+            )
+        }) {
+            assert_eq!(None, label.required_artifact(), "{label:?}");
+        }
+    }
+
+    #[test]
+    fn should_leave_the_retired_label_out_of_the_agents_schema() {
+        let schema = serde_json::to_value(schemars::schema_for!(SourceLabel))
+            .unwrap_or_else(|error| panic!("schema: {error}"));
+        let offered = schema.to_string();
+        for label in SourceLabel::OFFERED {
+            assert!(offered.contains(label.as_str()), "{label:?}");
+        }
+        assert!(
+            !offered.contains("\"APPROACH_NOT_APPLICABLE\""),
+            "{offered}"
+        );
     }
 
     #[test]

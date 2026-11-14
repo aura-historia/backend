@@ -133,6 +133,13 @@ pub enum ReviewRepositoryError {
     )]
     AgentSourceLabelNeedsNote,
     #[error(
+        "the label {label} names another approach than the {artifact_type} review it is set on: label a URL-pattern review URL_PATTERN_APPROACH_NOT_APPLICABLE and a product-schema review PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE"
+    )]
+    SourceLabelDoesNotFitReview {
+        label: &'static str,
+        artifact_type: String,
+    },
+    #[error(
         "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
     )]
     NoSoldPageUrlCount,
