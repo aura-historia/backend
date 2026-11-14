@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
 
 use super::known_pages::{KnownPage, KnownPages};
+use super::page_base::link_base;
 use super::robots::CrawlRobots;
 use super::website_spider::{CrawlBudgetScale, CrawlPace};
 use crate::spider::utils::url::CrawledUrl;
@@ -237,19 +238,23 @@ impl FoundLinks {
             .len()
     }
 
-    /// Records the links of the page at `page_url`, written as the page writes them: Spider
-    /// reports them unresolved.
+    /// Records the links of the page fetched as `page_url` with body `html`, written as the page
+    /// writes them: Spider reports them unresolved. Each is resolved where Spider resolves it,
+    /// against the page's [link base](link_base), so a relative link on a page whose `<base>`
+    /// names the shop's root is recorded as the page Spider requests.
     pub(super) fn record<'a>(
         &self,
         page_url: &str,
+        html: &[u8],
         page_links: impl IntoIterator<Item = &'a CaseInsensitiveString>,
     ) {
         let Ok(page_url) = Url::parse(page_url) else {
             return;
         };
+        let base = link_base(&page_url, html);
         let stored: Vec<String> = page_links
             .into_iter()
-            .filter_map(|link| self.stored_spelling(&page_url, link.inner()))
+            .filter_map(|link| self.stored_spelling(&base, link.inner()))
             .collect();
         self.remember(stored);
     }
@@ -282,10 +287,11 @@ impl FoundLinks {
             .clone()
     }
 
-    /// The link as Spider would request it (`FoundLinkDecoder`), when Spider follows it.
-    fn stored_spelling(&self, page_url: &Url, link: &str) -> Option<String> {
+    /// The link, resolved against `base`, as Spider would request it (`FoundLinkDecoder`), when
+    /// Spider follows it.
+    fn stored_spelling(&self, base: &Url, link: &str) -> Option<String> {
         let decoded = html_escape::decode_html_entities(link);
-        let resolved = page_url.join(decoded.trim()).ok()?;
+        let resolved = base.join(decoded.trim()).ok()?;
         let stored = self.rules.followed(resolved)?;
         Some(stored.as_url().as_str().to_string())
     }
@@ -407,7 +413,7 @@ mod tests {
         .map(CaseInsensitiveString::from)
         .collect();
 
-        found.record("https://shop.example/catalogue/", &links);
+        found.record("https://shop.example/catalogue/", b"", &links);
 
         assert_eq!(
             found.snapshot(),
@@ -434,7 +440,7 @@ mod tests {
         .into_iter()
         .map(CaseInsensitiveString::from)
         .collect();
-        found.record("https://shop.example/", &links);
+        found.record("https://shop.example/", b"", &links);
         found.record_delivered("https://shop.example/product/2");
         let known = KnownPages::new(
             &url("/"),
@@ -446,5 +452,64 @@ mod tests {
         );
 
         assert_eq!(found.skipped_known(&known), 1);
+    }
+
+    /// marrisantiqueglass.com: a nested listing page whose `<base>` names the shop's root links
+    /// its products relatively from there.
+    const NESTED_LISTING: &str = "https://shop.example/en-GB/latest-items_pg_904/page_904";
+    const ROOT_BASE: &str =
+        r#"<html><head><base href="https://shop.example/"></head><body></body></html>"#;
+
+    fn nested_listing_links() -> Vec<CaseInsensitiveString> {
+        ["en-GB/glass/vase/prod_13036", "en-GB/glass/bowl/prod_13037"]
+            .into_iter()
+            .map(CaseInsensitiveString::from)
+            .collect()
+    }
+
+    #[test]
+    fn should_resolve_links_against_the_page_base_when_counting_and_carrying_them_over() {
+        let found = FoundLinks::new(Arc::new(follow_rules(r"/denied")));
+        found.record_delivered(NESTED_LISTING);
+        found.record(
+            NESTED_LISTING,
+            ROOT_BASE.as_bytes(),
+            &nested_listing_links(),
+        );
+        let known = KnownPages::new(
+            &url("/"),
+            &CrawlSeeds {
+                known: vec![url("/en-GB/glass/vase/prod_13036")],
+                ..CrawlSeeds::default()
+            },
+        );
+
+        assert_eq!(found.skipped_known(&known), 1);
+        assert_eq!(
+            found.frontier(&[], &known),
+            [url("/en-GB/glass/bowl/prod_13037")]
+        );
+    }
+
+    #[test]
+    fn should_resolve_the_links_of_a_page_without_a_base_against_the_page_url() {
+        let found = FoundLinks::new(Arc::new(follow_rules(r"/denied")));
+        found.record(
+            NESTED_LISTING,
+            b"<html><head><title>Latest</title></head><body></body></html>",
+            &nested_listing_links(),
+        );
+
+        assert_eq!(
+            found.snapshot(),
+            [
+                "https://shop.example/en-GB/latest-items_pg_904/en-GB/glass/vase/prod_13036"
+                    .to_string(),
+                "https://shop.example/en-GB/latest-items_pg_904/en-GB/glass/bowl/prod_13037"
+                    .to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
     }
 }
