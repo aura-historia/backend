@@ -375,6 +375,11 @@ omitted image whose fetch failed also logs the fetcher's bounded failure categor
 and attempt count, never the image URL, which may be signed.
 Exact prepared-image duplicates are omitted. The adapter enforces four images, per-image
 and aggregate media/body limits and a conservative context bound before provider truncation.
+It drops the Multi-Picture Format index that phone cameras add to JPEGs, which Workers AI
+rejects, and keeps the primary image intact. A provider rejection whose every validation issue
+names a sent image is a permanent candidate failure, so a shared request recovers its members
+as singletons; any other rejection stays an operator-actionable configuration failure. A failed
+`CLASSIFIER_INVOCATION` logs the provider HTTP status and first error code, never its message.
 A technical failure is never a negative semantic decision. Permanent candidate failures
 are reported as terminal incomplete evaluations and permit bounded-window progress;
 retryable failures leave progress unchanged even when accepted
