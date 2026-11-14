@@ -3623,8 +3623,8 @@ async fn should_rank_a_failing_blocked_or_held_listing_source_ahead_of_the_healt
         .collect::<Vec<_>>();
     assert_eq!(
         ranked[..3],
-        [blocked, failing, held],
-        "the three that need attention come before the healthy ones"
+        [failing, blocked, held],
+        "the three that need attention come before the healthy ones, in the console's order of severity"
     );
     assert_eq!(overview.total, 3 + i64::try_from(healthy.len()).unwrap());
     assert!(healthy.iter().all(|source| ranked[3..].contains(source)));
