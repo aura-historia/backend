@@ -5,8 +5,8 @@ use content_notice_core::{
     content_notice_id::ContentNoticeId,
     content_notice_state::ContentNoticeState,
     content_notice_target::{
-        ContentNoticeTarget, ListingSourceSnapshot, ProductListingSnapshot,
-        ProductListingTitleSnapshot, TargetSnapshot,
+        ContentNoticeTarget, ContentNoticeTargetType, ListingSourceSnapshot,
+        ProductListingSnapshot, ProductListingTitleSnapshot, TargetSnapshot,
     },
     good_faith_statement_version::GoodFaithStatementVersion,
     notice_explanation::NoticeExplanation,
@@ -15,16 +15,15 @@ use content_notice_core::{
     submitter_role::SubmitterRole,
 };
 use content_notice_service::ports::{ContentNoticeStorageVersion, VersionedContentNotice};
+use content_notice_service::use_cases::queries::list_admin_content_notices::ContentNoticeSummary;
 use domain_primitives::{object_id::ObjectIdError, versioned::Versioned};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceNameError};
 use localization::Language;
 use product_listing_core::product_listing_id::ProductListingId;
+use sqlx::types::time::OffsetDateTime;
 use url::Url;
 
 pub(crate) const CONTENT_NOTICE_COLUMNS: &str = "content_notice_id, target_type, listing_source_id, product_listing_id, listing_source_name, listing_source_url, listing_source_partner, product_listing_title, product_listing_url, submitter_role, reason_category, explanation, additional_urls, submitter_name, submitter_email, submitter_language, good_faith_statement_version, business_state, version";
-
-const LISTING_SOURCE_TARGET: &str = "LISTING_SOURCE";
-const PRODUCT_LISTING_TARGET: &str = "PRODUCT_LISTING";
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct ContentNoticeRow {
@@ -47,6 +46,25 @@ pub(crate) struct ContentNoticeRow {
     good_faith_statement_version: String,
     business_state: String,
     version: i64,
+}
+
+pub(crate) const CONTENT_NOTICE_SUMMARY_COLUMNS: &str = "content_notice_id, target_type, listing_source_id, product_listing_id, listing_source_name, listing_source_partner, product_listing_title, submitter_role, reason_category, submitter_name, submitter_email, business_state, created";
+
+#[derive(sqlx::FromRow)]
+pub(crate) struct ContentNoticeSummaryRow {
+    content_notice_id: uuid::Uuid,
+    target_type: String,
+    listing_source_id: uuid::Uuid,
+    product_listing_id: Option<uuid::Uuid>,
+    listing_source_name: String,
+    listing_source_partner: bool,
+    product_listing_title: Option<String>,
+    submitter_role: String,
+    reason_category: String,
+    submitter_name: String,
+    submitter_email: String,
+    business_state: String,
+    created: OffsetDateTime,
 }
 
 /// Why a stored row is not a valid notice. Variants never carry the stored values, which can
@@ -100,7 +118,11 @@ pub(crate) fn content_notice(
 ) -> Result<VersionedContentNotice, MappingError> {
     let version =
         ContentNoticeStorageVersion::try_from(row.version).map_err(|_| MappingError::Version)?;
-    let target = target(&row)?;
+    let target = target(
+        &row.target_type,
+        row.listing_source_id,
+        row.product_listing_id,
+    )?;
     let target_snapshot = target_snapshot(&row)?;
     let notice = ContentNotice::rehydrate(RehydratedContentNoticeState {
         id: ContentNoticeId::try_from(row.content_notice_id)
@@ -135,14 +157,21 @@ pub(crate) fn content_notice(
     Ok(Versioned::new(notice, version))
 }
 
-fn target(row: &ContentNoticeRow) -> Result<ContentNoticeTarget, MappingError> {
+pub(crate) fn target(
+    target_type: &str,
+    listing_source_id: uuid::Uuid,
+    product_listing_id: Option<uuid::Uuid>,
+) -> Result<ContentNoticeTarget, MappingError> {
     let listing_source_id =
-        ListingSourceId::try_from(row.listing_source_id).map_err(MappingError::ListingSourceId)?;
-    match (row.target_type.as_str(), row.product_listing_id) {
-        (LISTING_SOURCE_TARGET, None) => {
+        ListingSourceId::try_from(listing_source_id).map_err(MappingError::ListingSourceId)?;
+    match (
+        ContentNoticeTargetType::from_code(target_type),
+        product_listing_id,
+    ) {
+        (Some(ContentNoticeTargetType::ListingSource), None) => {
             Ok(ContentNoticeTarget::ListingSource { listing_source_id })
         }
-        (PRODUCT_LISTING_TARGET, Some(product_listing_id)) => {
+        (Some(ContentNoticeTargetType::ProductListing), Some(product_listing_id)) => {
             Ok(ContentNoticeTarget::ProductListing {
                 product_listing_id: ProductListingId::try_from(product_listing_id)
                     .map_err(MappingError::ProductListingId)?,
@@ -151,6 +180,43 @@ fn target(row: &ContentNoticeRow) -> Result<ContentNoticeTarget, MappingError> {
         }
         _ => Err(MappingError::Target),
     }
+}
+
+pub(crate) fn content_notice_summary(
+    row: ContentNoticeSummaryRow,
+) -> Result<ContentNoticeSummary, MappingError> {
+    let target = target(
+        &row.target_type,
+        row.listing_source_id,
+        row.product_listing_id,
+    )?;
+    let product_listing_title = row
+        .product_listing_title
+        .map(ProductListingTitleSnapshot::try_from)
+        .transpose()
+        .map_err(MappingError::ProductListingTitle)?;
+    if product_listing_title.is_some() && target.product_listing_id().is_none() {
+        return Err(MappingError::Target);
+    }
+    Ok(ContentNoticeSummary {
+        id: ContentNoticeId::try_from(row.content_notice_id)
+            .map_err(MappingError::ContentNoticeId)?,
+        state: ContentNoticeState::from_code(&row.business_state).ok_or(MappingError::State)?,
+        created: row.created,
+        target,
+        listing_source_name: ListingSourceName::try_from(row.listing_source_name.as_str())
+            .map_err(MappingError::ListingSourceName)?,
+        product_listing_title,
+        listing_source_partner: row.listing_source_partner,
+        submitter_role: SubmitterRole::from_code(&row.submitter_role)
+            .ok_or(MappingError::SubmitterRole)?,
+        reason_category: ReasonCategory::from_code(&row.reason_category)
+            .ok_or(MappingError::ReasonCategory)?,
+        submitter_name: SubmitterName::try_from(row.submitter_name)
+            .map_err(MappingError::SubmitterName)?,
+        submitter_email: SubmitterEmail::try_from(row.submitter_email)
+            .map_err(MappingError::SubmitterEmail)?,
+    })
 }
 
 fn target_snapshot(row: &ContentNoticeRow) -> Result<TargetSnapshot, MappingError> {

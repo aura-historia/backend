@@ -87,6 +87,10 @@ mod tests {
     use content_notice_service::use_cases::commands::submit_content_notice::{
         ContentNoticeTargetReference, SubmitContentNoticeResult, SubmitContentNoticeUseCase,
     };
+    use content_notice_service::use_cases::queries::list_admin_content_notices::{
+        ListAdminContentNoticesError, ListAdminContentNoticesRequest,
+        ListAdminContentNoticesResult, ListAdminContentNoticesUseCase,
+    };
     use listing_source_core::ListingSourceId;
     use product_listing_core::product_listing_id::ProductListingId;
     use serde_json::{Value, json};
@@ -157,9 +161,24 @@ mod tests {
         }
     }
 
+    /// The admin list shares the router; submission tests never reach it.
+    struct UnusedListAdmin;
+
+    #[async_trait::async_trait]
+    impl ListAdminContentNoticesUseCase for UnusedListAdmin {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: ListAdminContentNoticesRequest,
+        ) -> Result<ListAdminContentNoticesResult, ListAdminContentNoticesError> {
+            unreachable!("submission tests do not list notices")
+        }
+    }
+
     fn app(use_case: &RecordingUseCase, user_id: UserId) -> axum::Router {
         router(ContentNoticesState::new(
             Arc::new(use_case.clone()),
+            Arc::new(UnusedListAdmin),
             Arc::new(SessionAuthenticator(user_id)),
         ))
     }

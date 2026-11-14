@@ -15,9 +15,13 @@ platform-postgres = { workspace = true }
 product-listing-core = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["postgres"] }
+time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
+user-core = { workspace = true }
+user-service = { workspace = true }

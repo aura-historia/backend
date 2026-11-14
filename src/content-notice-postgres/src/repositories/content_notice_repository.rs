@@ -48,7 +48,7 @@ impl ContentNoticeRepository for Repository<'_> {
             "INSERT INTO content_notices(content_notice_id, target_type, listing_source_id, product_listing_id, listing_source_name, listing_source_url, listing_source_partner, product_listing_title, product_listing_url, submitter_role, reason_category, explanation, additional_urls, submitter_name, submitter_email, submitter_language, good_faith_statement_version, submission_fingerprint, business_state) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING {CONTENT_NOTICE_COLUMNS}"
         )))
         .bind(notice.id().into_uuid())
-        .bind(target.type_code())
+        .bind(target.target_type().as_str())
         .bind(target.listing_source_id().into_uuid())
         .bind(target.product_listing_id().map(|id| id.into_uuid()))
         .bind(snapshot.listing_source.name.as_ref())

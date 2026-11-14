@@ -12,6 +12,7 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
     CreateBillingPortalSessionUseCase,
 };
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesUseCase;
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceUseCase;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceUseCase;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceUseCase;
@@ -1016,16 +1017,19 @@ impl WatchlistState {
 #[derive(Clone)]
 pub struct ContentNoticesState {
     pub(crate) submit: Arc<dyn SubmitContentNoticeUseCase>,
+    pub(crate) list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl ContentNoticesState {
     pub fn new(
         submit: Arc<dyn SubmitContentNoticeUseCase>,
+        list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
             submit,
+            list_admin,
             authenticator,
         }
     }

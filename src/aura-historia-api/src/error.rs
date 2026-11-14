@@ -11,6 +11,7 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
     CreateBillingPortalSessionError,
 };
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesError;
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceError;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceError;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceError;
@@ -2892,6 +2893,30 @@ impl_partnership_application_admin_read_error!(
     ListAdminPartnershipApplicationsError,
     InvalidReadModel
 );
+
+impl From<ListAdminContentNoticesError> for ApiError {
+    fn from(error: ListAdminContentNoticesError) -> Self {
+        match error {
+            ListAdminContentNoticesError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListAdminContentNoticesError::CursorScopeMismatch => {
+                crate::keyset_cursor::foreign_scope()
+            }
+            ListAdminContentNoticesError::TemporarilyUnavailable { .. }
+            | ListAdminContentNoticesError::BeginTransactionFailed(_)
+            | ListAdminContentNoticesError::CommitTransactionFailed(_) => {
+                ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Content notices are temporarily unavailable.")
+            }
+            ListAdminContentNoticesError::InvalidReadModel { .. }
+            | ListAdminContentNoticesError::Internal { .. } => {
+                ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
+                    .with_detail("Content notice search failed internally.")
+            }
+        }
+    }
+}
 
 impl From<GetAdminPartnershipError> for ApiError {
     fn from(error: GetAdminPartnershipError) -> Self {

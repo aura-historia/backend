@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Admin content notice list (#2940)
+
+- New `GET /v1/admin/content-notices` (`adminSearchContentNotices`) lists content notices for administrators, newest first. It requires the `ADMIN` role and, for delegated access tokens, the `content-notices:read` scope.
+- Filters: `targetType`, `listingSourceId` (matches notices about the source and about its listings), `productListingId`, `reasonCategory`, `submitterRole` and `created[min]`/`created[max]`. There are no filters on personal data.
+- Keyset pagination with `size` (1–100, default 21), `sort=created` with `order=asc|desc` (both or neither) and an opaque `searchAfter` cursor bound to the filters and sort. There is no `total`. Responses, including errors, send `Cache-Control: no-store`.
+
 ## 2026-11-14 — Submit content notices (#2938)
 
 - New `POST /v1/content-notices` (tag `ContentNotices`) lets anyone, with or without an account, ask Aura Historia to review one ProductListing or a ListingSource with all of its listings: a provider's opt-out, a rights infringement, illegal content, incorrect information or another reason. The body names the target, the submitter role, the reason category, an explanation (optional only for `PROVIDER_OPT_OUT`), up to ten additional URLs, the notifier's name, email and language, and `goodFaithConfirmed: true`. It is limited to 16 KiB and rejects unknown fields.
