@@ -258,6 +258,8 @@ never claims individually verified custody. Submitted geography precedes current
 resolution. Missing, retired or wholly unresolved sites supply absence. The public overview's
 `countries` aggregate also reads the business dimension (inventory country, otherwise business
 country) to state where sources are located; it never claims where an object is held.
+The administrator ListingSource `country` filter applies the same derivation to the source
+itself, so a source matches by its default even before it has listings.
 
 Compact projections contain location identity, basis, ISO release/codes and point/precision,
 never raw addresses, postal text, applicability evidence or provider payloads. Dependency

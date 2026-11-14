@@ -4966,6 +4966,7 @@ version = "0.1.0"
 dependencies = [
  "domain-primitives",
  "fake",
+ "geo",
  "party-core",
  "percent-encoding",
  "serde",
