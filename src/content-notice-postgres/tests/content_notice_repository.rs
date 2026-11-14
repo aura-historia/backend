@@ -25,6 +25,7 @@ use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use product_listing_core::product_listing_id::ProductListingId;
 use sqlx::PgPool;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::OffsetDateTime;
 use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -113,7 +114,7 @@ async fn insert_and_find(pool: &PgPool, notice: &ContentNotice) {
     let mut transaction = begin(pool).await;
     let inserted = factory
         .in_transaction(&mut transaction)
-        .insert(notice, FINGERPRINT)
+        .insert(notice, FINGERPRINT, OffsetDateTime::now_utc())
         .await
         .unwrap();
     transaction.commit().await.unwrap();
@@ -184,7 +185,7 @@ async fn should_report_unknown_enum_value_as_invalid_persisted_state() {
     let mut transaction = begin(&pool).await;
     factory
         .in_transaction(&mut transaction)
-        .insert(&notice, FINGERPRINT)
+        .insert(&notice, FINGERPRINT, OffsetDateTime::now_utc())
         .await
         .unwrap();
     // Simulate a value written by a newer release that this release does not know.
@@ -314,7 +315,7 @@ async fn should_reject_stored_text_that_the_domain_types_would_reject() {
     let mut transaction = begin(&pool).await;
     SqlxContentNoticeRepositoryFactory::new()
         .in_transaction(&mut transaction)
-        .insert(&notice, FINGERPRINT)
+        .insert(&notice, FINGERPRINT, OffsetDateTime::now_utc())
         .await
         .unwrap();
     transaction.commit().await.unwrap();

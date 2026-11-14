@@ -29,6 +29,7 @@ use listing_source_core::ListingSourceId;
 use product_listing_core::{
     listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
 };
+use time::OffsetDateTime;
 
 /// The target a submitter names. A product listing's listing source is resolved by the use
 /// case, never taken from the request.
@@ -194,7 +195,7 @@ where
             source: box_error(source),
         })?;
         let fingerprint = submission_fingerprint(&notice);
-        let decision = self
+        let (decision, submitted) = self
             .check_submission_limits(&mut tx, &notice.submitter().email, fingerprint)
             .await?;
         let result = match decision {
@@ -204,7 +205,8 @@ where
             }
             SubmissionDecision::Duplicate => SubmitContentNoticeResult::Duplicate,
             SubmissionDecision::Store => {
-                self.record(&mut tx, &notice, fingerprint).await?;
+                self.record(&mut tx, &notice, fingerprint, submitted)
+                    .await?;
                 SubmitContentNoticeResult::Stored {
                     content_notice_id: notice.id(),
                 }
@@ -227,18 +229,20 @@ where
     C: ContentNoticeClock,
 {
     /// Serializes the address's submissions for the rest of the transaction, then decides the
-    /// submission from the address's notices within the window.
+    /// submission from the address's notices within the window. Returns the decision and the
+    /// submission time, read once the lock is held, so a stored notice is dated by the same
+    /// clock its window was checked with.
     async fn check_submission_limits(
         &self,
         tx: &mut U::Tx,
         email: &SubmitterEmail,
         fingerprint: ContentNoticeSubmissionFingerprint,
-    ) -> Result<SubmissionDecision, SubmitContentNoticeError> {
+    ) -> Result<(SubmissionDecision, OffsetDateTime), SubmitContentNoticeError> {
         let mut history = self.history.in_transaction(tx);
         history.lock_address(email).await?;
         let now = self.clock.now_utc();
         let submissions = history.submissions_after(email, window_start(now)).await?;
-        Ok(decide(now, fingerprint, &submissions))
+        Ok((decide(now, fingerprint, &submissions), now))
     }
 
     /// Stores the notice in the submission transaction. Everything that must commit or roll
@@ -248,10 +252,11 @@ where
         tx: &mut U::Tx,
         notice: &ContentNotice,
         fingerprint: ContentNoticeSubmissionFingerprint,
+        submitted: OffsetDateTime,
     ) -> Result<(), SubmitContentNoticeError> {
         self.notices
             .in_transaction(tx)
-            .insert(notice, fingerprint)
+            .insert(notice, fingerprint, submitted)
             .await?;
         Ok(())
     }
@@ -410,7 +415,7 @@ mod tests {
     use listing_source_core::ListingSourceName;
     use localization::Language;
     use std::sync::{Arc, Mutex, MutexGuard};
-    use time::{Duration, OffsetDateTime, macros::datetime};
+    use time::{Duration, macros::datetime};
     use url::Url;
 
     const NOW: OffsetDateTime = datetime!(2026-11-14 12:00:00 UTC);
@@ -540,6 +545,7 @@ mod tests {
             &mut self,
             notice: &ContentNotice,
             fingerprint: ContentNoticeSubmissionFingerprint,
+            created: OffsetDateTime,
         ) -> Result<VersionedContentNotice, ContentNoticeRepositoryError> {
             let mut state = lock(&self.0);
             if let Some(error) = state.insert_error.take() {
@@ -551,7 +557,7 @@ mod tests {
                 address_key(&notice.submitter().email),
                 RecentSubmission {
                     fingerprint,
-                    created: NOW,
+                    created,
                 },
             ));
             Ok(Versioned::new(
@@ -587,7 +593,7 @@ mod tests {
             if let Some(error) = state.history_error.take() {
                 return Err(error);
             }
-            state.steps.push(format!("lock {}", address_key(email)));
+            state.steps.push(format!("lock {}", email.as_str()));
             Ok(())
         }
 
@@ -974,6 +980,7 @@ mod tests {
             assert_eq!(0, lock(&state).commits);
         }
     }
+    /// The address is passed as submitted; the history port owns the case-insensitive key.
     #[tokio::test]
     async fn should_lock_the_address_and_read_its_window_before_storing() {
         let source = listing_source(false);
@@ -988,7 +995,7 @@ mod tests {
 
         assert_eq!(
             vec![
-                "lock jane@example.com".to_owned(),
+                "lock Jane@Example.com".to_owned(),
                 format!("read after {}", NOW - SUBMISSION_WINDOW),
                 "insert".to_owned(),
             ],
@@ -1057,5 +1064,63 @@ mod tests {
         let state = lock(&state);
         assert!(state.inserted.is_empty());
         assert_eq!(0, state.commits);
+    }
+
+    /// Production logs carry the span fields with every event, so the whole line is checked.
+    #[tokio::test]
+    async fn should_log_rate_limit_without_personal_data_or_target() {
+        let source = listing_source(false);
+        let state = state(|state| {
+            state.listing_sources.push(source.clone());
+            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_ADDRESS);
+        });
+        let (logs, _guard) = test_api::CapturedLogs::start();
+
+        handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap_err();
+
+        let events = logs.events_where("event", "content_notice.rate_limited");
+        assert_eq!(1, events.len(), "{}", logs.text());
+        assert_eq!("rate_limited", events[0]["outcome"]);
+        assert_eq!("request", events[0]["request_id"]);
+        assert_eq!("correlation", events[0]["correlation_id"]);
+        let text = logs.text();
+        assert!(text.contains("\"level\":\"WARN\""), "{text}");
+        for private in [
+            source.listing_source_id.to_string(),
+            "jane@example.com".to_owned(),
+            "Jane Doe".to_owned(),
+        ] {
+            assert!(!text.contains(&private), "{text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn should_log_duplicate_without_personal_data() {
+        let source = listing_source(false);
+        let state = state(|state| state.listing_sources.push(source.clone()));
+        handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap();
+        let (logs, _guard) = test_api::CapturedLogs::start();
+
+        handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap();
+
+        let events = logs.events_where("event", "content_notice.duplicate");
+        assert_eq!(1, events.len(), "{}", logs.text());
+        assert_eq!("duplicate", events[0]["outcome"]);
+        assert_eq!("request", events[0]["request_id"]);
+        assert_eq!("correlation", events[0]["correlation_id"]);
+        let text = logs.text();
+        assert!(text.contains("\"level\":\"INFO\""), "{text}");
+        for private in ["jane@example.com", "Jane Doe", "My photograph."] {
+            assert!(!text.contains(private), "{text}");
+        }
     }
 }

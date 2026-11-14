@@ -10772,8 +10772,8 @@ paths:
         "429":
           description: |
             10 notices from this email address were stored within the last 24 hours. Nothing was stored. Retry
-            after the `Retry-After` seconds, when the oldest of them is more than 24 hours old, or use another
-            contact channel.
+            after the `Retry-After` seconds, once enough of them are 24 hours old (normally the oldest), or use
+            another contact channel.
           headers:
             Retry-After:
               description: Whole seconds until the address can store a notice again; at least 1.

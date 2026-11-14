@@ -60,7 +60,7 @@ Preserve request headers, cookies, query strings and exact signed bodies through
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
 and Axum response CORS must retain required authorization/provider headers,
-`Idempotency-Key` admission/exposure and `WWW-Authenticate` exposure. REST Gateway CORS allows any Origin (`*`)
+`Idempotency-Key` admission/exposure and `WWW-Authenticate` and `Retry-After` exposure. REST Gateway CORS allows any Origin (`*`)
 in both stages, including preview hosts, for browser requests that do not use
 `credentials: "include"`. Clients supply bearer tokens explicitly in the
 `Authorization` header. CORS does not grant application authority; all existing

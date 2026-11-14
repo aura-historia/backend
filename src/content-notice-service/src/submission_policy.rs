@@ -10,8 +10,8 @@ use time::{Duration, OffsetDateTime};
 pub const SUBMISSION_WINDOW: Duration = Duration::hours(24);
 
 /// How many notices one email address may have stored within [`SUBMISSION_WINDOW`]. A further
-/// submission is rate limited; identical resubmissions are not stored and do not count. It also
-/// bounds receipt emails per address. Approved by the product owner.
+/// submission is rate limited; identical resubmissions are not stored and do not count.
+/// Approved by the product owner.
 pub const MAX_NOTICES_PER_ADDRESS: usize = 10;
 
 /// What the submission limits allow for one submission.

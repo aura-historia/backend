@@ -14,8 +14,8 @@ use content_notice_postgres::{
     SqlxContentNoticeTargetReaderFactory,
 };
 use content_notice_service::{
-    ports::SystemContentNoticeClock,
-    submission_policy::MAX_NOTICES_PER_ADDRESS,
+    ports::ContentNoticeClock,
+    submission_policy::{MAX_NOTICES_PER_ADDRESS, SUBMISSION_WINDOW},
     use_cases::commands::submit_content_notice::{
         ContentNoticeTargetReference, SubmitContentNoticeCommand, SubmitContentNoticeError,
         SubmitContentNoticeHandler, SubmitContentNoticeResult, SubmitContentNoticeUseCase,
@@ -29,20 +29,36 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use support::{seed_listing_source, seed_product_listing};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::{Duration, OffsetDateTime, macros::datetime};
 use tokio::task::JoinSet;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 type Outcome = Result<SubmitContentNoticeResult, SubmitContentNoticeError>;
 
-fn handler(pool: &PgPool) -> Arc<dyn SubmitContentNoticeUseCase> {
+const NOW: OffsetDateTime = datetime!(2026-11-14 12:00:00 UTC);
+
+struct FixedClock(OffsetDateTime);
+
+impl ContentNoticeClock for FixedClock {
+    fn now_utc(&self) -> OffsetDateTime {
+        self.0
+    }
+}
+
+/// Submits at `now`, which also dates the stored notices.
+fn handler_at(pool: &PgPool, now: OffsetDateTime) -> Arc<dyn SubmitContentNoticeUseCase> {
     Arc::new(SubmitContentNoticeHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxContentNoticeTargetReaderFactory::new(),
         SqlxContentNoticeRepositoryFactory::new(),
         SqlxContentNoticeSubmissionHistoryFactory::new(),
-        SystemContentNoticeClock,
+        FixedClock(now),
     ))
+}
+
+fn handler(pool: &PgPool) -> Arc<dyn SubmitContentNoticeUseCase> {
+    handler_at(pool, NOW)
 }
 
 fn context() -> OperationContext {
@@ -243,9 +259,9 @@ async fn should_share_one_budget_and_one_duplicate_check_across_address_case() {
     let Err(SubmitContentNoticeError::RateLimited { retry_after }) = new else {
         panic!("expected rate limit, got {new:?}");
     };
-    assert!(
-        (24 * 60 * 60 - 60..=24 * 60 * 60).contains(&retry_after.seconds()),
-        "{retry_after:?}"
+    assert_eq!(
+        SUBMISSION_WINDOW.whole_seconds() as u64,
+        retry_after.seconds()
     );
     assert!(stored(&other_address), "{other_address:?}");
 }
@@ -256,21 +272,20 @@ async fn should_store_an_identical_submission_again_once_the_stored_one_left_the
     let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
     let product_listing_id =
         seed_product_listing(&pool, source, ListingLifecycle::Active, Some("Vase")).await;
-    let handler = handler(&pool);
     let context = context();
-    let submit = || {
+    let submit_at = |now| {
         let mut about_listing = command(source, "erika@example.com", "Das Foto ist meins.");
         about_listing.target = ContentNoticeTargetReference::ProductListing { product_listing_id };
-        handler.execute(&context, about_listing)
+        let handler = handler_at(&pool, now);
+        let context = &context;
+        async move { handler.execute(context, about_listing).await }
     };
-    assert!(stored(&submit().await));
-    sqlx::query("UPDATE content_notices SET created = now() - interval '24 hours 1 second'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    assert!(stored(&submit_at(NOW).await));
 
-    let outcome = submit().await;
+    let inside = submit_at(NOW + SUBMISSION_WINDOW - Duration::microseconds(1)).await;
+    let outside = submit_at(NOW + SUBMISSION_WINDOW).await;
 
-    assert!(stored(&outcome), "{outcome:?}");
+    assert!(duplicate(&inside), "{inside:?}");
+    assert!(stored(&outside), "{outside:?}");
     assert_eq!(2, stored_notices(&pool).await);
 }

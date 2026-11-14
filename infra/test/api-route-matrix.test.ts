@@ -629,7 +629,7 @@ describe("HTTP API route policy matrix", () => {
     });
   });
 
-  test.each(STAGES)("allows wildcard origins and exposes idempotency and trace response headers in %s REST Gateway CORS", (stage) => {
+  test.each(STAGES)("allows wildcard origins and exposes idempotency, trace and retry response headers in %s REST Gateway CORS", (stage) => {
     const [api] = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
     const cors = api.Properties.CorsConfiguration as Record<string, unknown>;
 
@@ -638,7 +638,7 @@ describe("HTTP API route policy matrix", () => {
     expect(stageConfig(stage).apiCorsAllowOrigins).toEqual(["*"]);
     expect(cors.AllowOrigins).toEqual(["*"]);
     expect(cors).not.toHaveProperty("AllowCredentials");
-    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate"]);
+    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate", "Retry-After"]);
   });
 
   test("partitions identical discovery requests across different browser origins", () => {
