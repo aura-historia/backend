@@ -244,8 +244,8 @@ separately. Public listing `geography` uses eligible advertised inventory: a bus
 association supplies none. Source-derived basis is labelled `SOURCE_DEFAULT_DERIVED`; it
 never claims individually verified custody. Submitted geography precedes current permitted
 resolution. Missing, retired or wholly unresolved sites supply absence. The public overview's
-`countries` is the exception: it counts where sources are located (inventory country, otherwise
-business country), never where an object is held.
+`countries` aggregate also reads the business dimension (inventory country, otherwise business
+country) to state where sources are located; it never claims where an object is held.
 
 Compact projections contain location identity, basis, ISO release/codes and point/precision,
 never raw addresses, postal text, applicability evidence or provider payloads. Dependency
