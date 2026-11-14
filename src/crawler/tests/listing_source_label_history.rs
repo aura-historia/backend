@@ -12,7 +12,7 @@ use test_api::*;
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 /// The migration that introduced the label history.
-const LABEL_HISTORY_MIGRATION: i64 = 20261114000000;
+const LABEL_HISTORY_MIGRATION: i64 = 20261114100000;
 
 type LabelEventRow = (String, Option<String>, Option<String>, String);
 
