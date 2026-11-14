@@ -27269,8 +27269,9 @@ components:
         advertisedInventory:
           allOf:
           - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
-          description: Explicit inventory evidence; scope must be ADVERTISED_INVENTORY.
-            Business, legal or correspondence evidence alone never establishes this meaning.
+          description: Explicit inventory assertion; scope must be ADVERTISED_INVENTORY.
+            The API never derives it from business, legal or correspondence evidence; operator
+            policies that assert it are documented in the geography guide.
     SourceLocationDefaultData:
       type: object
       additionalProperties: false
@@ -27323,8 +27324,9 @@ components:
           allOf:
           - $ref: '#/components/schemas/SourceLocationDefaultEvidence'
           nullable: true
-          description: Explicit inventory evidence; scope must be ADVERTISED_INVENTORY.
-            Business, legal or correspondence evidence alone never establishes this meaning.
+          description: Explicit inventory assertion; scope must be ADVERTISED_INVENTORY.
+            The API never derives it from business, legal or correspondence evidence; operator
+            policies that assert it are documented in the geography guide.
       description: Replaces the one reference and both applicability meanings atomically.
         Omitted/null evidence means absent, including on replacement. No automatic location
         selection.

@@ -11,6 +11,7 @@ import sys
 from urllib.parse import urlencode, urlsplit
 
 from api import AuraApi, canonical_host, read_ledger
+from inventory import expected_inventory_reference
 from verify import (LEDGER, check_identity, check_location, check_location_default, check_party_fields,
                     check_profile, check_shipping_default, now, require, shipping_terms,
                     value, verify_dealer)
@@ -145,14 +146,14 @@ def ensure_location_default(api, ledger, row, ids):
         body = {"expectedRevision": current["revision"], "partyLocationId": ids["partyLocationIds"][0],
                 "businessAssociation": {"reference": location["evidence"]["reference"],
                                         "scope": "ASSOCIATED_BUSINESS"}}
-        if row.get("inventoryEvidence"):
-            body["advertisedInventory"] = {"reference": row["inventoryEvidence"],
-                                           "scope": "ADVERTISED_INVENTORY"}
+        inventory = expected_inventory_reference(api, row, ids)
+        if inventory:
+            body["advertisedInventory"] = {"reference": inventory, "scope": "ADVERTISED_INVENTORY"}
         checkpoint(ledger, row, ids, pendingOperation={"method": "PUT", "path": path})
         api.request("PUT", path, body)
         checkpoint(ledger, row, ids, pendingOperation=None)
         current = api.request("GET", path)
-    check_location_default(current, row, ids)
+    check_location_default(current, ids, expected_inventory_reference(api, row, ids))
     ids["locationDefaultRevision"] = current["revision"]
 
 

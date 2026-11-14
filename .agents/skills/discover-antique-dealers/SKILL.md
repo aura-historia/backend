@@ -58,7 +58,11 @@ buying data subscriptions or changing backend runtime code.
 - Distinguish premises, registered addresses, warehouses and correspondence addresses.
   Imprint addresses and PO boxes establish no showroom, stock, dispatch or pickup.
   Retain address/country/postal assertions without guessing coordinates. Associate
-  source business geography explicitly; inventory inheritance needs separate evidence.
+  source business geography explicitly. Advertised inventory needs first-party evidence
+  (`inventoryEvidence`), except under the single-location dealer policy: when the
+  operator Party has exactly one active location, onboarding asserts inventory there
+  with the policy reference (see [API notes](references/api.md)). Record
+  `inventoryEvidence` only for explicit stock statements.
 - Preserve shipping geography, exclusions, item restrictions, thresholds and collection
   separately. Unknown is not prohibited. Partial observations need partial coverage.
   Currency selectors do not establish delivery coverage. Do not generalize furniture-
@@ -149,6 +153,17 @@ all managed Party/source metadata is still fetched and checked. Each dealer reta
 its actual resource verification date, and `fullVerifiedAt` records the last complete
 readback. Use a full check periodically, for example every five batches, or after
 external edits/contract changes. These commands do not alter backend records.
+
+The [inventory reconciler](scripts/inventory.py) applies the single-location dealer
+policy to every listing source, including ones not created through this ledger. It is
+read-only by default; `--apply` writes, `--source` and `--limit` bound a run. Rerun it
+after adding or retiring locations: it removes policy assertions that no longer apply and
+never changes first-party inventory evidence.
+
+```sh
+python3 .agents/skills/discover-antique-dealers/scripts/inventory.py --credential-file FILE
+python3 .agents/skills/discover-antique-dealers/scripts/inventory.py --credential-file FILE --apply
+```
 
 Read back every created resource and selected defaults. Validate the ledger with
 `scripts/api.py audit`, update the index's run summary, frontier and lessons, and report

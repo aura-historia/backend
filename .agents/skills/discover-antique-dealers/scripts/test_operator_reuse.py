@@ -11,6 +11,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from api import read_ledger
+from inventory import POLICY_EVIDENCE
 from onboard import onboard
 import verify
 
@@ -41,7 +42,8 @@ class StatefulApi:
                                         "lifecycle": "ACTIVE", **copy.deepcopy(owner["facts"]["locations"]["value"][0])}}
         self.sources = {"ls_owner": self.source(owner["url"], owner["domain"], "pty_owner", "SHOPWARE")}
         self.defaults = {"/v1/admin/listing-sources/ls_owner/location-default": {
-            "revision": 2, "eligibility": "ACTIVE", "assignment": {"partyLocationId": "ploc_owner"}}}
+            "revision": 3, "eligibility": "ACTIVE", "assignment": {
+                "partyLocationId": "ploc_owner", "advertisedInventory": POLICY_EVIDENCE}}}
 
     @staticmethod
     def source(url, name, party, platform):
@@ -75,12 +77,15 @@ class StatefulApi:
             return {"listingSourceId": "ls_second", "partyId": party}
         if route.endswith("/location-default"):
             if method == "PUT":
-                self.defaults[route] = {"revision": 2, "eligibility": "ACTIVE",
-                                         "assignment": {"partyLocationId": body["partyLocationId"],
-                                                        "businessAssociation": body["businessAssociation"]}}
+                assignment = {key: body[key] for key in
+                              ("partyLocationId", "businessAssociation", "advertisedInventory") if key in body}
+                self.defaults[route] = {"revision": 2, "eligibility": "ACTIVE", "assignment": assignment}
             return copy.deepcopy(self.defaults.get(route, {"revision": 1, "assignment": None}))
         if method == "GET" and route.endswith("/shipping-default"):
             return {"revision": 1, "shippingProfileId": None}
+        if method == "GET" and route.startswith("/v1/parties/") and route.endswith("/locations"):
+            party = route.split("/")[3]
+            return {"items": [copy.deepcopy(l) for l in self.locations.values() if l["partyId"] == party]}
         if method == "GET" and "/locations/" in route:
             return copy.deepcopy(self.locations[route.rsplit("/", 1)[1]])
         if method == "GET" and route.startswith("/v1/admin/parties/"):
@@ -137,6 +142,19 @@ class OperatorReuseTest(unittest.TestCase):
         self.assertEqual(["POST", "PUT"], [r[0] for r in self.api.writes()])
         self.assertEqual({"type": "EXISTING", "partyId": "pty_owner"},
                          self.api.writes()[0][2]["operator"])
+        self.assertEqual(POLICY_EVIDENCE, self.api.writes()[1][2]["advertisedInventory"])
+
+    def test_should_not_infer_inventory_when_operator_has_several_locations(self):
+        self.api.locations["ploc_other"] = self.api.locations["ploc_owner"] | {"id": "ploc_other"}
+        self.run_onboard()
+        self.assertNotIn("advertisedInventory", self.api.writes()[1][2])
+
+    def test_should_keep_explicit_inventory_evidence(self):
+        self.row["inventoryEvidence"] = "https://second.example.org/visit-our-showroom"
+        self.save()
+        self.run_onboard()
+        self.assertEqual({"reference": self.row["inventoryEvidence"], "scope": "ADVERTISED_INVENTORY"},
+                         self.api.writes()[1][2]["advertisedInventory"])
 
     def test_should_leave_api_and_ledger_unchanged_during_dry_run(self):
         before = self.ledger.read_bytes()

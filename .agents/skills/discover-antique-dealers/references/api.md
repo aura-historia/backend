@@ -47,7 +47,12 @@ summaries put URLs under `presentation`; names/contacts are substring searches, 
   `expectedRevision`, `partyLocationId`, optional
   `businessAssociation={reference: URL,scope: ASSOCIATED_BUSINESS}`, and separately
   `advertisedInventory={reference: URL,scope: ADVERTISED_INVENTORY}`. Legal addresses
-  establish no inventory assertion. Multi-site stock may warrant no inventory default.
+  alone establish no inventory assertion. When the operator Party has exactly one active
+  location, the `DEALER` source asserts inventory there with reference
+  `aura-historia:policy/single-location-dealer-inventory/v1`, unless first-party evidence
+  supplies its own reference (`docs/geography.md`). Multi-site dealers need explicit
+  evidence. `PATCH` on the same path changes only applicability: omitted keeps, `null`
+  removes; it requires the current `expectedRevision` and an active reference.
 - `POST /v1/listing-sources/{id}/shipping-profiles`: stable `creationKey`, `content`
   (`name`, required nullable `attributedPartyId`, `terms`) and `evidence` entries
   `{reference: URL,assertion: short description}`. Reconcile uncertain creation with

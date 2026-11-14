@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Single-location dealer inventory (#2960)
+
+- Listings of a dealer with exactly one active location now carry public `geography` (basis `SOURCE_DEFAULT_DERIVED`) and match geographic search and saved-search geography filters. Previously only dealers with first-party inventory evidence did, which left most listings without geography.
+- Protected location-default reads (`GET /v1/listing-sources/{id}/location-default` and its admin variant) can return `advertisedInventory.reference` `aura-historia:policy/single-location-dealer-inventory/v1` for these dealers. The request and response schemas are unchanged, and the API still never derives inventory from business, legal or correspondence evidence.
+
 ## 2026-11-14 — Filter admin ListingSource search by country
 
 - `GET /v1/admin/listing-sources` accepts an optional `country` query parameter, an uppercase ISO 3166-1 alpha-2 code such as `DE`. It returns only ListingSources located in that country: the source's selected location default is active, has associated-business or advertised-inventory evidence, and its submitted country, otherwise its accepted geocoded country, matches. Sources without such a location never match. Lowercase, alpha-3 and unknown codes return `400 BAD_QUERY_PARAMETER_VALUE`. It combines with every other filter, and a `searchAfter` cursor is bound to it like the other filters. Response shapes are unchanged.
