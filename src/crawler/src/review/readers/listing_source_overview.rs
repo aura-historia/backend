@@ -430,12 +430,14 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
 }
 
 /// The `ORDER BY` list of `sort` in `direction`: every key in that direction, nulls last, the
-/// ListingSource id last. `Attention` ranks crawl-enabled sources first and labelled ones last,
-/// the disabled ones whose qualification waits for a human before those that wait for their
-/// qualification and those before the others, as the console groups them, then those whose crawl
-/// waits for an operator, those whose last crawl failed, those with blocked
-/// URLs, the longest scrape failure streaks, those with held removals, the most pending reviews and
-/// the most recently updated.
+/// ListingSource id last. `Attention` follows the console's grouping of the table by each source's
+/// primary status, so every group is one run of rows: crawl-enabled sources first and labelled ones
+/// last; among the disabled ones, those whose qualification waits for a human, then those that wait
+/// for their qualification, then the others; among the crawl-enabled ones the conditions in the
+/// console's order of severity (crawl waits for an operator, last crawl failed, scrape failure
+/// streak, blocked URLs, held removals), then those never scraped before the healthy ones; within a
+/// group the longest scrape failure streaks, the most pending reviews and the most recently
+/// updated first.
 fn order_by(sort: SourceSort, direction: SortDirection) -> String {
     let keys: &[&str] = match sort {
         SourceSort::Attention => &[
@@ -445,9 +447,11 @@ fn order_by(sort: SourceSort, direction: SortDirection) -> String {
             "(NOT crawl_enabled AND in_crawl_scope AND qualification IS NULL)",
             "needs_operator",
             "crawl_failed",
+            "(scrape_failure_streak > 0)",
             "(blocked_urls > 0)",
-            "scrape_failure_streak",
             "(held_removal_urls > 0)",
+            "(last_successful_scrape IS NULL)",
+            "scrape_failure_streak",
             "pending_reviews",
             "updated",
         ],
