@@ -14,6 +14,6 @@ Type=oneshot
 ExecStart=/opt/crawler/bin/autodeploy.sh
 # A release with migrations first waits for crawler-backup.service (up to its 6 hours), stopping the
 # agent runner alone can take 11 minutes and the health check 10 (CRAWLER_HEALTH_TIMEOUT); an
-# unhealthy release's rollback repeats both. A timeout kills the deploy, which then starts the
-# running build again, and the next run would back up and stop the services once more.
+# unhealthy release's rollback repeats both. A timeout kills the deploy, which starts the running
+# build again, but not the backup in its own unit: the next run stops the services and waits for it.
 TimeoutStartSec=7h
