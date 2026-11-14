@@ -9,24 +9,6 @@ use test_api::{IntegrationTestService, aura_integration_test};
 use time::OffsetDateTime;
 use user_core::{access_token::Scope, tier::UserTier};
 
-async fn submit_listing_source_notice(listing_source_id: ListingSourceId) {
-    let response = reqwest::Client::new()
-        .post(format!("{}/v1/content-notices", AURA_API.base_url()))
-        .json(&json!({
-            "target": {"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()},
-            "submitterRole": "PROVIDER",
-            "reasonCategory": "PROVIDER_OPT_OUT",
-            "name": "Max Mustermann",
-            "email": "max@antik.example",
-            "language": "de",
-            "goodFaithConfirmed": true
-        }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to submit content notice: {error}"));
-    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
-}
-
 async fn get_overview(token: &str) -> (reqwest::StatusCode, serde_json::Value, Option<String>) {
     let response = reqwest::Client::new()
         .get(format!("{}/v1/admin/overview", AURA_API.base_url()))
@@ -72,7 +54,7 @@ async fn should_aggregate_representative_admin_overview_counts() {
         timestamp,
     )
     .await;
-    submit_listing_source_notice(
+    super::content_notices::submit_provider_opt_out(
         ListingSourceId::try_from(listing_source_id)
             .unwrap_or_else(|error| panic!("invalid seeded listing source id: {error}")),
     )

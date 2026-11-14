@@ -91,8 +91,7 @@ not notice reads: they follow the overview's own access rule (`admin-overview:re
 ## Admin review queue
 
 `GET /v1/admin/content-notices` lists notices newest first. Admins find new notices there and in
-the admin overview (`GET /v1/admin/overview`), which counts all notices and those per state from
-PostgreSQL in its single aggregate read; there is no alert yet.
+the counts of the admin overview (`GET /v1/admin/overview`); there is no alert yet.
 
 - Each item is a summary: target, the listing source name, listing title and partner flag from
   the snapshot, role, category, and the submitter's name and email. The explanation and URLs are
