@@ -256,8 +256,12 @@ function tableMappings(): Record<string, unknown> {
     },
     {
       table: "notification_deliveries",
+      // Only the delivery ID may enter Kinesis; the source columns, including the
+      // external email message that holds a recipient address, stay in PostgreSQL.
       removedColumns: [
         "notification_id",
+        "digest_id",
+        "external_email_message_id",
         "channel",
         "target_key",
         "status",

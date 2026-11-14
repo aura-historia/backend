@@ -1,3 +1,5 @@
+pub mod external_email;
+pub mod external_email_message_id;
 pub mod notification;
 pub mod notification_delivery;
 pub mod notification_delivery_id;

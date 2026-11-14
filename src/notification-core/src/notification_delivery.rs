@@ -7,8 +7,14 @@ pub enum NotificationDeliveryChannel {
 pub struct NotificationDeliveryTargetKey(String);
 
 impl NotificationDeliveryTargetKey {
+    /// The account's primary email address of a user-bound delivery.
     pub fn primary() -> Self {
         Self("PRIMARY".to_owned())
+    }
+
+    /// The recipient address stored with an external email message.
+    pub fn recipient() -> Self {
+        Self("RECIPIENT".to_owned())
     }
 
     pub fn as_str(&self) -> &str {

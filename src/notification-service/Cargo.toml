@@ -10,6 +10,7 @@ application = { workspace = true }
 listing-source-core = { workspace = true }
 localization = { workspace = true }
 notification-core = { workspace = true }
+serde-email = { workspace = true }
 user-core = { workspace = true }
 
 thiserror = { workspace = true }

@@ -33,6 +33,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `NotificationId` | `ntf` |
 | `NotificationDeliveryId` | `nd` |
 | `SavedSearchDigestId` | `ssd` |
+| `ExternalEmailMessageId` | `xem` |
 | `FxRateId` | `fx` |
 | `OAuthClientId` | `oc` |
 | `AccessTokenId` | `at` |

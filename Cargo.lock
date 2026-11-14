@@ -5562,6 +5562,7 @@ dependencies = [
  "partnership-core",
  "party-core",
  "rstest",
+ "serde-email",
  "thiserror 2.0.21",
  "time",
  "tokio",

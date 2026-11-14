@@ -445,6 +445,95 @@ mod tests {
         Ok(())
     }
 
+    /// Stands in for the test-only external kind, which has no deployed template, so the
+    /// checks below run for the mechanism. Real external kinds list their MJML files.
+    const EXTERNAL_TEST_PROBE_TEMPLATE: &str = "<html><body><a href=\"{{home_url}}\">Aura Historia</a><p>Reference: {{reference}}</p><a href=\"mailto:contact@aura-historia.com\">contact@aura-historia.com</a></body></html>";
+
+    fn external_templates() -> [(EmailTemplateType, [&'static str; 5]); 1] {
+        [(
+            EmailTemplateType::ExternalEmailTestProbe,
+            [EXTERNAL_TEST_PROBE_TEMPLATE; 5],
+        )]
+    }
+
+    #[test]
+    fn should_render_every_external_template_in_strict_mode_without_account_links()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::template_mapping::{FrontendLinks, external_template_data};
+        use localization::Language;
+        use notification_core::{
+            external_email::{ExternalEmailContent, ExternalEmailTestProbe},
+            external_email_message_id::ExternalEmailMessageId,
+            notification_delivery_id::NotificationDeliveryId,
+        };
+        use notification_service::ports::notification_delivery_repository::ExternalEmailDeliverySource;
+
+        let mut handlebars = Handlebars::new();
+        handlebars.set_strict_mode(true);
+        let languages = [
+            EmailLanguage::De,
+            EmailLanguage::En,
+            EmailLanguage::Es,
+            EmailLanguage::Fr,
+            EmailLanguage::It,
+        ];
+        for (template_type, templates) in external_templates() {
+            // Ja has no email language and falls back to the English template.
+            for language in [
+                Language::De,
+                Language::En,
+                Language::Es,
+                Language::Fr,
+                Language::It,
+                Language::Ja,
+            ] {
+                let email_language = EmailLanguage::resolve(language);
+                let template = languages
+                    .iter()
+                    .position(|candidate| *candidate == email_language)
+                    .map(|index| templates[index])
+                    .ok_or("every email language has a template")?;
+                let source = ExternalEmailDeliverySource {
+                    notification_delivery_id: NotificationDeliveryId::new(),
+                    external_email_message_id: ExternalEmailMessageId::new(),
+                    recipient: serde_email::Email::new("notifier@example.test")?,
+                    language,
+                    content: ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new(
+                        "probe-1",
+                    )?),
+                };
+                let data = external_template_data(
+                    &source,
+                    FrontendLinks::new("https://aura-historia.com", email_language),
+                );
+
+                let rendered = render_template(&handlebars, template, &data)?;
+
+                assert!(
+                    !rendered.contains("{{"),
+                    "{template_type:?} left an expression"
+                );
+                assert!(
+                    rendered.contains("probe-1"),
+                    "{template_type:?} lost its data"
+                );
+                for link in rendered.split("<a href=\"").skip(1) {
+                    let link = link.split('"').next().unwrap_or_default();
+                    assert!(
+                        link.starts_with("https://aura-historia.com/")
+                            || link.starts_with("mailto:"),
+                        "{template_type:?} links outside Aura Historia: {link}"
+                    );
+                    assert!(
+                        !link.contains("/me/") && !link.ends_with("/me"),
+                        "{template_type:?} links to an account page: {link}"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[rstest::rstest]
     #[case("en", 1, 1, "1 new match", "in 1 listing")]
     #[case("en", 3, 1, "3 new matches", "in 1 listing")]

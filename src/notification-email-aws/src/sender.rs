@@ -1,8 +1,9 @@
 use crate::{
     provider_failure::SesSendFailed,
     template_mapping::{
-        EmailLanguage, EmailTemplateType, FrontendLinks, sender_name, ses_template_tag_value,
-        subject, template_data, template_type,
+        EmailLanguage, EmailTemplateType, FrontendLinks, external_template_data,
+        external_template_type, sender_name, ses_template_tag_value, subject, template_data,
+        template_type,
     },
     template_reader::TemplateReader,
 };
@@ -21,7 +22,7 @@ use notification_service::ports::{
         NotificationChannelSendError, NotificationChannelSender, SentNotificationDelivery,
     },
     notification_delivery_repository::{
-        NotificationDeliverySource, UserNotificationDeliverySource,
+        ExternalEmailDeliverySource, NotificationDeliverySource, UserNotificationDeliverySource,
     },
 };
 use serde_email::Email;
@@ -212,6 +213,23 @@ impl SesNotificationChannelSender {
             .email_tags(email_tag)
     }
 
+    async fn render(
+        &self,
+        template_type: EmailTemplateType,
+        email_language: EmailLanguage,
+        data: &serde_json::Value,
+    ) -> Result<RenderedEmail, NotificationChannelSendError> {
+        let html_body = self
+            .templates
+            .render(template_type, email_language, data)
+            .await?;
+        Ok(RenderedEmail {
+            template_type,
+            subject: subject(template_type, email_language).to_owned(),
+            html_body,
+        })
+    }
+
     async fn render_for_user(
         &self,
         source: &UserNotificationDeliverySource,
@@ -223,24 +241,33 @@ impl SesNotificationChannelSender {
             template_type(&source.content)
         };
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
-        let body = self
-            .templates
+        let data = template_data(
+            source,
+            email_language,
+            first_name,
+            FrontendLinks::new(&self.frontend_origin, email_language),
+        );
+        self.render(template_type, email_language, &data).await
+    }
+
+    /// The recipient and language come from the message; no user account is read.
+    async fn send_external(
+        &self,
+        source: &ExternalEmailDeliverySource,
+    ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
+        let email_language = EmailLanguage::resolve(source.language);
+        let data = external_template_data(
+            source,
+            FrontendLinks::new(&self.frontend_origin, email_language),
+        );
+        let rendered = self
             .render(
-                template_type,
+                external_template_type(&source.content),
                 email_language,
-                &template_data(
-                    source,
-                    email_language,
-                    first_name,
-                    FrontendLinks::new(&self.frontend_origin, email_language),
-                ),
+                &data,
             )
             .await?;
-        Ok(RenderedEmail {
-            template_type,
-            subject: subject(template_type, email_language).to_owned(),
-            html_body: body,
-        })
+        self.send_rendered(rendered, &source.recipient).await
     }
 
     async fn send_to_user(
@@ -331,6 +358,7 @@ impl NotificationChannelSender for SesNotificationChannelSender {
     ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
         match source {
             NotificationDeliverySource::User(source) => self.send_to_user(source).await,
+            NotificationDeliverySource::ExternalEmail(source) => self.send_external(source).await,
         }
     }
 }

@@ -1402,6 +1402,24 @@ mod tests {
     }
 
     #[test]
+    fn notification_delivery_insert_with_source_columns_publishes_only_the_delivery_id() {
+        let mut record: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/dms-kinesis/notification-delivery-insert.json"
+        ))
+        .unwrap();
+        record["data"]["digest_id"] = Value::Null;
+        record["data"]["external_email_message_id"] = json!("01900000-0000-7000-8000-000000000008");
+
+        let delivery = published_jobs(&record.to_string());
+
+        assert_eq!(1, delivery.len());
+        assert_eq!(
+            json!({ "notification_delivery_id": "nd_01j0000000e008000000000007" }),
+            delivery[0]["payload"]
+        );
+    }
+
+    #[test]
     fn synthetic_dms_decimal_vectors_fail_closed() {
         let (router, publisher) = fanout();
         let fixture =

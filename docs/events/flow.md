@@ -169,7 +169,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `product_listing_events` | INSERT | Product projector; additional routes below |
 | `product_listing_raw_revisions` | INSERT | Normalization only |
 | `search_filter_matches` | INSERT | Match-notification generator |
-| `notification_deliveries` | INSERT | Notification delivery |
+| `notification_deliveries` | INSERT | Notification delivery (notification, digest or external email) |
 | `marketing_email_consent_sync_intents` | INSERT | Recipient-scoped consent FIFO |
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 | `listing_geography_wakeups` | INSERT | Effective listing geography worker |
@@ -250,7 +250,7 @@ SQS transport IDs are not business idempotency keys.
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
-| Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
+| Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. A delivery has exactly one source: a notification, a saved-search digest or an [external email](#external-email-delivery). |
 | Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; an undecodable job or missing intent moves to the DLQ on redelivery. See [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
 | Geographic resolution | Lease a bounded claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Acknowledge settled generations, including `BLOCKED`/`FAILED`; retain contention, transient failures and provider-gated work (see [recovery](../durable-worker-runbook.md#geographic-resolution-recovery)). |
 
@@ -468,6 +468,35 @@ no idempotency token; a unique digest is one logical intent, not an exactly-once
 external-email guarantee. See [notification recovery](../durable-worker-runbook.md#notification-recovery-limits)
 for ambiguous sends and [digest recovery](../durable-worker-runbook.md#saved-search-digest-recovery)
 for interrupted runs.
+
+### External email delivery
+
+Any bounded context can send a transactional email to an address that does not belong to
+a user account through the notification delivery pipeline. It does not build its own
+mailer, outbox or re-drive. The producer enqueues the message through the notification
+context's external email outbox in its own business transaction. The message and its
+`PENDING` delivery commit or roll back with the producer's business state. One origin
+(the business record that caused the email) enqueues each template kind at most once; a
+repeat returns the existing message. Each message has a typed, versioned payload per
+template kind, so new uses add a kind instead of a mechanism.
+
+The delivery row carries only the message identity. As for every source, DMS publishes
+only the delivery primary key, and the router job carries only `notification_delivery_id`.
+Recipient address, language and payload never enter Kinesis, SQS or logs. Delivery takes
+the recipient and language from the message, never from a user account, and renders the
+kind's template in that language or in English. External templates carry no name and no
+account or notification-settings links. Claim, lease, fenced finalization, retry
+classification, attempt counting, DLQ and alarms are shared with user notifications.
+Delivery logs label the source as `notification`, `digest` or `external`. A missing
+message or an unknown or undecodable message is invalid persisted state and follows the
+invalid-job path to the DLQ. It is never treated as suppression.
+
+The message and its payload are personal data. Each origin owns their retention and
+erases its messages by origin. Erasure cascades to the delivery, and a delivery job
+that arrives afterwards completes as missing. There is no automatic purge.
+
+Roll out as expand before contract. Deploy the schema and delivery support for a source
+or template kind before any producer writes it.
 
 ### Stripe subscription reconciliation
 

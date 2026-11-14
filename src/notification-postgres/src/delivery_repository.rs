@@ -6,8 +6,10 @@ use crate::{
 use application::error::box_error;
 use localization::Language;
 use notification_core::{
+    external_email_message_id::ExternalEmailMessageId,
     notification_delivery::NotificationDeliveryTargetKey,
     notification_delivery_id::NotificationDeliveryId, notification_id::NotificationId,
+    saved_search_digest_id::SavedSearchDigestId,
 };
 use notification_service::ports::notification_delivery_repository::{
     ClaimNotificationDeliveryOutcome, ClaimedNotificationDelivery, NotificationDeliveryError,
@@ -35,6 +37,7 @@ struct DeliveryClaimRow {
     notification_delivery_id: Uuid,
     notification_id: Option<Uuid>,
     digest_id: Option<Uuid>,
+    external_email_message_id: Option<Uuid>,
     lease_token: Uuid,
     lease_expires_at: OffsetDateTime,
     attempt_count: i32,
@@ -80,7 +83,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
     ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError> {
         let mut transaction = self.pool.begin().await.map_err(DeliveryOperationFailed)?;
         let row = sqlx::query_as::<_, DeliveryClaimRow>(
-            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $2, lease_expires_at = $3, completed_lease_token = NULL, completed_at = NULL, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND $3 > GREATEST($4, clock_timestamp()) AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= GREATEST($4, clock_timestamp()))) RETURNING notification_delivery_id, notification_id, digest_id, lease_token, lease_expires_at, attempt_count",
+            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $2, lease_expires_at = $3, completed_lease_token = NULL, completed_at = NULL, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND $3 > GREATEST($4, clock_timestamp()) AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= GREATEST($4, clock_timestamp()))) RETURNING notification_delivery_id, notification_id, digest_id, external_email_message_id, lease_token, lease_expires_at, attempt_count",
         )
         .bind(notification_delivery_id.into_uuid())
         .bind(lease_token)
@@ -101,22 +104,24 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         };
 
         let claimed = claimed_from_row(row)?;
-        let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partnership_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
-        )
-        .bind(notification_delivery_id.into_uuid())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(DeliveryOperationFailed)?;
-        let source = match source {
-            Some(source) => Some(source_from_row(&mut transaction, source).await?),
-            None => {
+        let source = match claimed.source_id {
+            NotificationDeliverySourceId::Notification(_) => {
+                load_notification_source(&mut transaction, notification_delivery_id).await?
+            }
+            NotificationDeliverySourceId::SavedSearchDigest(_) => {
                 crate::saved_search_digest::load_delivery_source(
                     &mut transaction,
                     notification_delivery_id,
                 )
                 .await?
             }
+            NotificationDeliverySourceId::ExternalEmailMessage(_) => Some(
+                crate::external_email::load_delivery_source(
+                    &mut transaction,
+                    notification_delivery_id,
+                )
+                .await?,
+            ),
         };
         transaction
             .commit()
@@ -255,30 +260,58 @@ fn claimed_from_row(
             .map_err(|source| NotificationDeliveryError::InvalidPersistedState {
                 source: box_error(source),
             })?,
-        source_id: match (row.notification_id, row.digest_id) {
-            (Some(id), None) => {
-                NotificationDeliverySourceId::Notification(NotificationId::try_from(id).map_err(
-                    |source| NotificationDeliveryError::InvalidPersistedState {
-                        source: box_error(source),
-                    },
-                )?)
-            }
-            (None, Some(id)) => NotificationDeliverySourceId::SavedSearchDigest(
-                notification_core::saved_search_digest_id::SavedSearchDigestId::try_from(id)
-                    .map_err(|source| NotificationDeliveryError::InvalidPersistedState {
-                        source: box_error(source),
-                    })?,
-            ),
-            _ => {
-                return Err(invalid_delivery_source(
-                    "delivery source identity is invalid",
-                ));
-            }
-        },
+        source_id: source_id_from_row(&row)?,
         lease_token: row.lease_token,
         lease_expires_at: row.lease_expires_at,
         attempt_count,
     })
+}
+
+fn source_id_from_row(
+    row: &DeliveryClaimRow,
+) -> Result<NotificationDeliverySourceId, NotificationDeliveryError> {
+    fn invalid_id(
+        source: domain_primitives::object_id::ObjectIdError,
+    ) -> NotificationDeliveryError {
+        NotificationDeliveryError::InvalidPersistedState {
+            source: box_error(source),
+        }
+    }
+    match (
+        row.notification_id,
+        row.digest_id,
+        row.external_email_message_id,
+    ) {
+        (Some(id), None, None) => NotificationId::try_from(id)
+            .map(NotificationDeliverySourceId::Notification)
+            .map_err(invalid_id),
+        (None, Some(id), None) => SavedSearchDigestId::try_from(id)
+            .map(NotificationDeliverySourceId::SavedSearchDigest)
+            .map_err(invalid_id),
+        (None, None, Some(id)) => ExternalEmailMessageId::try_from(id)
+            .map(NotificationDeliverySourceId::ExternalEmailMessage)
+            .map_err(invalid_id),
+        _ => Err(invalid_delivery_source(
+            "delivery source identity is invalid",
+        )),
+    }
+}
+
+async fn load_notification_source(
+    connection: &mut PgConnection,
+    notification_delivery_id: NotificationDeliveryId,
+) -> Result<Option<NotificationDeliverySource>, NotificationDeliveryError> {
+    let row = sqlx::query_as::<_, DeliverySourceRow>(
+        "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partnership_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
+    )
+    .bind(notification_delivery_id.into_uuid())
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(DeliveryOperationFailed)?;
+    match row {
+        Some(row) => source_from_row(connection, row).await.map(Some),
+        None => Ok(None),
+    }
 }
 
 async fn source_from_row(
@@ -467,6 +500,16 @@ mod tests {
             .execute(pool).await?;
         sqlx::query("INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'PRIMARY')")
             .bind(delivery_id.into_uuid()).bind(notification_id).execute(pool).await?;
+        Ok(delivery_id)
+    }
+
+    async fn seed_external(pool: &PgPool) -> Result<NotificationDeliveryId, sqlx::Error> {
+        let message_id = Uuid::now_v7();
+        let delivery_id = NotificationDeliveryId::new();
+        sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, 'notifier@example.test', 'es', 'TEST_PROBE', 1, '{\"reference\": \"probe-1\"}', 'TEST_PROBE', $2)")
+            .bind(message_id).bind(Uuid::now_v7()).execute(pool).await?;
+        sqlx::query("INSERT INTO notification_deliveries (notification_delivery_id, external_email_message_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'RECIPIENT')")
+            .bind(delivery_id.into_uuid()).bind(message_id).execute(pool).await?;
         Ok(delivery_id)
     }
 
@@ -948,6 +991,146 @@ mod tests {
             assert!(stored.lease_token.is_none());
             Ok(())
         }.await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_claim_and_finalize_external_email_without_reading_users() {
+        let result: TestResult = async {
+            let pool = get_postgres_client().await;
+            let repository = SqlxNotificationDeliveryRepository::new(pool.clone());
+            let id = seed_external(&pool).await?;
+            // Any read of users would wait for this lock and time out.
+            let mut users_lock = pool.begin().await?;
+            sqlx::query("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
+                .execute(&mut *users_lock)
+                .await?;
+            let now = OffsetDateTime::now_utc();
+
+            let outcome = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                repository.claim_and_load_source(
+                    id,
+                    now,
+                    now + Duration::minutes(5),
+                    Uuid::now_v7(),
+                ),
+            )
+            .await
+            .map_err(box_error)??;
+
+            let ClaimNotificationDeliveryOutcome::Claimed { delivery, source } = outcome else {
+                return Err(box_error(std::io::Error::other(
+                    "expected a claimed delivery",
+                )));
+            };
+            let Some(NotificationDeliverySource::ExternalEmail(source)) = *source else {
+                return Err(box_error(std::io::Error::other(
+                    "expected an external source",
+                )));
+            };
+            assert!(matches!(
+                delivery.source_id,
+                NotificationDeliverySourceId::ExternalEmailMessage(message_id)
+                    if message_id == source.external_email_message_id
+            ));
+            assert_eq!(id, source.notification_delivery_id);
+            assert_eq!("notifier@example.test", source.recipient.as_str());
+            assert_eq!(Language::Es, source.language);
+            assert!(
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    repository.mark_delivered(
+                        id,
+                        delivery.lease_token,
+                        "receipt",
+                        OffsetDateTime::now_utc()
+                    ),
+                )
+                .await
+                .map_err(box_error)??
+            );
+            users_lock.rollback().await?;
+            assert_eq!("DELIVERED", persisted(&pool, id).await?.status);
+            Ok(())
+        }
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_take_over_an_expired_external_lease_and_reject_the_stale_token() {
+        let result: TestResult = async {
+            let pool = get_postgres_client().await;
+            let repository = SqlxNotificationDeliveryRepository::new(pool.clone());
+            let id = seed_external(&pool).await?;
+            let now = OffsetDateTime::now_utc();
+            let first = claim(&repository, id, now).await?;
+            assert_eq!(
+                ClaimNotificationDeliveryOutcome::AlreadyClaimed {
+                    lease_expires_at: first.lease_expires_at
+                },
+                repository
+                    .claim_and_load_source(id, now, now + Duration::minutes(5), Uuid::now_v7())
+                    .await?,
+            );
+
+            let second = claim(&repository, id, first.lease_expires_at).await?;
+
+            assert_ne!(first.lease_token, second.lease_token);
+            assert_eq!(2, second.attempt_count);
+            assert!(
+                !repository
+                    .mark_permanent_failure(id, first.lease_token, "STALE", now)
+                    .await?
+            );
+            assert!(
+                repository
+                    .mark_retryable_failure(
+                        id,
+                        second.lease_token,
+                        "RETRY",
+                        second.lease_expires_at - Duration::seconds(1)
+                    )
+                    .await?
+            );
+            assert_eq!("PENDING", persisted(&pool, id).await?.status);
+            Ok(())
+        }
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_fail_closed_and_keep_the_claim_unchanged_for_an_invalid_external_message() {
+        let result: TestResult = async {
+            let pool = get_postgres_client().await;
+            let repository = SqlxNotificationDeliveryRepository::new(pool.clone());
+            let undecodable = seed_external(&pool).await?;
+            sqlx::query("UPDATE external_email_messages SET payload = '{}'::jsonb WHERE external_email_message_id = (SELECT external_email_message_id FROM notification_deliveries WHERE notification_delivery_id = $1)")
+                .bind(undecodable.into_uuid()).execute(&pool).await?;
+            let missing = seed_external(&pool).await?;
+            // Bypass the cascading foreign key to leave a delivery without its message.
+            let mut orphaning = pool.begin().await?;
+            sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *orphaning).await?;
+            sqlx::query("DELETE FROM external_email_messages WHERE external_email_message_id = (SELECT external_email_message_id FROM notification_deliveries WHERE notification_delivery_id = $1)")
+                .bind(missing.into_uuid()).execute(&mut *orphaning).await?;
+            orphaning.commit().await?;
+            let now = OffsetDateTime::now_utc();
+
+            for id in [undecodable, missing] {
+                assert!(matches!(
+                    repository.claim_and_load_source(id, now, now + Duration::minutes(5), Uuid::now_v7()).await,
+                    Err(NotificationDeliveryError::InvalidPersistedState { .. })
+                ));
+                let stored = persisted(&pool, id).await?;
+                assert_eq!("PENDING", stored.status);
+                assert_eq!(0, stored.attempt_count);
+                assert!(stored.lease_token.is_none());
+            }
+            Ok(())
+        }
+        .await;
         assert!(result.is_ok(), "{result:?}");
     }
 

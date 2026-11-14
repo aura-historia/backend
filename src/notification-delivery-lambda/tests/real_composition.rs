@@ -180,6 +180,47 @@ async fn finalization_retry_keeps_the_original_ses_receipt_without_resending() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
+async fn external_email_is_sent_to_the_message_recipient_in_its_language_without_a_user() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let use_case = composition(pool.clone(), false).await?;
+        let delivery = NotificationDeliveryId::new();
+        let recipient = format!("external-{delivery}@example.test");
+        let message = uuid::Uuid::now_v7();
+        sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, $2, 'de', 'TEST_PROBE', 1, '{\"reference\": \"probe-7\"}', 'TEST_PROBE', $3)")
+            .bind(message).bind(&recipient).bind(uuid::Uuid::now_v7()).execute(&pool).await?;
+        sqlx::query("INSERT INTO notification_deliveries (notification_delivery_id, external_email_message_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'RECIPIENT')")
+            .bind(delivery.as_uuid()).bind(message).execute(&pool).await?;
+        assert_eq!(0, sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users").fetch_one(&pool).await?);
+
+        let response = handler(event("external", job_body(delivery)?), use_case.as_ref()).await?;
+
+        assert!(failure_ids(response).is_empty());
+        assert_eq!("DELIVERED", snapshot(&pool, delivery).await?["status"]);
+        let email = get_sent_emails().await.into_iter().find(|email|
+            email.destination.to_addresses.contains(&recipient)
+        ).ok_or("SES delivery not captured")?;
+        assert_eq!("Testnachricht von Aura Historia", email.subject);
+        assert_eq!(
+            format!(
+                "\"Test Message | Aura Historia\" <{}>",
+                test_api::TestContext::current().ok_or("delivery test context")?.sender_email()?
+            ),
+            email.source
+        );
+        assert!(email.body.html_part.as_deref().is_some_and(|html|
+            html.contains("Referenz probe-7") && html.contains("https://stage.aura-historia.com/de")
+        ));
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "real external email delivery test failed: {result:?}"
+    );
+}
+
 #[derive(Default)]
 struct FinalizationFault {
     failed: AtomicBool,
@@ -297,6 +338,14 @@ async fn provider(
             "{stage}/{commit}/mjml/watchlist/product-update/availability/en.html"
         ))
         .body(template.into())
+        .send()
+        .await?;
+    s3.put_object()
+        .bucket(&bucket)
+        .key(format!(
+            "{stage}/{commit}/test/external-email/test-probe/de.html"
+        ))
+        .body(b"<html><body>Referenz {{reference}} <a href=\"{{home_url}}\">Aura Historia</a></body></html>".to_vec().into())
         .send()
         .await?;
     Ok((

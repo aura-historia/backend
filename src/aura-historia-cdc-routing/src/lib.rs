@@ -1462,6 +1462,31 @@ mod tests {
     }
 
     #[test]
+    fn notification_delivery_insert_routes_only_the_delivery_id_whatever_its_source() {
+        let delivery_id = "01900000-0000-7000-8000-000000000007";
+        // DMS strips source columns; tolerate them if a capture still carries them.
+        for row in [
+            json!({ "notification_delivery_id": delivery_id }),
+            json!({
+                "notification_delivery_id": delivery_id,
+                "notification_id": null,
+                "digest_id": null,
+                "external_email_message_id": "01900000-0000-7000-8000-000000000008",
+            }),
+        ] {
+            let jobs = route_change(&change("notification_deliveries", "insert", row)).unwrap();
+
+            assert_eq!(1, jobs.len());
+            let body: Value =
+                serde_json::from_str(&aura_historia_jobs::encode(&jobs[0]).unwrap()).unwrap();
+            assert_eq!(
+                json!({ "notification_delivery_id": "nd_01j0000000e008000000000007" }),
+                body["payload"]
+            );
+        }
+    }
+
+    #[test]
     fn user_identity_deletion_requests_route_only_compact_valid_inserts() {
         let row = json!({"user_id": "01900000-0000-7000-8000-000000000009"});
         let source = change("user_identity_deletion_requests", "insert", row.clone());

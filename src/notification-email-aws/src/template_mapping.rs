@@ -1,13 +1,16 @@
 use localization::Language;
 
 use notification_core::{
+    external_email::ExternalEmailContent,
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
         NotificationWatchlistChange, PartnershipApplicationDecision,
     },
     presentation::present_image,
 };
-use notification_service::ports::notification_delivery_repository::UserNotificationDeliverySource;
+use notification_service::ports::notification_delivery_repository::{
+    ExternalEmailDeliverySource, UserNotificationDeliverySource,
+};
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_price::ProductListingPrice,
     product_listing_slug_id::ProductListingSlugId,
@@ -77,6 +80,7 @@ pub(crate) enum EmailTemplateType {
     SavedSearchDigest,
     PartnershipApplicationApproval,
     PartnershipApplicationRejection,
+    ExternalEmailTestProbe,
 }
 
 pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplateType {
@@ -97,6 +101,12 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
     }
 }
 
+pub(crate) const fn external_template_type(content: &ExternalEmailContent) -> EmailTemplateType {
+    match content {
+        ExternalEmailContent::TestProbe(_) => EmailTemplateType::ExternalEmailTestProbe,
+    }
+}
+
 pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'static str {
     match template_type {
         EmailTemplateType::WatchlistUpdatePrice => "mjml/watchlist/product-update/price",
@@ -111,6 +121,8 @@ pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'st
         EmailTemplateType::PartnershipApplicationRejection => {
             "mjml/partnership-application/rejection"
         }
+        // Outside `mjml/`, so no template is ever compiled or deployed for the test-only kind.
+        EmailTemplateType::ExternalEmailTestProbe => "test/external-email/test-probe",
     }
 }
 
@@ -134,6 +146,7 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::SavedSearchDigest => "SAVED_SEARCH_DIGEST",
         EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
         EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
+        EmailTemplateType::ExternalEmailTestProbe => "EXTERNAL_EMAIL_TEST_PROBE",
     }
 }
 
@@ -152,6 +165,7 @@ pub(crate) const fn sender_name(template_type: EmailTemplateType) -> &'static st
         | EmailTemplateType::PartnershipApplicationRejection => {
             "Partnership Application | Aura Historia"
         }
+        EmailTemplateType::ExternalEmailTestProbe => "Test Message | Aura Historia",
     }
 }
 
@@ -173,6 +187,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Update zu deinem Partnerschaftsantrag"
             }
+            EmailTemplateType::ExternalEmailTestProbe => "Testnachricht von Aura Historia",
         },
         EmailLanguage::Fr => match template_type {
             EmailTemplateType::SavedSearchDigest => {
@@ -191,6 +206,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Mise à jour de votre demande de partenariat"
             }
+            EmailTemplateType::ExternalEmailTestProbe => "Message de test d’Aura Historia",
         },
         EmailLanguage::Es => match template_type {
             EmailTemplateType::SavedSearchDigest => {
@@ -207,6 +223,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Actualización de tu solicitud de asociación"
             }
+            EmailTemplateType::ExternalEmailTestProbe => "Mensaje de prueba de Aura Historia",
         },
         EmailLanguage::It => match template_type {
             EmailTemplateType::SavedSearchDigest => "Nuovi risultati per le tue ricerche salvate",
@@ -223,6 +240,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Aggiornamento della tua richiesta di partnership"
             }
+            EmailTemplateType::ExternalEmailTestProbe => "Messaggio di prova di Aura Historia",
         },
         EmailLanguage::En => match template_type {
             EmailTemplateType::SavedSearchDigest => "New matches for your saved searches",
@@ -233,6 +251,7 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => "New search filter match",
             EmailTemplateType::PartnershipApplicationApproval => "Partnership application approved",
             EmailTemplateType::PartnershipApplicationRejection => "Partnership application update",
+            EmailTemplateType::ExternalEmailTestProbe => "Aura Historia test message",
         },
     }
 }
@@ -392,6 +411,19 @@ fn add_recipient_data(
     links: FrontendLinks<'_>,
 ) -> Value {
     data["first_name"] = json!(first_name);
+    data["home_url"] = json!(links.home());
+    data
+}
+
+/// Template variables of an external email. The recipient has no account, so the data
+/// carries no name and no account or notification-settings links.
+pub(crate) fn external_template_data(
+    source: &ExternalEmailDeliverySource,
+    links: FrontendLinks<'_>,
+) -> Value {
+    let mut data = match &source.content {
+        ExternalEmailContent::TestProbe(probe) => json!({ "reference": probe.reference() }),
+    };
     data["home_url"] = json!(links.home());
     data
 }
@@ -826,6 +858,14 @@ mod tests {
         "Actualización de tu solicitud de asociación",
         "Aggiornamento della tua richiesta di partnership"
     )]
+    #[case(
+        EmailTemplateType::ExternalEmailTestProbe,
+        "Testnachricht von Aura Historia",
+        "Aura Historia test message",
+        "Message de test d’Aura Historia",
+        "Mensaje de prueba de Aura Historia",
+        "Messaggio di prova di Aura Historia"
+    )]
     fn should_localize_subject_for_every_email_template_and_email_language(
         #[case] template: EmailTemplateType,
         #[case] expected_de: &str,
@@ -866,6 +906,10 @@ mod tests {
         EmailTemplateType::PartnershipApplicationRejection,
         "Partnership Application | Aura Historia"
     )]
+    #[case(
+        EmailTemplateType::ExternalEmailTestProbe,
+        "Test Message | Aura Historia"
+    )]
     fn should_name_sender_after_the_email_reason(
         #[case] template: EmailTemplateType,
         #[case] expected: &str,
@@ -882,6 +926,7 @@ mod tests {
             EmailTemplateType::SavedSearchDigest,
             EmailTemplateType::PartnershipApplicationApproval,
             EmailTemplateType::PartnershipApplicationRejection,
+            EmailTemplateType::ExternalEmailTestProbe,
         ] {
             let name = sender_name(template);
             assert!(name.ends_with(" | Aura Historia"), "{name}");
@@ -1172,6 +1217,57 @@ mod tests {
         flags.sort();
         assert_eq!(vec![Some(false), Some(true)], flags);
         Ok(())
+    }
+
+    fn external_source(language: Language) -> ExternalEmailDeliverySource {
+        ExternalEmailDeliverySource {
+            notification_delivery_id: NotificationDeliveryId::new(),
+            external_email_message_id:
+                notification_core::external_email_message_id::ExternalEmailMessageId::new(),
+            recipient: serde_email::Email::new("notifier@example.test")
+                .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
+            language,
+            content: ExternalEmailContent::TestProbe(
+                notification_core::external_email::ExternalEmailTestProbe::new("probe-1")
+                    .unwrap_or_else(|error| panic!("invalid test probe: {error}")),
+            ),
+        }
+    }
+
+    #[rstest]
+    #[case(Language::De, "de")]
+    #[case(Language::En, "en")]
+    #[case(Language::Es, "es")]
+    #[case(Language::Fr, "fr")]
+    #[case(Language::It, "it")]
+    #[case(Language::Ja, "en")]
+    fn should_resolve_external_template_key_from_the_message_language(
+        #[case] language: Language,
+        #[case] expected_key_language: &str,
+    ) {
+        let source = external_source(language);
+
+        assert_eq!(
+            format!("mail/build-id/test/external-email/test-probe/{expected_key_language}.html"),
+            s3_template_key(
+                "mail/build-id/",
+                external_template_type(&source.content),
+                EmailLanguage::resolve(source.language),
+            )
+        );
+    }
+
+    #[test]
+    fn should_give_external_templates_only_message_data_and_the_home_link() {
+        let source = external_source(Language::Fr);
+
+        assert_eq!(
+            json!({
+                "reference": "probe-1",
+                "home_url": "https://stage.aura-historia.com/fr",
+            }),
+            external_template_data(&source, links(EmailLanguage::Fr))
+        );
     }
 
     fn links(language: EmailLanguage) -> FrontendLinks<'static> {
