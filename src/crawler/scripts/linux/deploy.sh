@@ -3,13 +3,13 @@
 # commit SHA of a published crawler-<sha> GitHub Release, or with the name of a kept legacy-<time>
 # build. Pull-based: the host downloads the release, so CI holds no host credentials, and needs
 # neither Git, Cargo nor a source tree.
-# A release that adds crawler-local migrations is not backed up here: the weekly S3 backup
-# (crawler-backup.timer) is the only backup. Before such a deploy run it by hand:
-# systemctl start crawler-backup.service. A failure after the services were stopped starts them again.
+# Before a build that adds crawler-local migrations it runs crawler-backup.service with the services
+# stopped, so the S3 dump is the database those migrations start from; --skip-backup leaves that to
+# the operator. A failure after the services were stopped, a failed backup included, starts them again.
 # --unattended is for the autodeploy timer: it refuses (exit 3) a release that adds migrations or a
 # rollback over applied migrations, which need an operator, and rolls an unhealthy release back
 # (exit 4) to the build it replaced.
-# Usage: deploy.sh [--install-units] [--db-restored] [--unattended] <full lowercase sha | legacy-<time>>
+# Usage: deploy.sh [--install-units] [--db-restored] [--skip-backup] [--unattended] <full lowercase sha | legacy-<time>>
 # Contract: docs/crawler/operations.md#deploy-and-roll-back
 set -euo pipefail
 
@@ -24,6 +24,7 @@ KEEP="${CRAWLER_KEEP_RELEASES:-5}"
 UNIT_DIR="${CRAWLER_UNIT_DIR:-/etc/systemd/system}"
 readonly SERVER_UNIT=crawler-server
 readonly RUNNER_UNIT=review-agent-runner
+readonly BACKUP_UNIT=crawler-backup.service
 readonly EXIT_NEEDS_OPERATOR=3
 readonly EXIT_UNHEALTHY=4
 readonly UNITS=("${SERVER_UNIT}.service" "${RUNNER_UNIT}.service")
@@ -31,16 +32,18 @@ readonly UNITS=("${SERVER_UNIT}.service" "${RUNNER_UNIT}.service")
 readonly OPTIONAL_UNITS=(crawler-autodeploy.service crawler-autodeploy.timer crawler-backup.service crawler-backup.timer)
 # Written last into an unpacked release: a directory without it is never trusted.
 readonly COMPLETE_MARKER=.complete
-readonly USAGE="usage: ${0##*/} [--install-units] [--db-restored] [--unattended] <full lowercase sha | legacy-<time>>"
+readonly USAGE="usage: ${0##*/} [--install-units] [--db-restored] [--skip-backup] [--unattended] <full lowercase sha | legacy-<time>>"
 
 install_units=false
 db_restored=false
+skip_backup=false
 unattended=false
 build=""
 for arg in "$@"; do
   case "$arg" in
     --install-units) install_units=true ;;
     --db-restored) db_restored=true ;;
+    --skip-backup) skip_backup=true ;;
     --unattended) unattended=true ;;
     -*) echo "unknown option: $arg" >&2; exit 2 ;;
     *) [[ -z "$build" ]] || { echo "give exactly one build" >&2; exit 2; }; build="$arg" ;;
@@ -237,6 +240,18 @@ install_changed_units() {
   ! $changed || systemctl daemon-reload
 }
 
+# Crawler-local migrations are never reverted, so a restore is the only way back from them: the
+# dump must hold the database they start from. Taken with the services stopped, so nothing the
+# crawler stores between the dump and the migrations is lost on a restore.
+backup_database() {
+  echo "backing up the crawler database before ${build} applies its migrations"
+  if ! systemctl start "$BACKUP_UNIT"; then
+    echo "the backup failed, so ${build} was not deployed; see: journalctl -u ${BACKUP_UNIT%.service}" >&2
+    exit 1
+  fi
+  echo "backed up the crawler database"
+}
+
 wait_healthy() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT))
   while true; do
@@ -292,15 +307,31 @@ if [[ "$previous" == "$target" ]]; then
   echo "build ${build} is already running; restarting it"
 fi
 [[ "$previous" == "$target" ]] || check_rollback "$previous"
-if $unattended && release_adds_migrations "$previous"; then
-  echo "${build} adds crawler-local migrations: deploy it by hand: back the database up first (systemctl start crawler-backup.service) and watch it" >&2
+adds_migrations=false
+release_adds_migrations "$previous" && adds_migrations=true
+if $unattended && $adds_migrations; then
+  echo "${build} adds crawler-local migrations: deploy it by hand, which backs the database up first, and watch it" >&2
   exit "$EXIT_NEEDS_OPERATOR"
+fi
+# A restored database is the backup it came from, or empty after a squash: a dump of it would only
+# push a real one out of the dumps the backup keeps.
+take_backup=false
+if $adds_migrations && ! $db_restored; then
+  if $skip_backup; then
+    echo "warning: --skip-backup: ${build} applies its migrations without a backup taken by this deploy" >&2
+  elif ! unit_installed "$BACKUP_UNIT"; then
+    echo "${build} adds crawler-local migrations and ${BACKUP_UNIT} is not installed: set it up (docs/crawler/operations.md#scheduled-s3-backups) or take a backup yourself and rerun with --skip-backup" >&2
+    exit 1
+  else
+    take_backup=true
+  fi
 fi
 
 unit_active "$RUNNER_UNIT" && runner_was_active=true
 
 stop_services
 # A failure from here on starts the stopped services again (on_exit).
+! $take_backup || backup_database
 adopt_legacy_bin
 # The build this one replaces, including binaries adopted as legacy-<time> just now.
 rollback_to="$(current_release)"
