@@ -446,27 +446,45 @@ mod tests {
     }
 
     /// Stands in for the test-only external kind, which has no deployed template, so the
-    /// checks below run for the mechanism. Real external kinds list their MJML files.
+    /// checks below run for the mechanism.
     const EXTERNAL_TEST_PROBE_TEMPLATE: &str = "<html><body><a href=\"{{home_url}}\">Aura Historia</a><p>Reference: {{reference}}</p><a href=\"mailto:contact@aura-historia.com\">contact@aura-historia.com</a></body></html>";
 
-    fn external_templates() -> [(EmailTemplateType, [&'static str; 5]); 1] {
-        [(
-            EmailTemplateType::ExternalEmailTestProbe,
-            [EXTERNAL_TEST_PROBE_TEMPLATE; 5],
-        )]
+    /// Every external kind must list its templates (de, en, es, fr, it) and sample content
+    /// here; a new kind does not compile until it does.
+    fn external_template_fixture(
+        template: notification_core::external_email::ExternalEmailTemplate,
+    ) -> Result<
+        (
+            [&'static str; 5],
+            notification_core::external_email::ExternalEmailContent,
+        ),
+        Box<dyn std::error::Error>,
+    > {
+        use notification_core::external_email::{
+            ExternalEmailContent, ExternalEmailTemplate, ExternalEmailTestProbe,
+        };
+        Ok(match template {
+            ExternalEmailTemplate::TestProbe => (
+                [EXTERNAL_TEST_PROBE_TEMPLATE; 5],
+                ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new("probe-1")?),
+            ),
+        })
     }
 
     #[test]
     fn should_render_every_external_template_in_strict_mode_without_account_links()
     -> Result<(), Box<dyn std::error::Error>> {
-        use crate::template_mapping::{FrontendLinks, external_template_data};
+        use crate::template_mapping::{
+            FrontendLinks, external_template_data, external_template_type,
+        };
         use localization::Language;
         use notification_core::{
-            external_email::{ExternalEmailContent, ExternalEmailTestProbe},
+            external_email::{ExternalEmailRecipient, ExternalEmailTemplate},
             external_email_message_id::ExternalEmailMessageId,
             notification_delivery_id::NotificationDeliveryId,
         };
         use notification_service::ports::notification_delivery_repository::ExternalEmailDeliverySource;
+        use strum::IntoEnumIterator;
 
         let mut handlebars = Handlebars::new();
         handlebars.set_strict_mode(true);
@@ -477,7 +495,9 @@ mod tests {
             EmailLanguage::Fr,
             EmailLanguage::It,
         ];
-        for (template_type, templates) in external_templates() {
+        for template in ExternalEmailTemplate::iter() {
+            let (templates, content) = external_template_fixture(template)?;
+            let template_type = external_template_type(&content);
             // Ja has no email language and falls back to the English template.
             for language in [
                 Language::De,
@@ -496,11 +516,9 @@ mod tests {
                 let source = ExternalEmailDeliverySource {
                     notification_delivery_id: NotificationDeliveryId::new(),
                     external_email_message_id: ExternalEmailMessageId::new(),
-                    recipient: serde_email::Email::new("notifier@example.test")?,
+                    recipient: ExternalEmailRecipient::try_from("notifier@example.test")?,
                     language,
-                    content: ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new(
-                        "probe-1",
-                    )?),
+                    content: content.clone(),
                 };
                 let data = external_template_data(
                     &source,

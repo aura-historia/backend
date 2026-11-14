@@ -267,7 +267,8 @@ impl SesNotificationChannelSender {
                 &data,
             )
             .await?;
-        self.send_rendered(rendered, &source.recipient).await
+        self.send_rendered(rendered, source.recipient.as_email())
+            .await
     }
 
     async fn send_to_user(

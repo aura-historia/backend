@@ -467,6 +467,13 @@ Inspect safe delivery IDs, database completion and restricted provider evidence 
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
 historic customer mail.
 
+External email deliveries ([event flow](events/flow.md#external-email-delivery)) follow
+the same rules. Their message rows hold the recipient address and payload: triage by
+delivery ID, source type and error code, and never export or log addresses or payloads.
+A dead-lettered `delivery_state_invalid` job with source type `external` points to a
+corrupt or missing message; fix the persisted state through a reviewed change before
+redrive.
+
 ## Saved-search digest recovery
 
 Normal filter completion and notification selection finalize ready digests

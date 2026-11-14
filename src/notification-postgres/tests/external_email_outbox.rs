@@ -1,15 +1,14 @@
 use application::transaction::{Transaction, UnitOfWork};
 use localization::Language;
 use notification_core::external_email::{
-    ExternalEmailContent, ExternalEmailOrigin, ExternalEmailTestProbe,
+    ExternalEmailContent, ExternalEmailOrigin, ExternalEmailRecipient, ExternalEmailTestProbe,
 };
 use notification_postgres::SqlxExternalEmailOutboxFactory;
 use notification_service::ports::external_email_outbox::{
-    ExternalEmailEnqueueOutcome, ExternalEmailOutbox, ExternalEmailOutboxFactory,
-    ExternalEmailRequest,
+    ExternalEmailEnqueueOutcome, ExternalEmailErasure, ExternalEmailOutbox,
+    ExternalEmailOutboxFactory, ExternalEmailRequest,
 };
 use platform_postgres::SqlxUnitOfWork;
-use serde_email::Email;
 use sqlx::PgPool;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use uuid::Uuid;
@@ -18,7 +17,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 fn request(origin: ExternalEmailOrigin, reference: &str) -> ExternalEmailRequest {
     ExternalEmailRequest {
-        recipient: Email::new("notifier@example.test")
+        recipient: ExternalEmailRecipient::try_from("notifier@example.test")
             .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
         language: Language::It,
         content: ExternalEmailContent::TestProbe(
@@ -177,59 +176,110 @@ async fn should_return_the_existing_message_when_an_origin_enqueues_the_same_tem
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_enqueue_an_email_once_when_one_origin_enqueues_concurrently() {
+async fn should_wait_for_a_concurrent_enqueue_and_follow_its_outcome() {
     let pool = get_postgres_client().await;
-    let origin = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
+    for commit_first in [true, false] {
+        let origin = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
+        let factory = SqlxExternalEmailOutboxFactory::new();
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let mut first_tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin transaction: {error}"));
+        let first = factory
+            .in_transaction(&mut first_tx)
+            .enqueue(request(origin, "probe-1"))
+            .await
+            .unwrap_or_else(|error| panic!("enqueue external email: {error}"));
 
-    let (left, right) = tokio::join!(
-        enqueue(&pool, request(origin, "probe-1")),
-        enqueue(&pool, request(origin, "probe-1")),
-    );
+        let second = tokio::spawn({
+            let pool = pool.clone();
+            async move { enqueue(&pool, request(origin, "probe-1")).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            !second.is_finished(),
+            "the second enqueue must wait for the first transaction"
+        );
+        if commit_first {
+            first_tx
+                .commit()
+                .await
+                .unwrap_or_else(|error| panic!("commit transaction: {error}"));
+        } else {
+            drop(first_tx);
+        }
+        let second = second
+            .await
+            .unwrap_or_else(|error| panic!("second enqueue task: {error}"));
 
+        if commit_first {
+            assert_eq!(
+                ExternalEmailEnqueueOutcome::AlreadyEnqueued(first.external_email_message_id()),
+                second
+            );
+        } else {
+            assert!(matches!(
+                second,
+                ExternalEmailEnqueueOutcome::Enqueued(id) if id != first.external_email_message_id()
+            ));
+        }
+    }
     assert_eq!(
-        left.external_email_message_id(),
-        right.external_email_message_id()
-    );
-    assert_eq!(
-        1,
-        [left, right]
-            .iter()
-            .filter(|outcome| matches!(outcome, ExternalEmailEnqueueOutcome::Enqueued(_)))
-            .count()
-    );
-    assert_eq!(
-        1,
+        2,
         count(&pool, "SELECT count(*) FROM notification_deliveries").await
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_erase_an_origins_messages_with_their_deliveries() {
-    let pool = get_postgres_client().await;
-    let erased = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
-    enqueue(&pool, request(erased, "probe-1")).await;
-    let kept = enqueue(
-        &pool,
-        request(ExternalEmailOrigin::TestProbe(Uuid::now_v7()), "probe-2"),
-    )
-    .await;
+async fn erase(pool: &PgPool, origin: ExternalEmailOrigin) -> ExternalEmailErasure {
     let mut tx = SqlxUnitOfWork::new(pool.clone())
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin transaction: {error}"));
-
-    let erased_count = SqlxExternalEmailOutboxFactory::new()
+    let erasure = SqlxExternalEmailOutboxFactory::new()
         .in_transaction(&mut tx)
-        .erase_origin(erased)
+        .erase_origin(origin)
         .await
         .unwrap_or_else(|error| panic!("erase origin: {error}"));
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("commit transaction: {error}"));
+    erasure
+}
 
-    assert_eq!(1, erased_count);
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_erase_only_finished_messages_of_an_origin_with_their_deliveries() {
+    let pool = get_postgres_client().await;
+    let finished = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
+    let pending = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
+    let finished_id = enqueue(&pool, request(finished, "probe-1"))
+        .await
+        .external_email_message_id();
+    let pending_id = enqueue(&pool, request(pending, "probe-2"))
+        .await
+        .external_email_message_id();
+    sqlx::query("UPDATE notification_deliveries SET status = 'DELIVERED', provider_message_id = 'receipt', delivered_at = now() WHERE external_email_message_id = $1")
+        .bind(finished_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("finish delivery: {error}"));
+
     assert_eq!(
-        vec![kept.external_email_message_id().into_uuid()],
+        ExternalEmailErasure {
+            erased: 1,
+            in_flight: 0
+        },
+        erase(&pool, finished).await
+    );
+    assert_eq!(
+        ExternalEmailErasure {
+            erased: 0,
+            in_flight: 1
+        },
+        erase(&pool, pending).await
+    );
+    assert_eq!(
+        vec![pending_id.into_uuid()],
         sqlx::query_scalar::<_, Uuid>(
             "SELECT external_email_message_id FROM notification_deliveries"
         )

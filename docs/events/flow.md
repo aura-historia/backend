@@ -487,13 +487,18 @@ the recipient and language from the message, never from a user account, and rend
 kind's template in that language or in English. External templates carry no name and no
 account or notification-settings links. Claim, lease, fenced finalization, retry
 classification, attempt counting, DLQ and alarms are shared with user notifications.
-Delivery logs label the source as `notification`, `digest` or `external`. A missing
-message or an unknown or undecodable message is invalid persisted state and follows the
-invalid-job path to the DLQ. It is never treated as suppression.
+The delivery attempt's logs label the source as `notification`, `digest` or `external`,
+including when a claimed source is rejected. A missing message or an unknown or
+undecodable message is invalid persisted state and follows the invalid-job path to the
+DLQ. It is never treated as suppression.
 
 The message and its payload are personal data. Each origin owns their retention and
-erases its messages by origin. Erasure cascades to the delivery, and a delivery job
-that arrives afterwards completes as missing. There is no automatic purge.
+erases its messages by origin; there is no automatic purge. Erasure removes only
+messages whose delivery is `DELIVERED` or `FAILED`, together with that delivery. It keeps
+and reports pending or in-progress messages, so it never races a send or strands a
+delivery job (a job for a missing delivery is retried, not acknowledged). Origins erase
+those again once they finish. Retention periods must exceed the delivery queue's message
+retention, so no duplicate job outlives its delivery row.
 
 Roll out as expand before contract. Deploy the schema and delivery support for a source
 or template kind before any producer writes it.

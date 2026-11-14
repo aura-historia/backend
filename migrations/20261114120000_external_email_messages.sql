@@ -41,13 +41,19 @@ CREATE TABLE external_email_messages (
         UNIQUE (origin_type, origin_id, template)
 );
 
+-- The shape change takes a brief exclusive lock. The new constraints start NOT VALID, so
+-- existing rows are checked by the next migration without blocking delivery writes.
 ALTER TABLE notification_deliveries
-    ADD COLUMN external_email_message_id uuid UNIQUE
-        REFERENCES external_email_messages ON DELETE CASCADE,
+    ADD COLUMN external_email_message_id uuid,
+    ADD CONSTRAINT notification_deliveries_external_email_message_id_key
+        UNIQUE (external_email_message_id),
+    ADD CONSTRAINT notification_deliveries_external_email_message_id_fkey
+        FOREIGN KEY (external_email_message_id)
+        REFERENCES external_email_messages ON DELETE CASCADE NOT VALID,
     DROP CONSTRAINT notification_delivery_source_check,
     ADD CONSTRAINT notification_delivery_source_check
-        CHECK (num_nonnulls(notification_id, digest_id, external_email_message_id) = 1),
+        CHECK (num_nonnulls(notification_id, digest_id, external_email_message_id) = 1) NOT VALID,
     ADD CONSTRAINT notification_deliveries_external_email_target_check CHECK (
         external_email_message_id IS NULL
         OR (channel = 'EMAIL' AND target_key = 'RECIPIENT')
-    );
+    ) NOT VALID;

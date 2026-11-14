@@ -3,6 +3,7 @@ use crate::delivery_mapping::channel_from_persisted;
 use application::error::box_error;
 use localization::Language;
 use notification_core::{
+    external_email::ExternalEmailRecipient,
     external_email_message_id::ExternalEmailMessageId,
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_delivery_id::NotificationDeliveryId,
@@ -10,7 +11,6 @@ use notification_core::{
 use notification_service::ports::notification_delivery_repository::{
     ExternalEmailDeliverySource, NotificationDeliveryError, NotificationDeliverySource,
 };
-use serde_email::Email;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -60,7 +60,7 @@ fn source_from_row(
         notification_delivery_id,
         external_email_message_id: ExternalEmailMessageId::try_from(row.external_email_message_id)
             .map_err(invalid_source)?,
-        recipient: Email::try_from(row.recipient_email).map_err(invalid_source)?,
+        recipient: ExternalEmailRecipient::try_from(row.recipient_email).map_err(invalid_source)?,
         language: Language::from_code(&row.language)
             .ok_or_else(|| invalid("unknown external email language"))?,
         content: decode_content(&row.template, row.payload_version, row.payload)

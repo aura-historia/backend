@@ -3,14 +3,13 @@ use application::error::BoxError;
 use listing_source_core::ListingSourceId;
 use localization::Language;
 use notification_core::{
-    external_email::ExternalEmailContent,
+    external_email::{ExternalEmailContent, ExternalEmailRecipient},
     external_email_message_id::ExternalEmailMessageId,
     notification::NotificationContent,
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_delivery_id::NotificationDeliveryId,
     notification_id::NotificationId,
 };
-use serde_email::Email;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
@@ -100,7 +99,7 @@ pub struct UserNotificationDeliverySource {
 pub struct ExternalEmailDeliverySource {
     pub notification_delivery_id: NotificationDeliveryId,
     pub external_email_message_id: ExternalEmailMessageId,
-    pub recipient: Email,
+    pub recipient: ExternalEmailRecipient,
     pub language: Language,
     pub content: ExternalEmailContent,
 }

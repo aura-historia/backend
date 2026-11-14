@@ -104,25 +104,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         };
 
         let claimed = claimed_from_row(row)?;
-        let source = match claimed.source_id {
-            NotificationDeliverySourceId::Notification(_) => {
-                load_notification_source(&mut transaction, notification_delivery_id).await?
-            }
-            NotificationDeliverySourceId::SavedSearchDigest(_) => {
-                crate::saved_search_digest::load_delivery_source(
-                    &mut transaction,
-                    notification_delivery_id,
-                )
-                .await?
-            }
-            NotificationDeliverySourceId::ExternalEmailMessage(_) => Some(
-                crate::external_email::load_delivery_source(
-                    &mut transaction,
-                    notification_delivery_id,
-                )
-                .await?,
-            ),
-        };
+        let source = load_source(&mut transaction, &claimed).await?;
         transaction
             .commit()
             .await
@@ -196,6 +178,37 @@ impl From<DeliveryOperationFailed> for NotificationDeliveryError {
             source: box_error(error.0),
         }
     }
+}
+
+/// Loads the claimed delivery's source. Invalid persisted state rolls the claim back; the
+/// warning names the source type, never its content, so the dead-lettered job is triageable.
+async fn load_source(
+    connection: &mut PgConnection,
+    claimed: &ClaimedNotificationDelivery,
+) -> Result<Option<NotificationDeliverySource>, NotificationDeliveryError> {
+    let notification_delivery_id = claimed.notification_delivery_id;
+    let source = match claimed.source_id {
+        NotificationDeliverySourceId::Notification(_) => {
+            load_notification_source(connection, notification_delivery_id).await
+        }
+        NotificationDeliverySourceId::SavedSearchDigest(_) => {
+            crate::saved_search_digest::load_delivery_source(connection, notification_delivery_id)
+                .await
+        }
+        NotificationDeliverySourceId::ExternalEmailMessage(_) => {
+            crate::external_email::load_delivery_source(connection, notification_delivery_id)
+                .await
+                .map(Some)
+        }
+    };
+    if let Err(NotificationDeliveryError::InvalidPersistedState { .. }) = &source {
+        tracing::warn!(
+            notification_delivery_id = %notification_delivery_id,
+            source_type = claimed.source_id.source_type(),
+            "claimed notification delivery source is invalid persisted state"
+        );
+    }
+    source
 }
 
 async fn load_unclaimed_outcome(

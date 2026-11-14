@@ -1,16 +1,15 @@
 use application::error::BoxError;
 use localization::Language;
 use notification_core::{
-    external_email::{ExternalEmailContent, ExternalEmailOrigin},
+    external_email::{ExternalEmailContent, ExternalEmailOrigin, ExternalEmailRecipient},
     external_email_message_id::ExternalEmailMessageId,
 };
-use serde_email::Email;
 
 /// A transactional email to an address that does not belong to a user account.
 /// `recipient` and `content` are personal data: never log them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExternalEmailRequest {
-    pub recipient: Email,
+    pub recipient: ExternalEmailRecipient,
     /// Rendered in this language when a template exists for it, otherwise in English.
     pub language: Language,
     pub content: ExternalEmailContent,
@@ -30,6 +29,15 @@ impl ExternalEmailEnqueueOutcome {
             Self::Enqueued(id) | Self::AlreadyEnqueued(id) => id,
         }
     }
+}
+
+/// The result of erasing an origin's messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExternalEmailErasure {
+    /// Messages erased together with their finished (delivered or failed) deliveries.
+    pub erased: u64,
+    /// Messages kept because their delivery is still pending or in progress.
+    pub in_flight: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,13 +66,14 @@ pub trait ExternalEmailOutbox: Send {
         request: ExternalEmailRequest,
     ) -> Result<ExternalEmailEnqueueOutcome, ExternalEmailOutboxError>;
 
-    /// Erases every message of `origin` together with its deliveries, whatever their
-    /// status, and returns how many messages were erased. Origins call this to apply
-    /// their own retention of the personal data in their messages.
+    /// Erases the messages of `origin` whose delivery has finished, together with those
+    /// deliveries. Messages still pending or in progress are kept and counted, so erasure
+    /// never races a send or strands a delivery job; erase them again once they finish.
+    /// Origins call this to apply their own retention of the personal data in messages.
     async fn erase_origin(
         &mut self,
         origin: ExternalEmailOrigin,
-    ) -> Result<u64, ExternalEmailOutboxError>;
+    ) -> Result<ExternalEmailErasure, ExternalEmailOutboxError>;
 }
 
 pub trait ExternalEmailOutboxFactory<Tx>: Send + Sync {

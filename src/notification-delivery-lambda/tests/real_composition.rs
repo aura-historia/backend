@@ -194,9 +194,20 @@ async fn external_email_is_sent_to_the_message_recipient_in_its_language_without
             .bind(delivery.as_uuid()).bind(message).execute(&pool).await?;
         assert_eq!(0, sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users").fetch_one(&pool).await?);
 
+        let (logs, guard) = test_api::CapturedLogs::start();
         let response = handler(event("external", job_body(delivery)?), use_case.as_ref()).await?;
+        drop(guard);
 
         assert!(failure_ids(response).is_empty());
+        assert_eq!(
+            1,
+            logs.events_where("message", "notification delivery claimed")
+                .iter()
+                .filter(|fields| fields["source_type"] == "external")
+                .count()
+        );
+        assert!(!logs.text().contains(&recipient), "the recipient must never be logged");
+        assert!(!logs.text().contains("probe-7"), "the payload must never be logged");
         assert_eq!("DELIVERED", snapshot(&pool, delivery).await?["status"]);
         let email = get_sent_emails().await.into_iter().find(|email|
             email.destination.to_addresses.contains(&recipient)

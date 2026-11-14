@@ -1224,8 +1224,10 @@ mod tests {
             notification_delivery_id: NotificationDeliveryId::new(),
             external_email_message_id:
                 notification_core::external_email_message_id::ExternalEmailMessageId::new(),
-            recipient: serde_email::Email::new("notifier@example.test")
-                .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
+            recipient: notification_core::external_email::ExternalEmailRecipient::try_from(
+                "notifier@example.test",
+            )
+            .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
             language,
             content: ExternalEmailContent::TestProbe(
                 notification_core::external_email::ExternalEmailTestProbe::new("probe-1")

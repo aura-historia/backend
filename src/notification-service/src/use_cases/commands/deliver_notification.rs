@@ -440,7 +440,7 @@ mod tests {
         },
         notification_delivery_repository::{
             ClaimedNotificationDelivery, ExternalEmailDeliverySource, NotificationDeliverySource,
-            NotificationDeliverySourceId, UserNotificationDeliverySource,
+            UserNotificationDeliverySource,
         },
     };
     use application::error::box_error;
@@ -448,7 +448,7 @@ mod tests {
     use localization::Language;
     use notification_core::notification_id::NotificationId;
     use notification_core::{
-        external_email::{ExternalEmailContent, ExternalEmailTestProbe},
+        external_email::{ExternalEmailContent, ExternalEmailRecipient, ExternalEmailTestProbe},
         external_email_message_id::ExternalEmailMessageId,
     };
     use notification_core::{
@@ -865,7 +865,7 @@ mod tests {
         NotificationDeliverySource::ExternalEmail(ExternalEmailDeliverySource {
             notification_delivery_id,
             external_email_message_id: ExternalEmailMessageId::new(),
-            recipient: serde_email::Email::new("notifier@example.test")
+            recipient: ExternalEmailRecipient::try_from("notifier@example.test")
                 .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
             language: Language::De,
             content: ExternalEmailContent::TestProbe(
@@ -924,10 +924,6 @@ mod tests {
             DeliverNotificationResult::Delivered { attempt_count: 2 },
             result
         );
-        assert!(matches!(
-            source.source_id(),
-            NotificationDeliverySourceId::ExternalEmailMessage(_)
-        ));
         assert_eq!(
             vec![source],
             sender

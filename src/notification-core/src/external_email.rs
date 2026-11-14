@@ -4,8 +4,76 @@
 //! transaction and the notification delivery pipeline sends it; `docs/events/flow.md`
 //! (External email delivery) owns the contract.
 
+use serde_email::Email;
 use strum::IntoEnumIterator;
 use uuid::Uuid;
+
+/// The address an external email is sent to: a bare address without display text.
+/// It is personal data, so `Debug` and errors never repeat it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ExternalEmailRecipient(Email);
+
+/// Why a recipient address was rejected. It never repeats the address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidExternalEmailRecipient {
+    #[error("email address is invalid")]
+    Invalid,
+    #[error("email address must be a bare address without display text, spaces or controls")]
+    NotBareAddress,
+    #[error("email address must not exceed {max_bytes} bytes")]
+    TooLong { max_bytes: usize },
+}
+
+impl ExternalEmailRecipient {
+    pub const MAX_BYTES: usize = 320;
+
+    pub fn as_email(&self) -> &Email {
+        &self.0
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl TryFrom<&str> for ExternalEmailRecipient {
+    type Error = InvalidExternalEmailRecipient;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let value = value.trim();
+        if value.len() > Self::MAX_BYTES {
+            return Err(InvalidExternalEmailRecipient::TooLong {
+                max_bytes: Self::MAX_BYTES,
+            });
+        }
+        if value.chars().any(|character| {
+            matches!(character, '<' | '>') || character.is_whitespace() || character.is_control()
+        }) {
+            return Err(InvalidExternalEmailRecipient::NotBareAddress);
+        }
+        // The email error repeats the address, so it is not kept as the cause.
+        Email::new(value)
+            .map(Self)
+            .map_err(|_| InvalidExternalEmailRecipient::Invalid)
+    }
+}
+
+impl TryFrom<String> for ExternalEmailRecipient {
+    type Error = InvalidExternalEmailRecipient;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl std::fmt::Debug for ExternalEmailRecipient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ExternalEmailRecipient")
+            .field(&"<redacted>")
+            .finish()
+    }
+}
 
 /// The typed template variables of an external email. Each variant is one template kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +166,44 @@ pub struct InvalidExternalEmailTestProbe;
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn should_accept_a_trimmed_bare_recipient_address() -> Result<(), InvalidExternalEmailRecipient>
+    {
+        let recipient = ExternalEmailRecipient::try_from(" notifier@example.test ")?;
+
+        assert_eq!("notifier@example.test", recipient.as_str());
+        assert_eq!(
+            "ExternalEmailRecipient(\"<redacted>\")",
+            format!("{recipient:?}")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_recipients_that_are_not_bare_addresses_without_repeating_them() {
+        let too_long = format!("{}@example.test", "a".repeat(320));
+        for (value, expected) in [
+            (
+                "Jane <jane@example.test>",
+                InvalidExternalEmailRecipient::NotBareAddress,
+            ),
+            (
+                "\"jane doe\"@example.test",
+                InvalidExternalEmailRecipient::NotBareAddress,
+            ),
+            ("not-an-address", InvalidExternalEmailRecipient::Invalid),
+            (
+                too_long.as_str(),
+                InvalidExternalEmailRecipient::TooLong { max_bytes: 320 },
+            ),
+        ] {
+            let error =
+                ExternalEmailRecipient::try_from(value).expect_err("recipient should be rejected");
+            assert_eq!(expected, error);
+            assert!(!error.to_string().contains("example.test"));
+        }
+    }
 
     #[test]
     fn should_round_trip_every_template_code() {
