@@ -354,6 +354,7 @@ Launch with `CRAWLER_AUTHORING_MODE=agent` and the [review agent runner](#review
 - With `CRAWLER_AUTHORING_MODE=agent`, a missing `CRAWLER_REVIEW_AUTH_TOKEN` fails startup with `CRAWLER_AUTHORING_MODE=agent needs CRAWLER_REVIEW_AUTH_TOKEN, ...`, and the `crawler` user must be able to write the working directory, which `StateDirectory=crawler` provides, for the agents' token file.
 - A decision cap, matrix age, repair-round cap or live-job cap (`CRAWLER_REVIEW_MAX_CONCURRENT_LIVE_JOBS`) that is not a whole number of at least 1 fails startup.
 - `server` accepts review mutations only with the bearer token, so approving manual reviews needs the token even on loopback. Without a token, reads are open to anyone who reaches the port.
+- The browser console asks for the token once, with one prompt however many requests the console refused together, and keeps it in the browser's local storage, so every tab and later visit of that browser uses it until the operator signs out or the console refuses it. Sign out on a shared machine.
 
 For launch, keep the loopback bind, set a random token, and tunnel: `ssh -L 7878:127.0.0.1:7878 <host>`, then open `http://127.0.0.1:7878`. The alternative is a non-loopback bind behind a TLS-terminating reverse proxy; the token is then mandatory and the session cookie is `Secure`, so browsers must use HTTPS.
 

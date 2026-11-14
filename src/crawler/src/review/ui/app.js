@@ -27,7 +27,13 @@ let selectedReviewRefreshReason = '';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 // A status the header shows until it is replaced: `Signed out`, or why the refresh failed.
 let transientStatus = null;
-let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
+// The review token the operator entered once. It is kept in this browser's local storage, so every
+// tab and every later visit uses it without asking again, until the operator signs out or the
+// console refuses it.
+const REVIEW_TOKEN_KEY = 'crawlerReviewAuthToken';
+let reviewAuthToken = readStoredReviewToken();
+// The prompt for the token while one is open, so requests refused at the same time share it.
+let reviewTokenPrompt = null;
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
 // The page and schema a URL fragment asks for, applied when its review has loaded.
@@ -85,14 +91,28 @@ function toggleTheme() {
     applyTheme(theme === 'dark' ? 'light' : 'dark');
 }
 
+// The stored token, taking over one an older console kept for this tab only; storage that cannot
+// be read leaves the console to ask for the token.
+function readStoredReviewToken() {
+    try {
+        const stored = localStorage.getItem(REVIEW_TOKEN_KEY) || sessionStorage.getItem(REVIEW_TOKEN_KEY) || '';
+        if (stored) localStorage.setItem(REVIEW_TOKEN_KEY, stored);
+        sessionStorage.removeItem(REVIEW_TOKEN_KEY);
+        return stored;
+    } catch (_) {
+        return '';
+    }
+}
+
 function setReviewAuthToken(token) {
     reviewAuthToken = token || '';
     reviewSessionEstablished = false;
-    if (reviewAuthToken) {
-        if (transientStatus?.text === 'Signed out') transientStatus = null;
-        sessionStorage.setItem('crawlerReviewAuthToken', reviewAuthToken);
-    } else {
-        sessionStorage.removeItem('crawlerReviewAuthToken');
+    if (reviewAuthToken && transientStatus?.text === 'Signed out') transientStatus = null;
+    try {
+        if (reviewAuthToken) localStorage.setItem(REVIEW_TOKEN_KEY, reviewAuthToken);
+        else localStorage.removeItem(REVIEW_TOKEN_KEY);
+    } catch (_) {
+        // Without storage the token lasts as long as this page.
     }
     updateSignOutButton();
 }
@@ -129,7 +149,18 @@ async function fetchOrNetworkError(path, options) {
     }
 }
 
-async function requestReviewAuthToken() {
+// Asks for the token once however many requests the console refused together: they all wait for
+// the one prompt and retry with its answer.
+function requestReviewAuthToken() {
+    if (!reviewTokenPrompt) {
+        reviewTokenPrompt = promptForReviewAuthToken().finally(() => {
+            reviewTokenPrompt = null;
+        });
+    }
+    return reviewTokenPrompt;
+}
+
+async function promptForReviewAuthToken() {
     const token = window.prompt('Enter crawler review token');
     if (token === null || !token.trim()) return false;
     const response = await fetchOrNetworkError('/api/session', {
@@ -159,8 +190,13 @@ async function api(path, options = {}, allowPrompt = true) {
     await ensureReviewSession();
     const headers = new Headers(options.headers || {});
     headers.set('content-type', 'application/json');
-    if (reviewAuthToken) headers.set('authorization', `Bearer ${reviewAuthToken}`);
+    const sentToken = reviewAuthToken;
+    if (sentToken) headers.set('authorization', `Bearer ${sentToken}`);
     const res = await fetchOrNetworkError(path, {...options, headers, credentials: 'same-origin'});
+    // A request refused while another one's prompt was answered retries with the new token first.
+    if (res.status === 401 && allowPrompt && sentToken !== reviewAuthToken && reviewAuthToken) {
+        return api(path, options, false);
+    }
     if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
         return api(path, options, false);
     }
@@ -287,6 +323,14 @@ function pluralize(count, one, many) {
 
 function listingSourceName(source) {
     return String(source.listing_source_name || 'Unnamed source');
+}
+
+// The shop's real site, its crawl root, as a link that opens in a new tab under the source's name;
+// the host as plain text without a crawl root.
+function sourceSiteLink(source) {
+    const host = escapeHtml(sourceHost(source));
+    if (!isHttpUrl(source.crawl_root_url || '')) return `<span class="cell-sub">${host}</span>`;
+    return `<a class="cell-sub site-link" href="${escapeHtmlAttr(source.crawl_root_url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(source.crawl_root_url)} in a new tab">${host} ↗</a>`;
 }
 
 function sourceHost(source) {
@@ -1230,7 +1274,7 @@ function renderSourceRow(source) {
     const blockingLink = status.key === 'blocked_by_review' && blocking
         ? ` · <a href="${reviewHash(blocking)}">its review →</a>` : '';
     return `<tr${rowClasses(source.crawl_enabled ? '' : 'dim', listReturnId() === source.listing_source_id ? 'selected' : '', lists.sources.changes?.added.has(source.listing_source_id) ? 'changed' : '')}>
-      <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span><span class="cell-sub">${escapeHtml(sourceHost(source))}</span></a></td>
+      <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span></a>${sourceSiteLink(source)}</td>
       <td>${statusKeyBadge(status)}${status.more ? ` <span class="more${status.note ? ' more-note' : ''}"${status.note ? ` title="${escapeHtmlAttr(status.more)}"` : ''}>${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}</td>
       <td class="num">${pending ? `<a href="${escapeHtmlAttr(pendingHref)}">${formatCount(pending)}</a>` : '<span class="muted">0</span>'}</td>
       <td class="col-md">${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
@@ -1890,12 +1934,17 @@ function renderRailItem(review, meta, badgeHtml) {
 
 const CHEVRON_ICON = direction => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${direction === 'left' ? 'M10 4l-4 4 4 4' : 'M6 4l4 4-4 4'}"/></svg>`;
 
-// The source's name opens the shop's site, its crawl root, in a new tab; without a crawl root it is
-// plain text.
-function railSourceName(name) {
+// The source's name opens its overview in the console; without a known source it is plain text.
+function railSourceName(name, listingSourceId) {
+    if (!listingSourceId) return `<span class="rail-source">${escapeHtml(name)}</span>`;
+    return `<a class="rail-source" href="${sourceHash(listingSourceId)}" title="Open this source's overview">${escapeHtml(name)}</a>`;
+}
+
+// Under the name, the shop's real site, its crawl root, opens in a new tab; nothing without one.
+function railSourceSite() {
     const site = rail.source?.crawl_root_url;
-    if (!isHttpUrl(site || '')) return `<span class="rail-source">${escapeHtml(name)}</span>`;
-    return `<a class="rail-source" href="${escapeHtmlAttr(site)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(site)} in a new tab">${escapeHtml(name)}</a>`;
+    if (!isHttpUrl(site || '')) return '';
+    return `<a class="rail-site" href="${escapeHtmlAttr(site)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(site)} in a new tab">${escapeHtml(sourceHost(rail.source))} ↗</a>`;
 }
 
 function renderRailContent() {
@@ -1903,7 +1952,7 @@ function renderRailContent() {
         return `<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(false)" aria-label="Show this source's reviews" title="Show this source's reviews" aria-expanded="false" type="button">${CHEVRON_ICON('right')}</button>`;
     }
     const name = selectedDetail?.review.listing_source_name || 'This source';
-    const head = `<div class="card-head"><h3>${railSourceName(name)}${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}</h3>
+    const head = `<div class="card-head"><div class="rail-source-head"><h3>${railSourceName(name, selectedDetail?.review.listing_source_id)}${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}</h3>${railSourceSite()}</div>
       <button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" aria-expanded="true" type="button">${CHEVRON_ICON('left')}</button></div>`;
     if (rail.items === undefined) {
         return `${head}<div class="rail-body">${rail.failure ? stateBlock('error', 'Reviews unavailable', rail.failure) : stateBlock('loading', 'Loading')}</div>`;
