@@ -68,6 +68,7 @@ use search_filter_service::use_cases::{
 use serde::Serialize;
 use woocommerce_service::WoocommerceWebhookIntakeError;
 
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleError;
@@ -293,9 +294,9 @@ impl Display for ApiErrorCode {
     }
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub(crate) struct ApiErrorSource {
-    field: &'static str,
+    field: Cow<'static, str>,
     #[serde(rename = "type")]
     source_type: ApiErrorSourceType,
 }
@@ -370,9 +371,9 @@ impl ApiError {
         )
     }
 
-    pub(crate) fn with_body_field(mut self, field: &'static str) -> Self {
+    pub(crate) fn with_body_field(mut self, field: impl Into<Cow<'static, str>>) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: field.into(),
             source_type: ApiErrorSourceType::Body,
         });
         self
@@ -380,7 +381,7 @@ impl ApiError {
 
     pub(crate) fn with_header_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Header,
         });
         self
@@ -388,7 +389,7 @@ impl ApiError {
 
     pub(crate) fn with_query_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Query,
         });
         self
@@ -396,7 +397,7 @@ impl ApiError {
 
     pub(crate) fn with_path_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Path,
         });
         self
