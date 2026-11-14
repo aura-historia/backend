@@ -195,7 +195,9 @@ async fn lock_source(
 }
 
 /// Stores `actor`'s qualification on the ListingSource and appends it to the source's
-/// qualification history, answering when.
+/// qualification history, answering when. The first decision ends the source's part in the
+/// one-off backfill: should its qualification be cleared, it waits uncrawled like a new source,
+/// and no agent replaces a label a human set on it.
 async fn store_qualification(
     transaction: &mut Transaction<'_, Postgres>,
     listing_source_id: &ListingSourceId,
@@ -207,7 +209,7 @@ async fn store_qualification(
     let qualified_at = sqlx::query_scalar::<_, OffsetDateTime>(
         "UPDATE listing_sources \
          SET qualification = $2, qualification_note = $3, qualified_at = NOW(), \
-             qualified_by = $4, updated = NOW() \
+             qualified_by = $4, qualification_backfill = FALSE, updated = NOW() \
          WHERE listing_source_id = $1 \
          RETURNING qualified_at",
     )

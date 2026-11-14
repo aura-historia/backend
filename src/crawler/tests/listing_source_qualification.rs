@@ -399,3 +399,68 @@ async fn should_qualify_a_source_whose_label_a_human_clears() {
         ]
     );
 }
+
+/// The backfill ends with a source's first decision: once a human clears that qualification, the
+/// source waits uncrawled like a new one, and an agent no longer replaces a label a human set.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_end_the_backfill_of_a_source_with_its_first_decision() {
+    let pool = get_postgres_client().await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let unlabelled = ListingSourceId::new();
+    let human_labelled = ListingSourceId::new();
+    let scope = || {
+        vec![
+            registered(unlabelled, "https://clocks.example/"),
+            registered(human_labelled, "https://odd.example/"),
+        ]
+    };
+    sync(&pool, QualificationGate::Off, scope()).await;
+    make_backfill(&pool, unlabelled).await;
+    make_backfill(&pool, human_labelled).await;
+    reviews
+        .label_source(
+            &human_labelled,
+            ReviewActor::Human,
+            &SourceLabelRequest::new(SourceLabel::Other, Some(note("odd shop"))).unwrap(),
+        )
+        .await
+        .unwrap();
+    let qualified = decision(
+        Qualification::Qualified,
+        None,
+        "/ sells antique clocks with prices and a cart",
+    );
+    for listing_source_id in [unlabelled, human_labelled] {
+        reviews
+            .decide_qualification(&listing_source_id, ReviewActor::AgentAuthor, &qualified)
+            .await
+            .unwrap();
+        reviews
+            .clear_qualification(&listing_source_id, ReviewActor::Human)
+            .await
+            .unwrap();
+    }
+
+    sync(&pool, QualificationGate::Required, scope()).await;
+    assert!(
+        !crawl_enabled(&pool, unlabelled).await,
+        "a cleared source waits uncrawled"
+    );
+    assert_eq!(queued(&pool).await, vec![(unlabelled, false)]);
+    let refused = reviews
+        .decide_qualification(
+            &human_labelled,
+            ReviewActor::AgentAuthor,
+            &decision(
+                Qualification::Disqualified,
+                Some(SourceLabel::ShopClosed),
+                "/ shows a domain-for-sale page",
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(refused, ReviewRepositoryError::HumanLabelStands(_)),
+        "{refused}"
+    );
+}
