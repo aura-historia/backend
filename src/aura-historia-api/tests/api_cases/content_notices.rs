@@ -34,6 +34,25 @@ async fn admin_get(
     (status, body, cache_control)
 }
 
+/// Submits a provider opt-out for a listing source through the public endpoint.
+pub(crate) async fn submit_provider_opt_out(listing_source_id: ListingSourceId) {
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/content-notices", AURA_API.base_url()))
+        .json(&json!({
+            "target": {"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()},
+            "submitterRole": "PROVIDER",
+            "reasonCategory": "PROVIDER_OPT_OUT",
+            "name": "Max Mustermann",
+            "email": "max@antik.example",
+            "language": "de",
+            "goodFaithConfirmed": true
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to submit content notice: {error}"));
+    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+}
+
 async fn token(role: &'static str, scopes: HashSet<Scope>) -> String {
     String::from(seed_access_token_for(seed_user(role).await, scopes).await)
 }
@@ -59,21 +78,7 @@ async fn should_list_content_notices_only_for_admins_with_the_read_scope() {
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_a_submitted_notice_with_its_current_target_only_to_admins() {
     let listing_source_id = ListingSourceId::try_from(seed_listing_source().await).unwrap();
-    let response = reqwest::Client::new()
-        .post(format!("{}/v1/content-notices", AURA_API.base_url()))
-        .json(&json!({
-            "target": {"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()},
-            "submitterRole": "PROVIDER",
-            "reasonCategory": "PROVIDER_OPT_OUT",
-            "name": "Max Mustermann",
-            "email": "max@antik.example",
-            "language": "de",
-            "goodFaithConfirmed": true
-        }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to submit content notice: {error}"));
-    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+    submit_provider_opt_out(listing_source_id).await;
     let admin = token("ADMIN", HashSet::from([Scope::ContentNoticesRead])).await;
     let (_, page, _) = list(&admin).await;
     let id = page["items"][0]["contentNoticeId"]

@@ -13530,7 +13530,8 @@ paths:
         `listingSources.methodAssignments` counts source-method assignments, not distinct sources,
         so its values may sum to more than `listingSources.total`. ProductListing availability
         counts include only `ACTIVE` listings; `activeWithoutAvailability` identifies active rows
-        without a current source availability assertion. Responses contain no PII, secrets, or
+        without a current source availability assertion. `contentNotices` counts content notices
+        and needs no `content-notices:read` scope. Responses contain no PII, secrets, or
         embedded collections and always use `Cache-Control: no-store`.
       operationId: getAdminOverview
       tags:
@@ -26528,6 +26529,7 @@ components:
         - schemaVersion
         - users
         - partnershipApplications
+        - contentNotices
         - parties
         - listingSources
         - partnerships
@@ -26542,6 +26544,8 @@ components:
           $ref: "#/components/schemas/AdminOverviewUsersData"
         partnershipApplications:
           $ref: "#/components/schemas/AdminOverviewPartnershipApplicationsData"
+        contentNotices:
+          $ref: "#/components/schemas/AdminOverviewContentNoticesData"
         parties:
           $ref: "#/components/schemas/AdminOverviewCountData"
         listingSources:
@@ -26602,6 +26606,25 @@ components:
         approved: { type: integer, format: int64, minimum: 0 }
         rejected: { type: integer, format: int64, minimum: 0 }
         withdrawn: { type: integer, format: int64, minimum: 0 }
+    AdminOverviewContentNoticesData:
+      type: object
+      description: Content notices of every target and category, counted by business state.
+      required: [total, byState]
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        byState:
+          $ref: "#/components/schemas/AdminOverviewContentNoticeStateCountsData"
+    AdminOverviewContentNoticeStateCountsData:
+      type: object
+      description: >-
+        Notices per business state. Every notice is `SUBMITTED` until decision states exist;
+        later states are added as new keys, so clients must ignore unknown keys.
+      required: [submitted]
+      properties:
+        submitted: { type: integer, format: int64, minimum: 0 }
     AdminOverviewListingSourcesData:
       type: object
       description: "methodAssignments counts source-method rows and need not sum to total."

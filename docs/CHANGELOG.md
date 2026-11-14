@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Content notice counts in the admin overview (#2942)
+
+- `GET /v1/admin/overview` returns a new required `contentNotices` object next to `partnershipApplications`: `total` and `byState.submitted`. Every notice is `SUBMITTED` until decision states exist, which will add further `byState` keys. It uses the overview's existing `admin-overview:read` scope and `ADMIN` role; `content-notices:read` is not needed. `schemaVersion` stays `1` and all other fields are unchanged.
+
 ## 2026-11-14 — Admin content notice detail (#2941)
 
 - New `GET /v1/admin/content-notices/{contentNoticeId}` (`adminGetContentNotice`) returns one content notice to administrators. It requires the `ADMIN` role and, for delegated access tokens, the `content-notices:read` scope. A malformed ID returns `400 INVALID_OBJECT_ID`, an unknown one `404 CONTENT_NOTICE_NOT_FOUND`. Responses, including errors, send `Cache-Control: no-store`.
@@ -20,7 +24,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-14 — Scope `content-notices:read` (#2937)
 
-- New delegated scope `content-notices:read` for the upcoming admin content-notice reads (list, detail and overview counts). Personal access tokens and registered OAuth clients can request it; like every admin scope it grants nothing without the `ADMIN` role. No endpoint uses it yet, and existing tokens and connections are unchanged.
+- New delegated scope `content-notices:read` for the upcoming admin content-notice reads (list and detail). Personal access tokens and registered OAuth clients can request it; like every admin scope it grants nothing without the `ADMIN` role. No endpoint uses it yet, and existing tokens and connections are unchanged.
 
 ## 2026-11-14 — Overview `countries` counts where sources are located (#2957)
 
