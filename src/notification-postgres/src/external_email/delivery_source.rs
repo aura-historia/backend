@@ -14,7 +14,8 @@ use notification_service::ports::notification_delivery_repository::{
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-#[derive(Debug, sqlx::FromRow)]
+/// Holds the raw recipient address and payload, so it has no `Debug`.
+#[derive(sqlx::FromRow)]
 pub(super) struct ExternalEmailSourceRow {
     channel: String,
     target_key: String,

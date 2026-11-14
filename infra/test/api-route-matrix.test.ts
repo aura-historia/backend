@@ -196,6 +196,23 @@ describe("HTTP API route policy matrix", () => {
     }
   });
 
+  test("keeps content-notice submission optional-bearer and public", () => {
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/v1/content-notices")).toEqual([
+      {
+        method: "POST",
+        path: "/v1/content-notices",
+        lambda: "auraHistoriaApi",
+        auth: RouteAuthPolicy.OptionalBearer,
+        policy: {
+          bearer: "OPTIONAL",
+          authorization: RouteAuthorizationClass.Public,
+          oauthCredentials: OAuthCredentialRequirement.None,
+          providerProof: ProviderProofRequirement.None,
+        },
+      },
+    ]);
+  });
+
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
     expect(API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/v1/newsletter-subscriptions")))
       .toEqual([

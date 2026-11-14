@@ -10,7 +10,18 @@ use application::{
     operation_context::{CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
-use content_notice_core::{content_notice::ContentNotice, content_notice_id::ContentNoticeId};
+use content_notice_core::{
+    additional_url::AdditionalUrls,
+    content_notice::ContentNotice,
+    content_notice_id::ContentNoticeId,
+    content_notice_state::ContentNoticeState,
+    content_notice_target::{ContentNoticeTarget, TargetSnapshot},
+    good_faith_statement_version::GoodFaithStatementVersion,
+    notice_explanation::NoticeExplanation,
+    reason_category::ReasonCategory,
+    submitter::Submitter,
+    submitter_role::SubmitterRole,
+};
 use listing_source_core::{ListingIngestionMethod, ListingSourceName, ListingSourceSlugId};
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use time::OffsetDateTime;
@@ -25,13 +36,47 @@ pub struct GetAdminContentNoticeRequest {
 /// it is now.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminContentNoticeDetails {
-    pub notice: ContentNotice,
+    pub notice: AdminContentNoticeView,
     pub version: ContentNoticeStorageVersion,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub current_target: CurrentContentNoticeTarget,
     /// The delivery of the notice's receipt email; `None` only when no receipt was enqueued.
     pub receipt: Option<ContentNoticeReceiptDelivery>,
+}
+
+/// What a notice holds, as the admin detail shows it: everything that was submitted and the
+/// target snapshot. Built from a [`ContentNotice`] that passed rehydration, so a stored notice
+/// that breaks an invariant fails the read instead of being shown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdminContentNoticeView {
+    pub id: ContentNoticeId,
+    pub state: ContentNoticeState,
+    pub target: ContentNoticeTarget,
+    pub target_snapshot: TargetSnapshot,
+    pub submitter_role: SubmitterRole,
+    pub reason_category: ReasonCategory,
+    pub explanation: Option<NoticeExplanation>,
+    pub additional_urls: AdditionalUrls,
+    pub submitter: Submitter,
+    pub good_faith_statement_version: GoodFaithStatementVersion,
+}
+
+impl From<ContentNotice> for AdminContentNoticeView {
+    fn from(notice: ContentNotice) -> Self {
+        Self {
+            id: notice.id(),
+            state: notice.state(),
+            target: notice.target(),
+            target_snapshot: notice.target_snapshot().clone(),
+            submitter_role: notice.submitter_role(),
+            reason_category: notice.reason_category(),
+            explanation: notice.explanation().cloned(),
+            additional_urls: notice.additional_urls().clone(),
+            submitter: notice.submitter().clone(),
+            good_faith_statement_version: notice.good_faith_statement_version(),
+        }
+    }
 }
 
 /// Where the receipt email to the notifier stands, read from the notification delivery
@@ -407,7 +452,7 @@ mod tests {
         })
         .unwrap();
         AdminContentNoticeDetails {
-            notice,
+            notice: notice.into(),
             version: ContentNoticeStorageVersion::default(),
             created: datetime!(2026-11-13 10:44 UTC),
             updated: datetime!(2026-11-13 10:44 UTC),
@@ -471,7 +516,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(content_notice_id, details.notice.id());
+        assert_eq!(content_notice_id, details.notice.id);
         let state = lock(&state);
         assert_eq!((1, 1, 1), (state.begins, state.reads, state.commits));
         assert_eq!(Some(content_notice_id), state.requested);

@@ -9,7 +9,8 @@ struct ApprovedPublicCache {
     shared_ttl_seconds: u32,
 }
 
-/// Marks a response of a public submission endpoint as never stored by any cache.
+/// Marks a response as never stored by any cache, for example a public submission or an admin
+/// read of personal data.
 pub(crate) fn no_store(mut response: Response) -> Response {
     response
         .headers_mut()

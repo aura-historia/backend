@@ -187,29 +187,27 @@ struct SubmitterData {
 impl From<AdminContentNoticeDetails> for AdminContentNoticeDetailsData {
     fn from(details: AdminContentNoticeDetails) -> Self {
         let notice = details.notice;
-        let target = notice.target();
+        let target = notice.target;
         Self {
-            content_notice_id: notice.id(),
-            state: notice.state().as_str(),
+            content_notice_id: notice.id,
+            state: notice.state.as_str(),
             created: details.created,
             updated: details.updated,
             version: details.version.into_inner(),
             target: target.into(),
-            target_snapshot: notice.target_snapshot().into(),
+            target_snapshot: (&notice.target_snapshot).into(),
             current_target: CurrentTargetData::new(target, details.current_target),
-            submitter_role: notice.submitter_role().as_str(),
-            reason_category: notice.reason_category().as_str(),
-            explanation: notice
-                .explanation()
-                .map(|explanation| explanation.as_str().to_owned()),
+            submitter_role: notice.submitter_role.as_str(),
+            reason_category: notice.reason_category.as_str(),
+            explanation: notice.explanation.map(String::from),
             additional_urls: notice
-                .additional_urls()
+                .additional_urls
                 .as_slice()
                 .iter()
                 .map(|url| url.as_str().to_owned())
                 .collect(),
-            submitter: notice.submitter().into(),
-            good_faith_statement: notice.good_faith_statement_version().as_str(),
+            submitter: (&notice.submitter).into(),
+            good_faith_statement: notice.good_faith_statement_version.as_str(),
             receipt: details.receipt.map(ReceiptData::from),
         }
     }
@@ -439,7 +437,7 @@ mod tests {
             })
             .unwrap();
             AdminContentNoticeDetails {
-                notice,
+                notice: notice.into(),
                 version: ContentNoticeStorageVersion::default(),
                 created: datetime!(2026-11-13 10:44:18.123 UTC),
                 updated: datetime!(2026-11-14 08:00 UTC),
@@ -477,7 +475,7 @@ mod tests {
                     }),
                 },
             );
-            let id = details.notice.id();
+            let id = details.notice.id;
 
             assert_eq!(
                 json!({

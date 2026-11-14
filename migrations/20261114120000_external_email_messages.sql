@@ -18,8 +18,11 @@ CREATE TABLE external_email_messages (
     origin_id uuid NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
+    -- An ASCII address (an international domain in its punycode form), as the email
+    -- provider requires: every character is one byte.
     CONSTRAINT external_email_messages_recipient_email_check CHECK (
         octet_length(recipient_email) BETWEEN 3 AND 320
+        AND octet_length(recipient_email) = char_length(recipient_email)
         AND recipient_email !~ '[[:space:][:cntrl:]<>]'
         AND position('@' IN recipient_email) > 1
     ),
@@ -41,8 +44,11 @@ CREATE TABLE external_email_messages (
         UNIQUE (origin_type, origin_id, template)
 );
 
--- The shape change takes a brief exclusive lock. The new constraints start NOT VALID, so
--- existing rows are checked by the next migration without blocking delivery writes.
+-- Adding the nullable column is metadata-only, but building the unique index scans the
+-- table under this statement's exclusive lock, which blocks delivery writes until it ends;
+-- the migration runner's lock and statement timeouts bound the wait. The foreign key and
+-- CHECK constraints start NOT VALID, so the next migration checks existing rows without
+-- blocking delivery writes.
 ALTER TABLE notification_deliveries
     ADD COLUMN external_email_message_id uuid,
     ADD CONSTRAINT notification_deliveries_external_email_message_id_key

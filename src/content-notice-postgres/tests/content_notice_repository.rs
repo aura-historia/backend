@@ -344,6 +344,11 @@ async fn should_reject_stored_text_that_the_domain_types_would_reject() {
             "content_notices_submitter_email_check",
         ),
         (
+            "submitter_email",
+            "erika@müller-antik.example",
+            "content_notices_submitter_email_check",
+        ),
+        (
             "product_listing_title",
             "Vase\nRot",
             "content_notices_product_listing_title_check",

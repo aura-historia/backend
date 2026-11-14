@@ -10607,9 +10607,10 @@ paths:
         itself; a person reviews every notice. The additional URLs are recorded for that review and never
         fetched.
 
-        The body is limited to 16 KiB. Every result is `Cache-Control: no-store`. Field-level validation errors
-        name the rejected field as a JSON pointer in `source.field`, such as `/explanation` or
-        `/additionalUrls/2`, and never repeat the submitted value.
+        The body is limited to 64 KiB, which holds every field at its maximum. Every result is
+        `Cache-Control: no-store`. Field-level validation errors name the rejected field as a JSON pointer
+        in `source.field`, such as `/explanation` or `/additionalUrls/2`, and never repeat the submitted
+        value.
 
         Submission limits, per email address (compared case-insensitively) within the 24 hours before the
         submission:
@@ -10681,7 +10682,7 @@ paths:
               example: no-store
         "400":
           description: |
-            Malformed JSON, an unknown or missing field, an unsupported value, a body over 16 KiB
+            Malformed JSON, an unknown or missing field, an unsupported value, a body over 64 KiB
             (`BAD_BODY_VALUE`), a malformed target ID (`INVALID_OBJECT_ID`), or a field that breaks a
             submission rule. Field errors carry the JSON pointer of the field in `source.field`.
           headers:
@@ -23685,7 +23686,10 @@ components:
       properties:
         field:
           type: string
-          description: Name of the field that caused the error
+          description: |
+            Name of the field that caused the error. Most operations name a body field by its property name or
+            dotted path (`operator.partyId`); operations that say so, such as `submitContentNotice`, use a JSON
+            pointer (`/additionalUrls/2`).
           example: listingSourceId
         type:
           type: string
@@ -25661,9 +25665,13 @@ components:
           $ref: "#/components/schemas/ContentNoticeReasonCategoryData"
         explanation:
           type: string
+          nullable: true
           minLength: 1
           maxLength: 5000
-          description: A reasoned explanation. Required, except that it may be omitted for `PROVIDER_OPT_OUT`.
+          description: |
+            A reasoned explanation. Required, except that it may be omitted or `null` for `PROVIDER_OPT_OUT`.
+            For any other category a missing or `null` explanation is rejected with
+            `CONTENT_NOTICE_EXPLANATION_REQUIRED`.
         additionalUrls:
           type: array
           maxItems: 10
@@ -25683,7 +25691,11 @@ components:
           type: string
           format: email
           maxLength: 320
-          description: The notifier's bare email address, without display text.
+          description: >-
+            The notifier's bare email address, without display text. An international domain is
+            accepted and stored in its punycode form; a local part (before the `@`) with non-ASCII
+            characters is rejected with `CONTENT_NOTICE_INVALID_FIELD`, because the receipt email
+            cannot be sent to it.
         language:
           allOf:
             - $ref: "#/components/schemas/LanguageData"

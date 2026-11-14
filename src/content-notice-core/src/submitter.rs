@@ -1,6 +1,7 @@
 use crate::bounded_text::bounded_text_newtype;
 use localization::Language;
 use serde_email::Email;
+use std::borrow::Cow;
 
 bounded_text_newtype!(
     /// The name a submitter gives: trimmed, 1–200 characters, no control characters.
@@ -9,9 +10,13 @@ bounded_text_newtype!(
     allowed_controls(&[])
 );
 
-/// The notifier's email address: a bare address in the existing `serde_email::Email`
+/// The notifier's email address: a bare ASCII address in the existing `serde_email::Email`
 /// convention, at most 320 bytes. Display text such as `Jane <jane@example.com>` is rejected,
 /// so every notice from one address shares one lowercased key for the submission limits.
+///
+/// The email provider accepts only ASCII addresses, so an international domain is kept in its
+/// punycode form (`jane@müller-antik.example` becomes `jane@xn--mller-antik-thb.example`), and
+/// a non-ASCII local part is rejected rather than accepted for a receipt that cannot be sent.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SubmitterEmail(Email);
 
@@ -22,6 +27,8 @@ pub enum SubmitterEmailError {
     Invalid,
     #[error("email address must be a bare address without display text, spaces or controls")]
     NotBareAddress,
+    #[error("email address must use only ASCII characters before the @")]
+    NonAsciiLocalPart,
     #[error("email address must not exceed {max_bytes} bytes")]
     TooLong { max_bytes: usize },
 }
@@ -53,10 +60,39 @@ impl TryFrom<&str> for SubmitterEmail {
         }) {
             return Err(SubmitterEmailError::NotBareAddress);
         }
+        let value = ascii_address(value)?;
+        // Punycode is longer than the domain it encodes.
+        if value.len() > Self::MAX_BYTES {
+            return Err(SubmitterEmailError::TooLong {
+                max_bytes: Self::MAX_BYTES,
+            });
+        }
         // The email error repeats the address, so it is not kept as the cause.
-        Email::new(value)
+        Email::new(value.as_ref())
             .map(Self)
             .map_err(|_| SubmitterEmailError::Invalid)
+    }
+}
+
+/// Converts an international domain to its punycode form and rejects a non-ASCII local part,
+/// which the email provider cannot address.
+fn ascii_address(value: &str) -> Result<Cow<'_, str>, SubmitterEmailError> {
+    if value.is_ascii() {
+        return Ok(Cow::Borrowed(value));
+    }
+    let (local_part, domain) = value.rsplit_once('@').ok_or(SubmitterEmailError::Invalid)?;
+    if !local_part.is_ascii() {
+        return Err(SubmitterEmailError::NonAsciiLocalPart);
+    }
+    // Host parsing percent-decodes, which an email domain must not undergo.
+    if domain.contains('%') {
+        return Err(SubmitterEmailError::Invalid);
+    }
+    match url::Host::parse(domain) {
+        Ok(url::Host::Domain(ascii_domain)) => {
+            Ok(Cow::Owned(format!("{local_part}@{ascii_domain}")))
+        }
+        _ => Err(SubmitterEmailError::Invalid),
     }
 }
 
@@ -159,6 +195,43 @@ mod tests {
         ] {
             assert_eq!(
                 Err(SubmitterEmailError::NotBareAddress),
+                SubmitterEmail::try_from(email),
+                "{email:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_keep_an_international_domain_in_its_punycode_form() {
+        let email = SubmitterEmail::try_from("Jane@Müller-Antik.example").unwrap();
+
+        assert_eq!("Jane@xn--mller-antik-thb.example", email.as_str());
+        assert_eq!(
+            email,
+            SubmitterEmail::try_from("Jane@xn--mller-antik-thb.example").unwrap()
+        );
+    }
+
+    #[test]
+    fn should_reject_a_non_ascii_local_part() {
+        for email in ["dörte@example.com", "ας@example.gr"] {
+            assert_eq!(
+                Err(SubmitterEmailError::NonAsciiLocalPart),
+                SubmitterEmail::try_from(email),
+                "{email:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_an_international_domain_that_is_not_a_domain() {
+        for email in [
+            "jane@ü%2Eexample.com",
+            "jane@ü..example",
+            "jane-at-müller.example",
+        ] {
+            assert_eq!(
+                Err(SubmitterEmailError::Invalid),
                 SubmitterEmail::try_from(email),
                 "{email:?}"
             );

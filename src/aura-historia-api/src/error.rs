@@ -2929,16 +2929,18 @@ impl From<ListAdminContentNoticesError> for ApiError {
             ListAdminContentNoticesError::CursorScopeMismatch => {
                 crate::keyset_cursor::foreign_scope()
             }
-            ListAdminContentNoticesError::TemporarilyUnavailable { .. }
-            | ListAdminContentNoticesError::BeginTransactionFailed(_)
-            | ListAdminContentNoticesError::CommitTransactionFailed(_) => {
+            ListAdminContentNoticesError::TemporarilyUnavailable { source }
+            | ListAdminContentNoticesError::BeginTransactionFailed(source)
+            | ListAdminContentNoticesError::CommitTransactionFailed(source) => {
                 ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Content notices are temporarily unavailable.")
+                    .with_cause(source)
             }
-            ListAdminContentNoticesError::InvalidReadModel { .. }
-            | ListAdminContentNoticesError::Internal { .. } => {
+            error @ (ListAdminContentNoticesError::InvalidReadModel { .. }
+            | ListAdminContentNoticesError::Internal { .. }) => {
                 ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
                     .with_detail("Content notice search failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -2952,16 +2954,18 @@ impl From<GetAdminContentNoticeError> for ApiError {
             }
             GetAdminContentNoticeError::NotFound => ApiError::not_found(CONTENT_NOTICE_NOT_FOUND)
                 .with_detail("Content notice was not found."),
-            GetAdminContentNoticeError::TemporarilyUnavailable { .. }
-            | GetAdminContentNoticeError::BeginTransactionFailed(_)
-            | GetAdminContentNoticeError::CommitTransactionFailed(_) => {
+            GetAdminContentNoticeError::TemporarilyUnavailable { source }
+            | GetAdminContentNoticeError::BeginTransactionFailed(source)
+            | GetAdminContentNoticeError::CommitTransactionFailed(source) => {
                 ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Content notices are temporarily unavailable.")
+                    .with_cause(source)
             }
-            GetAdminContentNoticeError::InvalidReadModel { .. }
-            | GetAdminContentNoticeError::Internal { .. } => {
+            error @ (GetAdminContentNoticeError::InvalidReadModel { .. }
+            | GetAdminContentNoticeError::Internal { .. }) => {
                 ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
                     .with_detail("Content notice read failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }

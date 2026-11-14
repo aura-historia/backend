@@ -170,13 +170,13 @@ async fn should_read_listing_source_notice_with_snapshot_and_current_source() {
     let details = find(&pool, id).await.expect("stored notice");
 
     let notice = &details.notice;
-    assert_eq!(id, notice.id());
-    assert_eq!(ContentNoticeState::Submitted, notice.state());
+    assert_eq!(id, notice.id);
+    assert_eq!(ContentNoticeState::Submitted, notice.state);
     assert_eq!(
         ContentNoticeTarget::ListingSource {
             listing_source_id: source
         },
-        notice.target()
+        notice.target
     );
     assert_eq!(
         &TargetSnapshot {
@@ -187,13 +187,13 @@ async fn should_read_listing_source_notice_with_snapshot_and_current_source() {
             },
             product_listing: None,
         },
-        notice.target_snapshot()
+        &notice.target_snapshot
     );
-    assert_eq!(SubmitterRole::Provider, notice.submitter_role());
-    assert_eq!(ReasonCategory::ProviderOptOut, notice.reason_category());
-    assert_eq!(None, notice.explanation());
-    assert_eq!(1, notice.additional_urls().len());
-    assert_eq!("erika@example.com", notice.submitter().email.as_str());
+    assert_eq!(SubmitterRole::Provider, notice.submitter_role);
+    assert_eq!(ReasonCategory::ProviderOptOut, notice.reason_category);
+    assert_eq!(None, notice.explanation);
+    assert_eq!(1, notice.additional_urls.len());
+    assert_eq!("erika@example.com", notice.submitter.email.as_str());
     assert_eq!(1, details.version.into_inner());
     assert_eq!(details.created, details.updated);
     assert_eq!(
@@ -259,24 +259,25 @@ async fn should_keep_snapshot_and_show_withdrawn_lifecycle_of_a_listing_withdraw
             product_listing_id: listing,
             listing_source_id: source,
         },
-        withdrawn.notice.target()
+        withdrawn.notice.target
     );
     assert_eq!(
         Some(&ProductListingSnapshot {
             title: Some(ProductListingTitleSnapshot::try_from("Jugendstil-Vase").unwrap()),
             url: Url::parse("https://shop.example/vase?id=42").unwrap(),
         }),
-        withdrawn.notice.target_snapshot().product_listing.as_ref()
+        withdrawn.notice.target_snapshot.product_listing.as_ref()
     );
     assert_eq!(
-        active.notice.target_snapshot(),
-        withdrawn.notice.target_snapshot()
+        &active.notice.target_snapshot,
+        &withdrawn.notice.target_snapshot
     );
     assert_eq!(
         Some("Das Foto ist meins."),
         withdrawn
             .notice
-            .explanation()
+            .explanation
+            .as_ref()
             .map(|explanation| explanation.as_str())
     );
     assert!(withdrawn.current_target.listing_source.is_some());
@@ -301,14 +302,9 @@ async fn should_report_a_deleted_listing_source_as_gone_and_keep_its_snapshot() 
     assert_eq!(None, details.current_target.product_listing);
     assert_eq!(
         "Closed Antik",
-        details
-            .notice
-            .target_snapshot()
-            .listing_source
-            .name
-            .as_ref()
+        details.notice.target_snapshot.listing_source.name.as_ref()
     );
-    assert_eq!(source, details.notice.target().listing_source_id());
+    assert_eq!(source, details.notice.target.listing_source_id());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -346,7 +342,7 @@ async fn should_show_later_partner_name_and_ingestion_changes_only_in_current_ta
 
     let details = find(&pool, id).await.expect("stored notice");
 
-    let snapshot = &details.notice.target_snapshot().listing_source;
+    let snapshot = &details.notice.target_snapshot.listing_source;
     assert!(!snapshot.partner);
     assert_eq!("Plain Antik", snapshot.name.as_ref());
     assert_eq!(

@@ -1,3 +1,4 @@
+use crate::sql_error::is_temporary;
 use application::error::box_error;
 use content_notice_core::{
     bounded_text::BoundedTextError,
@@ -94,7 +95,7 @@ impl ContentNoticeTargetReader for Reader<'_> {
             .bind(listing_source_id.into_uuid())
             .fetch_optional(&mut *self.connection)
             .await
-            .map_err(temporary)?
+            .map_err(read)?
             .map(listing_source_target)
             .transpose()
             .map_err(invalid)
@@ -108,7 +109,7 @@ impl ContentNoticeTargetReader for Reader<'_> {
             .bind(product_listing_id.into_uuid())
             .fetch_optional(&mut *self.connection)
             .await
-            .map_err(temporary)?
+            .map_err(read)?
             .map(product_listing_target)
             .transpose()
             .map_err(invalid)
@@ -178,8 +179,14 @@ fn title_snapshot(title: &str) -> Result<Option<ProductListingTitleSnapshot>, Bo
     }
 }
 
-fn temporary(error: sqlx::Error) -> ContentNoticeTargetReadError {
-    ContentNoticeTargetReadError::TemporarilyUnavailable {
+/// A failed read that is not temporary, such as an undecodable column, is an invalid read model.
+fn read(error: sqlx::Error) -> ContentNoticeTargetReadError {
+    if is_temporary(&error) {
+        return ContentNoticeTargetReadError::TemporarilyUnavailable {
+            source: box_error(error),
+        };
+    }
+    ContentNoticeTargetReadError::InvalidReadModel {
         source: box_error(error),
     }
 }

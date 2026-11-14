@@ -1,6 +1,7 @@
 use crate::mapping::{
     CONTENT_NOTICE_SUMMARY_COLUMNS, ContentNoticeSummaryRow, content_notice_summary,
 };
+use crate::sql_error::is_temporary;
 use application::{error::box_error, pagination::Cursor};
 use content_notice_service::{
     ports::{
@@ -74,11 +75,15 @@ impl ContentNoticeAdminSearchReader for Reader<'_> {
             .build_query_as::<ContentNoticeSummaryRow>()
             .fetch_all(&mut *self.connection)
             .await
-            .map_err(
-                |source| ContentNoticeAdminSearchReadError::TemporarilyUnavailable {
-                    source: box_error(source),
-                },
-            )?;
+            .map_err(|source| {
+                if is_temporary(&source) {
+                    ContentNoticeAdminSearchReadError::TemporarilyUnavailable {
+                        source: box_error(source),
+                    }
+                } else {
+                    internal(source)
+                }
+            })?;
         let has_more = rows.len() > page_len;
         rows.truncate(page_len);
         let items = rows
@@ -135,9 +140,11 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ContentNoticeSear
     }
     if let Some(created) = search.created {
         if let Some(min) = created.min {
-            builder
-                .push(" AND created >= ")
-                .push_bind(ceil_to_microsecond(min));
+            match ceil_to_microsecond(min) {
+                Some(min) => builder.push(" AND created >= ").push_bind(min),
+                // No stored microsecond lies at or after a bound past the last representable one.
+                None => builder.push(" AND FALSE"),
+            };
         }
         if let Some(max) = created.max {
             builder.push(" AND created <= ").push_bind(max);
@@ -189,11 +196,12 @@ fn internal(
 }
 
 /// PostgreSQL stores microseconds and the bind truncates finer values, which would move an
-/// inclusive lower bound earlier and admit a row before it.
-fn ceil_to_microsecond(instant: OffsetDateTime) -> OffsetDateTime {
+/// inclusive lower bound earlier and admit a row before it. `None` when the next microsecond is
+/// past the last representable instant.
+fn ceil_to_microsecond(instant: OffsetDateTime) -> Option<OffsetDateTime> {
     match instant.nanosecond() % 1_000 {
-        0 => instant,
-        below => instant + Duration::nanoseconds(i64::from(1_000 - below)),
+        0 => Some(instant),
+        below => instant.checked_add(Duration::nanoseconds(i64::from(1_000 - below))),
     }
 }
 
@@ -205,12 +213,24 @@ mod tests {
     #[test]
     fn should_round_a_lower_bound_up_to_the_next_stored_microsecond() {
         assert_eq!(
-            datetime!(2026-11-13 10:00:00.000001 UTC),
+            Some(datetime!(2026-11-13 10:00:00.000001 UTC)),
             ceil_to_microsecond(datetime!(2026-11-13 10:00:00.0000005 UTC))
         );
         assert_eq!(
-            datetime!(2026-11-13 10:00:00.123456 UTC),
+            Some(datetime!(2026-11-13 10:00:00.123456 UTC)),
             ceil_to_microsecond(datetime!(2026-11-13 10:00:00.123456 UTC))
+        );
+    }
+
+    #[test]
+    fn should_not_round_a_lower_bound_past_the_last_representable_instant() {
+        assert_eq!(
+            None,
+            ceil_to_microsecond(datetime!(9999-12-31 23:59:59.9999995 UTC))
+        );
+        assert_eq!(
+            Some(datetime!(9999-12-31 23:59:59.999999 UTC)),
+            ceil_to_microsecond(datetime!(9999-12-31 23:59:59.999999 UTC))
         );
     }
 }

@@ -115,8 +115,11 @@ CREATE TABLE content_notices (
         AND submitter_name = btrim(submitter_name, E' \t\n\r')
         AND submitter_name !~ '[\u0001-\u001F\u007F-\u009F]'
     ),
+    -- ASCII, with an international domain in its punycode form, so lower() agrees with the
+    -- submission fingerprint's lowercasing and the email provider accepts the address.
     CONSTRAINT content_notices_submitter_email_check CHECK (
         octet_length(submitter_email) BETWEEN 1 AND 320
+        AND octet_length(submitter_email) = char_length(submitter_email)
         AND submitter_email !~ '[[:space:][:cntrl:]<>]'
     ),
     CONSTRAINT content_notices_submission_fingerprint_check
@@ -135,3 +138,8 @@ CREATE INDEX content_notices_submitter_email_key_created_idx
 -- Admin filter by listing source; covers notices about the source and about its listings.
 CREATE INDEX content_notices_listing_source_created_idx
     ON content_notices (listing_source_id, created DESC, content_notice_id DESC);
+
+-- Admin filter by listing.
+CREATE INDEX content_notices_product_listing_created_idx
+    ON content_notices (product_listing_id, created DESC, content_notice_id DESC)
+    WHERE product_listing_id IS NOT NULL;

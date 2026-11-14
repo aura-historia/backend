@@ -1,4 +1,5 @@
 use crate::mapping::{CONTENT_NOTICE_COLUMNS, ContentNoticeRow, MappingError, content_notice};
+use crate::sql_error::is_temporary;
 use application::error::box_error;
 use content_notice_core::content_notice_id::ContentNoticeId;
 use content_notice_service::{
@@ -132,11 +133,17 @@ impl ContentNoticeDetailsReader for Reader<'_> {
             .bind(ExternalEmailTemplate::ContentNoticeReceipt.as_str())
             .fetch_optional(&mut *self.connection)
             .await
-            .map_err(
-                |source| ContentNoticeDetailsReadError::TemporarilyUnavailable {
-                    source: box_error(source),
-                },
-            )?
+            .map_err(|source| {
+                if is_temporary(&source) {
+                    ContentNoticeDetailsReadError::TemporarilyUnavailable {
+                        source: box_error(source),
+                    }
+                } else {
+                    ContentNoticeDetailsReadError::InvalidReadModel {
+                        source: box_error(source),
+                    }
+                }
+            })?
             .map(details)
             .transpose()
             .map_err(|source| ContentNoticeDetailsReadError::InvalidReadModel {
@@ -173,7 +180,7 @@ fn details(row: ContentNoticeDetailsRow) -> Result<AdminContentNoticeDetails, De
         })
         .transpose()?;
     Ok(AdminContentNoticeDetails {
-        notice,
+        notice: notice.into(),
         version,
         created: row.created,
         updated: row.updated,

@@ -12,7 +12,10 @@ use axum::{
     routing::{get, post},
 };
 
-pub(crate) const MAX_CONTENT_NOTICE_BODY_BYTES: usize = 16 * 1024;
+/// Holds every field at its documented maximum (ten 2048-character URLs and a 5000-character
+/// explanation in up to four bytes per character come to about 42 KB) with room for JSON
+/// escaping, and stays far below the transport-wide limit.
+pub(crate) const MAX_CONTENT_NOTICE_BODY_BYTES: usize = 64 * 1024;
 
 pub(crate) fn router(state: ContentNoticesState) -> Router {
     Router::new()

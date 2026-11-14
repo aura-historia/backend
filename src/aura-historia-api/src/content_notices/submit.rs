@@ -7,6 +7,7 @@ use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use content_notice_core::content_notice::ContentNoticeInvariantError;
 use content_notice_service::use_cases::commands::submit_content_notice::{
     SubmitContentNoticeCommand, SubmitContentNoticeError,
 };
@@ -56,6 +57,10 @@ async fn submit_notice(
 /// The bounded category of a failure that is not the caller's fault, for the terminal log.
 fn terminal_failure(error: &SubmitContentNoticeError) -> Option<&'static str> {
     match error {
+        // A snapshot that does not fit its target is the server's fault (500), not the caller's.
+        SubmitContentNoticeError::InvalidNotice(
+            ContentNoticeInvariantError::TargetSnapshotMismatch,
+        ) => Some("internal"),
         SubmitContentNoticeError::InvalidNotice(_)
         | SubmitContentNoticeError::TargetNotFound
         | SubmitContentNoticeError::RateLimited { .. } => None,
@@ -366,6 +371,41 @@ mod tests {
         assert_eq!(
             "Erika Mustermann",
             use_case.calls()[0].1.submitter.name.as_str()
+        );
+    }
+
+    /// Every field at its documented maximum, with the free text in four-byte characters, must
+    /// fit the cap, so the cap never rejects a notice its fields allow.
+    #[tokio::test]
+    async fn should_accept_every_field_at_its_maximum() {
+        use content_notice_core::{
+            additional_url::{AdditionalUrl, AdditionalUrls},
+            notice_explanation::NoticeExplanation,
+            submitter::SubmitterName,
+        };
+
+        let use_case = RecordingUseCase::returning(stored);
+        let mut body = listing_source_body(ListingSourceId::new());
+        let prefix = "https://portfolio.example/";
+        body["additionalUrls"] = json!(
+            (0..AdditionalUrls::MAX_ITEMS)
+                .map(|index| {
+                    let path = format!("{index}{}", "a".repeat(AdditionalUrl::MAX_CHARS));
+                    format!("{prefix}{path}")[..AdditionalUrl::MAX_CHARS].to_owned()
+                })
+                .collect::<Vec<_>>()
+        );
+        body["explanation"] = json!("𓂀".repeat(NoticeExplanation::MAX_CHARS));
+        body["name"] = json!("𓂀".repeat(SubmitterName::MAX_CHARS));
+        let encoded = body.to_string();
+        assert!(encoded.len() <= crate::content_notices::MAX_CONTENT_NOTICE_BODY_BYTES);
+
+        let response = post(app(&use_case, UserId::new()), None, encoded).await;
+
+        assert_eq!(StatusCode::ACCEPTED, response.status());
+        assert_eq!(
+            AdditionalUrls::MAX_ITEMS,
+            use_case.calls()[0].1.additional_urls.len()
         );
     }
 

@@ -138,7 +138,8 @@ mod tests {
                 },
                 good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
             })
-            .unwrap(),
+            .unwrap()
+            .into(),
             version: ContentNoticeStorageVersion::default(),
             created: datetime!(2026-11-13 10:44 UTC),
             updated: datetime!(2026-11-13 10:44 UTC),

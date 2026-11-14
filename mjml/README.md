@@ -2,8 +2,7 @@
 
 The MJML sources of every email the backend sends. CI compiles each `*.mjml` file and uploads
 the HTML to the mail template bucket; the SES adapter
-([`notification-email-aws`](../src/notification-email-aws)) fills it with Handlebars data in
-strict mode.
+([`notification-email-aws`](../src/notification-email-aws)) fills it with Handlebars data.
 
 ## Design first
 
@@ -29,7 +28,8 @@ When you add or change a template:
 
 - One directory per template kind, one file per email language: `<area>/<kind>/<language>.mjml`.
   `template_mapping.rs` maps each template type to its directory, subject and sender name.
-- Every template renders in Handlebars strict mode, so each variable it uses must be in the
-  template data; the adapter's template tests render every file.
+- Each variable a template uses must be in the template data. The adapter's template tests
+  render every file in Handlebars strict mode to prove it; delivery itself renders leniently,
+  so a missing variable would silently render empty.
 - Emails to people without an account (external emails) carry no name and no account or
   settings links ([event flow](../docs/events/flow.md#external-email-delivery)).

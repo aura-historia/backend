@@ -22,7 +22,8 @@ use std::borrow::Cow;
 const CONFIRMED_GOOD_FAITH_STATEMENT: GoodFaithStatementVersion =
     GoodFaithStatementVersion::GoodFaithV1;
 
-#[derive(Debug, Deserialize)]
+/// The raw submission. It holds unvalidated personal data, so it has no `Debug`.
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct SubmitContentNoticeData {
     target: ContentNoticeTargetData,

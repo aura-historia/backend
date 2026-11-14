@@ -485,7 +485,10 @@ context's external email outbox in its own business transaction. The message and
 `PENDING` delivery commit or roll back with the producer's business state. One origin
 (the business record that caused the email) enqueues each template kind at most once; a
 repeat returns the existing message. Each message has a typed, versioned payload per
-template kind, so new uses add a kind instead of a mechanism.
+template kind, so new uses add a kind instead of a mechanism. The recipient is a bare ASCII
+address, as the email provider requires: a producer converts an international domain to
+punycode and rejects an address it cannot convert, which the provider would refuse
+permanently.
 
 The delivery row carries only the message identity. As for every source, DMS publishes
 only the delivery primary key, and the router job carries only `notification_delivery_id`.

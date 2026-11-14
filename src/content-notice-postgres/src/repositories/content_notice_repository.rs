@@ -103,17 +103,27 @@ impl ContentNoticeRepository for Repository<'_> {
     }
 }
 
+/// A failed read that is not temporary, such as an undecodable column, is invalid state.
 fn read(error: sqlx::Error) -> ContentNoticeRepositoryError {
-    ContentNoticeRepositoryError::TemporarilyUnavailable {
+    if is_temporary(&error) {
+        return temporary(error);
+    }
+    ContentNoticeRepositoryError::InvalidPersistedState {
         source: box_error(error),
     }
 }
 
 fn write(error: sqlx::Error) -> ContentNoticeRepositoryError {
     if is_temporary(&error) {
-        return read(error);
+        return temporary(error);
     }
     ContentNoticeRepositoryError::Internal {
+        source: box_error(error),
+    }
+}
+
+fn temporary(error: sqlx::Error) -> ContentNoticeRepositoryError {
+    ContentNoticeRepositoryError::TemporarilyUnavailable {
         source: box_error(error),
     }
 }

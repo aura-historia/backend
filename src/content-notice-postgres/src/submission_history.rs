@@ -1,3 +1,4 @@
+use crate::sql_error::is_temporary;
 use application::error::box_error;
 use content_notice_core::submitter::SubmitterEmail;
 use content_notice_service::ports::{
@@ -96,8 +97,14 @@ fn recent_submission(
 #[error("persisted submission fingerprint is not a SHA-256 digest")]
 struct InvalidFingerprint;
 
+/// A failed statement that is not temporary, such as an undecodable column, is invalid state.
 fn unavailable(error: sqlx::Error) -> ContentNoticeSubmissionHistoryError {
-    ContentNoticeSubmissionHistoryError::TemporarilyUnavailable {
+    if is_temporary(&error) {
+        return ContentNoticeSubmissionHistoryError::TemporarilyUnavailable {
+            source: box_error(error),
+        };
+    }
+    ContentNoticeSubmissionHistoryError::InvalidPersistedState {
         source: box_error(error),
     }
 }

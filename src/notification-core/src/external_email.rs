@@ -16,7 +16,8 @@ use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-/// The address an external email is sent to: a bare address without display text.
+/// The address an external email is sent to: a bare ASCII address without display text, as
+/// the email provider requires; a producer converts an international domain to punycode.
 /// It is personal data, so `Debug` and errors never repeat it.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ExternalEmailRecipient(Email);
@@ -28,6 +29,8 @@ pub enum InvalidExternalEmailRecipient {
     Invalid,
     #[error("email address must be a bare address without display text, spaces or controls")]
     NotBareAddress,
+    #[error("email address must be ASCII, with an international domain in punycode")]
+    NotAscii,
     #[error("email address must not exceed {max_bytes} bytes")]
     TooLong { max_bytes: usize },
 }
@@ -58,6 +61,9 @@ impl TryFrom<&str> for ExternalEmailRecipient {
             matches!(character, '<' | '>') || character.is_whitespace() || character.is_control()
         }) {
             return Err(InvalidExternalEmailRecipient::NotBareAddress);
+        }
+        if !value.is_ascii() {
+            return Err(InvalidExternalEmailRecipient::NotAscii);
         }
         // The email error repeats the address, so it is not kept as the cause.
         Email::new(value)
@@ -261,6 +267,14 @@ mod tests {
                 InvalidExternalEmailRecipient::NotBareAddress,
             ),
             ("not-an-address", InvalidExternalEmailRecipient::Invalid),
+            (
+                "jane@müller.example.test",
+                InvalidExternalEmailRecipient::NotAscii,
+            ),
+            (
+                "dörte@example.test",
+                InvalidExternalEmailRecipient::NotAscii,
+            ),
             (
                 too_long.as_str(),
                 InvalidExternalEmailRecipient::TooLong { max_bytes: 320 },

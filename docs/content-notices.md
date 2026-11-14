@@ -22,7 +22,7 @@ this bounded context. PostgreSQL is authoritative; there is no projection.
 | Reason category | `PROVIDER_OPT_OUT`, `RIGHTS_INFRINGEMENT`, `ILLEGAL_CONTENT`, `INCORRECT_INFORMATION` or `OTHER`. Only a `PROVIDER` may choose `PROVIDER_OPT_OUT`. |
 | Explanation | Required, except for `PROVIDER_OPT_OUT` where it is optional. |
 | Additional URLs | Up to ten absolute `http`/`https` URLs without credentials, none repeated. |
-| Name, email, language | The notifier's contact. The email is a bare address without display text; the language selects the notifier's correspondence. |
+| Name, email, language | The notifier's contact. The email is a bare ASCII address without display text, as the email provider requires: an international domain is kept in its punycode form and a non-ASCII local part is rejected. The language selects the notifier's correspondence. |
 | Good-faith statement | Always confirmed. The notice records which wording was confirmed (`GOOD_FAITH_V1`); a changed wording gets a new version and never rewrites old notices. |
 
 Text is trimmed, bounded and free of control characters (an explanation may keep line breaks
@@ -69,10 +69,11 @@ environment configuration.
 
 - **Address:** submissions are grouped by the lowercased email address, the stored
   `submitter_email_key`. PostgreSQL computes it for the lock, the read and the stored row alike.
-  The fingerprint lowercases in Rust; both agree for ASCII and, under the UTF-8 database
-  default, for Unicode addresses too.
+  The fingerprint lowercases in Rust; addresses are ASCII, so both agree.
 - **Window:** rolling, the 24 hours before the submission's `now`, read from a clock port once
-  the address is locked. A stored notice is dated with the same `now`.
+  the address is locked. A stored notice is dated with the same `now`: unlike other entities,
+  its `created` and initial `updated` come from that clock rather than from the database, so
+  the window it was checked against and the time it records agree.
 - **Identical resubmission:** the same submission fingerprint from the same address within the
   window stores nothing, commits, and gets the same `202` as a new notice, so client retries and
   double clicks are safe. It does not count against the budget.
@@ -111,9 +112,11 @@ the per-address budget already bounds receipts, and every accepted notice is ack
 - **Content:** fixed localized text plus data from Aura Historia's side only: the reference
   (the notice ID), the receipt time in UTC, the listing source's name, what the notice covers
   (one listing, with its snapshot title or an "untitled listing" stand-in, or the whole
-  provider with all of its listings), and the reason category. Nothing the notifier typed is echoed back
-  (no name, explanation or URLs), so the endpoint cannot send arbitrary content to a third
-  party. [`ContentNoticeReceipt::for_notice`](../src/notification-core/src/external_email.rs)
+  provider with all of its listings), and the reason category. Nothing the notifier typed is
+  echoed back (no name, explanation or URLs), so a notifier cannot put text of their own into an
+  email to a third party. The provider name and listing title are text the listed provider
+  published; the templates escape them, and the per-address budget bounds how many receipts one
+  address gets. [`ContentNoticeReceipt::for_notice`](../src/notification-core/src/external_email.rs)
   owns that selection.
 - **Wording:** it promises no time frame, advertises nothing and links to no account or
   settings page, because the recipient usually has no account. It says that whoever did not
@@ -122,9 +125,10 @@ the per-address budget already bounds receipts, and every accepted notice is ack
   other submitter language gets English. Their design is the `Email · content-notice/receipt`
   artboards ([email templates](../mjml/README.md)).
 - **Admin view:** the admin detail shows the receipt's delivery status, attempts and delivery
-  time. `FAILED` means the receipt is permanently undeliverable, for example because the email
-  provider rejected the address, and will not be retried; admins then answer the notifier
-  manually from the contact mailbox. `PENDING` and `PROCESSING` normally pass within minutes;
+  time. `FAILED` means the receipt was not delivered and will not be retried, for example
+  because the email provider rejected the address or refused to send, as it does while sending
+  is paused for the account; admins then answer the notifier manually from the contact
+  mailbox. `PENDING` and `PROCESSING` normally pass within minutes;
   a receipt whose delivery job was dead-lettered, which alarms, keeps either status until the
   job is redriven ([runbook](durable-worker-runbook.md#notification-recovery-limits)).
 
