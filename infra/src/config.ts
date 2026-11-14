@@ -95,8 +95,8 @@ export interface SearchFilterClassifierConfig {
 }
 
 const SEARCH_FILTER_CLASSIFIER_CONFIG: Record<StageName, SearchFilterClassifierConfig> = {
-  prod: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
-  dev: { provider: "cloudflare", model: "clef-flash", shouldShowThresholdBps: 5_000 },
+  prod: { provider: "cloudflare", model: "clef", shouldShowThresholdBps: 5_000 },
+  dev: { provider: "cloudflare", model: "clef", shouldShowThresholdBps: 5_000 },
 };
 
 export interface McpConfig {

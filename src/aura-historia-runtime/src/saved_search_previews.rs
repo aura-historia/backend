@@ -203,7 +203,7 @@ mod tests {
     fn should_default_to_the_scheduled_matching_classifier_settings() {
         let config = config(&[]).unwrap();
 
-        assert_eq!(CloudflareModel::ClefFlash, config.classifier.model());
+        assert_eq!(CloudflareModel::Clef, config.classifier.model());
         assert_eq!(0.5, config.should_show_threshold.get());
     }
 
@@ -211,7 +211,7 @@ mod tests {
     fn should_read_the_deployed_model_and_threshold() {
         let config = config(&[
             (CLASSIFIER_MODEL_PROVIDER_ENV, Some("cloudflare")),
-            (CLASSIFIER_MODEL_ENV, Some(" clef ")),
+            (CLASSIFIER_MODEL_ENV, Some(" clef-flash ")),
             (
                 SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
                 Some("6500"),
@@ -219,7 +219,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(CloudflareModel::Clef, config.classifier.model());
+        assert_eq!(CloudflareModel::ClefFlash, config.classifier.model());
         assert_eq!(0.65, config.should_show_threshold.get());
     }
 

@@ -39,8 +39,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CloudflareModel {
-    #[default]
     ClefFlash,
+    #[default]
     Clef,
 }
 
@@ -1333,7 +1333,7 @@ mod tests {
                 .ends_with("/@cf/cloudflare/clef-flash")
         );
         assert!(clef.endpoint.as_str().ends_with("/@cf/cloudflare/clef"));
-        assert_eq!(CloudflareModel::default(), CloudflareModel::ClefFlash);
+        assert_eq!(CloudflareModel::default(), CloudflareModel::Clef);
         assert_eq!(
             CloudflareModel::from_str("clef").unwrap(),
             CloudflareModel::Clef

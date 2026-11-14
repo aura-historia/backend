@@ -329,8 +329,11 @@ coverage; the unselected tail has no guaranteed later opportunity.
 
 The evaluator includes complete base-query alternatives and permitted enhanced instructions,
 keeps requirements/exclusions distinct from preferences and treats listing/image text as
-untrusted evidence. Missing evidence proves neither satisfaction nor contradiction. Images
-cannot establish authenticity, provenance, authorship or age without supporting evidence.
+untrusted evidence. It favours precision, because a wrong alert costs more trust than a missed
+one: the candidate must be the kind of item the base queries ask for, not an accessory, book,
+print or other related item, and an explicit enhanced requirement counts only when the listing
+supports it; preferences may stay unmet. Images cannot establish authenticity, provenance,
+authorship or age without supporting evidence.
 `should_show >= SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS / 10000` accepts an alert
 (default 0.5, inclusive); the score is a decision signal, not a calibrated probability.
 Every listing has exactly one `should_show` question. Text-only, one-image and four-image
