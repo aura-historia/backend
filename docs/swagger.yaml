@@ -10599,8 +10599,15 @@ paths:
         name the rejected field as a JSON pointer in `source.field`, such as `/explanation` or
         `/additionalUrls/2`, and never repeat the submitted value.
 
-        Retries: after a `503` or a lost response it is unknown whether the notice was stored, and retrying the
-        same submission can store it a second time.
+        Submission limits, per email address (compared case-insensitively) within the 24 hours before the
+        submission:
+        - An identical resubmission (the same target, role, category, explanation, additional URLs, name,
+          email and language) stores nothing and returns the same `202` as a new notice.
+        - Once 10 notices from the address are stored, a further notice returns `429` with `Retry-After`.
+          Identical resubmissions do not count.
+
+        Retries: retrying the identical submission within 24 hours, for example after a `503`, a lost response
+        or a double click, is safe and stores the notice at most once. A changed submission is a new notice.
       operationId: submitContentNotice
       tags:
         - ContentNotices
@@ -10644,7 +10651,9 @@ paths:
                   goodFaithConfirmed: true
       responses:
         "202":
-          description: The notice was stored for review. The response has no body.
+          description: |
+            The notice was stored for review, or the identical submission from the same address was already
+            stored within the last 24 hours. The two cases are indistinguishable. The response has no body.
           headers:
             Cache-Control:
               description: Caching is disabled for the response.
@@ -10760,8 +10769,34 @@ paths:
                 title: Not Found
                 error: CONTENT_NOTICE_TARGET_NOT_FOUND
                 detail: The product listing or listing source was not found.
+        "429":
+          description: |
+            10 notices from this email address were stored within the last 24 hours. Nothing was stored. Retry
+            after the `Retry-After` seconds, once enough of them are 24 hours old (normally the oldest), or use
+            another contact channel.
+          headers:
+            Retry-After:
+              description: Whole seconds until the address can store a notice again; at least 1.
+              schema:
+                type: integer
+                minimum: 1
+              example: 3600
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 429
+                title: Too Many Requests
+                error: CONTENT_NOTICE_RATE_LIMITED
+                detail: Too many content notices were submitted from this email address. Try again later.
         "503":
-          description: The notice could not be stored right now. It is unknown whether a retry is a resubmission.
+          description: The notice could not be stored right now. Retrying the identical submission is safe.
           headers:
             Cache-Control:
               description: Caching is disabled for the response.

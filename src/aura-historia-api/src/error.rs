@@ -5,7 +5,7 @@ use auction_service::use_cases::{
     queries::get_auction::GetAuctionError,
 };
 use axum::Json;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
@@ -75,6 +75,7 @@ use content_notice_service::use_cases::commands::submit_content_notice::SubmitCo
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU32;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleError;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierError;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenError;
@@ -111,6 +112,10 @@ pub(crate) struct ApiError {
     /// The request presented a bearer credential that is malformed, invalid or expired.
     #[serde(skip)]
     bearer_credential_rejected: bool,
+    /// Seconds after which the client may retry, sent as `Retry-After`. 32 bits fit into the
+    /// struct's padding, which keeps `Result<_, ApiError>` small.
+    #[serde(skip)]
+    retry_after_seconds: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -193,6 +198,8 @@ pub(crate) const CONTENT_NOTICE_INVALID_FIELD: ApiErrorCode =
 pub(crate) const CONTENT_NOTICE_NOT_FOUND: ApiErrorCode = ApiErrorCode("CONTENT_NOTICE_NOT_FOUND");
 pub(crate) const CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER: ApiErrorCode =
     ApiErrorCode("CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER");
+pub(crate) const CONTENT_NOTICE_RATE_LIMITED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_RATE_LIMITED");
 pub(crate) const CONTENT_NOTICE_TARGET_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("CONTENT_NOTICE_TARGET_NOT_FOUND");
 pub(crate) const CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -343,6 +350,7 @@ impl ApiError {
             detail: None,
             cause: None,
             bearer_credential_rejected: false,
+            retry_after_seconds: None,
         }
     }
 
@@ -372,6 +380,15 @@ impl ApiError {
             "Unprocessable Content",
             error,
         )
+    }
+
+    /// A `429` with `Retry-After`, at least one second and saturating at `u32::MAX`.
+    pub(crate) fn too_many_requests(error: ApiErrorCode, retry_after_seconds: u64) -> Self {
+        let seconds = u32::try_from(retry_after_seconds).unwrap_or(u32::MAX);
+        Self {
+            retry_after_seconds: Some(NonZeroU32::new(seconds).unwrap_or(NonZeroU32::MIN)),
+            ..Self::new(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests", error)
+        }
     }
 
     pub(crate) fn internal_server_error(error: ApiErrorCode) -> Self {
@@ -2778,6 +2795,13 @@ impl From<SubmitContentNoticeError> for ApiError {
                 ApiError::not_found(CONTENT_NOTICE_TARGET_NOT_FOUND)
                     .with_detail("The product listing or listing source was not found.")
             }
+            SubmitContentNoticeError::RateLimited { retry_after } => ApiError::too_many_requests(
+                CONTENT_NOTICE_RATE_LIMITED,
+                retry_after.seconds(),
+            )
+            .with_detail(
+                "Too many content notices were submitted from this email address. Try again later.",
+            ),
             SubmitContentNoticeError::TemporarilyUnavailable { source }
             | SubmitContentNoticeError::BeginTransactionFailed(source)
             | SubmitContentNoticeError::CommitTransactionFailed(source) => {
@@ -3447,6 +3471,7 @@ impl IntoResponse for ApiError {
             } else {
                 BearerAuthenticationFailure::Missing
             });
+        let retry_after_seconds = self.retry_after_seconds;
         let mut response = (
             self.status_code(),
             [(header::CONTENT_TYPE, "application/problem+json")],
@@ -3455,6 +3480,11 @@ impl IntoResponse for ApiError {
             .into_response();
         if let Some(failure) = bearer_authentication_failure {
             response.extensions_mut().insert(failure);
+        }
+        if let Some(seconds) = retry_after_seconds {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(seconds.get()));
         }
         response
     }

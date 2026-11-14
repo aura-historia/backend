@@ -8,6 +8,7 @@ use content_notice_service::ports::{
 };
 use platform_postgres::SqlxTransaction;
 use sqlx::{AssertSqlSafe, PgConnection};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxContentNoticeRepositoryFactory;
@@ -39,13 +40,14 @@ impl ContentNoticeRepository for Repository<'_> {
         &mut self,
         notice: &ContentNotice,
         fingerprint: ContentNoticeSubmissionFingerprint,
+        created: OffsetDateTime,
     ) -> Result<VersionedContentNotice, ContentNoticeRepositoryError> {
         let target = notice.target();
         let snapshot = notice.target_snapshot();
         let product_listing = snapshot.product_listing.as_ref();
         let submitter = notice.submitter();
         sqlx::query_as::<_, ContentNoticeRow>(AssertSqlSafe(format!(
-            "INSERT INTO content_notices(content_notice_id, target_type, listing_source_id, product_listing_id, listing_source_name, listing_source_url, listing_source_partner, product_listing_title, product_listing_url, submitter_role, reason_category, explanation, additional_urls, submitter_name, submitter_email, submitter_language, good_faith_statement_version, submission_fingerprint, business_state) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING {CONTENT_NOTICE_COLUMNS}"
+            "INSERT INTO content_notices(content_notice_id, target_type, listing_source_id, product_listing_id, listing_source_name, listing_source_url, listing_source_partner, product_listing_title, product_listing_url, submitter_role, reason_category, explanation, additional_urls, submitter_name, submitter_email, submitter_language, good_faith_statement_version, submission_fingerprint, business_state, created, updated) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20) RETURNING {CONTENT_NOTICE_COLUMNS}"
         )))
         .bind(notice.id().into_uuid())
         .bind(target.target_type().as_str())
@@ -77,6 +79,7 @@ impl ContentNoticeRepository for Repository<'_> {
         .bind(notice.good_faith_statement_version().as_str())
         .bind(fingerprint.as_bytes().as_slice())
         .bind(notice.state().as_str())
+        .bind(created)
         .fetch_one(&mut *self.connection)
         .await
         .map_err(write)

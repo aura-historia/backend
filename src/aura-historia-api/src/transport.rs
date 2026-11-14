@@ -110,6 +110,7 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                     CORRELATION_ID_HEADER,
                     IDEMPOTENCY_KEY_HEADER,
                     header::WWW_AUTHENTICATE,
+                    header::RETRY_AFTER,
                 ]),
         )
         .layer(axum::middleware::from_fn(request_metadata))
@@ -597,7 +598,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_expose_correlation_headers_for_cors_requests() {
+    async fn should_expose_correlation_and_retry_after_headers_for_cors_requests() {
         let response = app()
             .oneshot(
                 Request::builder()
@@ -615,6 +616,12 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .contains(REQUEST_ID_HEADER.as_str())
+        );
+        assert!(
+            response.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                .to_str()
+                .unwrap()
+                .contains(header::RETRY_AFTER.as_str())
         );
     }
 

@@ -104,3 +104,65 @@ async fn should_return_a_submitted_notice_with_its_current_target_only_to_admins
     assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
+
+async fn submit(
+    listing_source_id: ListingSourceId,
+    email: &str,
+    explanation: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(format!("{}/v1/content-notices", AURA_API.base_url()))
+        .json(&json!({
+            "target": {"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()},
+            "submitterRole": "RIGHTS_HOLDER",
+            "reasonCategory": "RIGHTS_INFRINGEMENT",
+            "explanation": explanation,
+            "name": "Erika Mustermann",
+            "email": email,
+            "language": "de",
+            "goodFaithConfirmed": true
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to submit content notice: {error}"))
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_store_a_resubmission_once_and_rate_limit_an_address_over_its_budget() {
+    let listing_source_id = ListingSourceId::try_from(seed_listing_source().await).unwrap();
+    let admin = token("ADMIN", HashSet::from([Scope::ContentNoticesRead])).await;
+    for _ in 0..2 {
+        let response = submit(listing_source_id, "erika@example.com", "Foto 0.").await;
+        assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+    }
+    let (_, page, _) = list(&admin).await;
+    assert_eq!(json!(1), page["size"]);
+
+    for index in 1..10 {
+        let response = submit(
+            listing_source_id,
+            "Erika@Example.com",
+            &format!("Foto {index}."),
+        )
+        .await;
+        assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+    }
+    let response = submit(listing_source_id, "ERIKA@example.com", "Foto 10.").await;
+
+    assert_eq!(reqwest::StatusCode::TOO_MANY_REQUESTS, response.status());
+    let headers = response.headers().clone();
+    assert_eq!("no-store", headers[reqwest::header::CACHE_CONTROL]);
+    let retry_after: u64 = headers[reqwest::header::RETRY_AFTER]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!((1..=24 * 60 * 60).contains(&retry_after), "{retry_after}");
+    let (status, body) = json_response(response).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::TOO_MANY_REQUESTS,
+        "CONTENT_NOTICE_RATE_LIMITED",
+    );
+}

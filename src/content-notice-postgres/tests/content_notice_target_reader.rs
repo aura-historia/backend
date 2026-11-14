@@ -14,16 +14,18 @@ use content_notice_core::{
     submitter_role::SubmitterRole,
 };
 use content_notice_postgres::{
-    SqlxContentNoticeRepositoryFactory, SqlxContentNoticeTargetReaderFactory,
+    SqlxContentNoticeRepositoryFactory, SqlxContentNoticeSubmissionHistoryFactory,
+    SqlxContentNoticeTargetReaderFactory,
 };
 use content_notice_service::{
     ports::{
         ContentNoticeRepository, ContentNoticeRepositoryFactory, ContentNoticeTargetReader,
         ContentNoticeTargetReaderFactory, ListingSourceTarget, ProductListingTarget,
+        SystemContentNoticeClock,
     },
     use_cases::commands::submit_content_notice::{
         ContentNoticeTargetReference, SubmitContentNoticeCommand, SubmitContentNoticeHandler,
-        SubmitContentNoticeUseCase,
+        SubmitContentNoticeResult, SubmitContentNoticeUseCase,
     },
 };
 use listing_source_core::{ListingSourceId, ListingSourceName};
@@ -154,6 +156,8 @@ async fn should_commit_submitted_notice_with_resolved_target() {
         SqlxUnitOfWork::new(pool.clone()),
         SqlxContentNoticeTargetReaderFactory::new(),
         SqlxContentNoticeRepositoryFactory::new(),
+        SqlxContentNoticeSubmissionHistoryFactory::new(),
+        SystemContentNoticeClock,
     );
 
     let result = handler
@@ -181,11 +185,14 @@ async fn should_commit_submitted_notice_with_resolved_target() {
         )
         .await
         .unwrap();
+    let SubmitContentNoticeResult::Stored { content_notice_id } = result else {
+        panic!("expected a stored notice, got {result:?}");
+    };
 
     let mut tx = begin(&pool).await;
     let stored = SqlxContentNoticeRepositoryFactory::new()
         .in_transaction(&mut tx)
-        .find_by_id(result.content_notice_id)
+        .find_by_id(content_notice_id)
         .await
         .unwrap()
         .expect("committed notice")
