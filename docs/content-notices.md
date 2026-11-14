@@ -106,6 +106,21 @@ the overview counts; there is no alert yet.
 The [OpenAPI](swagger.yaml) operation `adminSearchContentNotices` owns the exact parameters and
 errors.
 
+## Admin detail
+
+`GET /v1/admin/content-notices/{contentNoticeId}` returns one notice with everything an admin
+needs to handle it: the submitted content, the snapshot, and the target as it is now.
+
+- The snapshot never changes. The current target is read live in the same query as the notice:
+  whether the listing source still exists, its name, slug, ingestion methods and partner status
+  (same rule as at submission), and for a listing target whether the listing exists and its
+  lifecycle. A target that no longer exists is reported as such; the notice is still returned.
+- A stored notice that breaks an invariant, or an unknown stored value, fails the read instead of
+  being defaulted.
+- Responses are never cached.
+
+The [OpenAPI](swagger.yaml) operation `adminGetContentNotice` owns the response shape and errors.
+
 ## References
 
 - Schema: [`content_notices` migration](../migrations/20261114090000_content_notices.sql)

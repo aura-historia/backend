@@ -123,7 +123,10 @@ use product_listing_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntake;
 
-use content_notice_postgres::SqlxContentNoticeAdminSearchReaderFactory;
+use content_notice_postgres::{
+    SqlxContentNoticeAdminSearchReaderFactory, SqlxContentNoticeDetailsReaderFactory,
+};
+use content_notice_service::use_cases::queries::get_admin_content_notice::GetAdminContentNoticeHandler;
 use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesHandler;
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
@@ -1511,6 +1514,11 @@ async fn app_state_from_config_and_runtime(
         SqlxContentNoticeAdminSearchReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
+    let get_admin_content_notice = GetAdminContentNoticeHandler::new(
+        unit_of_work.clone(),
+        SqlxContentNoticeDetailsReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
     let list_admin_partnerships = ListAdminPartnershipsHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipSearchReaderFactory::new(),
@@ -2054,6 +2062,7 @@ async fn app_state_from_config_and_runtime(
                 SqlxContentNoticeRepositoryFactory::new(),
             )),
             Arc::new(list_admin_content_notices),
+            Arc::new(get_admin_content_notice),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_partnerships(partnerships_state)

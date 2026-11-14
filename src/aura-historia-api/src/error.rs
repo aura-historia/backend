@@ -11,6 +11,7 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
     CreateBillingPortalSessionError,
 };
+use content_notice_service::use_cases::queries::get_admin_content_notice::GetAdminContentNoticeError;
 use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesError;
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceError;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceError;
@@ -189,6 +190,7 @@ pub(crate) const CONTENT_NOTICE_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("CONTENT_NOTICE_INTERNAL_ERROR");
 pub(crate) const CONTENT_NOTICE_INVALID_FIELD: ApiErrorCode =
     ApiErrorCode("CONTENT_NOTICE_INVALID_FIELD");
+pub(crate) const CONTENT_NOTICE_NOT_FOUND: ApiErrorCode = ApiErrorCode("CONTENT_NOTICE_NOT_FOUND");
 pub(crate) const CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER: ApiErrorCode =
     ApiErrorCode("CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER");
 pub(crate) const CONTENT_NOTICE_TARGET_NOT_FOUND: ApiErrorCode =
@@ -2913,6 +2915,29 @@ impl From<ListAdminContentNoticesError> for ApiError {
             | ListAdminContentNoticesError::Internal { .. } => {
                 ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
                     .with_detail("Content notice search failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetAdminContentNoticeError> for ApiError {
+    fn from(error: GetAdminContentNoticeError) -> Self {
+        match error {
+            GetAdminContentNoticeError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetAdminContentNoticeError::NotFound => ApiError::not_found(CONTENT_NOTICE_NOT_FOUND)
+                .with_detail("Content notice was not found."),
+            GetAdminContentNoticeError::TemporarilyUnavailable { .. }
+            | GetAdminContentNoticeError::BeginTransactionFailed(_)
+            | GetAdminContentNoticeError::CommitTransactionFailed(_) => {
+                ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Content notices are temporarily unavailable.")
+            }
+            GetAdminContentNoticeError::InvalidReadModel { .. }
+            | GetAdminContentNoticeError::Internal { .. } => {
+                ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
+                    .with_detail("Content notice read failed internally.")
             }
         }
     }

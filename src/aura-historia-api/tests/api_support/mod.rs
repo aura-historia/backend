@@ -2064,6 +2064,13 @@ async fn test_state(
                     user_postgres::SqlxUserAdminReaderFactory::new(),
                 ),
             ),
+            Arc::new(
+                content_notice_service::use_cases::queries::get_admin_content_notice::GetAdminContentNoticeHandler::new(
+                    unit_of_work.clone(),
+                    content_notice_postgres::SqlxContentNoticeDetailsReaderFactory::new(),
+                    user_postgres::SqlxUserAdminReaderFactory::new(),
+                ),
+            ),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_partnerships(partnerships_state)

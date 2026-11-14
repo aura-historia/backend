@@ -1,5 +1,7 @@
 mod content_notice_admin_search_reader;
+mod content_notice_details_reader;
 mod content_notice_target_reader;
 
 pub use content_notice_admin_search_reader::SqlxContentNoticeAdminSearchReaderFactory;
+pub use content_notice_details_reader::SqlxContentNoticeDetailsReaderFactory;
 pub use content_notice_target_reader::SqlxContentNoticeTargetReaderFactory;

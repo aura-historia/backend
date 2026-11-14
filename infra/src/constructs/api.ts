@@ -174,6 +174,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications/{partnership_application_id}", ["GET", "PATCH"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications/{partnership_application_id}/decision", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/content-notices", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/content-notices/{content_notice_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}", ["GET", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}/members/{user_id}", ["PUT", "DELETE"]),
