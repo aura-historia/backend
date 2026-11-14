@@ -4,6 +4,7 @@ pub mod agent_discovery;
 pub mod auctions;
 pub mod auth;
 pub mod billing;
+pub(crate) mod content_notices;
 pub mod error;
 mod geographic_search;
 pub(crate) mod keyset_cursor;
@@ -117,6 +118,8 @@ use product_listing_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntake;
 
+use content_notice_postgres::SqlxContentNoticeAdminSearchReaderFactory;
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesHandler;
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
     SqlxListingSourceSearchReaderFactory,
@@ -1142,6 +1145,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(partnership_applications::router(partnership_applications));
     }
 
+    if let Some(content_notices) = state.content_notices {
+        routes = routes.merge(content_notices::router(content_notices));
+    }
+
     if let Some(partnerships) = state.partnerships {
         routes = routes.merge(partnerships::router(partnerships));
     }
@@ -1492,6 +1499,11 @@ async fn app_state_from_config_and_runtime(
     let list_admin_partnership_applications = ListAdminPartnershipApplicationsHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let list_admin_content_notices = ListAdminContentNoticesHandler::new(
+        unit_of_work.clone(),
+        SqlxContentNoticeAdminSearchReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
     let list_admin_partnerships = ListAdminPartnershipsHandler::new(
@@ -2030,6 +2042,10 @@ async fn app_state_from_config_and_runtime(
         .with_user_addresses(user_addresses_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
+        .with_content_notices(state::ContentNoticesState::new(
+            Arc::new(list_admin_content_notices),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_partnerships(partnerships_state)
         .with_products(
             ProductListingsState::new(

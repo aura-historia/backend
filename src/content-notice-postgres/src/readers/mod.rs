@@ -1,0 +1,3 @@
+mod content_notice_admin_search_reader;
+
+pub use content_notice_admin_search_reader::SqlxContentNoticeAdminSearchReaderFactory;

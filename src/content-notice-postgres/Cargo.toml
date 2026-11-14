@@ -20,4 +20,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["postgres"] }
+time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
+user-core = { workspace = true }
+user-service = { workspace = true }

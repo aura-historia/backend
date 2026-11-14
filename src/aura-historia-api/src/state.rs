@@ -12,6 +12,7 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
     CreateBillingPortalSessionUseCase,
 };
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesUseCase;
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceUseCase;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceUseCase;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceUseCase;
@@ -159,6 +160,7 @@ pub struct AppState {
     pub(crate) user_addresses: Option<UserAddressesState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
+    pub(crate) content_notices: Option<ContentNoticesState>,
     pub(crate) partnerships: Option<PartnershipsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
@@ -213,6 +215,7 @@ impl AppState {
             user_addresses: None,
             watchlist: None,
             partnership_applications: None,
+            content_notices: None,
             partnerships: None,
             oauth: None,
             search_filters: None,
@@ -325,6 +328,11 @@ impl AppState {
         partnership_applications: PartnershipApplicationsState,
     ) -> Self {
         self.partnership_applications = Some(partnership_applications);
+        self
+    }
+
+    pub fn with_content_notices(mut self, content_notices: ContentNoticesState) -> Self {
+        self.content_notices = Some(content_notices);
         self
     }
 
@@ -458,6 +466,24 @@ impl AdminOverviewState {
     ) -> Self {
         Self {
             get_overview,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ContentNoticesState {
+    pub(crate) list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl ContentNoticesState {
+    pub fn new(
+        list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            list_admin,
             authenticator,
         }
     }

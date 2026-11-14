@@ -323,6 +323,9 @@ dependencies = [
  "billing-service",
  "billing-stripe",
  "classifier-model",
+ "content-notice-core",
+ "content-notice-postgres",
+ "content-notice-service",
  "credential-core",
  "domain-primitives",
  "embedding",
@@ -2108,8 +2111,11 @@ dependencies = [
  "sqlx",
  "test-api",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "url",
+ "user-core",
+ "user-service",
  "uuid",
 ]
 
@@ -2122,7 +2128,14 @@ dependencies = [
  "content-notice-core",
  "domain-primitives",
  "fake",
+ "listing-source-core",
+ "product-listing-core",
  "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

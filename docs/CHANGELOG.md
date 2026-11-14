@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Admin content notice list (#2940)
+
+- New `GET /v1/admin/content-notices` (`adminSearchContentNotices`) lists content notices for administrators, newest first. It requires the `ADMIN` role and, for delegated access tokens, the `content-notices:read` scope.
+- Filters: `targetType`, `listingSourceId` (matches notices about the source and about its listings), `productListingId`, `reasonCategory`, `submitterRole` and `created[min]`/`created[max]`. There are no filters on personal data.
+- Keyset pagination with `size` (1–100, default 21), `sort=created` with `order=asc|desc` (both or neither) and an opaque `searchAfter` cursor bound to the filters and sort. There is no `total`. Responses, including errors, send `Cache-Control: no-store`.
+
 ## 2026-11-14 — Scope `content-notices:read` (#2937)
 
 - New delegated scope `content-notices:read` for the upcoming admin content-notice reads (list, detail and overview counts). Personal access tokens and registered OAuth clients can request it; like every admin scope it grants nothing without the `ADMIN` role. No endpoint uses it yet, and existing tokens and connections are unchanged.

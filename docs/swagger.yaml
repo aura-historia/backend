@@ -14465,6 +14465,330 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
+  /v1/admin/content-notices:
+    get:
+      summary: Search content notices for administration
+      description: |
+        Delegated Aura access tokens require `content-notices:read`; missing scope returns `403 FORBIDDEN`.
+        Lists content notices for authenticated administrators with the `ADMIN` role, newest first by default.
+
+        `targetType`, `reasonCategory` and `submitterRole` match one exact canonical value each.
+        `listingSourceId` matches notices about the ListingSource itself and about any of its
+        ProductListings; `productListingId` matches notices about that ProductListing. `created`
+        accepts an inclusive RFC3339 range using `min` and `max` query members. There are no filters
+        on the submitter's name or email, the explanation or the URLs, so personal data stays out of
+        URLs and access logs.
+
+        Results use deterministic keyset pagination. The default sort is `created` descending;
+        override it by providing both `sort` and `order`, as one alone is rejected. `created` is the
+        only sort field; the ContentNotice ID breaks ties in the same direction. Page sizes are clamped
+        to 1–100, with a default of 21. The opaque `searchAfter` cursor continues after the position of
+        the last returned notice and is omitted on the terminal page. Send it back unchanged with the
+        same filters and sort; a malformed cursor or one returned for other filters or sort is
+        rejected with `400 BAD_QUERY_PARAMETER_VALUE`. The response carries no `total`.
+
+        Each item is a summary. `listingSourceName`, `productListingTitle` and `partner` are the
+        snapshot taken at submission. The explanation and the additional URLs are not part of the
+        summary. Responses, including errors, always use `Cache-Control: no-store` because they
+        contain personal data.
+      operationId: adminSearchContentNotices
+      tags:
+        - ContentNotices
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: targetType
+          in: query
+          required: false
+          description: Optional target kind filter.
+          schema:
+            $ref: "#/components/schemas/ContentNoticeTargetTypeData"
+          example: PRODUCT_LISTING
+        - name: listingSourceId
+          in: query
+          required: false
+          description: Optional ListingSource ID filter. Matches notices about the ListingSource and about any of its ProductListings.
+          schema:
+            type: string
+          example: ls_7h03ebvas3fhj9qb5pr5s22029
+        - name: productListingId
+          in: query
+          required: false
+          description: Optional ProductListing ID filter.
+          schema:
+            type: string
+          example: pl_01h455vb4pex5vy7enb1p677vn
+        - name: reasonCategory
+          in: query
+          required: false
+          description: Optional reason category filter.
+          schema:
+            $ref: "#/components/schemas/ContentNoticeReasonCategoryData"
+          example: PROVIDER_OPT_OUT
+        - name: submitterRole
+          in: query
+          required: false
+          description: Optional submitter role filter.
+          schema:
+            $ref: "#/components/schemas/ContentNoticeSubmitterRoleData"
+          example: PROVIDER
+        - name: "created[min]"
+          in: query
+          required: false
+          description: Optional inclusive lower bound for the submission time (RFC3339).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-11-01T00:00:00Z"
+        - name: "created[max]"
+          in: query
+          required: false
+          description: Optional inclusive upper bound for the submission time (RFC3339).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-11-30T23:59:59Z"
+        - name: sort
+          in: query
+          required: false
+          description: Sort field. The only valid value is `created`. Requires `order`. The default is `created` descending.
+          schema:
+            type: string
+            enum:
+              - created
+          example: created
+        - name: order
+          in: query
+          required: false
+          description: Sort direction for `sort`. Requires `sort`.
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+          example: desc
+        - name: searchAfter
+          in: query
+          required: false
+          description: Opaque cursor returned by the previous page for the same filters and sort. Pass it back unchanged.
+          schema:
+            type: string
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsiY3JlYXRlZCI6MTc2MzAzMDY1ODEyMzAwMDAwMH0sImlkIjoibnRjXzAxaDQ1NXZiNHBleDV2eTdlbmIxcDY3N3ZuIn0
+        - name: size
+          in: query
+          required: false
+          description: Number of notices requested per page. The server clamps values to the inclusive range 1–100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 21
+          example: 21
+      responses:
+        "200":
+          description: Content notice summaries returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because they contain personal data.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminContentNoticeCollectionData"
+              examples:
+                page:
+                  summary: A page with a further page
+                  value:
+                    items:
+                      - contentNoticeId: ntc_01h455vb4pex5vy7enb1p677vn
+                        state: SUBMITTED
+                        created: "2026-11-13T10:44:18.123Z"
+                        target:
+                          type: PRODUCT_LISTING
+                          listingSourceId: ls_7h03ebvas3fhj9qb5pr5s22029
+                          productListingId: pl_01h455vb4pex5vy7enb1p677vn
+                        listingSourceName: Antiquitäten Muster
+                        productListingTitle: Jugendstil-Vase
+                        partner: false
+                        submitterRole: RIGHTS_HOLDER
+                        reasonCategory: RIGHTS_INFRINGEMENT
+                        submitterName: Erika Mustermann
+                        submitterEmail: erika@example.com
+                      - contentNoticeId: ntc_01h455vb4pex5vy7enb1p677vp
+                        state: SUBMITTED
+                        created: "2026-11-12T08:01:02.456Z"
+                        target:
+                          type: LISTING_SOURCE
+                          listingSourceId: ls_7h03ebvas3fhj9qb5pr5s22029
+                        listingSourceName: Antiquitäten Muster
+                        partner: false
+                        submitterRole: PROVIDER
+                        reasonCategory: PROVIDER_OPT_OUT
+                        submitterName: Max Mustermann
+                        submitterEmail: max@antik.example
+                    size: 2
+                    searchAfter: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsiY3JlYXRlZCI6MTc2MzAzMDY1ODEyMzAwMDAwMH0sImlkIjoibnRjXzAxaDQ1NXZiNHBleDV2eTdlbmIxcDY3N3ZuIn0
+                empty:
+                  summary: No matching notices
+                  value:
+                    items: []
+                    size: 0
+        "400":
+          description: Bad request - invalid query parameters.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_filter:
+                  summary: Invalid enum filter
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: reasonCategory
+                      type: QUERY
+                    detail: Unsupported reasonCategory 'SPAM'.
+                invalid_id:
+                  summary: Invalid ID filter
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_OBJECT_ID
+                    source:
+                      field: listingSourceId
+                      type: QUERY
+                invalid_created:
+                  summary: Invalid created range
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                invalid_sort:
+                  summary: Invalid sort field, or order without sort
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_SORT_VALUE
+                    source:
+                      field: sort
+                      type: QUERY
+                invalid_order:
+                  summary: Invalid sort order, or sort without order
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_ORDER_VALUE
+                    source:
+                      field: order
+                      type: QUERY
+                    detail: "'order' is required when 'sort' is supplied."
+                invalid_search_after:
+                  summary: Invalid searchAfter cursor
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+                    detail: searchAfter must be a cursor returned by this search.
+                foreign_search_after:
+                  summary: Cursor returned for other filters or sort
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+                    detail: searchAfter belongs to different filters or sort. Repeat the request that returned it, or start again without searchAfter.
+                invalid_size:
+                  summary: Invalid page size
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: size
+                      type: QUERY
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role and, for delegated access tokens, the `content-notices:read` scope.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "500":
+          description: Internal authentication failure, or a stored notice could not be read.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: CONTENT_NOTICE_INTERNAL_ERROR
+                detail: Content notice search failed internally.
+        "503":
+          description: Authentication, admin authorization, or content notice storage is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE
+                detail: Content notices are temporarily unavailable.
   /v1/admin/partnership-applications:
     get:
       summary: Search PartnershipApplications for administration
@@ -26019,6 +26343,112 @@ components:
           type: integer
           format: int64
           minimum: 0
+    AdminContentNoticeCollectionData:
+      type: object
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminContentNoticeSummaryData"
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 100
+          description: Number of items returned in the current page.
+        searchAfter:
+          type: string
+          description: Opaque cursor for the next page; omitted on the terminal page.
+    AdminContentNoticeSummaryData:
+      type: object
+      description: One content notice in the admin review queue. Contains personal data.
+      required:
+        - contentNoticeId
+        - state
+        - created
+        - target
+        - listingSourceName
+        - partner
+        - submitterRole
+        - reasonCategory
+        - submitterName
+        - submitterEmail
+      properties:
+        contentNoticeId:
+          type: string
+          description: ContentNotice ID (prefix `ntc`).
+          example: ntc_01h455vb4pex5vy7enb1p677vn
+        state:
+          $ref: "#/components/schemas/ContentNoticeStateData"
+        created:
+          type: string
+          format: date-time
+          description: Submission time.
+        target:
+          $ref: "#/components/schemas/ContentNoticeTargetData"
+        listingSourceName:
+          type: string
+          description: The ListingSource's name at submission.
+        productListingTitle:
+          type: string
+          description: The ProductListing's title at submission. Only `PRODUCT_LISTING` targets can have one; omitted when the listing had no title.
+        partner:
+          type: boolean
+          description: Whether the ListingSource's operator was a partner at submission.
+        submitterRole:
+          $ref: "#/components/schemas/ContentNoticeSubmitterRoleData"
+        reasonCategory:
+          $ref: "#/components/schemas/ContentNoticeReasonCategoryData"
+        submitterName:
+          type: string
+          description: The name the submitter gave.
+        submitterEmail:
+          type: string
+          format: email
+          description: The submitter's email address.
+    ContentNoticeTargetData:
+      type: object
+      description: What the notice is about. A `PRODUCT_LISTING` target also names its ListingSource.
+      required:
+        - type
+        - listingSourceId
+      properties:
+        type:
+          $ref: "#/components/schemas/ContentNoticeTargetTypeData"
+        listingSourceId:
+          type: string
+          example: ls_7h03ebvas3fhj9qb5pr5s22029
+        productListingId:
+          type: string
+          description: Present exactly when `type` is `PRODUCT_LISTING`.
+          example: pl_01h455vb4pex5vy7enb1p677vn
+    ContentNoticeTargetTypeData:
+      type: string
+      enum:
+        - LISTING_SOURCE
+        - PRODUCT_LISTING
+    ContentNoticeStateData:
+      type: string
+      description: Every notice is `SUBMITTED` until decisions exist.
+      enum:
+        - SUBMITTED
+    ContentNoticeSubmitterRoleData:
+      type: string
+      enum:
+        - PROVIDER
+        - RIGHTS_HOLDER
+        - ILLEGAL_CONTENT_REPORTER
+    ContentNoticeReasonCategoryData:
+      type: string
+      enum:
+        - PROVIDER_OPT_OUT
+        - RIGHTS_INFRINGEMENT
+        - ILLEGAL_CONTENT
+        - INCORRECT_INFORMATION
+        - OTHER
     ListingSourceReferenceData:
       type: object
       required:
@@ -28135,6 +28565,8 @@ tags:
     description: Partnership administration, safe summary reads, and membership/ListingSource count workflows.
   - name: PartnershipApplications
     description: Partnership application submission, review tracking, administration, and decision workflows.
+  - name: ContentNotices
+    description: Notices that ask Aura Historia to review a listing or a provider, and their administration.
   - name: OAuth
     description: OAuth 2.0 authorization, token, revocation, introspection, and OAuth client metadata management.
   - name: Agent Discovery

@@ -67,7 +67,27 @@ address and a SHA-256 fingerprint of the submission, which the submission use ca
 ## Access
 
 Admin reads require the `ADMIN` role; delegated access tokens additionally need the scope
-`content-notices:read`. There is no write scope.
+`content-notices:read`. There is no write scope. The use case checks both inside its read
+transaction; route protection alone does not authorize.
+
+## Admin review queue
+
+`GET /v1/admin/content-notices` lists notices newest first. Admins find new notices there and in
+the overview counts; there is no alert yet.
+
+- Each item is a summary: target, the listing source name, listing title and partner flag from
+  the snapshot, role, category, and the submitter's name and email. The explanation and URLs are
+  left to the detail read.
+- Filters cover the target kind, a listing source (notices about the source and about its
+  listings), a listing, the category, the role and the creation time. There is no filter on
+  personal data and none on the state, which is always `SUBMITTED` until decisions exist.
+- Pagination is a keyset over `(created, content_notice_id)`, both in the requested direction,
+  read in one query per page. The cursor carries the last position and a binding of the filters
+  and sort; a cursor presented with other filters or another sort is rejected.
+- Responses are never cached.
+
+The [OpenAPI](swagger.yaml) operation `adminSearchContentNotices` owns the exact parameters and
+errors.
 
 ## References
 
