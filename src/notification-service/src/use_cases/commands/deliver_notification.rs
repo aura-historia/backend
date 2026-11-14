@@ -300,7 +300,10 @@ where
     #[tracing::instrument(
         name = "deliver_notification",
         skip_all,
-        fields(notification_delivery_id = %command.notification_delivery_id)
+        fields(
+            notification_delivery_id = %command.notification_delivery_id,
+            source_type = tracing::field::Empty,
+        )
     )]
     async fn execute(
         &self,
@@ -341,6 +344,13 @@ where
             }
             ClaimNotificationDeliveryOutcome::Claimed { delivery, source } => (delivery, source),
         };
+        let source_type = claimed.source_id.source_type();
+        tracing::Span::current().record("source_type", source_type);
+        tracing::info!(
+            source_type,
+            attempt_count = claimed.attempt_count,
+            "notification delivery claimed"
+        );
 
         let remaining_lease =
             StdDuration::try_from(claimed.lease_expires_at - OffsetDateTime::now_utc())
@@ -429,13 +439,18 @@ mod tests {
             NotificationDeliveryDispatcherRegistrationError, SentNotificationDelivery,
         },
         notification_delivery_repository::{
-            ClaimedNotificationDelivery, NotificationDeliverySource,
+            ClaimedNotificationDelivery, ExternalEmailDeliverySource, NotificationDeliverySource,
+            UserNotificationDeliverySource,
         },
     };
     use application::error::box_error;
     use listing_source_core::ListingSourceName;
     use localization::Language;
     use notification_core::notification_id::NotificationId;
+    use notification_core::{
+        external_email::{ExternalEmailContent, ExternalEmailRecipient, ExternalEmailTestProbe},
+        external_email_message_id::ExternalEmailMessageId,
+    };
     use notification_core::{
         notification::{
             NotificationContent, PartnershipApplicationDecision,
@@ -530,7 +545,7 @@ mod tests {
             Self {
                 claimed: ClaimedNotificationDelivery {
                     notification_delivery_id,
-                    source_id: source.source_id,
+                    source_id: source.source_id(),
                     lease_token: Uuid::now_v7(),
                     lease_expires_at: OffsetDateTime::now_utc() + DELIVERY_LEASE_DURATION,
                     attempt_count: 2,
@@ -816,7 +831,7 @@ mod tests {
     }
 
     fn source(notification_delivery_id: NotificationDeliveryId) -> NotificationDeliverySource {
-        NotificationDeliverySource {
+        NotificationDeliverySource::User(Box::new(UserNotificationDeliverySource {
             saved_search_digest: None,
             notification_delivery_id,
             source_id: crate::ports::notification_delivery_repository::NotificationDeliverySourceId::Notification(NotificationId::new()),
@@ -841,7 +856,23 @@ mod tests {
                 show_unassessed_or_sensitive_content: false,
             },
             partner_listing_source_ids: Default::default(),
-        }
+        }))
+    }
+
+    fn external_source(
+        notification_delivery_id: NotificationDeliveryId,
+    ) -> NotificationDeliverySource {
+        NotificationDeliverySource::ExternalEmail(ExternalEmailDeliverySource {
+            notification_delivery_id,
+            external_email_message_id: ExternalEmailMessageId::new(),
+            recipient: ExternalEmailRecipient::try_from("notifier@example.test")
+                .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
+            language: Language::De,
+            content: ExternalEmailContent::TestProbe(
+                ExternalEmailTestProbe::new("probe-1")
+                    .unwrap_or_else(|error| panic!("invalid test probe: {error}")),
+            ),
+        })
     }
 
     fn repository_error() -> NotificationDeliveryError {
@@ -867,6 +898,48 @@ mod tests {
             .first()
             .copied()
             .ok_or_else(|| std::io::Error::other("missing claimed lease token").into())
+    }
+
+    #[tokio::test]
+    async fn should_claim_send_and_finalize_external_email_through_the_shared_path()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification_delivery_id = NotificationDeliveryId::new();
+        let source = external_source(notification_delivery_id);
+        let state = Arc::new(DeliveryState::default());
+        let sender = Arc::new(RecordingEmailSender::default());
+        let handler = DeliverNotificationHandler::new(
+            FakeDeliveryRepository::new(notification_delivery_id, source.clone(), state.clone()),
+            NotificationDeliveryDispatcher::new(vec![
+                sender.clone() as Arc<dyn NotificationChannelSender>
+            ])?,
+        );
+
+        let result = handler
+            .execute(DeliverNotificationCommand {
+                notification_delivery_id,
+            })
+            .await?;
+
+        assert_eq!(
+            DeliverNotificationResult::Delivered { attempt_count: 2 },
+            result
+        );
+        assert_eq!(
+            vec![source],
+            sender
+                .sent_sources
+                .lock()
+                .map_err(|_| std::io::Error::other("test sender lock poisoned"))?
+                .clone()
+        );
+        assert_eq!(
+            PersistedState::Delivered,
+            *state
+                .persisted_state
+                .lock()
+                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+        );
+        Ok(())
     }
 
     #[tokio::test]

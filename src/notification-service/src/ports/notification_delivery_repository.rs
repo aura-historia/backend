@@ -1,7 +1,10 @@
 use crate::presentation::NotificationPresentationPreferences;
 use application::error::BoxError;
 use listing_source_core::ListingSourceId;
+use localization::Language;
 use notification_core::{
+    external_email::{ExternalEmailContent, ExternalEmailRecipient},
+    external_email_message_id::ExternalEmailMessageId,
     notification::NotificationContent,
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_delivery_id::NotificationDeliveryId,
@@ -16,6 +19,18 @@ use uuid::Uuid;
 pub enum NotificationDeliverySourceId {
     Notification(NotificationId),
     SavedSearchDigest(notification_core::saved_search_digest_id::SavedSearchDigestId),
+    ExternalEmailMessage(ExternalEmailMessageId),
+}
+
+impl NotificationDeliverySourceId {
+    /// Content-free source label for delivery logs.
+    pub const fn source_type(self) -> &'static str {
+        match self {
+            Self::Notification(_) => "notification",
+            Self::SavedSearchDigest(_) => "digest",
+            Self::ExternalEmailMessage(_) => "external",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,8 +50,35 @@ pub struct ClaimedNotificationDelivery {
     pub attempt_count: u32,
 }
 
+/// The loaded content and recipient of a claimed delivery.
 #[derive(Debug, Clone, PartialEq)]
-pub struct NotificationDeliverySource {
+pub enum NotificationDeliverySource {
+    /// A notification or saved-search digest addressed to a user account.
+    User(Box<UserNotificationDeliverySource>),
+    /// A transactional email to an address that does not belong to a user account.
+    ExternalEmail(ExternalEmailDeliverySource),
+}
+
+impl NotificationDeliverySource {
+    pub fn source_id(&self) -> NotificationDeliverySourceId {
+        match self {
+            Self::User(source) => source.source_id,
+            Self::ExternalEmail(source) => {
+                NotificationDeliverySourceId::ExternalEmailMessage(source.external_email_message_id)
+            }
+        }
+    }
+
+    pub fn channel(&self) -> NotificationDeliveryChannel {
+        match self {
+            Self::User(source) => source.channel,
+            Self::ExternalEmail(_) => NotificationDeliveryChannel::Email,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserNotificationDeliverySource {
     pub notification_delivery_id: NotificationDeliveryId,
     pub source_id: NotificationDeliverySourceId,
     pub user_id: UserId,
@@ -49,6 +91,17 @@ pub struct NotificationDeliverySource {
     /// holds an active Partnership when the delivery is loaded. Resolved at send
     /// time and never persisted, so a partner tag ends with the Partnership.
     pub partner_listing_source_ids: HashSet<ListingSourceId>,
+}
+
+/// Everything needed to send an external email. The recipient and language come from the
+/// message itself, never from a user account. The recipient is personal data: never log it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternalEmailDeliverySource {
+    pub notification_delivery_id: NotificationDeliveryId,
+    pub external_email_message_id: ExternalEmailMessageId,
+    pub recipient: ExternalEmailRecipient,
+    pub language: Language,
+    pub content: ExternalEmailContent,
 }
 
 #[derive(Debug, Clone, PartialEq)]
