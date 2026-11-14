@@ -490,8 +490,11 @@ paths:
         marketplace counts by that seller's type, not as a marketplace; individual sellers on
         marketplaces and auction platforms are not counted. A reclassified ListingSource moves with
         the next calculation.
-        `countries` counts distinct countries in the counted listings' effective advertised-inventory
-        geography; business association and shipping destinations do not establish inventory location.
+        `countries` counts the distinct countries where the counted listings' ListingSources are
+        located: the country of a listing's effective advertised-inventory geography when it has one,
+        otherwise the country of the source's associated business. It describes the sources, not where
+        any object is held, and shipping destinations are not counted. Listings without effective
+        geography contribute no country. Listing `geography` and geographic search are unaffected.
         `languages` counts the union of original title and description languages; generated
         translations and presentation fallbacks are excluded. `newObjectsLast7Days` counts listings
         whose `created` timestamp lies in the 168 hours ending at `asOf` (start exclusive, end inclusive).
@@ -25578,7 +25581,7 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: Distinct countries in the counted listings' effective advertised-inventory geography.
+          description: Distinct countries where the counted listings' ListingSources are located, from the effective advertised-inventory geography or else the associated business.
           example: 18
         languages:
           type: integer
