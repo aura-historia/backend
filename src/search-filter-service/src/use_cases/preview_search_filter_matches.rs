@@ -7,7 +7,6 @@
 use crate::intent_translation::{TranslationTrigger, translate_search_intent};
 use crate::match_candidates::{
     CandidateEligibility, candidate_eligibility, has_semantic_intent, retrieve_candidates,
-    retrieves_with_embedding,
 };
 use crate::ports::SearchIntentTranslator;
 use crate::product_match_evaluator::{
@@ -391,15 +390,12 @@ where
         Ok(tier)
     }
 
-    /// Scheduled matching retrieves enhanced intent with the embedding stored on the filter;
+    /// Scheduled matching retrieves semantic intent with the embedding stored on the filter;
     /// the preview derives the same embedding from the same text.
     async fn retrieval_embedding(
         &self,
         search: &ProductListingSearch,
     ) -> Result<Option<Vec<f32>>, PreviewSearchFilterMatchesError> {
-        if !retrieves_with_embedding(search) {
-            return Ok(None);
-        }
         let Some(query) = embedding_query(search).map_err(embedding_error)? else {
             return Ok(None);
         };
@@ -1332,10 +1328,13 @@ mod tests {
         assert!(!preview.candidate_limit_reached);
         assert!(classified_ranks(&world).is_empty());
         assert_eq!(Some(ids[..4].to_vec()), presented(&world));
+        let world = world.lock().unwrap();
+        assert!(world.searches.iter().all(|search| !search.hybrid));
+        assert!(world.embedded.is_empty());
     }
 
     #[tokio::test]
-    async fn should_search_the_whole_catalogue_lexically_for_ordinary_intent() {
+    async fn should_search_the_whole_catalogue_with_the_embedding_of_text_intent() {
         let world = world(UserTier::Pro);
         seed(&world, 1);
         decide(&world, 0, Decision::Reject);
@@ -1346,10 +1345,19 @@ mod tests {
         let [search] = world.searches.as_slice() else {
             panic!("expected exactly one retrieval");
         };
-        assert!(!search.hybrid);
+        assert!(search.hybrid);
         assert_eq!(Some(32), search.size);
         assert_eq!(None, search.search.updated_query);
-        assert!(world.embedded.is_empty());
+        assert_eq!(
+            vec![
+                embedding_query(&text_search())
+                    .unwrap()
+                    .unwrap()
+                    .as_str()
+                    .to_owned()
+            ],
+            world.embedded
+        );
     }
 
     #[tokio::test]

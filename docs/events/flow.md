@@ -297,10 +297,12 @@ intent intact. A policy change increments the filter version even when its state
 active; execution consumes that policy without loading subscriptions. Persisted intent
 incompatible with its resolved capability fails validation instead of losing instructions.
 
-Query-only intent uses the existing lexical search. Enhanced intent uses hybrid retrieval
-with its write-time base-query + description embedding; the description is never appended
-as a mandatory all-words title query. Filters containing only deterministic constraints
-use ordinary search without embedding or model work. Structured predicates, including
+Every filter with text intent (base queries, enhanced description or both) uses hybrid
+retrieval, like the public product search, with its write-time embedding of the base queries
+and any description; the description is never appended as a mandatory all-words title query.
+A missing or invalid stored embedding fails that filter closed as invalid persisted state.
+Filters containing only deterministic constraints use ordinary search without embedding or
+model work. Structured predicates, including
 geography, shipping, availability, source/auction and pinned-FX prices, constrain retrieval regardless
 of classifier scores. Current authoritative event checks fence obsolete projection evidence.
 

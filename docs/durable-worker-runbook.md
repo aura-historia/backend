@@ -310,7 +310,8 @@ export terms, addresses, producer ownership keys, buyer data or provider payload
 [infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
 runs, verify private PostgreSQL access, ProductListing search with reader credentials,
 complete persisted FX and classifier configuration. Filter candidates and progress come
-from PostgreSQL. Query-only filters need no embedding for lexical retrieval. The update use case repairs missing
+from PostgreSQL. Every filter with text intent retrieves with its stored embedding; one
+without a valid embedding fails as invalid persisted state. The update use case repairs missing
 semantic embeddings outside its transaction and rechecks current intent and tier under
 lock. Preserve authored intent and do not generate embeddings during matching.
 

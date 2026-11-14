@@ -1,6 +1,5 @@
 use crate::match_candidates::{
     CandidateEligibility, candidate_eligibility, has_semantic_intent, retrieve_candidates,
-    retrieves_with_embedding,
 };
 use crate::ports::{
     ExistingSearchFilterMatchReader, PeriodicSearchFilterCandidate,
@@ -675,7 +674,7 @@ where
             return Ok(FilterOutcome::InvalidPersistedState);
         };
         let semantic = has_semantic_intent(&filter.search);
-        let embedding = if retrieves_with_embedding(&filter.search) {
+        let embedding = if semantic {
             match filter_embedding(filter) {
                 Ok(embedding) => Some(embedding),
                 Err(outcome) => return Ok(outcome),
@@ -1370,6 +1369,8 @@ mod tests {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
         current_event_check: ProductListingCurrentEventCheck,
         product_listing_search_result: Option<ProductListingSearchReadResult>,
+        /// One entry per candidate retrieval: `true` when it was hybrid.
+        hybrid_retrievals: Vec<bool>,
         policy_change_during_evaluation: bool,
         evaluator_calls: usize,
         evaluator_requests: Vec<ClassificationRequest>,
@@ -1558,7 +1559,7 @@ mod tests {
             product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult,
             ProductListingSearchReadError,
         >{
-            self.search_hybrid(_request, &[]).await
+            self.retrieve(false)
         }
 
         async fn search_hybrid(
@@ -1569,11 +1570,23 @@ mod tests {
             product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult,
             ProductListingSearchReadError,
         >{
+            self.retrieve(true)
+        }
+    }
+
+    impl NoopProductListings {
+        fn retrieve(
+            &self,
+            hybrid: bool,
+        ) -> Result<ProductListingSearchReadResult, ProductListingSearchReadError> {
             self.0
                 .lock()
-                .map(|state| match &state.product_listing_search_result {
-                    Some(result) => result.clone(),
-                    None => Default::default(),
+                .map(|mut state| {
+                    state.hybrid_retrievals.push(hybrid);
+                    state
+                        .product_listing_search_result
+                        .clone()
+                        .unwrap_or_default()
                 })
                 .map_err(
                     |_| ProductListingSearchReadError::ProductListingSearchQueryFailed {
@@ -1871,6 +1884,7 @@ mod tests {
             lock_outcome,
             current_event_check: ProductListingCurrentEventCheck::Current,
             product_listing_search_result: None,
+            hybrid_retrievals: Vec::new(),
             policy_change_during_evaluation: false,
             evaluator_calls: 0,
             evaluator_requests: Vec::new(),
@@ -2540,6 +2554,7 @@ mod tests {
             .search
             .product_listing_query
             .push("antique".try_into().unwrap());
+        filter.embedding = Some(vec![0.1; embedding::EMBEDDING_DIMENSIONS]);
         filter.matching_evidence_policy = search_filter_core::MatchingEvidencePolicy::TextOnly;
         filter
     }
@@ -2573,6 +2588,55 @@ mod tests {
             .unwrap();
         let requests = state.lock().unwrap().evaluator_requests.clone();
         (outcome, requests)
+    }
+
+    #[tokio::test]
+    async fn should_retrieve_text_intent_with_the_filter_embedding() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        seed_candidates(&state, 1);
+        state.lock().unwrap().evaluator_results = [decision(true)].into();
+
+        let outcome = full_budget_handler(Arc::clone(&state))
+            .process_filter(
+                &ordinary_filter(),
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                &mut None,
+                &mut FilterAttemptReport::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(vec![true], state.lock().unwrap().hybrid_retrievals);
+    }
+
+    #[tokio::test]
+    async fn should_fail_closed_when_text_intent_has_no_embedding() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        seed_candidates(&state, 1);
+        let mut filter = ordinary_filter();
+        filter.embedding = None;
+
+        let outcome = full_budget_handler(Arc::clone(&state))
+            .process_filter(
+                &filter,
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                &mut None,
+                &mut FilterAttemptReport::default(),
+            )
+            .await
+            .unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(FilterOutcome::InvalidPersistedState, outcome);
+        assert!(state.hybrid_retrievals.is_empty());
+        assert_eq!(0, state.evaluator_calls);
     }
 
     #[tokio::test]
@@ -2864,6 +2928,7 @@ mod tests {
             assert_eq!(0, report.classification_requests);
             assert_eq!(usize::from(count == 100), report.filters_scan_cap);
             assert_eq!(0, state.lock().unwrap().evaluator_calls);
+            assert_eq!(vec![false], state.lock().unwrap().hybrid_retrievals);
         }
     }
 
