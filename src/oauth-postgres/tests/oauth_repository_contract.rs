@@ -765,6 +765,7 @@ fn credential_scopes() -> HashSet<Scope> {
         Scope::PartnershipsRead,
         Scope::PartnershipsWrite,
         Scope::AdminOverviewRead,
+        Scope::ContentNoticesRead,
         Scope::SearchFiltersRead,
         Scope::NotificationsRead,
         Scope::NotificationsWrite,

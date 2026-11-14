@@ -2077,6 +2077,55 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a53c0a4d288377e7415b53dcfc3c04da5cdc2cc95c8d5ac178b58f0b861ad6"
 
 [[package]]
+name = "content-notice-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "product-listing-core",
+ "serde-email",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.21",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "content-notice-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "content-notice-core",
+ "content-notice-service",
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "platform-postgres",
+ "product-listing-core",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "content-notice-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "content-notice-core",
+ "domain-primitives",
+ "fake",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
