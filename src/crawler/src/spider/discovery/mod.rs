@@ -1,5 +1,6 @@
 pub mod frontier;
 mod known_pages;
+mod page_base;
 pub mod page_identity;
 pub mod page_status;
 mod redirects;

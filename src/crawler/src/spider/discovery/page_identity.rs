@@ -6,6 +6,7 @@ use scraper::{Html, Selector};
 use std::sync::LazyLock;
 use url::Url;
 
+use super::page_base::has_base;
 use crate::network::page_head::head_of;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{
@@ -18,8 +19,6 @@ const SHOPIFY_MARKER: &str = "Shopify.shop";
 
 static IDENTITY_LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("link[rel][href]").expect("identity link selector"));
-static BASE: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("base[href]").expect("base selector"));
 
 /// The identity evidence of the page fetched as `page` whose response, after redirects, came
 /// from `final_url` with `html` as its body. A link, and a shop system's product URL of the
@@ -51,10 +50,10 @@ pub fn page_identity_evidence(
     }
 
     let document = Html::parse_document(&head);
-    let has_base = document.select(&BASE).next().is_some();
+    let declares_base = has_base(&document);
     let resolve = |href: &str| {
         let href = href.trim();
-        if has_base && Url::parse(href).is_err() {
+        if declares_base && Url::parse(href).is_err() {
             return None;
         }
         let url = final_url.join(href).ok()?;
