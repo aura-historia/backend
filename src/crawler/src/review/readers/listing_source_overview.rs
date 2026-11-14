@@ -431,7 +431,9 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
 
 /// The `ORDER BY` list of `sort` in `direction`: every key in that direction, nulls last, the
 /// ListingSource id last. `Attention` ranks crawl-enabled sources first and labelled ones last,
-/// then those whose crawl waits for an operator, those whose last crawl failed, those with blocked
+/// the disabled ones whose qualification waits for a human before those that wait for their
+/// qualification and those before the others, as the console groups them, then those whose crawl
+/// waits for an operator, those whose last crawl failed, those with blocked
 /// URLs, the longest scrape failure streaks, those with held removals, the most pending reviews and
 /// the most recently updated.
 fn order_by(sort: SourceSort, direction: SortDirection) -> String {
@@ -439,6 +441,8 @@ fn order_by(sort: SourceSort, direction: SortDirection) -> String {
         SourceSort::Attention => &[
             "crawl_enabled",
             "(source_label IS NULL)",
+            "(NOT crawl_enabled AND qualification IS NOT DISTINCT FROM 'NEEDS_HUMAN')",
+            "(NOT crawl_enabled AND in_crawl_scope AND qualification IS NULL)",
             "needs_operator",
             "crawl_failed",
             "(blocked_urls > 0)",

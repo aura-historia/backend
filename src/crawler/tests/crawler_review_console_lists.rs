@@ -522,6 +522,40 @@ async fn should_read_listing_sources_in_windows_of_the_order_asked_for() {
     assert_eq!(source_ids(&by_reviews)[..2], [echo, charlie]);
 }
 
+/// The attention order keeps the disabled sources of each console group together: those whose
+/// qualification waits for a human, then those that wait for their qualification, then the
+/// others, whatever their pending reviews.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_rank_disabled_sources_by_their_qualification_for_attention() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let disabled = source(&pool, "Out of scope", "out.example.com", false).await;
+    let awaiting = source(&pool, "Awaiting", "awaiting.example.com", false).await;
+    let needs_human = source(&pool, "Unclear", "unclear.example.com", false).await;
+    pending_schema_review(&repository, disabled).await;
+    for (id, set) in [
+        (awaiting, "in_crawl_scope = TRUE"),
+        (
+            needs_human,
+            "in_crawl_scope = TRUE, qualification = 'NEEDS_HUMAN', \
+             qualification_note = 'every page answers a bot challenge', qualified_at = NOW(), \
+             qualified_by = 'AGENT_AUTHOR'",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let ranked = list_sources(&pool, ListingSourceQuery::default()).await;
+
+    assert_eq!(source_ids(&ranked), vec![needs_human, awaiting, disabled]);
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_filter_and_search_listing_sources_in_sql() {
     let pool = get_postgres_client().await;
