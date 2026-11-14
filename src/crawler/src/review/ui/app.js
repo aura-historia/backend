@@ -1101,7 +1101,7 @@ const FAILURES = {
     HTTP_504: {label: 'Gateway timeout (504)', cause: 'The shop answers 504: its gateway timed out.', profile: 'circuit'},
     HTTP_5XX_BURST: {label: 'Server errors (5xx)', cause: 'Several pages in a row answered with a server error.', profile: 'circuit'},
     HTTP_STATUS_BURST: {label: 'Rejected by the shop', cause: 'Several pages in a row answered with the same status, which means the shop rejects the scraper.', profile: 'circuit'},
-    CONNECTION_DROPPED: {label: 'Connections dropped', cause: "The shop closes the scraper's connections without answering, robots.txt included, which most likely means it blocks the AuraHistoriaBot user agent. Ask the shop to allow-list AuraHistoriaBot, or disable the source.", profile: 'circuit'},
+    CONNECTION_DROPPED: {label: 'Connections dropped', cause: "The shop closes the scraper's connections without answering, for robots.txt or for pages, which most likely means it blocks the AuraHistoriaBot user agent. Ask the shop to allow-list AuraHistoriaBot, or disable the source.", profile: 'circuit'},
     HttpError: {label: 'HTTP error', cause: 'The page answered with an error status.', profile: 'page'},
     RobotsDisallowed: {label: 'Disallowed by robots.txt', cause: "The shop's robots.txt forbids this page.", profile: 'page'},
     PageDirectiveDisallowed: {label: 'Refused by page directives', cause: "The page's X-Robots-Tag header or meta robots tag forbids capturing it.", profile: 'page'},

@@ -55,8 +55,8 @@ pub enum DomainFailureKind {
     /// crawler as such (`scraper::scrape_circuit`); the status is persisted as
     /// the circuit's diagnostic status code.
     HttpStatusBurst,
-    /// The shop's host accepted consecutive connections, robots.txt
-    /// included, and closed each without an HTTP answer, the way nginx's
+    /// The shop's host accepted consecutive connections, of robots.txt or of
+    /// pages, and closed each without an HTTP answer, the way nginx's
     /// `return 444` refuses a client ([`NetworkErrorKind::ConnectionDropped`]).
     ConnectionDropped,
 }
@@ -98,7 +98,10 @@ impl DomainFailureKind {
     /// [slow-host kinds](Self::is_slow_host), and a dropped connection, which
     /// on its own is a normal transient fault.
     pub const fn opens_on_first_failure(self) -> bool {
-        !self.is_slow_host() && !matches!(self, Self::ConnectionDropped)
+        !matches!(
+            self,
+            Self::Timeout | Self::Connect | Self::DnsTimeout | Self::ConnectionDropped
+        )
     }
 
     /// Whether the kind also comes from a slow host, which is the shop
@@ -451,9 +454,11 @@ pub fn error_with_sources(error: &dyn std::error::Error) -> String {
 }
 
 /// Whether a request that failed after connecting failed because the peer closed or reset the
-/// connection before any HTTP answer: hyper's incomplete message over plain HTTP, and an end of
-/// stream without TLS `close_notify`, a reset or a broken pipe beneath it. A connection the peer
-/// closes during the TLS handshake is a connect failure, which reqwest reports before this.
+/// connection before a complete HTTP answer: hyper's incomplete message over plain HTTP, and an
+/// end of stream without TLS `close_notify`, a reset or a broken pipe beneath it. hyper reports a
+/// response head cut off part-way the same way, so a shop that crashes mid-answer counts too; the
+/// circuit needs consecutive drops, which keeps such a one-off from opening it. A connection the
+/// peer closes during the TLS handshake is a connect failure, which reqwest reports before this.
 fn closed_without_answer(error: &(dyn std::error::Error + 'static)) -> bool {
     std::iter::successors(Some(error), |error| error.source()).any(|error| {
         error

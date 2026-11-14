@@ -1,5 +1,5 @@
 use crate::logging::warn_in_source;
-use crate::network::policy::domain_failure_kind;
+use crate::network::policy::{NetworkErrorKind, domain_failure_kind};
 use crate::scraper::candidate_service::SchemaSeedCandidate;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
@@ -192,7 +192,13 @@ fn record_fetch_transport_error(
     );
 }
 
+/// The error a failed seed fetch ends the scrape with: a failure that is scrape-circuit evidence,
+/// except a dropped page connection, which once is a normal transient fault, so the seed is
+/// skipped and sampling continues. A dropped robots.txt connection still ends the scrape.
 fn scrape_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
+    if error.kind() == NetworkErrorKind::ConnectionDropped {
+        return None;
+    }
     match error {
         FetchError::Network { kind, details } if domain_failure_kind(kind).is_some() => {
             Some(ScraperError::HttpError {
@@ -216,5 +222,28 @@ fn scrape_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
             }),
         )),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dropped(kind: NetworkErrorKind) -> FetchError {
+        FetchError::Network {
+            kind,
+            details: "connection closed before message completed".to_owned(),
+        }
+    }
+
+    #[test]
+    fn should_skip_a_seed_whose_page_connection_was_dropped_but_end_on_a_dropped_robots_txt() {
+        let url = Url::parse("https://shop.example.com/product/1").unwrap();
+
+        assert!(scrape_failure_error(&url, dropped(NetworkErrorKind::ConnectionDropped)).is_none());
+        assert!(
+            scrape_failure_error(&url, dropped(NetworkErrorKind::RobotsConnectionDropped))
+                .is_some()
+        );
     }
 }

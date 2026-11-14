@@ -1748,6 +1748,19 @@ mod tests {
         assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 2);
     }
 
+    /// A robots.txt that redirects on the shop's own host and whose target is dropped is the
+    /// shop refusing the crawler too, not an unreachable robots.txt of another host.
+    #[tokio::test]
+    async fn should_name_robots_txt_when_its_redirect_on_the_shop_host_is_dropped() {
+        let redirect = "HTTP/1.1 301 Moved Permanently\r\nLocation: /robots-moved.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let shop = spawn_shop(redirect.to_owned(), vec![""], Duration::ZERO).await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsConnectionDropped);
+        assert_eq!(shop.page_paths(), ["/robots-moved.txt"]);
+    }
+
     #[tokio::test]
     async fn should_retry_a_page_whose_connection_the_shop_drops_inline() {
         let shop = spawn_shop(robots_status("404 Not Found"), vec!["", ""], Duration::ZERO).await;

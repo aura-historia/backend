@@ -266,6 +266,17 @@ impl DeferralReason {
             Self::SourceLock => "source_lock",
         }
     }
+
+    /// The event that logs a batch this reason stopped, one per robots.txt failure, so a query
+    /// for unreachable robots.txt does not also return the shops that drop the connection.
+    const fn batch_stopped_event(self) -> &'static str {
+        match self {
+            Self::RobotsConnectionDropped => {
+                "crawler.scraper.robots_connection_dropped_batch_stopped"
+            }
+            _ => "crawler.scraper.robots_unreachable_batch_stopped",
+        }
+    }
 }
 
 #[derive(Default)]
@@ -2229,7 +2240,7 @@ async fn scrape_batch_candidates(
         if let Some(reason) = candidate_outcome.origin_deferral {
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
             debug!(
-                event = "crawler.scraper.robots_unreachable_batch_stopped",
+                event = reason.batch_stopped_event(),
                 reason = reason.as_str(),
                 deferred_urls = remaining,
                 "Deferring remaining scraper URLs while robots.txt cannot be read"
