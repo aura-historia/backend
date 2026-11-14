@@ -3,10 +3,29 @@ use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_listing_source,
     seed_partnership_application, seed_user, seed_user_with_tier,
 };
+use listing_source_core::ListingSourceId;
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
 use time::OffsetDateTime;
 use user_core::{access_token::Scope, tier::UserTier};
+
+async fn submit_listing_source_notice(listing_source_id: ListingSourceId) {
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/content-notices", AURA_API.base_url()))
+        .json(&json!({
+            "target": {"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()},
+            "submitterRole": "PROVIDER",
+            "reasonCategory": "PROVIDER_OPT_OUT",
+            "name": "Max Mustermann",
+            "email": "max@antik.example",
+            "language": "de",
+            "goodFaithConfirmed": true
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to submit content notice: {error}"));
+    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+}
 
 async fn get_overview(token: &str) -> (reqwest::StatusCode, serde_json::Value, Option<String>) {
     let response = reqwest::Client::new()
@@ -53,6 +72,11 @@ async fn should_aggregate_representative_admin_overview_counts() {
         timestamp,
     )
     .await;
+    submit_listing_source_notice(
+        ListingSourceId::try_from(listing_source_id)
+            .unwrap_or_else(|error| panic!("invalid seeded listing source id: {error}")),
+    )
+    .await;
     let token = String::from(
         seed_access_token_for(
             admin_id,
@@ -80,6 +104,8 @@ async fn should_aggregate_representative_admin_overview_counts() {
         json!(1),
         body["partnershipApplications"]["byState"]["rejected"]
     );
+    assert_eq!(json!(1), body["contentNotices"]["total"]);
+    assert_eq!(json!(1), body["contentNotices"]["byState"]["submitted"]);
     assert_eq!(json!(1), body["parties"]["total"]);
     assert_eq!(json!(1), body["listingSources"]["total"]);
     assert_eq!(

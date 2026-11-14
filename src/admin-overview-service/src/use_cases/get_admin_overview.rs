@@ -13,6 +13,7 @@ use user_service::ports::UserAdminReaderFactory;
 pub struct AdminOverview {
     pub users: AdminOverviewUsers,
     pub partnership_applications: AdminOverviewPartnershipApplications,
+    pub content_notices: AdminOverviewContentNotices,
     pub parties_total: u64,
     pub listing_sources: AdminOverviewListingSources,
     pub partnerships_total: u64,
@@ -52,6 +53,17 @@ pub struct AdminOverviewPartnershipApplicationStateCounts {
     pub approved: u64,
     pub rejected: u64,
     pub withdrawn: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AdminOverviewContentNotices {
+    pub total: u64,
+    pub by_state: AdminOverviewContentNoticeStateCounts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AdminOverviewContentNoticeStateCounts {
+    pub submitted: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -85,12 +85,14 @@ address and a SHA-256 fingerprint of the submission, which the submission use ca
 
 Admin reads require the `ADMIN` role; delegated access tokens additionally need the scope
 `content-notices:read`. There is no write scope. The use case checks both inside its read
-transaction; route protection alone does not authorize.
+transaction; route protection alone does not authorize. The counts in the admin overview are
+not notice reads: they follow the overview's own access rule (`admin-overview:read`).
 
 ## Admin review queue
 
 `GET /v1/admin/content-notices` lists notices newest first. Admins find new notices there and in
-the overview counts; there is no alert yet.
+the admin overview (`GET /v1/admin/overview`), which counts all notices and those per state from
+PostgreSQL in its single aggregate read; there is no alert yet.
 
 - Each item is a summary: target, the listing source name, listing title and partner flag from
   the snapshot, role, category, and the submitter's name and email. The explanation and URLs are
