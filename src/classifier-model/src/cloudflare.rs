@@ -20,6 +20,8 @@ use std::{
 };
 use url::Url;
 
+mod jpeg;
+
 const API_BASE: &str = "https://api.cloudflare.com/client/v4/";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 13 * 1024 * 1024;
@@ -230,52 +232,15 @@ impl CloudflareClassifierModel {
         }
 
         let request_started = Instant::now();
-        let result = async {
-            let response = self
-                .client
-                .post(self.endpoint.clone())
-                .bearer_auth(&self.api_token)
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .timeout(request.options.request_timeout)
-                .body(body)
-                .send()
-                .await
-                .map_err(|error| {
-                    if error.is_timeout() {
-                        ClassificationError::Timeout
-                    } else {
-                        ClassificationError::Transient
-                    }
-                })?;
-            let status = response.status();
-            let retry_after = retry_after(response.headers().get(RETRY_AFTER));
-            let response_bytes = read_bounded_body(response).await;
-            if !status.is_success() {
-                return Err(status_error(status, retry_after));
-            }
-            let response_bytes = response_bytes?;
-            // Value's default object decoder silently overwrites duplicate keys.
-            let envelope: UniqueValue = serde_json::from_slice(&response_bytes)
-                .map_err(|_| ClassificationError::InvalidResponse)?;
-            let envelope: CloudflareEnvelope = serde_json::from_value(envelope.0)
-                .map_err(|_| ClassificationError::InvalidResponse)?;
-            if envelope.success != Some(true) {
-                return Err(ClassificationError::InvalidResponse);
-            }
-            let result = envelope
-                .result
-                .ok_or(ClassificationError::InvalidResponse)?;
-            if result.model != self.model.as_str() {
-                return Err(ClassificationError::InvalidResponse);
-            }
-            parse_answers_with_partial(
-                result.answers,
-                result.usage,
+        let result = self
+            .exchange(
+                body,
+                diagnostics.sent_image_count,
+                request.options.request_timeout,
                 &expected_question_ids,
                 allow_partial_answers,
             )
-        }
-        .await;
+            .await;
         diagnostics.duration_millis =
             duration_millis(image_fetch_duration.saturating_add(request_started.elapsed()));
         match result {
@@ -290,17 +255,100 @@ impl CloudflareClassifierModel {
                 );
                 Ok(response)
             }
-            Err(error) => {
+            Err(failure) => {
                 log_classifier_attempt(
                     operation,
                     correlation_id.as_deref(),
                     &diagnostics,
                     None,
-                    Some(&error),
+                    Some(&failure),
                 );
-                Err(error)
+                Err(failure.error)
             }
         }
+    }
+
+    /// Sends one serialized request and maps the provider answer to typed answers.
+    async fn exchange(
+        &self,
+        body: Vec<u8>,
+        sent_images: usize,
+        timeout: Duration,
+        expected_question_ids: &BTreeSet<String>,
+        allow_partial_answers: bool,
+    ) -> Result<ClassificationResponse, ExchangeFailure> {
+        let response = self
+            .client
+            .post(self.endpoint.clone())
+            .bearer_auth(&self.api_token)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(timeout)
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| {
+                ExchangeFailure::from(if error.is_timeout() {
+                    ClassificationError::Timeout
+                } else {
+                    ClassificationError::Transient
+                })
+            })?;
+        let status = response.status();
+        let retry_after = retry_after(response.headers().get(RETRY_AFTER));
+        let response_bytes = read_bounded_body(response).await;
+        if !status.is_success() {
+            let errors = response_bytes
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<CloudflareErrorEnvelope>(&bytes).ok())
+                .map(|envelope| envelope.errors)
+                .unwrap_or_default();
+            return Err(ExchangeFailure {
+                error: status_error(status, retry_after, &errors, sent_images),
+                http_status: Some(status.as_u16()),
+                provider_error_code: errors.first().and_then(|error| error.code),
+            });
+        }
+        let answered = |error| ExchangeFailure {
+            error,
+            http_status: Some(status.as_u16()),
+            provider_error_code: None,
+        };
+        let response_bytes = response_bytes.map_err(answered)?;
+        self.answers(
+            &response_bytes,
+            expected_question_ids,
+            allow_partial_answers,
+        )
+        .map_err(answered)
+    }
+
+    /// Maps a successful provider envelope to the typed answers of the expected questions.
+    fn answers(
+        &self,
+        response_bytes: &[u8],
+        expected_question_ids: &BTreeSet<String>,
+        allow_partial_answers: bool,
+    ) -> Result<ClassificationResponse, ClassificationError> {
+        // Value's default object decoder silently overwrites duplicate keys.
+        let envelope: UniqueValue = serde_json::from_slice(response_bytes)
+            .map_err(|_| ClassificationError::InvalidResponse)?;
+        let envelope: CloudflareEnvelope =
+            serde_json::from_value(envelope.0).map_err(|_| ClassificationError::InvalidResponse)?;
+        if envelope.success != Some(true) {
+            return Err(ClassificationError::InvalidResponse);
+        }
+        let result = envelope
+            .result
+            .ok_or(ClassificationError::InvalidResponse)?;
+        if result.model != self.model.as_str() {
+            return Err(ClassificationError::InvalidResponse);
+        }
+        parse_answers_with_partial(
+            result.answers,
+            result.usage,
+            expected_question_ids,
+            allow_partial_answers,
+        )
     }
 }
 
@@ -361,6 +409,38 @@ struct CloudflareQuestion {
 struct CloudflareEnvelope {
     success: Option<bool>,
     result: Option<CloudflareResult>,
+}
+
+/// The Cloudflare API error list of a rejected request. Messages are matched, never logged.
+#[derive(serde::Deserialize)]
+struct CloudflareErrorEnvelope {
+    #[serde(default)]
+    errors: Vec<CloudflareApiError>,
+}
+
+#[derive(serde::Deserialize)]
+struct CloudflareApiError {
+    code: Option<u64>,
+    #[serde(default)]
+    message: String,
+}
+
+/// A failed exchange with the bounded provider facts that name its cause in the invocation log.
+#[derive(Debug)]
+struct ExchangeFailure {
+    error: ClassificationError,
+    http_status: Option<u16>,
+    provider_error_code: Option<u64>,
+}
+
+impl From<ClassificationError> for ExchangeFailure {
+    fn from(error: ClassificationError) -> Self {
+        Self {
+            error,
+            http_status: None,
+            provider_error_code: None,
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -592,8 +672,9 @@ fn log_classifier_attempt(
     correlation_id: Option<&str>,
     diagnostics: &ClassificationDiagnostics,
     usage: Option<&ClassificationUsage>,
-    error: Option<&ClassificationError>,
+    failure: Option<&ExchangeFailure>,
 ) {
+    let error = failure.map(|failure| &failure.error);
     tracing::info!(
         eventType = "CLASSIFIER_INVOCATION",
         classifierOperation = operation,
@@ -608,6 +689,8 @@ fn log_classifier_attempt(
         outputTokens = usage.and_then(|usage| usage.output_tokens),
         failureCategory = error.map(ClassificationError::category),
         retryCategory = error.map(ClassificationError::retry_category),
+        providerHttpStatus = failure.and_then(|failure| failure.http_status),
+        providerErrorCode = failure.and_then(|failure| failure.provider_error_code),
         "Completed classifier invocation."
     );
 }
@@ -654,7 +737,11 @@ fn cloudflare_image_parts(
     if data.len() > MAX_IMAGE_BYTES {
         return Err(ImageOmissionReason::InvalidOrOversized);
     }
-    if !image_is_decodable(mime_type, &data) {
+    let provider_jpeg = (mime_type == "image/jpeg")
+        .then(|| jpeg::without_multi_picture_index(&data))
+        .flatten();
+    let data = provider_jpeg.as_deref().unwrap_or(&data);
+    if !image_is_decodable(mime_type, data) {
         return Err(ImageOmissionReason::InvalidOrOversized);
     }
     Ok(PreparedCloudflareImage {
@@ -664,7 +751,8 @@ fn cloudflare_image_parts(
             "image/webp" => "image/webp",
             _ => return Err(ImageOmissionReason::UnsupportedFormat),
         },
-        base64_data: base64_data.to_owned(),
+        base64_data: provider_jpeg
+            .map_or_else(|| base64_data.to_owned(), |jpeg| BASE64.encode(jpeg)),
     })
 }
 
@@ -734,13 +822,55 @@ async fn read_bounded_body(
     Ok(body)
 }
 
-fn status_error(status: StatusCode, retry_after: Option<Duration>) -> ClassificationError {
+fn status_error(
+    status: StatusCode,
+    retry_after: Option<Duration>,
+    errors: &[CloudflareApiError],
+    sent_images: usize,
+) -> ClassificationError {
     match status.as_u16() {
         401 | 403 => ClassificationError::Authentication,
         429 => ClassificationError::RateLimited { retry_after },
         408 | 425 | 500..=599 => ClassificationError::Transient,
+        _ if rejects_only_sent_image_payloads(errors, sent_images) => {
+            ClassificationError::PermanentCandidateFailure
+        }
         _ => ClassificationError::InvalidConfiguration,
     }
+}
+
+/// Whether every reported error only rejects the payload of images that were sent. Such a
+/// rejection belongs to the candidate, so it must not block other candidates; any other issue
+/// may stem from the request shape or configuration and keeps failing as such.
+fn rejects_only_sent_image_payloads(errors: &[CloudflareApiError], sent_images: usize) -> bool {
+    !errors.is_empty()
+        && errors
+            .iter()
+            .all(|error| names_only_sent_image_payloads(&error.message, sent_images))
+}
+
+/// Workers AI reports schema validation as `Request body failed validation: <path>: <reason>; …`
+/// followed by a request ID in parentheses. Only `images.<index>` paths of a sent image with an
+/// `image payload …` reason qualify; limits and schema reasons may stem from the request.
+fn names_only_sent_image_payloads(message: &str, sent_images: usize) -> bool {
+    let Some((_, issues)) = message.split_once("Request body failed validation: ") else {
+        return false;
+    };
+    let issues = issues
+        .rsplit_once(" (")
+        .map_or(issues, |(issues, _request_id)| issues);
+    issues.split("; ").all(|issue| {
+        issue
+            .strip_prefix("images.")
+            .and_then(|path| path.split_once(": "))
+            .is_some_and(|(index, reason)| {
+                index.bytes().all(|byte| byte.is_ascii_digit())
+                    && index
+                        .parse::<usize>()
+                        .is_ok_and(|index| index < sent_images)
+                    && reason.starts_with("image payload ")
+            })
+    })
 }
 
 fn retry_after(value: Option<&reqwest::header::HeaderValue>) -> Option<Duration> {
@@ -1332,6 +1462,168 @@ mod tests {
             assert_eq!(Err(expected), model.classify(request(Vec::new())).await);
             let _ = task.await;
         }
+    }
+
+    fn validation_errors(messages: &[&str]) -> Vec<CloudflareApiError> {
+        messages
+            .iter()
+            .map(|message| CloudflareApiError {
+                code: Some(3030),
+                message: format!(
+                    "AiError: AiError: Request body failed validation: {message} (18e0d863-e5e3-4942-a802-9c0a5fd60764)"
+                ),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn should_fail_only_the_candidate_when_every_rejection_names_a_sent_image_payload() {
+        let mismatch = "images.0: image payload does not match its content type";
+        let both = "images.0: image payload does not match its content type; images.1: image payload is invalid";
+        let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
+        for (status, messages, sent_images, expected) in [
+            (
+                unprocessable,
+                vec![mismatch],
+                1,
+                ClassificationError::PermanentCandidateFailure,
+            ),
+            (
+                StatusCode::BAD_REQUEST,
+                vec![both],
+                2,
+                ClassificationError::PermanentCandidateFailure,
+            ),
+            (
+                unprocessable,
+                vec![mismatch, both],
+                2,
+                ClassificationError::PermanentCandidateFailure,
+            ),
+            (
+                unprocessable,
+                vec![both],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec![mismatch],
+                0,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec!["images.0: image payload is invalid; state.candidate: required"],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec![mismatch, "questions: required"],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec!["images.0: String must contain at most 1000000 character(s)"],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec!["images.first: image payload is invalid"],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec!["images.+0: image payload is invalid"],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                unprocessable,
+                vec![],
+                1,
+                ClassificationError::InvalidConfiguration,
+            ),
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                vec![mismatch],
+                1,
+                ClassificationError::Transient,
+            ),
+            (
+                StatusCode::FORBIDDEN,
+                vec![mismatch],
+                1,
+                ClassificationError::Authentication,
+            ),
+        ] {
+            assert_eq!(
+                expected,
+                status_error(status, None, &validation_errors(&messages), sent_images),
+                "{status} {messages:?} sent={sent_images}"
+            );
+        }
+        let unwrapped = CloudflareApiError {
+            code: Some(3030),
+            message: "images.0: image payload is invalid".into(),
+        };
+        assert_eq!(
+            ClassificationError::InvalidConfiguration,
+            status_error(unprocessable, None, &[unwrapped], 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_read_the_image_rejection_from_the_provider_error_body() {
+        let body = serde_json::json!({
+            "success": false,
+            "errors": [{
+                "code": 3030,
+                "message": "AiError: AiError: Request body failed validation: images.0: image payload does not match its content type (18e0d863)",
+            }],
+        });
+        let (endpoint, task) = serve_once(body.to_string(), "422 Unprocessable Entity").await;
+        let model =
+            CloudflareClassifierModel::with_endpoint(config(CloudflareModel::ClefFlash), endpoint)
+                .unwrap_or_else(|_| panic!("valid Cloudflare client"));
+        let image = cloudflare_image_parts(
+            "image/png",
+            &BASE64.encode(encoded_test_image(ImageFormat::Png)),
+        )
+        .unwrap_or_else(|_| panic!("valid test image"));
+        let image_url = Url::parse("https://example.test/listing-image")
+            .unwrap_or_else(|_| panic!("valid candidate image URL"));
+
+        let result = model
+            .classify_with_images(
+                request(vec![image_url]),
+                vec![image],
+                1,
+                None,
+                Duration::ZERO,
+            )
+            .await;
+
+        assert_eq!(Err(ClassificationError::PermanentCandidateFailure), result);
+        let _ = task.await;
+    }
+
+    #[test]
+    fn should_send_a_camera_jpeg_without_its_multi_picture_index() {
+        let primary = encoded_test_image(ImageFormat::Jpeg);
+        let index = b"\xff\xe2\x00\x06MPF\0";
+        let camera_jpeg = [&primary[..2], index, &primary[2..]].concat();
+
+        let prepared = cloudflare_image_parts("image/jpeg", &BASE64.encode(camera_jpeg))
+            .unwrap_or_else(|_| panic!("camera JPEG is accepted"));
+
+        assert_eq!("image/jpeg", prepared.mime_type());
+        assert_eq!(BASE64.encode(&primary), prepared.base64_data());
+        assert_eq!(primary.len(), prepared.decoded_bytes());
     }
 
     #[tokio::test]
