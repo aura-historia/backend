@@ -7,6 +7,7 @@ edition = "2024"
 tracing = { workspace = true }
 async-trait = { workspace = true }
 application = { workspace = true }
+content-notice-core = { workspace = true }
 platform-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 localization = { workspace = true }
@@ -27,11 +28,12 @@ strum = { workspace = true }
 
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-time = { workspace = true }
+time = { workspace = true, features = ["serde-well-known"] }
 url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
+time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

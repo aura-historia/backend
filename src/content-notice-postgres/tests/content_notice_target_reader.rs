@@ -30,6 +30,7 @@ use content_notice_service::{
 };
 use listing_source_core::{ListingSourceId, ListingSourceName};
 use localization::Language;
+use notification_postgres::SqlxExternalEmailOutboxFactory;
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use product_listing_core::{
     listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
@@ -157,6 +158,7 @@ async fn should_commit_submitted_notice_with_resolved_target() {
         SqlxContentNoticeTargetReaderFactory::new(),
         SqlxContentNoticeRepositoryFactory::new(),
         SqlxContentNoticeSubmissionHistoryFactory::new(),
+        SqlxExternalEmailOutboxFactory::new(),
         SystemContentNoticeClock,
     );
 

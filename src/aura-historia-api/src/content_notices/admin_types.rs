@@ -5,8 +5,8 @@ use content_notice_core::{
 };
 use content_notice_service::use_cases::queries::{
     get_admin_content_notice::{
-        AdminContentNoticeDetails, CurrentContentNoticeTarget, CurrentListingSource,
-        CurrentProductListing,
+        AdminContentNoticeDetails, ContentNoticeReceiptDelivery, CurrentContentNoticeTarget,
+        CurrentListingSource, CurrentProductListing,
     },
     list_admin_content_notices::ContentNoticeSummary,
 };
@@ -107,6 +107,21 @@ pub(super) struct AdminContentNoticeDetailsData {
     additional_urls: Vec<String>,
     submitter: SubmitterData,
     good_faith_statement: &'static str,
+    /// `null` only when no receipt was enqueued.
+    receipt: Option<ReceiptData>,
+}
+
+/// The delivery of the receipt email to the notifier.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReceiptData {
+    status: &'static str,
+    attempts: u32,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    delivered_at: Option<OffsetDateTime>,
 }
 
 #[derive(Serialize)]
@@ -195,6 +210,17 @@ impl From<AdminContentNoticeDetails> for AdminContentNoticeDetailsData {
                 .collect(),
             submitter: notice.submitter().into(),
             good_faith_statement: notice.good_faith_statement_version().as_str(),
+            receipt: details.receipt.map(ReceiptData::from),
+        }
+    }
+}
+
+impl From<ContentNoticeReceiptDelivery> for ReceiptData {
+    fn from(receipt: ContentNoticeReceiptDelivery) -> Self {
+        Self {
+            status: receipt.status.as_str(),
+            attempts: receipt.attempts,
+            delivered_at: receipt.delivered_at,
         }
     }
 }
@@ -356,7 +382,10 @@ mod tests {
             submitter::{SubmitterEmail, SubmitterName},
             submitter_role::SubmitterRole,
         };
-        use content_notice_service::ports::ContentNoticeStorageVersion;
+        use content_notice_service::{
+            ports::ContentNoticeStorageVersion,
+            use_cases::queries::get_admin_content_notice::ContentNoticeReceiptStatus,
+        };
         use listing_source_core::{ListingSourceName, ListingSourceSlugId};
         use localization::Language;
         use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -415,6 +444,7 @@ mod tests {
                 created: datetime!(2026-11-13 10:44:18.123 UTC),
                 updated: datetime!(2026-11-14 08:00 UTC),
                 current_target,
+                receipt: None,
             }
         }
 
@@ -488,8 +518,51 @@ mod tests {
                         "language": "de",
                     },
                     "goodFaithStatement": "GOOD_FAITH_V1",
+                    "receipt": null,
                 }),
                 serialize(details)
+            );
+        }
+
+        #[test]
+        fn should_serialize_the_receipt_delivery_with_its_time_only_once_delivered() {
+            let receipt = |status, attempts, delivered_at| {
+                let mut details = details(
+                    ContentNoticeTarget::ListingSource {
+                        listing_source_id: ListingSourceId::new(),
+                    },
+                    CurrentContentNoticeTarget {
+                        listing_source: None,
+                        product_listing: None,
+                    },
+                );
+                details.receipt = Some(ContentNoticeReceiptDelivery {
+                    status,
+                    attempts,
+                    delivered_at,
+                });
+                serialize(details)["receipt"].clone()
+            };
+
+            assert_eq!(
+                json!({"status": "PENDING", "attempts": 0}),
+                receipt(ContentNoticeReceiptStatus::Pending, 0, None)
+            );
+            assert_eq!(
+                json!({
+                    "status": "DELIVERED",
+                    "attempts": 1,
+                    "deliveredAt": "2026-11-13T10:44:20.5Z",
+                }),
+                receipt(
+                    ContentNoticeReceiptStatus::Delivered,
+                    1,
+                    Some(datetime!(2026-11-13 10:44:20.5 UTC))
+                )
+            );
+            assert_eq!(
+                json!({"status": "FAILED", "attempts": 5}),
+                receipt(ContentNoticeReceiptStatus::Failed, 5, None)
             );
         }
 

@@ -1,9 +1,9 @@
 use crate::{
+    external_template::{external_template_data, external_template_type},
     provider_failure::SesSendFailed,
     template_mapping::{
-        EmailLanguage, EmailTemplateType, FrontendLinks, external_template_data,
-        external_template_type, sender_name, ses_template_tag_value, subject, template_data,
-        template_type,
+        EmailLanguage, EmailTemplateType, FrontendLinks, sender_name, ses_template_tag_value,
+        subject, template_data, template_type,
     },
     template_reader::TemplateReader,
 };

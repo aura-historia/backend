@@ -30,6 +30,54 @@ pub struct AdminContentNoticeDetails {
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub current_target: CurrentContentNoticeTarget,
+    /// The delivery of the notice's receipt email; `None` only when no receipt was enqueued.
+    pub receipt: Option<ContentNoticeReceiptDelivery>,
+}
+
+/// Where the receipt email to the notifier stands, read from the notification delivery
+/// pipeline. A `Failed` receipt was not delivered and is not retried; admins answer the
+/// notifier from the contact mailbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContentNoticeReceiptDelivery {
+    pub status: ContentNoticeReceiptStatus,
+    /// Send attempts so far.
+    pub attempts: u32,
+    /// Present exactly when the status is `Delivered`.
+    pub delivered_at: Option<OffsetDateTime>,
+}
+
+/// The delivery status of a receipt email, with the delivery pipeline's codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentNoticeReceiptStatus {
+    /// Waiting for its first or next attempt.
+    Pending,
+    /// An attempt is in progress or its outcome is uncertain. Like `Pending`, it persists while
+    /// the delivery job is dead-lettered.
+    Processing,
+    Delivered,
+    /// Permanently undeliverable, for example rejected by the email provider; never retried.
+    Failed,
+}
+
+impl ContentNoticeReceiptStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "PENDING",
+            Self::Processing => "PROCESSING",
+            Self::Delivered => "DELIVERED",
+            Self::Failed => "FAILED",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "PENDING" => Some(Self::Pending),
+            "PROCESSING" => Some(Self::Processing),
+            "DELIVERED" => Some(Self::Delivered),
+            "FAILED" => Some(Self::Failed),
+            _ => None,
+        }
+    }
 }
 
 /// The target as it is when the notice is read. Unlike the snapshot it follows every later
@@ -367,6 +415,7 @@ mod tests {
                 listing_source: None,
                 product_listing: None,
             },
+            receipt: None,
         }
     }
 
@@ -511,5 +560,22 @@ mod tests {
             Err(GetAdminContentNoticeError::CommitTransactionFailed(_))
         ));
         assert_eq!(1, lock(&state).reads);
+    }
+
+    #[test]
+    fn should_round_trip_every_receipt_status_code() {
+        for status in [
+            ContentNoticeReceiptStatus::Pending,
+            ContentNoticeReceiptStatus::Processing,
+            ContentNoticeReceiptStatus::Delivered,
+            ContentNoticeReceiptStatus::Failed,
+        ] {
+            assert_eq!(
+                Some(status),
+                ContentNoticeReceiptStatus::from_code(status.as_str())
+            );
+        }
+        assert_eq!(None, ContentNoticeReceiptStatus::from_code("pending"));
+        assert_eq!(None, ContentNoticeReceiptStatus::from_code("SUPPRESSED"));
     }
 }

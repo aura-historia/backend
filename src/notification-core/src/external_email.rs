@@ -4,8 +4,16 @@
 //! transaction and the notification delivery pipeline sends it; `docs/events/flow.md`
 //! (External email delivery) owns the contract.
 
+use content_notice_core::{
+    content_notice::ContentNotice,
+    content_notice_id::ContentNoticeId,
+    content_notice_target::{ContentNoticeTarget, ProductListingTitleSnapshot},
+    reason_category::ReasonCategory,
+};
+use listing_source_core::ListingSourceName;
 use serde_email::Email;
 use strum::IntoEnumIterator;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// The address an external email is sent to: a bare address without display text.
@@ -81,12 +89,15 @@ pub enum ExternalEmailContent {
     /// Test-only kind that exercises the delivery mechanism. No producer enqueues it and
     /// no template is deployed for it, so a delivery of it fails permanently.
     TestProbe(ExternalEmailTestProbe),
+    /// Confirms to a notifier that their content notice was received (DSA Art. 16(5)).
+    ContentNoticeReceipt(ContentNoticeReceipt),
 }
 
 impl ExternalEmailContent {
     pub const fn template(&self) -> ExternalEmailTemplate {
         match self {
             Self::TestProbe(_) => ExternalEmailTemplate::TestProbe,
+            Self::ContentNoticeReceipt(_) => ExternalEmailTemplate::ContentNoticeReceipt,
         }
     }
 }
@@ -95,12 +106,14 @@ impl ExternalEmailContent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum ExternalEmailTemplate {
     TestProbe,
+    ContentNoticeReceipt,
 }
 
 impl ExternalEmailTemplate {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::TestProbe => "TEST_PROBE",
+            Self::ContentNoticeReceipt => "CONTENT_NOTICE_RECEIPT",
         }
     }
 
@@ -115,18 +128,73 @@ impl ExternalEmailTemplate {
 pub enum ExternalEmailOrigin {
     /// Origin of the test-only [`ExternalEmailContent::TestProbe`] kind.
     TestProbe(Uuid),
+    ContentNotice(ContentNoticeId),
 }
 
 impl ExternalEmailOrigin {
     pub const fn origin_type(self) -> &'static str {
         match self {
             Self::TestProbe(_) => "TEST_PROBE",
+            Self::ContentNotice(_) => "CONTENT_NOTICE",
         }
     }
 
     pub const fn origin_id(self) -> Uuid {
         match self {
             Self::TestProbe(id) => id,
+            Self::ContentNotice(id) => id.into_uuid(),
+        }
+    }
+}
+
+/// Variables of a content notice receipt. They are data from Aura Historia's side only:
+/// nothing the notifier typed is echoed back, so the submission endpoint cannot send
+/// arbitrary content to the address it was given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentNoticeReceipt {
+    pub content_notice_id: ContentNoticeId,
+    /// When the notice was stored.
+    pub received_at: OffsetDateTime,
+    /// The listing source's name from the notice's target snapshot.
+    pub provider_name: ListingSourceName,
+    pub target: ContentNoticeReceiptTarget,
+    pub reason_category: ReasonCategory,
+}
+
+/// What the notice is about, as the receipt names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContentNoticeReceiptTarget {
+    /// The whole provider, with all of its listings.
+    ListingSource,
+    /// One listing, with its title from the snapshot when it had one.
+    ProductListing {
+        title: Option<ProductListingTitleSnapshot>,
+    },
+}
+
+impl ContentNoticeReceipt {
+    /// The receipt of a stored notice: its ID, the target snapshot's names and the category.
+    /// The submitter's name, email, explanation and URLs are never taken.
+    pub fn for_notice(notice: &ContentNotice, received_at: OffsetDateTime) -> Self {
+        let snapshot = notice.target_snapshot();
+        Self {
+            content_notice_id: notice.id(),
+            received_at,
+            provider_name: snapshot.listing_source.name.clone(),
+            target: match notice.target() {
+                ContentNoticeTarget::ListingSource { .. } => {
+                    ContentNoticeReceiptTarget::ListingSource
+                }
+                ContentNoticeTarget::ProductListing { .. } => {
+                    ContentNoticeReceiptTarget::ProductListing {
+                        title: snapshot
+                            .product_listing
+                            .as_ref()
+                            .and_then(|listing| listing.title.clone()),
+                    }
+                }
+            },
+            reason_category: notice.reason_category(),
         }
     }
 }
@@ -257,5 +325,127 @@ mod tests {
 
         assert_eq!("TEST_PROBE", origin.origin_type());
         assert_eq!(id, origin.origin_id());
+    }
+
+    #[test]
+    fn should_identify_a_content_notice_origin_by_the_notice_id() {
+        let id = ContentNoticeId::new();
+        let origin = ExternalEmailOrigin::ContentNotice(id);
+
+        assert_eq!("CONTENT_NOTICE", origin.origin_type());
+        assert_eq!(id.into_uuid(), origin.origin_id());
+    }
+
+    /// A notice about a listing with `listing`'s title, or about the whole provider when
+    /// `listing` is `None`.
+    fn notice(listing: Option<Option<&str>>) -> Result<ContentNotice, Box<dyn std::error::Error>> {
+        use content_notice_core::{
+            additional_url::{AdditionalUrl, AdditionalUrls},
+            content_notice::NewContentNotice,
+            content_notice_target::{
+                ContentNoticeTarget, ListingSourceSnapshot, ProductListingSnapshot, TargetSnapshot,
+            },
+            good_faith_statement_version::GoodFaithStatementVersion,
+            notice_explanation::NoticeExplanation,
+            submitter::{Submitter, SubmitterEmail, SubmitterName},
+            submitter_role::SubmitterRole,
+        };
+        use listing_source_core::ListingSourceId;
+        use product_listing_core::product_listing_id::ProductListingId;
+
+        let listing_source_id = ListingSourceId::new();
+        let (target, product_listing) = match listing {
+            Some(title) => (
+                ContentNoticeTarget::ProductListing {
+                    product_listing_id: ProductListingId::new(),
+                    listing_source_id,
+                },
+                Some(ProductListingSnapshot {
+                    title: title
+                        .map(ProductListingTitleSnapshot::try_from)
+                        .transpose()?,
+                    url: url::Url::parse("https://shop.example/vase")?,
+                }),
+            ),
+            None => (
+                ContentNoticeTarget::ListingSource { listing_source_id },
+                None,
+            ),
+        };
+        Ok(ContentNotice::submit(NewContentNotice {
+            id: ContentNoticeId::new(),
+            target,
+            target_snapshot: TargetSnapshot {
+                listing_source: ListingSourceSnapshot {
+                    name: ListingSourceName::try_from("Antik Shop")?,
+                    url: None,
+                    partner: false,
+                },
+                product_listing,
+            },
+            submitter_role: SubmitterRole::RightsHolder,
+            reason_category: ReasonCategory::RightsInfringement,
+            explanation: Some(NoticeExplanation::try_from("submitter explanation")?),
+            additional_urls: AdditionalUrls::try_from(vec![AdditionalUrl::try_from(
+                "https://submitter.example/",
+            )?])?,
+            submitter: Submitter {
+                name: SubmitterName::try_from("Submitter Name")?,
+                email: SubmitterEmail::try_from("submitter@example.test")?,
+                language: localization::Language::De,
+            },
+            good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
+        })?)
+    }
+
+    #[test]
+    fn should_take_only_our_own_data_from_a_listing_notice_into_its_receipt()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notice = notice(Some(Some("Jugendstil-Vase")))?;
+        let received_at = OffsetDateTime::UNIX_EPOCH;
+
+        let receipt = ContentNoticeReceipt::for_notice(&notice, received_at);
+
+        assert_eq!(
+            ContentNoticeReceipt {
+                content_notice_id: notice.id(),
+                received_at,
+                provider_name: ListingSourceName::try_from("Antik Shop")?,
+                target: ContentNoticeReceiptTarget::ProductListing {
+                    title: Some(ProductListingTitleSnapshot::try_from("Jugendstil-Vase")?),
+                },
+                reason_category: ReasonCategory::RightsInfringement,
+            },
+            receipt
+        );
+        let content = ExternalEmailContent::ContentNoticeReceipt(receipt);
+        assert_eq!(
+            ExternalEmailTemplate::ContentNoticeReceipt,
+            content.template()
+        );
+        assert_eq!("CONTENT_NOTICE_RECEIPT", content.template().as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_name_the_whole_provider_in_the_receipt_of_a_listing_source_notice()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let receipt = ContentNoticeReceipt::for_notice(&notice(None)?, OffsetDateTime::UNIX_EPOCH);
+
+        assert_eq!(ContentNoticeReceiptTarget::ListingSource, receipt.target);
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_a_listing_without_a_title_a_listing_in_its_receipt()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let receipt =
+            ContentNoticeReceipt::for_notice(&notice(Some(None))?, OffsetDateTime::UNIX_EPOCH);
+
+        assert_eq!(
+            ContentNoticeReceiptTarget::ProductListing { title: None },
+            receipt.target
+        );
+        Ok(())
     }
 }

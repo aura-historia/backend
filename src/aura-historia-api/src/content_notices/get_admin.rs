@@ -146,6 +146,7 @@ mod tests {
                 listing_source: None,
                 product_listing: None,
             },
+            receipt: None,
         }
     }
 

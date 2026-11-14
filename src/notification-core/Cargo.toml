@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+content-notice-core = { workspace = true }
 domain-primitives = { workspace = true }
 listing-source-core = { workspace = true }
 localization = { workspace = true }
@@ -19,6 +20,7 @@ strum_macros = { workspace = true }
 user-core = { workspace = true }
 
 thiserror = { workspace = true }
+time = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v7"] }
 

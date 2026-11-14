@@ -2106,8 +2106,12 @@ dependencies = [
  "domain-primitives",
  "listing-source-core",
  "localization",
+ "notification-core",
+ "notification-postgres",
+ "notification-service",
  "platform-postgres",
  "product-listing-core",
+ "serde_json",
  "sqlx",
  "test-api",
  "thiserror 2.0.21",
@@ -2130,6 +2134,8 @@ dependencies = [
  "fake",
  "listing-source-core",
  "localization",
+ "notification-core",
+ "notification-service",
  "product-listing-core",
  "sha2 0.11.1",
  "test-api",
@@ -5421,6 +5427,7 @@ checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 name = "notification-core"
 version = "0.1.0"
 dependencies = [
+ "content-notice-core",
  "domain-primitives",
  "fake",
  "listing-source-core",
@@ -5436,6 +5443,7 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
+ "time",
  "url",
  "user-core",
  "uuid",
@@ -5445,6 +5453,7 @@ dependencies = [
 name = "notification-delivery-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aura-historia-jobs",
  "aws-config",
@@ -5452,9 +5461,11 @@ dependencies = [
  "aws-sdk-sesv2",
  "aws-smithy-types",
  "aws_lambda_events",
+ "content-notice-core",
  "domain-primitives",
  "lambda_runtime",
  "listing-source-core",
+ "localization",
  "notification-core",
  "notification-email-aws",
  "notification-postgres",
@@ -5463,6 +5474,7 @@ dependencies = [
  "platform-lambda-sqs",
  "platform-observability",
  "platform-postgres",
+ "product-listing-core",
  "serde_json",
  "serial_test",
  "sqlx",
@@ -5470,6 +5482,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "url",
  "user-core",
  "uuid",
 ]
@@ -5494,6 +5507,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
+ "content-notice-core",
  "domain-primitives",
  "handlebars",
  "listing-source-core",
@@ -5522,6 +5536,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "content-notice-core",
  "domain-primitives",
  "listing-source-core",
  "localization",

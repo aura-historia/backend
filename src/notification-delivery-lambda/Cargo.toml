@@ -24,12 +24,17 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+application = { workspace = true }
 async-trait = { workspace = true }
+content-notice-core = { workspace = true }
 domain-primitives = { workspace = true }
 listing-source-core = { workspace = true }
+localization = { workspace = true }
+product-listing-core = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres", "s3", "ses"] }
-time = { workspace = true }
+time = { workspace = true, features = ["macros"] }
+url = { workspace = true }
 user-core = { workspace = true }
 uuid = { workspace = true }

@@ -23,6 +23,7 @@ use content_notice_service::{
 };
 use listing_source_core::ListingSourceId;
 use localization::Language;
+use notification_postgres::SqlxExternalEmailOutboxFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use sqlx::PgPool;
@@ -53,6 +54,7 @@ fn handler_at(pool: &PgPool, now: OffsetDateTime) -> Arc<dyn SubmitContentNotice
         SqlxContentNoticeTargetReaderFactory::new(),
         SqlxContentNoticeRepositoryFactory::new(),
         SqlxContentNoticeSubmissionHistoryFactory::new(),
+        SqlxExternalEmailOutboxFactory::new(),
         FixedClock(now),
     ))
 }
@@ -137,6 +139,26 @@ async fn stored_notices(pool: &PgPool) -> i64 {
         .unwrap()
 }
 
+/// Pending receipt deliveries of stored notices: exactly one per stored notice.
+async fn pending_receipts(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM content_notices n \
+         JOIN external_email_messages m ON m.origin_type = 'CONTENT_NOTICE' AND m.origin_id = n.content_notice_id \
+         JOIN notification_deliveries d ON d.external_email_message_id = m.external_email_message_id \
+         WHERE m.template = 'CONTENT_NOTICE_RECEIPT' AND d.status = 'PENDING'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn external_emails(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM external_email_messages")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 fn count(outcomes: &[Outcome], expected: fn(&Outcome) -> bool) -> usize {
     outcomes.iter().filter(|outcome| expected(outcome)).count()
 }
@@ -170,6 +192,8 @@ async fn should_store_exactly_one_notice_for_concurrent_identical_submissions() 
     assert_eq!(1, count(&outcomes, stored), "{outcomes:?}");
     assert_eq!(submissions - 1, count(&outcomes, duplicate), "{outcomes:?}");
     assert_eq!(1, stored_notices(&pool).await);
+    assert_eq!(1, pending_receipts(&pool).await);
+    assert_eq!(1, external_emails(&pool).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -215,6 +239,11 @@ async fn should_never_store_more_than_the_budget_for_concurrent_distinct_submiss
         "{outcomes:?}"
     );
     assert_eq!(MAX_NOTICES_PER_ADDRESS as i64, stored_notices(&pool).await);
+    assert_eq!(
+        MAX_NOTICES_PER_ADDRESS as i64,
+        pending_receipts(&pool).await
+    );
+    assert_eq!(MAX_NOTICES_PER_ADDRESS as i64, external_emails(&pool).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -256,6 +285,11 @@ async fn should_share_one_budget_and_one_duplicate_check_across_address_case() {
         .await;
 
     assert!(duplicate(&resubmitted), "{resubmitted:?}");
+    assert_eq!(
+        MAX_NOTICES_PER_ADDRESS as i64 + 1,
+        external_emails(&pool).await,
+        "neither the resubmission nor the rate-limited notice enqueues a receipt"
+    );
     let Err(SubmitContentNoticeError::RateLimited { retry_after }) = new else {
         panic!("expected rate limit, got {new:?}");
     };
