@@ -127,11 +127,12 @@ pub(super) async fn reclassify_sample(
     Ok(())
 }
 
-/// Adds the URLs the crawl stored for the pending URL-pattern review's ListingSource since the
-/// review opened to its sample, up to [`MAX_SAMPLE_URLS`] in all, and updates the sample counts of
-/// the validation summary. A URL not yet in the sample is picked in the order of its hash, not of
-/// its insertion, so the crawl's later URLs of every path shape are in reach and not only the last
-/// ones. The URLs take their `previous_class` from the stored class and their match flags from
+/// Adds the URLs the crawl first stored for the pending URL-pattern review's ListingSource since
+/// the review opened to its sample, up to [`MAX_SAMPLE_URLS`] in all, and updates the sample counts
+/// of the validation summary. URLs stored before the review opened stay out, so the sample shows
+/// what the crawls found that opened and followed the review, not the source's earlier URLs. A URL
+/// not yet in the sample is picked in the order of its hash, not of its insertion, so the crawl's
+/// later URLs of every path shape are in reach and not only the last ones. The URLs take their `previous_class` from the stored class and their match flags from
 /// the review's current and candidate patterns, as the rows of the opening sample do. It runs at
 /// most once per [`SAMPLE_REFRESH_INTERVAL_SECS`] for a review and is a no-op for a review that is
 /// not a pending URL-pattern review or whose candidate does not decode, which fail closed
@@ -142,8 +143,8 @@ pub(super) async fn refresh_sample(
     url_classifier: UrlClassifier,
 ) -> Result<(), sqlx::Error> {
     let mut transaction = pool.begin().await?;
-    let due: Option<(uuid::Uuid, serde_json::Value)> = sqlx::query_as(
-        "SELECT listing_source_id, candidate_payload FROM crawler_reviews \
+    let due: Option<(uuid::Uuid, serde_json::Value, time::OffsetDateTime)> = sqlx::query_as(
+        "SELECT listing_source_id, candidate_payload, created FROM crawler_reviews \
          WHERE review_id = $1 AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW' \
            AND COALESCE((validation_summary->>'sample_refreshed_at')::timestamptz, '-infinity') \
                <= NOW() - make_interval(secs => $2) \
@@ -153,7 +154,7 @@ pub(super) async fn refresh_sample(
     .bind(SAMPLE_REFRESH_INTERVAL_SECS)
     .fetch_optional(&mut *transaction)
     .await?;
-    let Some((listing_source_id, candidate_payload)) = due else {
+    let Some((listing_source_id, candidate_payload, opened)) = due else {
         return Ok(());
     };
     let Ok(candidate) = serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload)
@@ -173,7 +174,7 @@ pub(super) async fn refresh_sample(
     let room = (MAX_SAMPLE_URLS - present).max(0);
     let new_urls: Vec<(String, String)> = sqlx::query_as(
         "SELECT url, url_class FROM listing_source_urls source_url \
-         WHERE listing_source_id = $1 \
+         WHERE listing_source_id = $1 AND created >= $4 \
            AND NOT EXISTS (SELECT 1 FROM crawler_review_urls sampled \
                            WHERE sampled.review_id = $2 AND sampled.url = source_url.url) \
          ORDER BY md5(url) LIMIT $3",
@@ -181,6 +182,7 @@ pub(super) async fn refresh_sample(
     .bind(listing_source_id)
     .bind(review_id.as_uuid())
     .bind(room)
+    .bind(opened)
     .fetch_all(&mut *transaction)
     .await?;
     if !new_urls.is_empty() {
@@ -284,7 +286,8 @@ mod tests {
 
     const SHOP: &str = "https://sample-shop.example";
 
-    /// A ListingSource whose crawl stored `stored` URLs, `/item/<n>` and `/shop/<n>` alternating,
+    /// A ListingSource whose crawls stored `stored` URLs before the review opened, `/item/<n>` and
+    /// `/shop/<n>` alternating,
     /// and its pending review of a candidate taking `/item/`, opened with the first two.
     async fn review_after_crawl(
         pool: &PgPool,
@@ -346,15 +349,16 @@ mod tests {
     }
 
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-    async fn should_add_the_urls_stored_after_the_review_opened_once_a_minute() {
+    async fn should_add_only_the_urls_first_stored_after_the_review_opened_once_a_minute() {
         let pool = test_api::get_postgres_client().await;
         let (repository, review_id, listing_source_id) = review_after_crawl(&pool, 10).await;
+        store_urls(&pool, listing_source_id, 10, 14).await;
 
         repository
             .refresh_url_pattern_sample(review_id)
             .await
             .unwrap_or_else(|error| panic!("refresh: {error}"));
-        store_urls(&pool, listing_source_id, 10, 14).await;
+        store_urls(&pool, listing_source_id, 14, 18).await;
         repository
             .refresh_url_pattern_sample(review_id)
             .await
@@ -370,12 +374,21 @@ mod tests {
             [&format!("{SHOP}/item/0"), &format!("{SHOP}/shop/1")]
         );
         urls.sort_unstable();
-        urls.dedup();
-        assert_eq!(urls.len(), 10, "the 10 stored URLs, each once: {urls:?}");
+        let mut expected: Vec<String> = [0, 1, 10, 11, 12, 13]
+            .map(|n| match n % 2 {
+                0 => format!("{SHOP}/item/{n}"),
+                _ => format!("{SHOP}/shop/{n}"),
+            })
+            .to_vec();
+        expected.sort_unstable();
+        assert_eq!(
+            urls, expected,
+            "the opening sample and the URLs stored after it, without the earlier ones"
+        );
         let added = detail
             .urls
             .iter()
-            .find(|url| url.url == format!("{SHOP}/item/2"))
+            .find(|url| url.url == format!("{SHOP}/item/10"))
             .unwrap_or_else(|| panic!("an added URL"));
         assert_eq!(
             (
@@ -386,10 +399,10 @@ mod tests {
             ),
             (Some("product"), None, Some(true), Some("product"))
         );
-        assert_eq!(detail.review.validation_summary["sample_count"], 10);
+        assert_eq!(detail.review.validation_summary["sample_count"], 6);
         assert_eq!(
             detail.review.validation_summary["candidate_product_count"],
-            5
+            3
         );
 
         allow_next_refresh(&pool, review_id).await;
@@ -403,14 +416,14 @@ mod tests {
             .unwrap_or_else(|error| panic!("get review: {error}"))
             .urls
             .len();
-        assert_eq!(count, 14);
+        assert_eq!(count, 10);
     }
 
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_stop_adding_urls_at_the_sample_cap() {
         let pool = test_api::get_postgres_client().await;
-        let (repository, review_id, _) =
-            review_after_crawl(&pool, MAX_SAMPLE_URLS as i32 + 200).await;
+        let (repository, review_id, listing_source_id) = review_after_crawl(&pool, 0).await;
+        store_urls(&pool, listing_source_id, 0, MAX_SAMPLE_URLS as i32 + 200).await;
 
         repository
             .refresh_url_pattern_sample(review_id)

@@ -89,6 +89,10 @@ impl EndedCrawl {
 /// early with fewer stores its URLs unclassified, and a later crawl adds to them.
 pub const REVIEW_SAMPLE_URLS: usize = 200;
 
+/// How many of a ListingSource's captured product pages a crawl whose stored pattern matched none
+/// of its pages checks the pattern against before it reclassifies.
+const MAX_CAPTURED_PRODUCT_URLS: usize = 100;
+
 #[derive(Debug, Clone)]
 pub struct SpiderServiceConfig {
     pub db_batch_size: usize,
@@ -818,6 +822,13 @@ impl SpiderServiceImpl {
         }
     }
 
+    /// Classifies the crawl's sample again when the pattern loaded from the store matched none
+    /// of the pages the crawl fetched, buffered pages included (a crawl smaller than one batch
+    /// has flushed nothing yet), unless that pattern still takes product pages the scraper last
+    /// captured ([`Self::stored_pattern_takes_captured_product_pages`]). Such a crawl fetched no
+    /// product page at all, so it is no evidence against the pattern: it opens no URL-pattern
+    /// review and is judged as finding no product URL
+    /// (`docs/crawler/extraction-and-review.md#url-pattern-refresh`).
     #[tracing::instrument(
         name = "spider_reclassify_if_persisted_pattern_failed",
         skip(self, state),
@@ -829,28 +840,54 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         crawl_root_url: &str,
     ) -> Result<(), SpiderServiceError> {
-        // Pages still buffered count too: a crawl smaller than one batch has
-        // flushed nothing yet.
-        if state.pattern_loaded_from_store
-            && !state.pattern_matched_any()
-            && !has_pattern_match(&state.page_buffer, &state.pattern)
-            && !state.inference_sample.is_empty()
+        if !state.pattern_loaded_from_store
+            || state.pattern_matched_any()
+            || has_pattern_match(&state.page_buffer, &state.pattern)
+            || state.inference_sample.is_empty()
         {
-            warn_in_source!(
-                "Persisted product URL pattern did not match crawl results, reclassifying"
-            );
-
-            self.classify_and_save_for_stage(
-                state,
-                listing_source_id,
-                crawl_root_url,
-                "refresh",
-                self.config.min_inference_sample_urls,
-            )
-            .await?;
+            return Ok(());
         }
+        if self
+            .stored_pattern_takes_captured_product_pages(state, listing_source_id)
+            .await?
+        {
+            info!(
+                pages_crawled = state.total_crawled,
+                "Persisted product URL pattern matched no crawled page but still takes the product pages the scraper captured; keeping it"
+            );
+            return Ok(());
+        }
+        warn_in_source!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-        Ok(())
+        self.classify_and_save_for_stage(
+            state,
+            listing_source_id,
+            crawl_root_url,
+            "refresh",
+            self.config.min_inference_sample_urls,
+        )
+        .await
+    }
+
+    /// Whether the crawl's pattern takes any of the ListingSource's product pages whose last
+    /// scrape captured a product, the [`MAX_CAPTURED_PRODUCT_URLS`] scraped most recently. A
+    /// shop that moved its products to other URLs stops vouching once the scraper follows their
+    /// redirects or captures their removal.
+    async fn stored_pattern_takes_captured_product_pages(
+        &self,
+        state: &CrawlRunState,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<bool, SpiderServiceError> {
+        let Some(pattern) = state.pattern.as_pattern() else {
+            return Ok(false);
+        };
+        let captured = self
+            .url_metadata_repository
+            .captured_product_urls(listing_source_id, MAX_CAPTURED_PRODUCT_URLS)
+            .await?;
+        Ok(captured.iter().any(|url| {
+            CrawledUrl::try_from(url.as_str()).is_ok_and(|url| url.matches_pattern(pattern))
+        }))
     }
 
     async fn flush_remaining_pages(
@@ -1456,6 +1493,7 @@ mod service_tests {
         service.expect_infers_pattern().return_const(true);
         service
     }
+    use crate::spider::classification::product_url_pattern::UrlPatternMatching;
     use crate::spider::classification::url_classifier::UrlClassifier;
     use crate::spider::classification::url_metadata::CrawlerDisposition;
     use crate::spider::classification::url_metadata_repository::{
@@ -1535,6 +1573,15 @@ mod service_tests {
                 let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
             });
+    }
+
+    /// The ListingSource's product pages whose last scrape captured a product, as the URL
+    /// repository answers them when a stored pattern matched none of the crawl's pages.
+    fn setup_captured_product_urls(mock: &mut MockUrlMetadataRepository, urls: &[&str]) {
+        let urls: Vec<String> = urls.iter().map(ToString::to_string).collect();
+        mock.expect_captured_product_urls()
+            .times(1)
+            .return_once(move |_, _| Box::pin(async move { Ok(urls) }));
     }
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, _crawl_root_url: &'static str) {
@@ -1902,6 +1949,7 @@ mod service_tests {
             });
         pattern_service.expect_mark_as_crawled().times(0);
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
+        setup_captured_product_urls(&mut mock_url_repo, &[]);
         setup_mock_incremental_crawl(&mut mock_spider, listing_pages(), 0);
         // The run delivered pages, so its failure keeps the frontier it left: none.
         let service = SpiderServiceImpl::new(
@@ -1925,6 +1973,74 @@ mod service_tests {
 
         assert!(
             matches!(result, Err(SpiderServiceError::NoProductUrls { .. })),
+            "{result:?}"
+        );
+    }
+
+    /// Marris Antiques (#2953): the stored pattern takes the product pages the scraper captured,
+    /// and a crawl reached only listing pages. The crawl is no evidence against the pattern, so
+    /// it opens no URL-pattern review; it fails as finding no product URL and keeps its frontier,
+    /// so the next crawl reaches further.
+    #[tokio::test]
+    async fn should_keep_a_stored_pattern_that_takes_the_captured_product_pages_when_a_crawl_fetched_none()
+     {
+        const MARRIS_PATTERN: &str =
+            r"^(?:/[a-zA-Z]{2}(?:-[a-zA-Z]{2})?)?(?:/[^/?#]+)*/prod_[^/?#]+/?$";
+        let listing_source_id = ListingSourceId::new();
+        let crawl_root_url = "https://example.com";
+        let mut mock_spider = MockSpider::new();
+        let listing_pages: Vec<String> = (880..900)
+            .map(|page| format!("/en-GB/latest-items_pg_{page}/page_{page}"))
+            .collect();
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, listing_pages);
+        let mut pattern_service = llm_pattern_service();
+        pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async {
+                Ok(Some(
+                    ProductUrlPattern::parse_matching(
+                        MARRIS_PATTERN,
+                        UrlPatternMatching::PathAndQueryFullMatch,
+                    )
+                    .unwrap(),
+                ))
+            })
+        });
+        pattern_service.expect_classify_and_save().times(0);
+        pattern_service.expect_mark_as_crawled().times(0);
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
+        setup_captured_product_urls(
+            &mut mock_url_repo,
+            &[
+                "https://example.com/en-GB/glass/georgian-wine-glass/prod_13036",
+                "https://example.com/en-GB/ceramics/delft-plate/prod_12001",
+            ],
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            no_frontier(),
+        );
+
+        let result = service
+            .run(
+                &listing_source_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
+                CrawlKind::Full,
+            )
+            .await;
+
+        assert!(
+            matches!(
+                &result,
+                Err(SpiderServiceError::NoProductUrls { product_pattern, .. })
+                    if product_pattern == MARRIS_PATTERN
+            ),
             "{result:?}"
         );
     }
@@ -2894,6 +3010,7 @@ mod service_tests {
         setup_mock_review_still_pending(&mut mock_pattern_service);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
+        setup_captured_product_urls(&mut mock_url_repo, &[]);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -3440,6 +3557,8 @@ mod service_tests {
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
+        // The shop serves its products under /item/ now: the scraper followed their redirects.
+        setup_captured_product_urls(&mut mock_url_repo, &["https://example.com/item/3"]);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -4469,6 +4588,7 @@ mod service_tests {
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
+        setup_captured_product_urls(&mut mock_url_repo, &[]);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -4544,11 +4664,15 @@ mod service_tests {
         });
         pattern_service.expect_classify_and_save().times(0);
         pattern_service.expect_mark_as_crawled().times(0);
+        let mut url_repository = url_repository_storing(0);
+        if stored_pattern.is_some() {
+            setup_captured_product_urls(&mut url_repository, &[]);
+        }
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
             Box::new(spider),
             Box::new(pattern_service),
-            Arc::new(url_repository_storing(0)),
+            Arc::new(url_repository),
             no_frontier(),
         );
 
