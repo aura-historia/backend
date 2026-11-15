@@ -848,72 +848,39 @@ impl CrawlerReviewRepository {
         let removed_page_schemas_base = serde_json::to_value(&stored_removed_page_schemas)?;
         let candidate_payload =
             ProductSchemaReviewCandidate::new(schemas, stored_removed_page_schemas).to_payload()?;
-        let requested_review_id = CrawlerReviewId::new();
         let mut transaction = self.pool.begin().await?;
-        let inserted = if status == STATUS_PENDING_REVIEW {
-            sqlx::query_scalar::<_, uuid::Uuid>(
-                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
-                 VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
-                 ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'PRODUCT_SCHEMA' \
-                 DO NOTHING RETURNING review_id",
-            )
-            .bind(requested_review_id.as_uuid())
-            .bind(uuid::Uuid::from(*listing_source_id))
-            .bind(reason)
-            .bind(candidate_payload)
-            .bind(validation_summary)
-            .bind(removed_page_schemas_base)
-            .fetch_optional(&mut *transaction)
-            .await?
-        } else {
-            Some(
-                sqlx::query_scalar::<_, uuid::Uuid>(
-                    "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
-                     VALUES ($1, $2, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
-                     RETURNING review_id",
-                )
-                .bind(requested_review_id.as_uuid())
-                .bind(uuid::Uuid::from(*listing_source_id))
-                .bind(status)
-                .bind(reason)
-                .bind(candidate_payload)
-                .bind(validation_summary)
-                .bind(notes)
-                .bind(removed_page_schemas_base)
-                .fetch_one(&mut *transaction)
-                .await?,
-            )
-        };
-        let (review_id, is_new) = match inserted {
-            Some(review_id) => (crawler_review_id_from_uuid(review_id)?, true),
-            None => {
-                let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
-                    "SELECT review_id FROM crawler_reviews \
-                     WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
-                     ORDER BY created DESC LIMIT 1 FOR UPDATE",
-                )
-                .bind(uuid::Uuid::from(*listing_source_id))
-                .fetch_one(&mut *transaction)
-                .await?;
-                (crawler_review_id_from_uuid(review_id)?, false)
+        let placement = place_schema_review(
+            &mut transaction,
+            NewSchemaReviewRow {
+                listing_source_id,
+                reason,
+                candidate_payload,
+                validation_summary,
+                status,
+                notes,
+                removed_page_schemas_base,
+            },
+        )
+        .await?;
+        match placement {
+            ReviewPlacement::Joined(review_id) => {
+                attach_waiting_pages(&mut transaction, review_id, &pages).await?;
             }
-        };
-        if !is_new {
-            attach_waiting_pages(&mut transaction, review_id, &pages).await?;
-        } else {
-            for page in &pages {
-                insert_review_page(
-                    &mut transaction,
-                    review_id,
-                    &page.url,
-                    &page.role,
-                    &page.raw_html,
-                )
-                .await?;
+            ReviewPlacement::Opened(review_id) => {
+                for page in &pages {
+                    insert_review_page(
+                        &mut transaction,
+                        review_id,
+                        &page.url,
+                        &page.role,
+                        &page.raw_html,
+                    )
+                    .await?;
+                }
             }
         }
         transaction.commit().await?;
-        if is_new {
+        if let ReviewPlacement::Opened(review_id) = placement {
             // A review created already decided is not opened: its decision is its only event.
             let entries = if status == STATUS_PENDING_REVIEW {
                 vec![ReviewLogEntry::opened(reason)]
@@ -922,11 +889,7 @@ impl CrawlerReviewRepository {
             };
             log_committed_review(&self.pool, review_id, entries).await;
         }
-        Ok(if is_new {
-            ReviewPlacement::Opened(review_id)
-        } else {
-            ReviewPlacement::Joined(review_id)
-        })
+        Ok(placement)
     }
 
     /// Attaches a page that failed every cached schema to the ListingSource's pending
@@ -1596,6 +1559,77 @@ async fn persist_approved_schema_edit(
 /// collected under: once per page under the reviewer-page identity, up to [`MAX_WAITING_PAGES`].
 /// Drops the cached schema matrix when a page was attached, so the next refresh covers it. The
 /// caller holds the review row lock.
+/// The row of a product-schema review [`place_schema_review`] inserts.
+struct NewSchemaReviewRow<'a> {
+    listing_source_id: &'a ListingSourceId,
+    reason: &'a str,
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+    status: &'a str,
+    notes: Option<&'a str>,
+    removed_page_schemas_base: serde_json::Value,
+}
+
+/// Inserts `row` as a new review, or joins the ListingSource's pending product-schema review when
+/// `row` is pending and one is already open; the joined review stays locked for the transaction.
+/// A review born decided is always inserted.
+async fn place_schema_review(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    row: NewSchemaReviewRow<'_>,
+) -> Result<ReviewPlacement, ReviewRepositoryError> {
+    let requested_review_id = CrawlerReviewId::new();
+    let inserted = if row.status == STATUS_PENDING_REVIEW {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+             VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
+             ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'PRODUCT_SCHEMA' \
+             DO NOTHING RETURNING review_id",
+        )
+        .bind(requested_review_id.as_uuid())
+        .bind(uuid::Uuid::from(*row.listing_source_id))
+        .bind(row.reason)
+        .bind(row.candidate_payload)
+        .bind(row.validation_summary)
+        .bind(row.removed_page_schemas_base)
+        .fetch_optional(&mut **transaction)
+        .await?
+    } else {
+        Some(
+            sqlx::query_scalar::<_, uuid::Uuid>(
+                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+                 VALUES ($1, $2, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
+                 RETURNING review_id",
+            )
+            .bind(requested_review_id.as_uuid())
+            .bind(uuid::Uuid::from(*row.listing_source_id))
+            .bind(row.status)
+            .bind(row.reason)
+            .bind(row.candidate_payload)
+            .bind(row.validation_summary)
+            .bind(row.notes)
+            .bind(row.removed_page_schemas_base)
+            .fetch_one(&mut **transaction)
+            .await?,
+        )
+    };
+    if let Some(review_id) = inserted {
+        return Ok(ReviewPlacement::Opened(crawler_review_id_from_uuid(
+            review_id,
+        )?));
+    }
+    let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT review_id FROM crawler_reviews \
+         WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
+         ORDER BY created DESC LIMIT 1 FOR UPDATE",
+    )
+    .bind(uuid::Uuid::from(*row.listing_source_id))
+    .fetch_one(&mut **transaction)
+    .await?;
+    Ok(ReviewPlacement::Joined(crawler_review_id_from_uuid(
+        review_id,
+    )?))
+}
+
 async fn attach_waiting_pages(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
