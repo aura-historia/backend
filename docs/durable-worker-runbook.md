@@ -28,7 +28,22 @@ Enter the environment maintenance hold before privileged operations. Pause only 
 reviewed work requires it; retain an intentional prior stopped state. The small
 [maintenance helper](../ci/delivery/maintenance.cjs) records durable pause intent through
 its required evidence writer before calling DMS, observes ambiguous responses and resumes
-only its owned pause on the same task/checkpoint using `resume-processing`.
+only its owned pause on the same task/checkpoint using `resume-processing`. It pauses only
+a task that reports a recovery checkpoint, and a running task can report none until it
+stops.
+
+The helper's resume and the maintenance reconciliation compare the capture identity
+recorded at entry, including table mappings and task settings, so they cannot complete a
+reviewed capture-configuration change such as new removed columns. Such a change needs
+separate approval for an operator stop, the data change set and `resume-processing`, with
+the stop intent, stopped checkpoint and resume evidence written under the hold's
+maintenance prefix, and for an operator reconciliation through the delivery library after
+health verification against the reviewed post-change baseline. A CloudFormation task update
+re-sends the template's task settings and DMS merges them with its current defaults, so
+record the raw task settings before the update. A captured-table column change without a
+mapping change needs no stop: the source endpoint does not capture DDL, so the router never
+receives a schema control record; verify table states and the router failure archive
+afterwards.
 
 A changed identity/checkpoint, exceeded WAL budget, task/table error or ambiguous recovery
 retains the hold. Inspect actual native state before retrying. Never create a start LSN,

@@ -509,7 +509,8 @@ WAL/storage headroom and monitoring evidence; persist exact task/slot/checkpoint
 identity and intent before mutation. Resume only the owned normal stop using
 `resume-processing`; never invent a new start LSN or automatically clear an overdue
 pause. Follow the [worker recovery procedure](durable-worker-runbook.md) for native
-custody and capture changes.
+custody and capture changes; the workflow cannot reconcile a capture-configuration change
+([approved DMS maintenance](durable-worker-runbook.md#approved-dms-maintenance)).
 
 Dispatch `status` first to obtain the current state digest. Mutations require an
 `evidence` JSON object with that `expectedStateDigest` and a reviewed `reason`.
