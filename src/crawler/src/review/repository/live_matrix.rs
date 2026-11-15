@@ -410,9 +410,9 @@ impl CrawlerReviewRepository {
 /// end. Parsing a shop's page costs more than its size on deeply nested markup, and on an async
 /// worker it would hold up the console's other requests. Waiting for the end keeps the evaluation
 /// within the console live job that awaits it, under that job's place in the console's limit.
-async fn evaluate_on_blocking_thread(
-    evaluate: impl FnOnce() -> SchemaMatrix + Send + 'static,
-) -> Result<SchemaMatrix, ReviewRepositoryError> {
+async fn evaluate_on_blocking_thread<T: Send + 'static>(
+    evaluate: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, ReviewRepositoryError> {
     tokio::task::spawn_blocking(evaluate)
         .await
         .map_err(|source| ReviewRepositoryError::MatrixEvaluationStopped { source })
