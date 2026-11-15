@@ -546,7 +546,7 @@ async fn should_keep_newest_filters_active_and_restore_the_rest_when_ultimate_ex
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
     let entitlements = SqlxUserTierEntitlementsFactory::new();
-    let quota = UserTier::Ultimate.active_search_filter_quota();
+    let quota = usize::from(UserTier::Ultimate.active_search_filter_quota());
     let user_id = seed_user(
         &pool,
         "tier-entitlements-ultimate-cap@example.com",
@@ -604,7 +604,7 @@ async fn should_bring_existing_ultimate_accounts_to_the_quota_when_the_cap_migra
     let pool = get_postgres_client().await;
     // The migration holds the cap as a literal; sizing the data by the runtime quota keeps the two
     // from drifting apart unnoticed.
-    let quota = UserTier::Ultimate.active_search_filter_quota();
+    let quota = usize::from(UserTier::Ultimate.active_search_filter_quota());
     let over_cap = seed_user(&pool, "cap-migration-over@example.com", "ULTIMATE").await;
     let at_cap = seed_user(&pool, "cap-migration-at@example.com", "ULTIMATE").await;
     let other_tier = seed_user(&pool, "cap-migration-pro@example.com", "PRO").await;

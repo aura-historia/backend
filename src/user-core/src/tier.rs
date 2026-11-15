@@ -27,9 +27,11 @@ impl UserTier {
     /// How many saved searches may be active at once. The create and reactivate checks and the
     /// tier reconciliation both read it from here, so the two cannot disagree.
     ///
-    /// Every tier is bounded because each active saved search is classified every day: an
-    /// unbounded tier would leave one account's matching cost and run time unbounded too.
-    pub fn active_search_filter_quota(self) -> usize {
+    /// Every tier is bounded because each active saved search costs matching work every day: an
+    /// unbounded tier would leave one account's cost and run time unbounded too. The `u16` makes
+    /// that unrepresentable and converts losslessly to the `usize` counts the use cases compare
+    /// and to the `i64` bound of the reconciliation.
+    pub fn active_search_filter_quota(self) -> u16 {
         match self {
             Self::Free => 1,
             Self::Pro => 5,

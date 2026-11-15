@@ -242,7 +242,7 @@ where
             CreateSearchFilterError::SearchFilterFeatureRestricted { feature }
         })?;
         filter.resolve_matching_evidence(matching_evidence_policy(tier));
-        let quota = tier.active_search_filter_quota();
+        let quota = usize::from(tier.active_search_filter_quota());
         let active_count = self
             .quotas
             .in_transaction(&mut tx)

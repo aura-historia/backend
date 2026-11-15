@@ -772,7 +772,7 @@ async fn should_reject_ultimate_create_and_reactivation_once_the_active_quota_is
     let token = search_filters_token(user_id).await;
     let client = reqwest::Client::new();
     let pool = get_postgres_client().await;
-    let quota = UserTier::Ultimate.active_search_filter_quota();
+    let quota = usize::from(UserTier::Ultimate.active_search_filter_quota());
     let template_id = create_search_filter(&client, &token)
         .await
         .parse::<UserSearchFilterId>()

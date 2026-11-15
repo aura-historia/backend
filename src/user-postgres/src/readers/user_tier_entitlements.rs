@@ -174,8 +174,7 @@ impl UserTierEntitlements for SqlxUserTierEntitlements<'_> {
                 source: box_error(SqlxUserTierEntitlementsError::ReconcileWatchlist(source)),
             })?;
 
-        // A ceiling beyond i64 is unbounded for the ranking comparison, so saturating is exact.
-        let quota = i64::try_from(tier.active_search_filter_quota()).unwrap_or(i64::MAX);
+        let quota = i64::from(tier.active_search_filter_quota());
         sqlx::query(RECONCILE_SEARCH_FILTERS_SQL)
             .bind(user_id.into_uuid())
             .bind(quota)
