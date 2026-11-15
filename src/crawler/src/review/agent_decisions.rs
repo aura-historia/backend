@@ -142,6 +142,13 @@ impl AgentDecisionPolicy {
         &self.limits
     }
 
+    /// Whether a ListingSource is crawled only once it is qualified: where the review agents
+    /// qualify the sources, as the scope refresh's qualification gate decides
+    /// (`docs/crawler/README.md#listingsource-qualification`).
+    pub const fn crawls_only_qualified_sources(&self) -> bool {
+        self.authoring.has_review_agents()
+    }
+
     /// The agents' needs-repair rounds at which a pending review waits for a human: the
     /// `max_repair_rounds` limit where the review agents work the reviews, and `None` elsewhere,
     /// where no review ever waits for a human. A query that selects reviews by it binds this value.

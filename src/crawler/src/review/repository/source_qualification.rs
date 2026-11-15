@@ -99,6 +99,10 @@ impl CrawlerReviewRepository {
             decision.note(),
         )
         .await?;
+        if decision.qualification() != Qualification::Qualified {
+            self.withhold_crawl(&mut transaction, listing_source_id)
+                .await?;
+        }
         transaction.commit().await?;
         log_committed_source(
             &self.pool,
@@ -162,6 +166,8 @@ impl CrawlerReviewRepository {
         .await?;
         append_qualification_event(&mut transaction, listing_source_id, None, None, None, actor)
             .await?;
+        self.withhold_crawl(&mut transaction, listing_source_id)
+            .await?;
         transaction.commit().await?;
         log_committed_source(
             &self.pool,
@@ -169,6 +175,30 @@ impl CrawlerReviewRepository {
             ReviewLogEntry::source_qualification_cleared(actor),
         )
         .await;
+        Ok(())
+    }
+}
+
+impl CrawlerReviewRepository {
+    /// Stops crawling the ListingSource in the transaction that leaves it without a qualification
+    /// that admits it, where only qualified sources are crawled, instead of at the next scope
+    /// refresh: until then a source the agents could not decide, or one a human cleared, would
+    /// still be crawled and its reviews worked. Only the scope refresh enables a source again.
+    async fn withhold_crawl(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<(), ReviewRepositoryError> {
+        if !self.agent_decisions.crawls_only_qualified_sources() {
+            return Ok(());
+        }
+        sqlx::query(
+            "UPDATE listing_sources SET crawl_enabled = FALSE, updated = NOW() \
+             WHERE listing_source_id = $1 AND crawl_enabled",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .execute(&mut **transaction)
+        .await?;
         Ok(())
     }
 }

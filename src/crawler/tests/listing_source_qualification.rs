@@ -232,6 +232,65 @@ async fn should_keep_crawling_a_backfill_source_until_it_is_disqualified() {
     );
 }
 
+/// Where only qualified sources are crawled, a decision that leaves a crawled source without a
+/// qualification that admits it stops its crawling in its own transaction, not at the next scope
+/// refresh: a backfill source the agents could not decide, and one whose qualification a human
+/// cleared. Elsewhere the decision leaves crawling to the scope.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_stop_crawling_a_source_left_without_a_qualifying_decision_at_once() {
+    let pool = get_postgres_client().await;
+    let agent_mode = CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(
+        AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, AgentLimits::default()),
+    );
+    let unclear = ListingSourceId::new();
+    let cleared = ListingSourceId::new();
+    let ungated = ListingSourceId::new();
+    let scope = vec![
+        registered(unclear, "https://unclear.example/"),
+        registered(cleared, "https://cleared.example/"),
+        registered(ungated, "https://ungated.example/"),
+    ];
+    sync(&pool, QualificationGate::Off, scope).await;
+    for source in [unclear, cleared, ungated] {
+        make_backfill(&pool, source).await;
+    }
+
+    agent_mode
+        .decide_qualification(
+            &unclear,
+            ReviewActor::AgentAuthor,
+            &decision(Qualification::NeedsHuman, None, "/ timed out twice"),
+        )
+        .await
+        .unwrap();
+    assert!(!crawl_enabled(&pool, unclear).await, "fails closed at once");
+
+    agent_mode
+        .decide_qualification(
+            &cleared,
+            ReviewActor::Human,
+            &decision(Qualification::Qualified, None, "sells antique silver"),
+        )
+        .await
+        .unwrap();
+    assert!(crawl_enabled(&pool, cleared).await);
+    agent_mode
+        .clear_qualification(&cleared, ReviewActor::Human)
+        .await
+        .unwrap();
+    assert!(!crawl_enabled(&pool, cleared).await);
+
+    CrawlerReviewRepository::new(pool.clone())
+        .decide_qualification(
+            &ungated,
+            ReviewActor::Human,
+            &decision(Qualification::NeedsHuman, None, "ask the owner"),
+        )
+        .await
+        .unwrap();
+    assert!(crawl_enabled(&pool, ungated).await);
+}
+
 /// A review agent decides a source once, never as the reviewer, and replaces a label a human set
 /// only in the backfill; it never clears a label: qualifying a labelled source keeps the label
 /// for a human, who clears it by qualifying the source.
