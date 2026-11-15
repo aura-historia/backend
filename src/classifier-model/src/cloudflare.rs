@@ -3,35 +3,32 @@ use crate::{
     ClassificationRequestLimits, ClassificationResponse, ClassificationUsage, ClassifierModel,
     ImageOmissionReason, Probability, QuestionId,
 };
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::StreamExt;
-use image::{ImageDecoder, ImageFormat, ImageReader, Limits};
-use image_fetcher::{FetchedImage, ImageFetchDiagnostics, ImageFetchError, ImageFetcher};
+use image_fetcher::{ImageFetchDiagnostics, ImageFetchError, ImageFetcher};
 use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::Serialize;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::Future,
-    io::Cursor,
     num::NonZeroUsize,
     str::FromStr,
     time::{Duration, Instant},
 };
 use url::Url;
 
+mod images;
 mod jpeg;
+
+use images::{PreparedCloudflareImage, cloudflare_image};
 
 const API_BASE: &str = "https://api.cloudflare.com/client/v4/";
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 13 * 1024 * 1024;
-const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_IMAGES: usize = 4;
 const IMAGE_CONTEXT_TOKENS: usize = 1027;
 const CONTEXT_SCHEMA_RESERVE: usize = 1024;
-const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
-const MAX_DECODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ACCOUNT_ID_BYTES: usize = 128;
 const MAX_API_TOKEN_BYTES: usize = 8 * 1024;
 const MAX_QUESTION_INSTRUCTIONS_BYTES: usize = 4 * 1024;
@@ -39,8 +36,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CloudflareModel {
-    #[default]
     ClefFlash,
+    #[default]
     Clef,
 }
 
@@ -695,105 +692,6 @@ fn log_classifier_attempt(
     );
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PreparedCloudflareImage {
-    mime_type: &'static str,
-    base64_data: String,
-}
-
-impl PreparedCloudflareImage {
-    fn decoded_bytes(&self) -> usize {
-        self.base64_data.len() / 4 * 3
-            - self
-                .base64_data
-                .bytes()
-                .rev()
-                .take_while(|byte| *byte == b'=')
-                .count()
-    }
-    fn mime_type(&self) -> &'static str {
-        self.mime_type
-    }
-
-    fn base64_data(&self) -> &str {
-        &self.base64_data
-    }
-}
-
-fn cloudflare_image(image: FetchedImage) -> Result<PreparedCloudflareImage, ImageOmissionReason> {
-    cloudflare_image_parts(image.mime_type(), image.base64_data())
-}
-
-fn cloudflare_image_parts(
-    mime_type: &str,
-    base64_data: &str,
-) -> Result<PreparedCloudflareImage, ImageOmissionReason> {
-    if !matches!(mime_type, "image/jpeg" | "image/png" | "image/webp") {
-        return Err(ImageOmissionReason::UnsupportedFormat);
-    }
-    let data = BASE64
-        .decode(base64_data)
-        .map_err(|_| ImageOmissionReason::InvalidOrOversized)?;
-    if data.len() > MAX_IMAGE_BYTES {
-        return Err(ImageOmissionReason::InvalidOrOversized);
-    }
-    let provider_jpeg = (mime_type == "image/jpeg")
-        .then(|| jpeg::without_multi_picture_index(&data))
-        .flatten();
-    let data = provider_jpeg.as_deref().unwrap_or(&data);
-    if !image_is_decodable(mime_type, data) {
-        return Err(ImageOmissionReason::InvalidOrOversized);
-    }
-    Ok(PreparedCloudflareImage {
-        mime_type: match mime_type {
-            "image/jpeg" => "image/jpeg",
-            "image/png" => "image/png",
-            "image/webp" => "image/webp",
-            _ => return Err(ImageOmissionReason::UnsupportedFormat),
-        },
-        base64_data: provider_jpeg
-            .map_or_else(|| base64_data.to_owned(), |jpeg| BASE64.encode(jpeg)),
-    })
-}
-
-fn image_is_decodable(mime_type: &str, bytes: &[u8]) -> bool {
-    let format = match mime_type {
-        "image/jpeg" => ImageFormat::Jpeg,
-        "image/png" => ImageFormat::Png,
-        "image/webp" => ImageFormat::WebP,
-        _ => return false,
-    };
-    let Ok(mut decoder) = ImageReader::with_format(Cursor::new(bytes), format).into_decoder()
-    else {
-        return false;
-    };
-    let (width, height) = decoder.dimensions();
-    if u64::from(width)
-        .checked_mul(u64::from(height))
-        .is_none_or(|pixels| pixels == 0 || pixels > MAX_IMAGE_PIXELS)
-    {
-        return false;
-    }
-    let total_bytes = decoder.total_bytes();
-    if total_bytes > MAX_DECODED_IMAGE_BYTES {
-        return false;
-    }
-    let mut limits = Limits::default();
-    limits.max_alloc = Some(MAX_DECODED_IMAGE_BYTES);
-    if decoder.set_limits(limits).is_err() {
-        return false;
-    }
-    let Ok(output_len) = usize::try_from(total_bytes) else {
-        return false;
-    };
-    let mut output = Vec::new();
-    if output.try_reserve_exact(output_len).is_err() {
-        return false;
-    }
-    output.resize(output_len, 0);
-    decoder.read_image(&mut output).is_ok()
-}
-
 async fn read_bounded_body(
     mut response: reqwest::Response,
 ) -> Result<Vec<u8>, ClassificationError> {
@@ -1009,8 +907,12 @@ impl<'de> serde::Deserialize<'de> for UniqueValue {
 
 #[cfg(test)]
 mod tests {
+    use super::images::{MAX_IMAGE_BYTES, cloudflare_image_parts};
     use super::*;
     use crate::{BinaryClassificationQuestion, ClassificationBatchOptions};
+    use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+    use image::ImageFormat;
+    use std::io::Cursor;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
@@ -1333,7 +1235,7 @@ mod tests {
                 .ends_with("/@cf/cloudflare/clef-flash")
         );
         assert!(clef.endpoint.as_str().ends_with("/@cf/cloudflare/clef"));
-        assert_eq!(CloudflareModel::default(), CloudflareModel::ClefFlash);
+        assert_eq!(CloudflareModel::default(), CloudflareModel::Clef);
         assert_eq!(
             CloudflareModel::from_str("clef").unwrap(),
             CloudflareModel::Clef

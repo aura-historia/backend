@@ -573,7 +573,7 @@ async fn saved_search_batch_quality_benchmark() {
         .filter(|v| v.is_finite() && *v > 0.0)
         .expect("verified current token price");
     let configured_model: CloudflareModel = nullable_text(&manifest, "classifier_model")
-        .unwrap_or("clef-flash")
+        .unwrap_or("clef")
         .parse()
         .expect("supported configured benchmark model");
     let model = MeasuredModel {

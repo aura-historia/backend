@@ -37,18 +37,14 @@ pub(crate) enum CandidateEligibility<'a> {
 #[error("ProductListing source identity does not match its requested reference")]
 pub(crate) struct CandidateSourceMismatch;
 
-/// Only text and enhanced intent need the classifier; other intent matches on retrieval alone.
+/// Text and enhanced intent retrieve with the embedding of that text, hybrid like the public
+/// product search, and need the classifier. Other intent matches on lexical retrieval alone.
 pub(crate) fn has_semantic_intent(search: &ProductListingSearch) -> bool {
     search.enhanced_search_description.is_some()
         || search
             .product_listing_query
             .iter()
             .any(|query| !query.trim().is_empty())
-}
-
-/// Enhanced intent retrieves with the filter's embedding; other intent retrieves lexically.
-pub(crate) fn retrieves_with_embedding(search: &ProductListingSearch) -> bool {
-    search.enhanced_search_description.is_some()
 }
 
 pub(crate) async fn retrieve_candidates<P>(

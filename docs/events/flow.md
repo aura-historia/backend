@@ -297,10 +297,12 @@ intent intact. A policy change increments the filter version even when its state
 active; execution consumes that policy without loading subscriptions. Persisted intent
 incompatible with its resolved capability fails validation instead of losing instructions.
 
-Query-only intent uses the existing lexical search. Enhanced intent uses hybrid retrieval
-with its write-time base-query + description embedding; the description is never appended
-as a mandatory all-words title query. Filters containing only deterministic constraints
-use ordinary search without embedding or model work. Structured predicates, including
+Every filter with text intent (base queries, enhanced description or both) uses hybrid
+retrieval, like the public product search, with its write-time embedding of the base queries
+and any description; the description is never appended as a mandatory all-words title query.
+A missing or invalid stored embedding fails that filter closed as invalid persisted state.
+Filters containing only deterministic constraints use ordinary search without embedding or
+model work. Structured predicates, including
 geography, shipping, availability, source/auction and pinned-FX prices, constrain retrieval regardless
 of classifier scores. Current authoritative event checks fence obsolete projection evidence.
 
@@ -327,8 +329,11 @@ coverage; the unselected tail has no guaranteed later opportunity.
 
 The evaluator includes complete base-query alternatives and permitted enhanced instructions,
 keeps requirements/exclusions distinct from preferences and treats listing/image text as
-untrusted evidence. Missing evidence proves neither satisfaction nor contradiction. Images
-cannot establish authenticity, provenance, authorship or age without supporting evidence.
+untrusted evidence. It favours precision, because a wrong alert costs more trust than a missed
+one: the candidate must be the kind of item the base queries ask for, not an accessory, book,
+print or other related item, and an explicit enhanced requirement counts only when the listing
+supports it; preferences may stay unmet. Images cannot establish authenticity, provenance,
+authorship or age without supporting evidence.
 `should_show >= SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS / 10000` accepts an alert
 (default 0.5, inclusive); the score is a decision signal, not a calibrated probability.
 Every listing has exactly one `should_show` question. Text-only, one-image and four-image

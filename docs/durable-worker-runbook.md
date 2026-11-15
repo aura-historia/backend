@@ -325,7 +325,8 @@ export terms, addresses, producer ownership keys, buyer data or provider payload
 [infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
 runs, verify private PostgreSQL access, ProductListing search with reader credentials,
 complete persisted FX and classifier configuration. Filter candidates and progress come
-from PostgreSQL. Query-only filters need no embedding for lexical retrieval. The update use case repairs missing
+from PostgreSQL. Every filter with text intent retrieves with its stored embedding; one
+without a valid embedding fails as invalid persisted state. The update use case repairs missing
 semantic embeddings outside its transaction and rechecks current intent and tier under
 lock. Preserve authored intent and do not generate embeddings during matching.
 
@@ -375,7 +376,7 @@ historical mail.
 
 ### Saved-search batching quality gate
 
-`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50 for Clef Flash).
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50).
 Search-filter previews in the API always send single candidates; they share only the model,
 threshold and Workers AI token with the matcher.
 The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
@@ -424,7 +425,7 @@ cargo test --locked -p search-filter-service --lib -- --ignored --exact product_
 
 The fixture manifest contains `label_provenance: "human-reviewed"`, `reviewed_by`,
 `dataset_revision`, `should_show_threshold: 0.5`, `batch_candidates` (1–50), optional
-`classifier_model` (default `clef-flash`, must match the deployment), the verified current
+`classifier_model` (default `clef`, must match the deployment), the verified current
 `input_usd_per_million_tokens`, and `groups`. Each group is one filter selection with
 canonical ISO `language`, `base_queries`, optional `enhanced_description`, write-resolved
 `evidence_policy` and 1–50 `cases`. Each case has a unique opaque `id`, nullable

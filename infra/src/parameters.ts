@@ -22,7 +22,7 @@ export function applicationParameters(
   searchFilterClassifierDefaults: {
     readonly model: "clef-flash" | "clef";
     readonly shouldShowThresholdBps: number;
-  } = { model: "clef-flash", shouldShowThresholdBps: 5_000 },
+  } = { model: "clef", shouldShowThresholdBps: 5_000 },
 ): ApplicationParameters {
   const commitSha = artifactCommitShaParameter(scope);
   const mailTemplatePrefix = new cdk.CfnParameter(scope, "MailTemplatePrefix", {
