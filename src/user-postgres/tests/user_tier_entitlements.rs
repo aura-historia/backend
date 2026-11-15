@@ -541,6 +541,123 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_keep_newest_filters_active_and_restore_the_rest_when_ultimate_exceeds_its_quota() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let quota = UserTier::Ultimate.active_search_filter_quota();
+    let user_id = seed_user(
+        &pool,
+        "tier-entitlements-ultimate-cap@example.com",
+        "ULTIMATE",
+    )
+    .await;
+    let filters = seed_active_search_filters(&pool, user_id, quota + 2).await;
+    let (cut_off, kept) = filters.split_at(2);
+
+    reconcile(&unit, &entitlements, user_id, UserTier::Ultimate).await;
+
+    assert_eq!(
+        quota as i64,
+        count_state(&pool, ResourceTable::SearchFilters, user_id, "ACTIVE").await
+    );
+    for filter_id in cut_off {
+        assert_eq!(
+            "INACTIVE_BY_RESTRICTED_PLAN",
+            state_for_search_filter(&pool, *filter_id).await
+        );
+    }
+    for filter_id in kept {
+        assert_eq!("ACTIVE", state_for_search_filter(&pool, *filter_id).await);
+    }
+
+    // A restricted filter is restored once the quota has room for it again.
+    sqlx::query(
+        "UPDATE search_filters SET state = 'INACTIVE_BY_USER' WHERE user_search_filter_id = $1",
+    )
+    .bind(kept[0])
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to inactivate search filter by user: {error:?}"));
+    reconcile(&unit, &entitlements, user_id, UserTier::Ultimate).await;
+
+    assert_eq!(
+        quota as i64,
+        count_state(&pool, ResourceTable::SearchFilters, user_id, "ACTIVE").await
+    );
+    assert_eq!(
+        "ACTIVE",
+        state_for_search_filter(&pool, cut_off[1]).await,
+        "the newest restricted filter takes the freed slot"
+    );
+    assert_eq!(
+        "INACTIVE_BY_USER",
+        state_for_search_filter(&pool, kept[0]).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_bring_existing_ultimate_accounts_to_the_quota_when_the_cap_migration_runs() {
+    const CAP_MIGRATION: &str =
+        include_str!("../../../migrations/20261115100000_cap_ultimate_active_search_filters.sql");
+    let pool = get_postgres_client().await;
+    // The migration holds the cap as a literal; sizing the data by the runtime quota keeps the two
+    // from drifting apart unnoticed.
+    let quota = UserTier::Ultimate.active_search_filter_quota();
+    let over_cap = seed_user(&pool, "cap-migration-over@example.com", "ULTIMATE").await;
+    let at_cap = seed_user(&pool, "cap-migration-at@example.com", "ULTIMATE").await;
+    let other_tier = seed_user(&pool, "cap-migration-pro@example.com", "PRO").await;
+    let over_cap_filters = seed_active_search_filters(&pool, over_cap, quota + 3).await;
+    let at_cap_filters = seed_active_search_filters(&pool, at_cap, quota).await;
+    let other_tier_filters = seed_active_search_filters(&pool, other_tier, quota + 3).await;
+    let (cut_off, kept) = over_cap_filters.split_at(3);
+    let kept_version = version_for_search_filter(&pool, kept[0]).await;
+    let cut_off_version = version_for_search_filter(&pool, cut_off[0]).await;
+
+    sqlx::raw_sql(CAP_MIGRATION)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to run cap migration: {error:?}"));
+
+    for filter_id in cut_off {
+        assert_eq!(
+            "INACTIVE_BY_RESTRICTED_PLAN",
+            state_for_search_filter(&pool, *filter_id).await
+        );
+    }
+    for filter_id in kept
+        .iter()
+        .chain(&at_cap_filters)
+        .chain(&other_tier_filters)
+    {
+        assert_eq!("ACTIVE", state_for_search_filter(&pool, *filter_id).await);
+    }
+    assert_eq!(
+        cut_off_version + 1,
+        version_for_search_filter(&pool, cut_off[0]).await
+    );
+    assert_eq!(
+        kept_version,
+        version_for_search_filter(&pool, kept[0]).await
+    );
+
+    sqlx::raw_sql(CAP_MIGRATION)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to re-run cap migration: {error:?}"));
+
+    assert_eq!(
+        quota as i64,
+        count_state(&pool, ResourceTable::SearchFilters, over_cap, "ACTIVE").await
+    );
+    assert_eq!(
+        cut_off_version + 1,
+        version_for_search_filter(&pool, cut_off[0]).await,
+        "re-running leaves already restricted filters alone"
+    );
+}
+
 async fn begin(unit: &SqlxUnitOfWork) -> SqlxTransaction {
     unit.begin()
         .await
@@ -589,6 +706,51 @@ async fn seed_search_filter(
     .await
     .unwrap_or_else(|error| panic!("failed to seed search filter: {error:?}"));
     filter_id
+}
+
+/// Seeds `count` active filters, oldest first, one second apart.
+async fn seed_active_search_filters(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    count: usize,
+) -> Vec<uuid::Uuid> {
+    let now = OffsetDateTime::now_utc();
+    let mut filter_ids = Vec::with_capacity(count);
+    for position in 0..count {
+        let age = Duration::seconds((count - position) as i64);
+        filter_ids.push(
+            seed_search_filter(
+                pool,
+                user_id,
+                &format!("filter {position}"),
+                "ACTIVE",
+                None,
+                now - age,
+            )
+            .await,
+        );
+    }
+    filter_ids
+}
+
+async fn reconcile(
+    unit: &SqlxUnitOfWork,
+    entitlements: &SqlxUserTierEntitlementsFactory,
+    user_id: UserId,
+    tier: UserTier,
+) {
+    let mut tx = begin(unit).await;
+    entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to lock user tier: {error:?}"));
+    entitlements
+        .in_transaction(&mut tx)
+        .reconcile_for_tier(user_id, tier)
+        .await
+        .unwrap_or_else(|error| panic!("failed to reconcile tier entitlements: {error:?}"));
+    commit(tx).await;
 }
 
 async fn seed_watchlist_entries(

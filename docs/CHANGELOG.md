@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-15 — Ultimate saved searches are capped at 20 active (#2981)
+
+- **Behavior change:** the `ULTIMATE` tier allows up to 20 active saved searches instead of an unlimited number, counted across all active filters whether or not they use an enhanced description. As for `FREE` and `PRO`, creating a search filter or reactivating one (`PATCH` with `state` `ACTIVE`) while the account already has 20 active returns `422 SEARCH_FILTER_QUOTA_EXCEEDED`. Inactive filters do not count. Request and response shapes are unchanged.
+- **Existing accounts above the cap:** at release, an `ULTIMATE` account with more than 20 active search filters keeps its 20 most recently created ones active; the others become `INACTIVE_BY_RESTRICTED_PLAN`. Nothing is deleted and their searches are unchanged. They stay inactive, with no matching and no notifications, until the account has fewer than 20 active filters and the user reactivates them.
+- The `ULTIMATE` descriptions in `UserTierData` and in `POST /v1/me/search-filters` now state the cap.
+
 ## 2026-11-14 — Content notices (#2934)
 
 - **Submission:** new `POST /v1/content-notices` (`submitContentNotice`, tag `ContentNotices`) lets anyone, with or without an account, ask Aura Historia to review one ProductListing or a ListingSource with all of its listings: a provider's opt-out, a rights infringement, illegal content, incorrect information or another reason. The body names the target, the submitter role, the reason category, an explanation (optional only for `PROVIDER_OPT_OUT`), up to ten additional URLs, the notifier's name, email and language, and `goodFaithConfirmed: true`. It is limited to 64 KiB and rejects unknown fields. The email must be ASCII before the `@`; an international domain is accepted and stored in its punycode form. An optional bearer credential is accepted, but an invalid one returns `401`; the caller's identity is not stored. A notice removes nothing by itself.

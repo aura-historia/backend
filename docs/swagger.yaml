@@ -4456,7 +4456,7 @@ paths:
         - `PRO`: Up to 5 active search filters. All search fields, including `geography` and `shipping`, are allowed
         except `enhancedSearchDescription`.
 
-        - `ULTIMATE`: Unlimited search filters. All search fields are allowed.
+        - `ULTIMATE`: Up to 20 active search filters. All search fields are allowed.
 
 
         Scheduled matching classifies candidates against an English translation of `productQuery` and
@@ -25826,7 +25826,7 @@ components:
         - `PRO`: Premium tier. Allows up to 100 watchlist entries, up to 5 search filters with access to all filter fields,
         and unlimited product matches per filter.
 
-        - `ULTIMATE`: Highest tier. Allows unlimited watchlist entries, unlimited search filters with access to all filter
+        - `ULTIMATE`: Highest tier. Allows unlimited watchlist entries, up to 20 search filters with access to all filter
         fields, and unlimited product matches per filter.
 
         "
