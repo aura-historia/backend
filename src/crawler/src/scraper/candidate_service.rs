@@ -759,6 +759,38 @@ struct UrlFailureUpdate<'a> {
     expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
 }
 
+/// What the crawler stores at `effective_url`, the page a product URL of the ListingSource
+/// redirected to, in either trailing-slash spelling
+/// (`docs/crawler/networking.md#duplicate-targets`).
+pub(crate) async fn stored_redirect_destination<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    listing_source_id: &ListingSourceId,
+    effective_url: &Url,
+) -> Result<RedirectDestination, sqlx::Error> {
+    let (rows, products, foreign): (i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*),
+                COUNT(*) FILTER (
+                    WHERE listing_source_id = $2
+                      AND url_class = 'product'
+                      AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')),
+                COUNT(*) FILTER (
+                    WHERE listing_source_id <> $2
+                       OR (url_class <> 'product' AND crawler_disposition <> 'DUPLICATE'))
+         FROM listing_source_urls
+         WHERE url = ANY($1::text[])",
+    )
+    .bind(destination_spellings(effective_url))
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .fetch_one(executor)
+    .await?;
+    Ok(match rows {
+        0 => RedirectDestination::Unknown,
+        rows if products == rows => RedirectDestination::ProductOfListingSource,
+        rows if foreign == rows => RedirectDestination::NotAProductOfListingSource,
+        _ => RedirectDestination::Unsettled,
+    })
+}
+
 /// The URLs a redirect destination may already be stored under: its page with or without the
 /// trailing slash names one page (`docs/crawler/networking.md#stored-urls`), so a row under either
 /// spelling makes the destination known instead of gaining a second row for the page.
@@ -1262,28 +1294,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         listing_source_id: &ListingSourceId,
         effective_url: &Url,
     ) -> Result<RedirectDestination, sqlx::Error> {
-        let (rows, products, foreign): (i64, i64, i64) = sqlx::query_as(
-            "SELECT COUNT(*),
-                    COUNT(*) FILTER (
-                        WHERE listing_source_id = $2
-                          AND url_class = 'product'
-                          AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')),
-                    COUNT(*) FILTER (
-                        WHERE listing_source_id <> $2
-                           OR (url_class <> 'product' AND crawler_disposition <> 'DUPLICATE'))
-             FROM listing_source_urls
-             WHERE url = ANY($1::text[])",
-        )
-        .bind(destination_spellings(effective_url))
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(match rows {
-            0 => RedirectDestination::Unknown,
-            rows if products == rows => RedirectDestination::ProductOfListingSource,
-            rows if foreign == rows => RedirectDestination::NotAProductOfListingSource,
-            _ => RedirectDestination::Unsettled,
-        })
+        stored_redirect_destination(&self.pool, listing_source_id, effective_url).await
     }
 
     async fn move_redirected_url(
