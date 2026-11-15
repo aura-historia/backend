@@ -187,3 +187,67 @@ async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
     assert_eq!(failure.status_code, Some(200));
     assert_eq!(failure.expected_last_captured_raw_input_sha256, Some(fence));
 }
+
+/// A robots.txt refusal sends nothing to the page, but a robots.txt this fetch loaded is the
+/// shop's answer: it proves the shop responsive, so the probe after a cooldown closes the circuit,
+/// unless the answer is one a circuit counts. A refusal from the cached policy observes nothing.
+#[tokio::test]
+async fn primary_robots_refusal_observes_the_shop_only_by_a_freshly_loaded_answer() {
+    use crate::network::robots::RobotsRefusal;
+    for (refusal, shop_answer, expected) in [
+        (
+            RobotsRefusal::Unreachable,
+            Some(502),
+            DomainFetchHealth::Responsive,
+        ),
+        (
+            RobotsRefusal::Disallowed,
+            Some(200),
+            DomainFetchHealth::Responsive,
+        ),
+        (
+            RobotsRefusal::Unreachable,
+            Some(503),
+            DomainFetchHealth::NotObserved,
+        ),
+        (
+            RobotsRefusal::Unreachable,
+            Some(429),
+            DomainFetchHealth::NotObserved,
+        ),
+        (
+            RobotsRefusal::Unreachable,
+            None,
+            DomainFetchHealth::NotObserved,
+        ),
+    ] {
+        let service = service_for_primary_failure(FetchError::RobotsRefused {
+            refusal,
+            shop_answer,
+            details: "robots.txt refuses".to_owned(),
+        });
+
+        let outcome = with_test_scrape_observation(service.scrape(primary_request(
+            listing_source_id(),
+            product_url(),
+            vec![0x11; 32],
+        )))
+        .await;
+
+        assert_eq!(
+            outcome.scrape_health, expected,
+            "{refusal:?} {shop_answer:?}"
+        );
+        let failure = outcome
+            .fetch_failure
+            .expect("the refused URL records a failure");
+        assert_eq!(
+            failure.kind,
+            crate::scraper::scraper_service::html_fetcher::robots_refusal_kind(refusal)
+        );
+        assert_eq!(
+            failure.status_code, None,
+            "robots.txt's answer is no page status"
+        );
+    }
+}
