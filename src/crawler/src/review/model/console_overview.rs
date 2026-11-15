@@ -41,6 +41,9 @@ pub struct ReviewCounts {
     pub pending_disabled_sources: i64,
     /// Of `pending_total`, those that wait for a human; none outside `agent` authoring mode.
     pub waiting_for_human: i64,
+    /// Of `pending_total`, the product-schema reviews the crawler handed to a human because their
+    /// source's URL pattern likely takes non-product pages, in any authoring mode.
+    pub held_for_non_product_loop: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -78,6 +81,7 @@ mod tests {
                 },
                 pending_disabled_sources: 4,
                 waiting_for_human: 9,
+                held_for_non_product_loop: 2,
             },
             agent_mode: true,
         };
@@ -94,7 +98,8 @@ mod tests {
                     "pending_total": 312,
                     "pending_by_artifact": { "PRODUCT_SCHEMA": 241, "URL_PATTERN": 71 },
                     "pending_disabled_sources": 4,
-                    "waiting_for_human": 9
+                    "waiting_for_human": 9,
+                    "held_for_non_product_loop": 2
                 },
                 "agent_mode": true
             })

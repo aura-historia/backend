@@ -12,6 +12,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
+use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
@@ -35,6 +36,7 @@ mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
 mod no_sold_page;
+mod non_product_loop;
 mod not_product_pages;
 mod pending_reviews;
 mod rearm;
@@ -56,6 +58,7 @@ mod verdicts;
 pub use crawl_resumption::CrawlResumption;
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use mass_removal_confirmation::MassRemovalConfirmation;
+pub(crate) use non_product_loop::{held_for_non_product_loop, non_product_loop_hold_event};
 pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
@@ -64,6 +67,7 @@ pub use schema_payload::ProductSchemaCandidateFailure;
 pub(crate) use source_qualification::AGENT_RETRY_DUE;
 pub use verdicts::Approval;
 
+use non_product_loop::NonProductLoop;
 use review_events::{
     ReviewMutation, commit_with_event, fetch_review_events, fetch_review_events_since,
 };
@@ -74,8 +78,8 @@ use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_UR
 use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
 use repair_rounds::refuse_agent_while_human_required;
 pub(crate) use repair_rounds::{
-    after_last_human_event, agent_handed_review_to_human, agent_repair_rounds, agent_round_binds,
-    agent_rounds_of_review,
+    after_last_human_event, agent_repair_rounds, agent_round_binds, agent_rounds_of_review,
+    handed_review_to_human,
 };
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
@@ -298,8 +302,8 @@ pub enum ReviewRepositoryError {
     HumanRequired {
         review_id: CrawlerReviewId,
         agent_rounds: u32,
-        /// Whether a review agent handed the review to a human, which it waits for whatever its
-        /// rounds.
+        /// Whether a review agent or the crawler's non-product page loop guard handed the review to
+        /// a human, which it waits for whatever its rounds.
         handed_to_human: bool,
         max_repair_rounds: u32,
     },
@@ -344,7 +348,8 @@ fn human_required_cause(
     max_repair_rounds: u32,
 ) -> String {
     if handed_to_human {
-        "a review agent handed it to a human since a human last changed or judged it".to_owned()
+        "a review agent or the crawler handed it to a human since a human last changed or judged it"
+            .to_owned()
     } else {
         format!(
             "the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}"
@@ -879,7 +884,19 @@ impl CrawlerReviewRepository {
                 }
             }
         }
-        transaction.commit().await?;
+        if matches!(placement, ReviewPlacement::Opened(_))
+            && status == STATUS_PENDING_REVIEW
+            && reason == MANUAL_SCHEMA_REASON
+        {
+            commit_holding_a_non_product_loop(
+                transaction,
+                placement.review_id(),
+                listing_source_id,
+            )
+            .await?;
+        } else {
+            transaction.commit().await?;
+        }
         if let ReviewPlacement::Opened(review_id) = placement {
             // A review created already decided is not opened: its decision is its only event.
             let entries = if status == STATUS_PENDING_REVIEW {
@@ -1559,6 +1576,32 @@ async fn persist_approved_schema_edit(
 /// collected under: once per page under the reviewer-page identity, up to [`MAX_WAITING_PAGES`].
 /// Drops the cached schema matrix when a page was attached, so the next refresh covers it. The
 /// caller holds the review row lock.
+/// Commits the transaction that opened the pending `manual_schema_required` review `review_id`,
+/// handing the review to a human in it when `listing_source_id`'s latest such reviews show the
+/// [non-product page loop](non_product_loop), so no agent ever works it.
+async fn commit_holding_a_non_product_loop(
+    mut transaction: sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+) -> Result<(), ReviewRepositoryError> {
+    let Some(non_product_loop) =
+        NonProductLoop::detect(&mut *transaction, listing_source_id).await?
+    else {
+        transaction.commit().await?;
+        return Ok(());
+    };
+    commit_with_event(
+        transaction,
+        review_id,
+        NonProductLoop::ACTOR,
+        ReviewMutation::HandedToHumanByCrawler {
+            note: &non_product_loop.note(),
+            reason: NonProductLoop::REASON,
+        },
+    )
+    .await
+}
+
 /// The row of a product-schema review [`place_schema_review`] inserts.
 struct NewSchemaReviewRow<'a> {
     listing_source_id: &'a ListingSourceId,
@@ -2078,7 +2121,7 @@ mod tests {
 
         let handed = refusal(1, true);
         assert!(
-            handed.contains("waits for a human: a review agent handed it to a human since a human last changed or judged it; leave it"),
+            handed.contains("waits for a human: a review agent or the crawler handed it to a human since a human last changed or judged it; leave it"),
             "{handed}"
         );
         assert!(!handed.contains("needs-repair"), "{handed}");

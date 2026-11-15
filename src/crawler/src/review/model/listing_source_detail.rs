@@ -35,6 +35,20 @@ pub struct ListingSourceDetail {
     pub label_history: Vec<SourceLabelEvent>,
     /// Every qualification the ListingSource was given or lost, oldest first.
     pub qualification_history: Vec<QualificationEvent>,
+    /// The pending product-schema review the crawler handed to a human because the source's URL
+    /// pattern likely takes non-product pages; `None` while no such hold waits.
+    pub non_product_loop_hold: Option<NonProductLoopHold>,
+}
+
+/// A pending product-schema review the crawler's non-product page loop guard handed to a human
+/// (`docs/crawler/extraction-and-review.md`, non-product page loop), which no human answered yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NonProductLoopHold {
+    pub review_id: CrawlerReviewId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub held_since: OffsetDateTime,
+    /// The hand-over's note: the pages that closed the loop and what to do.
+    pub note: Option<String>,
 }
 
 /// How many failing product URLs the page shows as examples.

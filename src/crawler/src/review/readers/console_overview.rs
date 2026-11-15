@@ -5,8 +5,8 @@ use super::ListingSourceOverviewReader;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{ConsoleOverview, PendingByArtifact, ReviewCounts, SourceCounts};
 use crate::review::repository::{
-    CrawlerReviewRepository, after_last_human_event, agent_handed_review_to_human,
-    agent_round_binds, agent_rounds_of_review,
+    CrawlerReviewRepository, after_last_human_event, agent_round_binds, agent_rounds_of_review,
+    handed_review_to_human, held_for_non_product_loop,
 };
 use crate::spider::local_lock::WorkLockScope;
 use sqlx::{PgPool, Row};
@@ -75,6 +75,7 @@ impl ConsoleOverviewReader {
             },
             pending_disabled_sources: row.try_get("pending_disabled_sources")?,
             waiting_for_human: row.try_get("pending_waiting_for_human")?,
+            held_for_non_product_loop: row.try_get("pending_held_for_non_product_loop")?,
         })
     }
 }
@@ -87,8 +88,10 @@ const REVIEW_COUNTS_SQL: &str = concat!(
                 $5::bigint IS NOT NULL AND (",
     agent_rounds_of_review!(),
     " >= $5 OR ",
-    agent_handed_review_to_human!(),
-    ") AS waits_for_human
+    handed_review_to_human!(),
+    ") AS waits_for_human, ",
+    held_for_non_product_loop!(),
+    " AS held_for_non_product_loop
          FROM crawler_reviews r
          LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
          WHERE r.status = 'PENDING_REVIEW'
@@ -97,6 +100,7 @@ const REVIEW_COUNTS_SQL: &str = concat!(
             COUNT(*) FILTER (WHERE artifact_type = 'URL_PATTERN') AS pending_url_pattern,
             COUNT(*) FILTER (WHERE artifact_type = 'PRODUCT_SCHEMA') AS pending_product_schema,
             COUNT(*) FILTER (WHERE NOT crawl_enabled) AS pending_disabled_sources,
-            COUNT(*) FILTER (WHERE waits_for_human) AS pending_waiting_for_human
+            COUNT(*) FILTER (WHERE waits_for_human) AS pending_waiting_for_human,
+            COUNT(*) FILTER (WHERE held_for_non_product_loop) AS pending_held_for_non_product_loop
      FROM pending"
 );

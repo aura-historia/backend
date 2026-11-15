@@ -38,7 +38,7 @@ pub use console_overview::{ConsoleOverview, PendingByArtifact, ReviewCounts, Sou
 pub use list_window::{ListPage, ListWindow};
 pub use listing_source_detail::{
     FAILING_URL_EXAMPLES, FAILING_URL_MESSAGE_CHARS, FailingUrl, ListingSourceDetail,
-    UrlPatternOverview,
+    NonProductLoopHold, UrlPatternOverview,
 };
 pub use listing_source_filter::{SourceActivity, SourceSort, SourceStatus};
 pub use listing_source_overview::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
@@ -55,7 +55,7 @@ pub use review::{CrawlerReview, RepairRequest};
 pub use review_detail::ReviewDetail;
 pub use review_event::{
     CrawlerReviewEvent, HandoverCategory, HandoverCause, HandoverReason, ReviewActor,
-    ReviewEventAction, ReviewEventSummary,
+    ReviewEventAction, ReviewEventSummary, SystemHandoverReason,
 };
 pub use review_filter::{ReviewSort, ReviewWaiting};
 pub use review_page::CrawlerReviewPage;

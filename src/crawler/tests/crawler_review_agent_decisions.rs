@@ -17,7 +17,10 @@ use crawler::review::model::{
     UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
-use crawler::review::readers::{ReviewQuery, ReviewQueueReader};
+use crawler::review::readers::{
+    ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader, ReviewQuery,
+    ReviewQueueReader,
+};
 use crawler::review::repository::{
     Approval, CrawlerReviewRepository, PendingReviewQuery, ReviewRepositoryError,
 };
@@ -3116,4 +3119,125 @@ async fn should_expire_only_an_agent_no_pattern_older_than_its_age() {
             .await
             .unwrap()
     );
+}
+
+/// Opens a `manual_schema_required` review of `listing_source_id` for the page `slug` and closes
+/// it with a human's rejection, which rules the page no product page.
+async fn rejected_no_product_review(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: &ListingSourceId,
+    slug: &str,
+) -> CrawlerReviewId {
+    let review_id = pending_review(
+        repository,
+        listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page(slug)],
+    )
+    .await;
+    repository
+        .reject_review(review_id, ReviewActor::Human, Some("a category page"))
+        .await
+        .unwrap();
+    review_id
+}
+
+/// The non-product page loop guard: once a source's latest two manual product-schema reviews
+/// ruled their pages no product pages within a day, the crawler hands the next one it opens to a
+/// human, which the console's overview and source page show, until a human acts on it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_hold_the_next_manual_review_for_a_human_after_two_no_product_closes_in_a_row() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 3);
+    let listing_source_id = listing_source(&pool).await;
+    rejected_no_product_review(&repository, &listing_source_id, "category-a").await;
+    let second = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("category-b")],
+    )
+    .await;
+    assert_eq!(agent_rounds(&repository, second).await, (0, false));
+    repository
+        .reject_review(second, ReviewActor::Human, Some("a category page"))
+        .await
+        .unwrap();
+
+    let held = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("category-c")],
+    )
+    .await;
+
+    assert_eq!(agent_rounds(&repository, held).await, (0, true));
+    let hand_over = repository
+        .get_review(held)
+        .await
+        .unwrap()
+        .events
+        .into_iter()
+        .find(|event| event.action == ReviewEventAction::HandedToHuman)
+        .expect("the crawler's hand-over");
+    assert_eq!(hand_over.actor, ReviewActor::System);
+    assert_eq!(hand_over.details["reason"], "NON_PRODUCT_PAGE_LOOP");
+    let note = hand_over.notes.unwrap_or_default();
+    assert!(note.contains("URL pattern"), "{note}");
+    assert!(
+        note.contains("https://example.com/products/category-b"),
+        "{note}"
+    );
+    let sources = ListingSourceOverviewReader::new(pool.clone());
+    let overview = ConsoleOverviewReader::new(&repository, sources.clone())
+        .overview()
+        .await
+        .unwrap();
+    assert_eq!(overview.reviews.held_for_non_product_loop, 1);
+    let hold = ListingSourceDetailReader::new(sources)
+        .find_listing_source(listing_source_id)
+        .await
+        .unwrap()
+        .and_then(|detail| detail.non_product_loop_hold)
+        .expect("the source page's hold");
+    assert_eq!(hold.review_id, held);
+
+    repository
+        .request_repair(
+            held,
+            ReviewActor::Human,
+            Some("the URL pattern was narrowed; check the page again"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, held).await, (0, false));
+}
+
+/// A rejection a human revoked ruled its page a product page after all, so it breaks the streak.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_hold_the_next_manual_review_when_a_latest_rejection_was_revoked() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 3);
+    let listing_source_id = listing_source(&pool).await;
+    rejected_no_product_review(&repository, &listing_source_id, "category-a").await;
+    let revoked = rejected_no_product_review(&repository, &listing_source_id, "chair").await;
+    repository
+        .revoke_rejection(revoked, ReviewActor::Human, Some("a product after all"))
+        .await
+        .unwrap();
+
+    let next = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("category-c")],
+    )
+    .await;
+
+    assert_eq!(agent_rounds(&repository, next).await, (0, false));
 }
