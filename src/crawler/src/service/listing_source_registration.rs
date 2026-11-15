@@ -73,8 +73,8 @@ pub trait ListingSourceRegistrationRepository: Send + Sync {
     /// Upserts every source of `listing_sources`, keeping a labelled source disabled, and under
     /// the qualification gate a source that waits for its qualification or was not qualified,
     /// disables every crawl-enabled source it does not hold, and moves each source whose stored
-    /// crawl root differs to the snapshot's: the move clears the crawl state and frontier of the
-    /// old root and keeps the source's URLs, URL pattern and scrape state. All of it commits
+    /// crawl root differs to the snapshot's: the move clears the crawl state, frontier and
+    /// qualification of the old root and keeps the source's URLs, URL pattern and scrape state. All of it commits
     /// together or not at all.
     async fn apply_snapshot(
         &self,
@@ -368,6 +368,25 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
             .bind(&moved_ids)
             .execute(&mut *transaction)
             .await?;
+        // A moved root may present another site, so its qualification no longer stands and a
+        // backfill source loses its pass: the source waits for a new qualification, and its
+        // history records a cleared one as the crawler's.
+        sqlx::query(
+            "WITH moved AS ( \
+                 SELECT listing_source_id, qualification IS NOT NULL AS was_qualified \
+                 FROM listing_sources WHERE listing_source_id = ANY($1)), \
+             cleared AS ( \
+                 UPDATE listing_sources s \
+                 SET qualification = NULL, qualification_note = NULL, qualified_at = NULL, \
+                     qualified_by = NULL, qualification_backfill = FALSE, updated = NOW() \
+                 FROM moved WHERE s.listing_source_id = moved.listing_source_id \
+                 RETURNING s.listing_source_id, moved.was_qualified) \
+             INSERT INTO listing_source_qualification_events (listing_source_id, actor) \
+             SELECT listing_source_id, 'SYSTEM' FROM cleared WHERE was_qualified",
+        )
+        .bind(&moved_ids)
+        .execute(&mut *transaction)
+        .await?;
 
         for listing_source in listing_sources {
             // A source is crawled while the scope admits it with a crawl root, no label stands

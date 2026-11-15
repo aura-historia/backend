@@ -4,6 +4,8 @@
 //! (`docs/crawler/README.md#listingsource-qualification`).
 
 use async_trait::async_trait;
+use crawler::authoring::CrawlerAuthoringMode;
+use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
     Qualification, QualificationDecision, QualificationLabelEffect, ReviewActor, SourceLabel,
     SourceLabelNote, SourceLabelRequest,
@@ -462,5 +464,199 @@ async fn should_end_the_backfill_of_a_source_with_its_first_decision() {
     assert!(
         matches!(refused, ReviewRepositoryError::HumanLabelStands(_)),
         "{refused}"
+    );
+}
+
+/// Moves the time the source's current qualification was decided back by `hours`, as if it had
+/// stood that long.
+async fn age_qualification(pool: &PgPool, listing_source_id: ListingSourceId, hours: i32) {
+    sqlx::query(
+        "UPDATE listing_sources SET qualified_at = qualified_at - make_interval(hours => $2) \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(hours)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// A review agent's `NEEDS_HUMAN` stands for a day, after which the agents try the source again
+/// with the earlier note as evidence, up to three `NEEDS_HUMAN` in all since a human last decided
+/// it; after the third the source waits for a human for good, and a human's decision starts the
+/// count afresh.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_retry_an_agent_s_needs_human_a_day_later_up_to_three_times() {
+    let pool = get_postgres_client().await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    sync(
+        &pool,
+        QualificationGate::Required,
+        vec![registered(listing_source_id, "https://flaky.example/")],
+    )
+    .await;
+    let unreachable = decision(Qualification::NeedsHuman, None, "/ timed out twice");
+    let queue = || async {
+        QualificationQueueReader::new(pool.clone())
+            .read()
+            .await
+            .unwrap()
+            .sources
+    };
+
+    for round in 1..=3 {
+        reviews
+            .decide_qualification(&listing_source_id, ReviewActor::AgentAuthor, &unreachable)
+            .await
+            .unwrap_or_else(|error| panic!("round {round}: {error}"));
+        assert!(queue().await.is_empty(), "round {round}: waits a day");
+        let refused = reviews
+            .decide_qualification(&listing_source_id, ReviewActor::AgentAuthor, &unreachable)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(refused, ReviewRepositoryError::SourceAlreadyQualified(_)),
+            "round {round}: {refused}"
+        );
+        age_qualification(&pool, listing_source_id, 25).await;
+        let due = queue().await;
+        if round < 3 {
+            assert_eq!(due.len(), 1, "round {round}: tried again");
+            assert_eq!(due[0].earlier_note.as_deref(), Some("/ timed out twice"));
+        } else {
+            assert!(due.is_empty(), "the third NEEDS_HUMAN waits for a human");
+        }
+    }
+
+    reviews
+        .clear_qualification(&listing_source_id, ReviewActor::Human)
+        .await
+        .unwrap();
+    let fresh = queue().await;
+    assert_eq!(fresh.len(), 1, "a human's clear starts the count afresh");
+    assert_eq!(fresh[0].earlier_note, None);
+}
+
+/// The agents' qualifications count against their hourly decision cap with their approvals and
+/// rejections.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_the_agents_qualifications_against_their_hourly_cap() {
+    let pool = get_postgres_client().await;
+    let reviews =
+        CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy::new(
+            CrawlerAuthoringMode::Agent,
+            AgentLimits {
+                max_decisions_per_hour: std::num::NonZeroU32::new(2).unwrap(),
+                ..AgentLimits::default()
+            },
+        ));
+    let sources = [
+        ListingSourceId::new(),
+        ListingSourceId::new(),
+        ListingSourceId::new(),
+    ];
+    sync(
+        &pool,
+        QualificationGate::Required,
+        sources
+            .iter()
+            .enumerate()
+            .map(|(index, id)| registered(*id, &format!("https://shop{index}.example/")))
+            .collect(),
+    )
+    .await;
+    let qualified = decision(
+        Qualification::Qualified,
+        None,
+        "/ sells antiques with a cart",
+    );
+
+    for listing_source_id in &sources[..2] {
+        reviews
+            .decide_qualification(listing_source_id, ReviewActor::AgentAuthor, &qualified)
+            .await
+            .unwrap();
+    }
+    let refused = reviews
+        .decide_qualification(&sources[2], ReviewActor::AgentAuthor, &qualified)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            refused,
+            ReviewRepositoryError::AgentDecisionLimitReached { limit: 2, .. }
+        ),
+        "{refused}"
+    );
+    reviews
+        .decide_qualification(&sources[2], ReviewActor::Human, &qualified)
+        .await
+        .expect("a human is not capped");
+}
+
+/// A crawl root that moves to another site clears the source's qualification and its backfill
+/// pass, so the source waits for a new qualification; the history records the clear as the
+/// crawler's.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_requalify_a_source_whose_crawl_root_moves() {
+    let pool = get_postgres_client().await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let qualified = ListingSourceId::new();
+    let backfill = ListingSourceId::new();
+    sync(
+        &pool,
+        QualificationGate::Required,
+        vec![
+            registered(qualified, "https://old-shop.example/"),
+            registered(backfill, "https://old-backfill.example/"),
+        ],
+    )
+    .await;
+    make_backfill(&pool, backfill).await;
+    reviews
+        .decide_qualification(
+            &qualified,
+            ReviewActor::AgentAuthor,
+            &decision(
+                Qualification::Qualified,
+                None,
+                "/ sells antiques with a cart",
+            ),
+        )
+        .await
+        .unwrap();
+    let moved = || {
+        vec![
+            registered(qualified, "https://new-shop.example/"),
+            registered(backfill, "https://new-backfill.example/"),
+        ]
+    };
+
+    sync(&pool, QualificationGate::Required, moved()).await;
+
+    for listing_source_id in [qualified, backfill] {
+        assert!(!crawl_enabled(&pool, listing_source_id).await);
+    }
+    let mut waiting = queued(&pool).await;
+    waiting.sort();
+    let mut expected = vec![(qualified, false), (backfill, false)];
+    expected.sort();
+    assert_eq!(waiting, expected);
+    let cleared: Vec<(Option<String>, String)> = sqlx::query_as(
+        "SELECT qualification, actor FROM listing_source_qualification_events \
+         WHERE listing_source_id = $1 ORDER BY occurred_at",
+    )
+    .bind(qualified.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        cleared,
+        vec![
+            (Some("QUALIFIED".to_owned()), "AGENT_AUTHOR".to_owned()),
+            (None, "SYSTEM".to_owned()),
+        ]
     );
 }

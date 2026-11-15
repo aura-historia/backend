@@ -9,6 +9,14 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+/// How long a review agent's `NEEDS_HUMAN` stands before the agents try the source again, since
+/// most come from a site the agent could not reach for the moment.
+pub const AGENT_NEEDS_HUMAN_RETRY_HOURS: i32 = 24;
+
+/// How many `NEEDS_HUMAN` decisions of the review agents a source gets, since a human last decided
+/// or cleared its qualification, before it waits for a human for good.
+pub const MAX_AGENT_NEEDS_HUMAN_DECISIONS: i64 = 3;
+
 /// What a qualification decided. Serialized and persisted by its `SCREAMING_SNAKE_CASE` name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -218,6 +226,9 @@ pub struct SourceAwaitingQualification {
     pub source_label: Option<QueuedSourceLabel>,
     /// The artifact types of the source's pending reviews, which an approach label must name.
     pub pending_review_artifacts: Vec<String>,
+    /// The note of the review agent's earlier `NEEDS_HUMAN` this try follows, as evidence; `None`
+    /// for a source never decided.
+    pub earlier_note: Option<String>,
 }
 
 /// A label a queued source carries, with its note, as the decider reads it.

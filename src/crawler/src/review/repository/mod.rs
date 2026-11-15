@@ -61,6 +61,7 @@ pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use schema_payload::ProductSchemaCandidateFailure;
+pub(crate) use source_qualification::AGENT_RETRY_DUE;
 pub use verdicts::Approval;
 
 use review_events::{

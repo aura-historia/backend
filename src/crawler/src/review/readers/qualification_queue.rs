@@ -4,9 +4,10 @@
 //! existed before qualification did.
 
 use crate::review::model::{
-    QueuedSourceLabel, ReviewActor, SourceAwaitingQualification, SourceLabel,
+    AGENT_NEEDS_HUMAN_RETRY_HOURS, MAX_AGENT_NEEDS_HUMAN_DECISIONS, QueuedSourceLabel, ReviewActor,
+    SourceAwaitingQualification, SourceLabel,
 };
-use crate::review::repository::listing_source_id_from_uuid;
+use crate::review::repository::{AGENT_RETRY_DUE, listing_source_id_from_uuid};
 use serde::Serialize;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -14,24 +15,31 @@ use sqlx::{PgPool, Row};
 /// The most sources one read of the queue answers.
 pub const MAX_QUEUED_SOURCES: i64 = 100;
 
-/// The sources waiting, new sources first: they are not crawled until they are decided, while a
-/// backfill source keeps being crawled meanwhile.
-const AWAITING_QUALIFICATION: &str = "
-    SELECT s.listing_source_id, s.listing_source_name, s.crawl_root_url, s.crawl_host,
-           s.qualification_backfill, s.source_label, s.source_label_note, s.source_labelled_by,
-           ARRAY(SELECT DISTINCT r.artifact_type FROM crawler_reviews r
-                 WHERE r.listing_source_id = s.listing_source_id
-                   AND r.status = 'PENDING_REVIEW'
-                 ORDER BY r.artifact_type) AS pending_review_artifacts,
-           COUNT(*) OVER () AS total
-    FROM listing_sources s
-    WHERE s.in_crawl_scope
-      AND s.qualification IS NULL
-      AND s.crawl_root_url IS NOT NULL
-      AND s.crawl_host IS NOT NULL
-      AND (s.source_labelled_by IS DISTINCT FROM 'HUMAN' OR s.qualification_backfill)
-    ORDER BY s.qualification_backfill, s.created, s.listing_source_id
-    LIMIT $1";
+/// The sources waiting, new sources first, then the backfill, then the sources the agents try
+/// again after their own `NEEDS_HUMAN`: a new source is not crawled until it is decided, while a
+/// backfill source keeps being crawled meanwhile. Binds `$1`, the most sources, and `$2` and `$3`
+/// of [`AGENT_RETRY_DUE`].
+fn awaiting_qualification() -> String {
+    format!(
+        "SELECT s.listing_source_id, s.listing_source_name, s.crawl_root_url, s.crawl_host,
+               s.qualification_backfill, s.source_label, s.source_label_note, s.source_labelled_by,
+               CASE WHEN s.qualification IS NOT NULL THEN s.qualification_note END AS earlier_note,
+               ARRAY(SELECT DISTINCT r.artifact_type FROM crawler_reviews r
+                     WHERE r.listing_source_id = s.listing_source_id
+                       AND r.status = 'PENDING_REVIEW'
+                     ORDER BY r.artifact_type) AS pending_review_artifacts,
+               COUNT(*) OVER () AS total
+        FROM listing_sources s
+        WHERE s.in_crawl_scope
+          AND (s.qualification IS NULL OR {AGENT_RETRY_DUE})
+          AND s.crawl_root_url IS NOT NULL
+          AND s.crawl_host IS NOT NULL
+          AND (s.source_labelled_by IS DISTINCT FROM 'HUMAN' OR s.qualification_backfill)
+        ORDER BY s.qualification IS NOT NULL, s.qualification_backfill, s.created,
+                 s.listing_source_id
+        LIMIT $1"
+    )
+}
 
 /// One read of the queue: the first sources and how many wait in all.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -53,8 +61,10 @@ impl QualificationQueueReader {
     /// The first [`MAX_QUEUED_SOURCES`] sources waiting for a qualification. A stored label or
     /// actor no label or actor has fails the read closed.
     pub async fn read(&self) -> Result<QualificationQueue, sqlx::Error> {
-        let rows = sqlx::query(AWAITING_QUALIFICATION)
+        let rows = sqlx::query(sqlx::AssertSqlSafe(awaiting_qualification()))
             .bind(MAX_QUEUED_SOURCES)
+            .bind(AGENT_NEEDS_HUMAN_RETRY_HOURS)
+            .bind(MAX_AGENT_NEEDS_HUMAN_DECISIONS)
             .fetch_all(&self.pool)
             .await?;
         Ok(QualificationQueue {
@@ -98,5 +108,6 @@ fn source_of_row(row: &PgRow) -> Result<SourceAwaitingQualification, sqlx::Error
         backfill: row.try_get("qualification_backfill")?,
         source_label,
         pending_review_artifacts: row.try_get("pending_review_artifacts")?,
+        earlier_note: row.try_get("earlier_note")?,
     })
 }

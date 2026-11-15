@@ -434,9 +434,10 @@ async fn refuse_approval_of_own_change(
 /// their review's row lock.
 const AGENT_DECISION_LOCK: i64 = 0x2533_0001;
 
-/// Refuses a review agent's verdict once the agents made `limit` approvals and rejections within
-/// the last hour, as the event trail records them, so the cap holds across restarts.
-async fn check_agent_decision_rate(
+/// Refuses a review agent's verdict or qualification once the agents made `limit` approvals,
+/// rejections and qualifications within the last hour, as the review event trail and the
+/// qualification history record them, so the cap holds across restarts.
+pub(super) async fn check_agent_decision_rate(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     limit: NonZeroU32,
 ) -> Result<(), ReviewRepositoryError> {
@@ -445,11 +446,15 @@ async fn check_agent_decision_rate(
         .execute(&mut **transaction)
         .await?;
     let seconds_left = sqlx::query_scalar::<_, f64>(
-        "SELECT EXTRACT(EPOCH FROM created + INTERVAL '1 hour' - clock_timestamp())::float8 \
-         FROM crawler_review_events \
-         WHERE actor = ANY($1) AND action = ANY($2) \
-           AND created > clock_timestamp() - INTERVAL '1 hour' \
-         ORDER BY created",
+        "SELECT EXTRACT(EPOCH FROM decided + INTERVAL '1 hour' - clock_timestamp())::float8 \
+         FROM (SELECT created AS decided FROM crawler_review_events \
+               WHERE actor = ANY($1) AND action = ANY($2) \
+                 AND created > clock_timestamp() - INTERVAL '1 hour' \
+               UNION ALL \
+               SELECT occurred_at FROM listing_source_qualification_events \
+               WHERE actor = ANY($1) AND qualification IS NOT NULL \
+                 AND occurred_at > clock_timestamp() - INTERVAL '1 hour') decisions \
+         ORDER BY decided",
     )
     .bind(ReviewActor::AGENTS.map(ReviewActor::as_str))
     .bind([

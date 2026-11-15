@@ -78,9 +78,10 @@ pub use source_label::{
 };
 pub use source_product_url::SourceProductUrl;
 pub use source_qualification::{
-    AppliedQualification, PreviousSourceLabel, Qualification, QualificationDecision,
-    QualificationDecisionError, QualificationEvent, QualificationLabelEffect, QualificationOutcome,
-    QueuedSourceLabel, SourceAwaitingQualification,
+    AGENT_NEEDS_HUMAN_RETRY_HOURS, AppliedQualification, MAX_AGENT_NEEDS_HUMAN_DECISIONS,
+    PreviousSourceLabel, Qualification, QualificationDecision, QualificationDecisionError,
+    QualificationEvent, QualificationLabelEffect, QualificationOutcome, QueuedSourceLabel,
+    SourceAwaitingQualification,
 };
 pub use status::*;
 pub use url_pattern_candidate::{UrlPatternDecision, UrlPatternReviewCandidate};

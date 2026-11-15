@@ -8,20 +8,37 @@
 
 use super::review_log::{ReviewLogEntry, log_committed_source};
 use super::source_label::{clear_label, persisted_label, store_label};
+use super::verdicts::check_agent_decision_rate;
 use super::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::review::model::{
-    AppliedQualification, PreviousSourceLabel, Qualification, QualificationDecision,
-    QualificationLabelEffect, QualificationOutcome, ReviewActor, SourceLabel, SourceLabelNote,
-    SourceLabelRequest,
+    AGENT_NEEDS_HUMAN_RETRY_HOURS, AppliedQualification, MAX_AGENT_NEEDS_HUMAN_DECISIONS,
+    PreviousSourceLabel, Qualification, QualificationDecision, QualificationLabelEffect,
+    QualificationOutcome, ReviewActor, SourceLabel, SourceLabelNote, SourceLabelRequest,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::{PgConnection, Postgres, Row, Transaction};
 use time::OffsetDateTime;
 
+/// Whether the review agents may try the ListingSource `s` again: its qualification is a review
+/// agent's `NEEDS_HUMAN` older than `$2` hours, and the agents decided `NEEDS_HUMAN` fewer than
+/// `$3` times since a human last decided or cleared it. Binds `$2` and `$3`.
+pub(crate) const AGENT_RETRY_DUE: &str = "COALESCE(s.qualification = 'NEEDS_HUMAN' \
+     AND s.qualified_by = 'AGENT_AUTHOR' \
+     AND s.qualified_at < NOW() - make_interval(hours => $2) \
+     AND (SELECT COUNT(*) FROM listing_source_qualification_events e \
+          WHERE e.listing_source_id = s.listing_source_id \
+            AND e.qualification = 'NEEDS_HUMAN' AND e.actor = 'AGENT_AUTHOR' \
+            AND e.occurred_at > COALESCE( \
+                (SELECT MAX(h.occurred_at) FROM listing_source_qualification_events h \
+                 WHERE h.listing_source_id = s.listing_source_id AND h.actor = 'HUMAN'), \
+                '-infinity'::timestamptz)) < $3, FALSE)";
+
 /// What a decision reads of its source under the source's row lock.
 struct SourceUnderQualification {
     in_crawl_scope: bool,
     qualification: Option<String>,
+    /// Whether the agents may try the source again after their own `NEEDS_HUMAN`.
+    agent_retry_due: bool,
     label: Option<PreviousSourceLabel>,
     backfill: bool,
 }
@@ -45,6 +62,11 @@ impl CrawlerReviewRepository {
         let source = lock_source(&mut transaction, listing_source_id).await?;
         if actor.is_agent() {
             check_agent_may_decide(listing_source_id, &source)?;
+            check_agent_decision_rate(
+                &mut transaction,
+                self.agent_decisions.limits().max_decisions_per_hour,
+            )
+            .await?;
         }
         let (label_effect, label) = match (decision.label(), &source.label) {
             (Some(label), _) => {
@@ -84,6 +106,25 @@ impl CrawlerReviewRepository {
             ReviewLogEntry::source_qualified(actor, decision.qualification(), decision.label()),
         )
         .await;
+        match (label_effect, decision.label()) {
+            (QualificationLabelEffect::Labelled, Some(label)) => {
+                log_committed_source(
+                    &self.pool,
+                    listing_source_id,
+                    ReviewLogEntry::source_labelled(actor, label, true),
+                )
+                .await;
+            }
+            (QualificationLabelEffect::ClearedLabel, _) => {
+                log_committed_source(
+                    &self.pool,
+                    listing_source_id,
+                    ReviewLogEntry::source_label_cleared(actor),
+                )
+                .await;
+            }
+            _ => {}
+        }
         Ok(QualificationOutcome {
             applied: AppliedQualification {
                 qualification: decision.qualification(),
@@ -137,7 +178,7 @@ fn check_agent_may_decide(
     listing_source_id: &ListingSourceId,
     source: &SourceUnderQualification,
 ) -> Result<(), ReviewRepositoryError> {
-    if source.qualification.is_some() {
+    if source.qualification.is_some() && !source.agent_retry_due {
         return Err(ReviewRepositoryError::SourceAlreadyQualified(
             *listing_source_id,
         ));
@@ -163,12 +204,14 @@ async fn lock_source(
     transaction: &mut Transaction<'_, Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<SourceUnderQualification, ReviewRepositoryError> {
-    let row = sqlx::query(
-        "SELECT in_crawl_scope, qualification, source_label, source_labelled_by, \
-                qualification_backfill \
-         FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
-    )
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT s.in_crawl_scope, s.qualification, s.source_label, s.source_labelled_by, \
+                s.qualification_backfill, {AGENT_RETRY_DUE} AS agent_retry_due \
+         FROM listing_sources s WHERE s.listing_source_id = $1 FOR UPDATE"
+    )))
     .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(AGENT_NEEDS_HUMAN_RETRY_HOURS)
+    .bind(MAX_AGENT_NEEDS_HUMAN_DECISIONS)
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::ListingSourceNotFound(
@@ -189,6 +232,7 @@ async fn lock_source(
     Ok(SourceUnderQualification {
         in_crawl_scope: row.try_get("in_crawl_scope")?,
         qualification: row.try_get("qualification")?,
+        agent_retry_due: row.try_get("agent_retry_due")?,
         label,
         backfill: row.try_get("qualification_backfill")?,
     })
