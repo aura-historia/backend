@@ -601,19 +601,28 @@ async fn should_keep_newest_filters_active_and_restore_the_rest_when_ultimate_ex
 async fn should_bring_existing_ultimate_accounts_to_the_quota_when_the_cap_migration_runs() {
     const CAP_MIGRATION: &str =
         include_str!("../../../migrations/20261115100000_cap_ultimate_active_search_filters.sql");
+    // The migration is historical, so it is pinned to the cap it enforced, not the live quota.
+    const MIGRATED_CAP: usize = 20;
     let pool = get_postgres_client().await;
-    // The migration holds the cap as a literal; sizing the data by the runtime quota keeps the two
-    // from drifting apart unnoticed.
-    let quota = usize::from(UserTier::Ultimate.active_search_filter_quota());
     let over_cap = seed_user(&pool, "cap-migration-over@example.com", "ULTIMATE").await;
     let at_cap = seed_user(&pool, "cap-migration-at@example.com", "ULTIMATE").await;
     let other_tier = seed_user(&pool, "cap-migration-pro@example.com", "PRO").await;
-    let over_cap_filters = seed_active_search_filters(&pool, over_cap, quota + 3).await;
-    let at_cap_filters = seed_active_search_filters(&pool, at_cap, quota).await;
-    let other_tier_filters = seed_active_search_filters(&pool, other_tier, quota + 3).await;
+    let over_cap_filters = seed_active_search_filters(&pool, over_cap, MIGRATED_CAP + 3).await;
+    let at_cap_filters = seed_active_search_filters(&pool, at_cap, MIGRATED_CAP).await;
+    let other_tier_filters = seed_active_search_filters(&pool, other_tier, MIGRATED_CAP + 3).await;
+    let paused_newest = seed_search_filter(
+        &pool,
+        over_cap,
+        "paused by the user, newer than every active filter",
+        "INACTIVE_BY_USER",
+        None,
+        OffsetDateTime::now_utc(),
+    )
+    .await;
     let (cut_off, kept) = over_cap_filters.split_at(3);
     let kept_version = version_for_search_filter(&pool, kept[0]).await;
-    let cut_off_version = version_for_search_filter(&pool, cut_off[0]).await;
+    let paused_version = version_for_search_filter(&pool, paused_newest).await;
+    let cut_off_before = identity_of_search_filter(&pool, cut_off[0]).await;
 
     sqlx::raw_sql(CAP_MIGRATION)
         .execute(&pool)
@@ -623,7 +632,8 @@ async fn should_bring_existing_ultimate_accounts_to_the_quota_when_the_cap_migra
     for filter_id in cut_off {
         assert_eq!(
             "INACTIVE_BY_RESTRICTED_PLAN",
-            state_for_search_filter(&pool, *filter_id).await
+            state_for_search_filter(&pool, *filter_id).await,
+            "only the oldest active filters beyond the cap are restricted"
         );
     }
     for filter_id in kept
@@ -634,12 +644,37 @@ async fn should_bring_existing_ultimate_accounts_to_the_quota_when_the_cap_migra
         assert_eq!("ACTIVE", state_for_search_filter(&pool, *filter_id).await);
     }
     assert_eq!(
-        cut_off_version + 1,
-        version_for_search_filter(&pool, cut_off[0]).await
+        "INACTIVE_BY_USER",
+        state_for_search_filter(&pool, paused_newest).await,
+        "a filter the user paused is neither ranked nor changed"
+    );
+    assert_eq!(
+        paused_version,
+        version_for_search_filter(&pool, paused_newest).await
     );
     assert_eq!(
         kept_version,
         version_for_search_filter(&pool, kept[0]).await
+    );
+    let cut_off_after = identity_of_search_filter(&pool, cut_off[0]).await;
+    assert_eq!(
+        cut_off_before.version + 1,
+        cut_off_after.version,
+        "a restricted filter advances its version like any reconciliation"
+    );
+    assert!(cut_off_after.updated > cut_off_before.updated);
+    assert_eq!(
+        (
+            &cut_off_before.name,
+            &cut_off_before.search,
+            cut_off_before.created
+        ),
+        (
+            &cut_off_after.name,
+            &cut_off_after.search,
+            cut_off_after.created
+        ),
+        "the stored search is kept intact so the filter can be restored"
     );
 
     sqlx::raw_sql(CAP_MIGRATION)
@@ -648,11 +683,11 @@ async fn should_bring_existing_ultimate_accounts_to_the_quota_when_the_cap_migra
         .unwrap_or_else(|error| panic!("failed to re-run cap migration: {error:?}"));
 
     assert_eq!(
-        quota as i64,
+        MIGRATED_CAP as i64,
         count_state(&pool, ResourceTable::SearchFilters, over_cap, "ACTIVE").await
     );
     assert_eq!(
-        cut_off_version + 1,
+        cut_off_after.version,
         version_for_search_filter(&pool, cut_off[0]).await,
         "re-running leaves already restricted filters alone"
     );
@@ -847,6 +882,34 @@ async fn version_for_search_filter(pool: &sqlx::PgPool, filter_id: uuid::Uuid) -
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("failed to read search filter version: {error:?}"))
+}
+
+struct SearchFilterIdentity {
+    name: String,
+    search: String,
+    created: OffsetDateTime,
+    updated: OffsetDateTime,
+    version: i64,
+}
+
+async fn identity_of_search_filter(
+    pool: &sqlx::PgPool,
+    filter_id: uuid::Uuid,
+) -> SearchFilterIdentity {
+    let (name, search, created, updated, version) = sqlx::query_as(
+        "SELECT name, search::text, created, updated, version FROM search_filters WHERE user_search_filter_id = $1",
+    )
+    .bind(filter_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read search filter identity: {error:?}"));
+    SearchFilterIdentity {
+        name,
+        search,
+        created,
+        updated,
+        version,
+    }
 }
 
 async fn state_for_watchlist_entry(
