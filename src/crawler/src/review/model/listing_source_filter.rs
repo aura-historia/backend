@@ -24,7 +24,7 @@ impl QueryValue for SourceActivity {
 /// `Labelled` are disjoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceStatus {
-    /// Any of the five conditions below.
+    /// Any of the six conditions below.
     NeedsAttention,
     /// Crawl-enabled and none of the conditions.
     Healthy,
@@ -50,6 +50,9 @@ pub enum SourceStatus {
     Failing,
     /// The mass-removal guard holds removals back.
     Held,
+    /// Product URLs are in an identity conflict: their schemas derive another identity than
+    /// the one their listings were captured under, so they are not captured.
+    IdentityConflict,
 }
 
 impl QueryValue for SourceStatus {
@@ -67,6 +70,7 @@ impl QueryValue for SourceStatus {
         ("blocked", Self::Blocked),
         ("failing", Self::Failing),
         ("held", Self::Held),
+        ("identity_conflict", Self::IdentityConflict),
     ];
 }
 

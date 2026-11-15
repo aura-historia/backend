@@ -42,13 +42,37 @@ pub struct HealthCounts {
     pub blocked_by_review: i64,
     pub failing_to_scrape: i64,
     pub held_removals: i64,
+    /// Sources with product URLs in an identity conflict.
+    pub identity_conflicts: i64,
     /// Sources a human labelled, over all sources.
     pub labelled: i64,
 }
 
+/// The crawl-enabled ListingSources whose product URLs are in an identity conflict
+/// (`SourceListingIdConflict`), the most conflicted first, and how many there are in all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityConflicts {
+    pub sources_total: i64,
+    pub urls_total: i64,
+    pub sources: Vec<IdentityConflictedSource>,
+}
+
+/// One ListingSource with product URLs in an identity conflict.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct IdentityConflictedSource {
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_name: Option<String>,
+    pub crawl_host: Option<String>,
+    pub urls: i64,
+    /// The earliest start of a current URL's run of identity conflicts.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub since: Option<OffsetDateTime>,
+}
+
 /// The ListingSources with everything the overview shows, computed in SQL for every ListingSource
 /// the query may list. Binds `$1`, the one ListingSource to read or null for all, `$2`, the crawl
-/// outcome that waits for an operator, and `$3`, the error kind of a held removal.
+/// outcome that waits for an operator, and `$3`, the error kind of a held removal. A URL's
+/// identity conflict run is read only while `SourceListingIdConflict` is its last error kind.
 const OVERVIEW_CTES: &str = "WITH blocking AS (
     -- The oldest pending review a ListingSource's blocked URLs wait on: a review a
     -- URL recorded as its wait, or the first product-schema review of a ListingSource
@@ -112,6 +136,8 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         CASE WHEN b.blocked_urls IS NOT NULL THEN bl.review_id END AS blocking_review_id,
         COALESCE(u.held_removal_urls, 0) AS held_removal_urls,
         u.held_since,
+        COALESCE(u.identity_conflict_urls, 0) AS identity_conflict_urls,
+        u.identity_conflict_since,
         CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_until END
             AS mass_removal_confirmed_until,
         CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_by END
@@ -132,7 +158,13 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
                MAX(last_scraped) FILTER (WHERE url_class = 'product'
                                            AND last_error_kind IS DISTINCT FROM $3) AS last_successful_scrape,
                MIN(last_scraped) FILTER (WHERE url_class = 'product'
-                                           AND last_error_kind = $3) AS held_since
+                                           AND last_error_kind = $3) AS held_since,
+               COUNT(*) FILTER (WHERE url_class = 'product'
+                                  AND last_error_kind = 'SourceListingIdConflict')
+                   AS identity_conflict_urls,
+               MIN(identity_conflict_since) FILTER (
+                   WHERE url_class = 'product'
+                     AND last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since
         FROM listing_source_urls
         WHERE crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
         GROUP BY listing_source_id
@@ -248,6 +280,8 @@ impl ListingSourceOverviewReader {
                     COUNT(*) FILTER (WHERE crawl_enabled AND scrape_failure_streak > 0)
                         AS failing_to_scrape,
                     COUNT(*) FILTER (WHERE crawl_enabled AND held_removal_urls > 0) AS held_removals,
+                    COUNT(*) FILTER (WHERE crawl_enabled AND identity_conflict_urls > 0)
+                        AS identity_conflicts,
                     COUNT(*) FILTER (WHERE source_label IS NOT NULL) AS labelled
              FROM ranked"
         )))
@@ -263,8 +297,50 @@ impl ListingSourceOverviewReader {
             blocked_by_review: row.try_get("blocked_by_review")?,
             failing_to_scrape: row.try_get("failing_to_scrape")?,
             held_removals: row.try_get("held_removals")?,
+            identity_conflicts: row.try_get("identity_conflicts")?,
             labelled: row.try_get("labelled")?,
         })
+    }
+
+    /// The crawl-enabled ListingSources with product URLs in an identity conflict, at most
+    /// `limit` of them, the most conflicted first.
+    pub async fn identity_conflicts(&self, limit: i64) -> Result<IdentityConflicts, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT s.listing_source_id, s.listing_source_name, s.crawl_host,
+                    COUNT(*) AS urls,
+                    MIN(su.identity_conflict_since) AS since,
+                    COUNT(*) OVER () AS sources_total,
+                    (SUM(COUNT(*)) OVER ())::BIGINT AS urls_total
+             FROM listing_source_urls su
+             JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
+             WHERE s.crawl_enabled
+               AND su.url_class = 'product'
+               AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND su.last_error_kind = 'SourceListingIdConflict'
+             GROUP BY s.listing_source_id, s.listing_source_name, s.crawl_host
+             ORDER BY urls DESC, s.listing_source_id
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut conflicts = IdentityConflicts {
+            sources_total: 0,
+            urls_total: 0,
+            sources: Vec::with_capacity(rows.len()),
+        };
+        for row in &rows {
+            conflicts.sources_total = row.try_get("sources_total")?;
+            conflicts.urls_total = row.try_get("urls_total")?;
+            conflicts.sources.push(IdentityConflictedSource {
+                listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
+                listing_source_name: row.try_get("listing_source_name")?,
+                crawl_host: row.try_get("crawl_host")?,
+                urls: row.try_get("urls")?,
+                since: row.try_get("since")?,
+            });
+        }
+        Ok(conflicts)
     }
 
     /// The overviews `query` asks for and how many ListingSources match it in all. `only`
@@ -372,16 +448,18 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Blocked => "blocked",
         SourceStatus::Failing => "failing",
         SourceStatus::Held => "held",
+        SourceStatus::IdentityConflict => "identity_conflict",
     }
 }
 
 /// The overview rows with whether each needs attention: a crawl-enabled ListingSource whose last
-/// crawl failed or waits for an operator, with blocked URLs, a scrape failure streak or held
-/// removals.
+/// crawl failed or waits for an operator, with blocked URLs, a scrape failure streak, held
+/// removals or URLs in an identity conflict.
 const RANKED_SELECT: &str = "SELECT overview.*,
                     crawl_enabled AND (crawl_failed OR needs_operator OR blocked_urls > 0
                                        OR scrape_failure_streak > 0
-                                       OR held_removal_urls > 0) AS needs_attention
+                                       OR held_removal_urls > 0
+                                       OR identity_conflict_urls > 0) AS needs_attention
              FROM overview";
 
 /// The ListingSources of `OVERVIEW_CTES` filtered, ranked by `sort` in `direction`, and one window
@@ -421,7 +499,9 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
                     OR ($8 = 'failing' AND crawl_enabled AND scrape_failure_streak > 0)
-                    OR ($8 = 'held' AND crawl_enabled AND held_removal_urls > 0))
+                    OR ($8 = 'held' AND crawl_enabled AND held_removal_urls > 0)
+                    OR ($8 = 'identity_conflict' AND crawl_enabled
+                        AND identity_conflict_urls > 0))
                AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
@@ -440,9 +520,9 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
 /// last; among the disabled ones, those whose qualification waits for a human, then those that wait
 /// for their qualification, then the others; among the crawl-enabled ones the conditions in the
 /// console's order of severity (crawl waits for an operator, last crawl failed, scrape failure
-/// streak, blocked URLs, held removals), then those never scraped before the healthy ones; within a
-/// group the longest scrape failure streaks, the most pending reviews and the most recently
-/// updated first.
+/// streak, blocked URLs, identity conflicts, held removals), then those never scraped before the
+/// healthy ones; within a group the longest scrape failure streaks, the most pending reviews and
+/// the most recently updated first.
 fn order_by(sort: SourceSort, direction: SortDirection) -> String {
     let keys: &[&str] = match sort {
         SourceSort::Attention => &[
@@ -454,6 +534,7 @@ fn order_by(sort: SourceSort, direction: SortDirection) -> String {
             "crawl_failed",
             "(scrape_failure_streak > 0)",
             "(blocked_urls > 0)",
+            "(identity_conflict_urls > 0)",
             "(held_removal_urls > 0)",
             "(last_successful_scrape IS NULL)",
             "scrape_failure_streak",
@@ -501,6 +582,8 @@ fn overview_of_row(
             .transpose()?,
         held_removal_urls: row.try_get("held_removal_urls")?,
         held_since: row.try_get("held_since")?,
+        identity_conflict_urls: row.try_get("identity_conflict_urls")?,
+        identity_conflict_since: row.try_get("identity_conflict_since")?,
         mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
         mass_removal_confirmed_by: persisted_actor(
             "mass_removal_confirmed_by",

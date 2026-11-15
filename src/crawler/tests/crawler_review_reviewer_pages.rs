@@ -140,7 +140,12 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
         })
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages,
+            Vec::new(),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     let evaluated_pages = &evaluated.matrix.candidates[0].pages;
@@ -430,6 +435,7 @@ async fn should_store_the_matrix_of_the_evaluated_pages_when_a_page_was_added_du
         .evaluate_schema_matrix_for_live_pages(
             review_id,
             with_html(pages),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -485,6 +491,7 @@ async fn should_refuse_to_store_schema_matrix_when_an_evaluated_page_was_removed
         .evaluate_schema_matrix_for_live_pages(
             review_id,
             with_html(pages),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -535,6 +542,7 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
         .evaluate_schema_matrix_for_live_pages(
             review_id,
             with_html(pages),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await

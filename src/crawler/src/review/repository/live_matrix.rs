@@ -12,6 +12,9 @@ use super::{
     CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages, listing_source_id_from_uuid,
 };
 use crate::CrawlerReviewId;
+use crate::review::captured_identity_sample::{
+    CAPTURED_IDENTITY_SAMPLE_SIZE, CapturedIdentitySample, CapturedProductUrl, SampledCapturedPage,
+};
 use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, LiveMatrixEvaluation, ReviewActor,
     ReviewSchemaMatrix, SchemaMatrix, SchemaReviewPageInput,
@@ -74,14 +77,17 @@ struct ReviewUnderEvaluation {
 impl CrawlerReviewRepository {
     /// Evaluates, on the review `pages` fetched from `fetched_at` on, the product-schema
     /// configuration approving the review's current candidate would make live: its schemas, and
-    /// its removed-page templates rebased onto the stored ones. The matrix records what it evaluated
-    /// and when, so an approval can tell whether it still describes the review. The pages are
-    /// parsed on a blocking thread awaited to its end, so a caller runs this within a console live
-    /// job, whose place under the console's limit bounds that thread.
+    /// its removed-page templates rebased onto the stored ones. Its schemas are evaluated on the
+    /// `captured_sample` too, the [captured identity sample](CapturedIdentitySample) drawn by
+    /// [`Self::captured_identity_sample_urls`] and fetched with the pages. The matrix records what
+    /// it evaluated and when, so an approval can tell whether it still describes the review. The
+    /// pages are parsed on a blocking thread awaited to its end, so a caller runs this within a
+    /// console live job, whose place under the console's limit bounds that thread.
     pub async fn evaluate_schema_matrix_for_live_pages(
         &self,
         review_id: CrawlerReviewId,
         pages: Vec<(CrawlerReviewPage, String)>,
+        captured_sample: Vec<SampledCapturedPage>,
         fetched_at: OffsetDateTime,
     ) -> Result<EvaluatedSchemaMatrix, ReviewRepositoryError> {
         let review = self.review_under_evaluation(review_id).await?;
@@ -96,23 +102,26 @@ impl CrawlerReviewRepository {
             .filter(|(page, _)| !page.is_marked_not_product())
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
-        let live_evaluation = LiveMatrixEvaluation {
-            candidate_version: review.candidate_version,
-            configuration_sha256: going_live.fingerprint()?,
-            fetched_at,
-        };
-        let mut matrix = evaluate_on_blocking_thread(move || {
-            evaluate_schema_matrix_for_live_review_pages(
+        let configuration_sha256 = going_live.fingerprint()?;
+        let (mut matrix, captured_identity_sample) = evaluate_on_blocking_thread(move || {
+            let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
                 &going_live.schemas,
                 &going_live.removed_page_schemas,
                 &pages,
                 &[],
                 &captured_identities,
-            )
+            );
+            let sample = CapturedIdentitySample::evaluate(&going_live.schemas, &captured_sample);
+            (matrix, sample)
         })
         .await?;
-        matrix.live_evaluation = Some(live_evaluation);
+        matrix.live_evaluation = Some(LiveMatrixEvaluation {
+            candidate_version: review.candidate_version,
+            configuration_sha256,
+            fetched_at,
+            captured_identity_sample: Some(captured_identity_sample),
+        });
         Ok(EvaluatedSchemaMatrix {
             matrix,
             candidate_hash: review.candidate_hash,
@@ -239,6 +248,48 @@ impl CrawlerReviewRepository {
             .map(|stored| stored.removed_page_schemas)
             .unwrap_or_default();
         Ok(candidate.going_live(&base, &stored))
+    }
+
+    /// A random sample of at most [`CAPTURED_IDENTITY_SAMPLE_SIZE`] product URLs of the review's
+    /// ListingSource whose listings were captured, other than the review's pages in any stored
+    /// spelling, each with the identity it was captured under: what a live matrix evaluates its
+    /// candidate on so the approval guard sees an identity rule that contradicts what is
+    /// already captured. A stored URL that no longer parses is left out.
+    pub async fn captured_identity_sample_urls(
+        &self,
+        review_id: CrawlerReviewId,
+    ) -> Result<Vec<CapturedProductUrl>, ReviewRepositoryError> {
+        let review = self.review_under_evaluation(review_id).await?;
+        let review_urls: Vec<String> = fetch_review_pages(&self.pool, review_id)
+            .await?
+            .iter()
+            .flat_map(|page| ReviewPageIdentity::stored_spellings(&page.url))
+            .collect();
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT url, last_source_listing_id
+             FROM listing_source_urls
+             WHERE listing_source_id = $1
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_source_listing_id IS NOT NULL
+               AND NOT (url = ANY($2))
+             ORDER BY random()
+             LIMIT $3",
+        )
+        .bind(review.listing_source_id)
+        .bind(&review_urls)
+        .bind(CAPTURED_IDENTITY_SAMPLE_SIZE)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(url, captured_identity)| {
+                Some(CapturedProductUrl {
+                    url: Url::parse(&url).ok()?,
+                    captured_identity,
+                })
+            })
+            .collect())
     }
 
     /// The source listing id each page's listing was captured under, by page URL, for the
