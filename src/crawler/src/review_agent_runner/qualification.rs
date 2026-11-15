@@ -10,9 +10,10 @@
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, TokenUsage};
 use super::invocation::qualifier_command;
 use super::ledger::ProcessEnd;
+use super::process::ChildStop;
 use super::process::run_agent;
 use super::settings::RunnerSettings;
-use super::state::{Pause, RunnerState};
+use super::state::{Pause, QualificationFailures, RunnerState};
 use super::stop::RunnerStop;
 use super::usage_pacing::UsageWindows;
 use crate::review_mcp::{ConsoleClient, ConsoleError};
@@ -43,6 +44,9 @@ pub struct QueuedSource {
     pub source_label: Option<QueuedSourceLabel>,
     #[serde(default)]
     pub pending_review_artifacts: Vec<String>,
+    /// The note of the agents' earlier `NEEDS_HUMAN` this try follows, if any.
+    #[serde(default)]
+    pub earlier_note: Option<String>,
 }
 
 /// The label a queued source carries, by its persisted names.
@@ -93,6 +97,37 @@ impl QualifierReport {
     }
 }
 
+/// What the console stores for a source after its qualifier process, which the digest reads
+/// instead of the agent's own report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredOutcome {
+    /// The qualification the process decided; `None` when it decided none.
+    pub qualification: Option<String>,
+    /// The label the source carries now, with who set it.
+    pub label: Option<String>,
+    pub labelled_by: Option<String>,
+}
+
+/// `GET /api/listing-sources/{id}` as far as the runner reads it.
+#[derive(Debug, Deserialize)]
+struct SourceDetail {
+    qualification: Option<SourceQualificationAnswer>,
+    source_label: Option<SourceLabelAnswer>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceQualificationAnswer {
+    qualification: String,
+    #[serde(with = "time::serde::rfc3339")]
+    qualified_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceLabelAnswer {
+    label: String,
+    labelled_by: String,
+}
+
 /// One finished qualifier process.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QualificationRecord {
@@ -108,6 +143,9 @@ pub struct QualificationRecord {
     pub failure: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<QualifierReport>,
+    /// What the console stored after the process; `None` when the runner could not read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stored: Option<StoredOutcome>,
     #[serde(default)]
     pub num_turns: u64,
     #[serde(default)]
@@ -117,24 +155,93 @@ pub struct QualificationRecord {
 }
 
 impl QualificationRecord {
-    /// Whether the decision replaced a label a human had set.
-    pub fn replaced_human_label(&self) -> bool {
-        self.previous_label
-            .as_ref()
-            .is_some_and(|label| label.labelled_by == "HUMAN")
-            && self
+    /// The qualification the process decided as the console stored it, else as the agent
+    /// reported it.
+    pub fn decided(&self) -> Option<&str> {
+        match &self.stored {
+            Some(stored) => stored.qualification.as_deref(),
+            None => self
                 .report
                 .as_ref()
-                .is_some_and(|report| report.label_effect == "LABELLED")
+                .map(|report| report.qualification.as_str())
+                .filter(|qualification| *qualification != "NOT_DECIDED"),
+        }
+    }
+
+    /// The label the source carries after the process, as the console stored it, else as the
+    /// agent reported it.
+    pub fn label_after(&self) -> Option<&str> {
+        match (&self.stored, &self.report) {
+            (Some(stored), _) => stored.label.as_deref(),
+            (None, Some(report)) if report.label_effect == "KEPT_LABEL" => self
+                .previous_label
+                .as_ref()
+                .map(|label| label.label.as_str()),
+            (None, report) => report
+                .as_ref()
+                .map(|report| report.label.as_str())
+                .filter(|label| *label != "NONE"),
+        }
+    }
+
+    /// Whether the decision replaced a label a human had set.
+    pub fn replaced_human_label(&self) -> bool {
+        let Some(previous) = self
+            .previous_label
+            .as_ref()
+            .filter(|label| label.labelled_by == "HUMAN")
+        else {
+            return false;
+        };
+        match &self.stored {
+            Some(stored) => {
+                stored
+                    .labelled_by
+                    .as_deref()
+                    .is_some_and(|by| by != "HUMAN")
+                    || (stored.label.is_some()
+                        && stored.label.as_deref() != Some(previous.label.as_str()))
+            }
+            None => self
+                .report
+                .as_ref()
+                .is_some_and(|report| report.label_effect == "LABELLED"),
+        }
     }
 
     /// Whether the qualifier qualified a labelled source without a label, so the source keeps
     /// the label against the decision and waits for a human.
     pub fn disagrees_with_label(&self) -> bool {
-        self.report
-            .as_ref()
-            .is_some_and(|report| report.label_effect == "KEPT_LABEL")
+        match &self.stored {
+            Some(stored) => {
+                stored.qualification.as_deref() == Some("QUALIFIED")
+                    && stored.label.is_some()
+                    && stored.label.as_ref()
+                        == self.previous_label.as_ref().map(|label| &label.label)
+            }
+            None => self
+                .report
+                .as_ref()
+                .is_some_and(|report| report.label_effect == "KEPT_LABEL"),
+        }
     }
+}
+
+/// How many qualifier processes of a source may end without a decision in a row before the
+/// runner hands the source to a human.
+pub const MAX_QUALIFIER_FAILURES: u32 = 3;
+
+/// How a finished process counts for its source's run of failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Attempt {
+    /// The console stored a decision.
+    Decided,
+    /// It ended without a decision for a reason of the source, such as a timeout, the turn
+    /// limit or an unusable report.
+    Failed,
+    /// It ended for a reason of the runner, such as a usage limit or the runner's stop, which
+    /// says nothing about the source.
+    NotCounted,
 }
 
 /// What one qualification pass did.
@@ -184,7 +291,19 @@ pub async fn qualify_waiting_sources(
     let budget = usize::try_from(settings.max_reviews_per_run.get()).unwrap_or(usize::MAX);
     let concurrency = usize::try_from(settings.max_processes.get()).unwrap_or(1);
     let ledger_path = settings.state_dir.join(QUALIFICATION_LEDGER_FILE);
-    let mut waiting = queue.sources.into_iter().take(budget);
+    let now = OffsetDateTime::now_utc();
+    let cooling_down = |source: &QueuedSource| {
+        state
+            .qualification_failures
+            .get(&source.listing_source_id)
+            .is_some_and(|failures| failures.until > now)
+    };
+    let workable: Vec<QueuedSource> = queue
+        .sources
+        .into_iter()
+        .filter(|source| !cooling_down(source))
+        .collect();
+    let mut waiting = workable.into_iter().take(budget);
     // A rolling pool: a slot that frees starts the next source at once, so one slow process
     // never holds back the others.
     let mut running = FuturesUnordered::new();
@@ -197,13 +316,14 @@ pub async fn qualify_waiting_sources(
             let Some(source) = waiting.next() else {
                 break;
             };
-            running.push(qualify(settings, stop, source));
+            running.push(qualify(settings, console, stop, source));
         }
-        let Some((record, pause)) = running.next().await else {
+        let Some((record, pause, attempt)) = running.next().await else {
             break;
         };
+        count_attempt(settings, console, state, &record, attempt).await;
         summary.processes += 1;
-        summary.decided += usize::from(record.report.is_some());
+        summary.decided += usize::from(attempt == Attempt::Decided);
         if let Some(pause) = pause
             && state
                 .paused
@@ -217,12 +337,137 @@ pub async fn qualify_waiting_sources(
     Ok(summary)
 }
 
-/// Runs the qualifier on `source` and answers its record, with the pause its stream asks for.
+/// Runs the qualifier on `source` and answers its record, with the pause its stream asks for and
+/// how it counts for the source's run of failures.
 async fn qualify(
     settings: &RunnerSettings,
+    console: &ConsoleClient,
     stop: &RunnerStop,
     source: QueuedSource,
-) -> (QualificationRecord, Option<Pause>) {
+) -> (QualificationRecord, Option<Pause>, Attempt) {
+    let started = OffsetDateTime::now_utc();
+    let (mut record, pause, ended_for_runner) = run_qualifier(settings, stop, &source).await;
+    record.stored = stored_outcome(console, source.listing_source_id, started).await;
+    let attempt = match (&record.stored, ended_for_runner) {
+        (Some(stored), _) if stored.qualification.is_some() => Attempt::Decided,
+        (None, _) if record.decided().is_some() => Attempt::Decided,
+        (_, true) => Attempt::NotCounted,
+        _ => Attempt::Failed,
+    };
+    (record, pause, attempt)
+}
+
+/// What the console stores for the source after a process that started at `started`: the
+/// qualification only when that process decided it. `None` when the console cannot be read.
+async fn stored_outcome(
+    console: &ConsoleClient,
+    listing_source_id: ListingSourceId,
+    started: OffsetDateTime,
+) -> Option<StoredOutcome> {
+    let detail: SourceDetail = match console
+        .get(&format!("/api/listing-sources/{listing_source_id}"))
+        .await
+        .and_then(|answer| answer.decode())
+    {
+        Ok(detail) => detail,
+        Err(error) => {
+            warn!(
+                listing_source_id = %listing_source_id,
+                error = %error,
+                "Cannot read the console's qualification of the source; the digest uses the agent's report"
+            );
+            return None;
+        }
+    };
+    Some(StoredOutcome {
+        qualification: detail
+            .qualification
+            .filter(|qualification| qualification.qualified_at >= started)
+            .map(|qualification| qualification.qualification),
+        labelled_by: detail
+            .source_label
+            .as_ref()
+            .map(|label| label.labelled_by.clone()),
+        label: detail.source_label.map(|label| label.label),
+    })
+}
+
+/// Counts `record`'s process for its source: a decision ends the source's run of failures, a
+/// failure lets the source cool down, and the [`MAX_QUALIFIER_FAILURES`]th failure in a row hands
+/// the source to a human with the agents' `NEEDS_HUMAN`.
+async fn count_attempt(
+    settings: &RunnerSettings,
+    console: &ConsoleClient,
+    state: &mut RunnerState,
+    record: &QualificationRecord,
+    attempt: Attempt,
+) {
+    let listing_source_id = record.listing_source_id;
+    match attempt {
+        Attempt::NotCounted => {}
+        Attempt::Decided => {
+            state.qualification_failures.remove(&listing_source_id);
+        }
+        Attempt::Failed => {
+            let in_a_row = state
+                .qualification_failures
+                .get(&listing_source_id)
+                .map_or(0, |failures| failures.in_a_row)
+                + 1;
+            if in_a_row < MAX_QUALIFIER_FAILURES {
+                state.qualification_failures.insert(
+                    listing_source_id,
+                    QualificationFailures {
+                        in_a_row,
+                        until: OffsetDateTime::now_utc() + settings.cooldown,
+                    },
+                );
+                return;
+            }
+            state.qualification_failures.remove(&listing_source_id);
+            hand_over(console, record, in_a_row).await;
+        }
+    }
+}
+
+/// Decides `NEEDS_HUMAN` for the source of `record`, whose last `in_a_row` processes ended
+/// without a decision; a refusal is logged, and the source waits in the queue as before.
+async fn hand_over(console: &ConsoleClient, record: &QualificationRecord, in_a_row: u32) {
+    let last = record
+        .failure
+        .as_deref()
+        .map_or_else(|| format!("{:?}", record.end), str::to_owned);
+    let note: String = format!(
+        "{in_a_row} qualifier processes in a row ended without a decision; the last: {last}"
+    )
+    .chars()
+    .take(500)
+    .collect();
+    let path = format!("/api/source-qualifications/{}", record.listing_source_id);
+    let body = serde_json::json!({ "qualification": "NEEDS_HUMAN", "note": note });
+    match console.post(&path, &body).await {
+        Ok(_) => info!(
+            event = "crawler.review_agent.qualification_handed_to_human",
+            listing_source_id = %record.listing_source_id,
+            listing_source_name = %record.listing_source_name,
+            failures = in_a_row,
+            "Qualifier processes kept ending without a decision; the source waits for a human"
+        ),
+        Err(error) => warn!(
+            listing_source_id = %record.listing_source_id,
+            error = %error,
+            "Cannot hand the source to a human after its qualifier processes failed"
+        ),
+    }
+}
+
+/// Runs one qualifier process on `source`: its record, the pause its stream asks for, and whether
+/// it ended for a reason of the runner rather than of the source.
+async fn run_qualifier(
+    settings: &RunnerSettings,
+    stop: &RunnerStop,
+    source: &QueuedSource,
+) -> (QualificationRecord, Option<Pause>, bool) {
     let mut record = QualificationRecord {
         finished: OffsetDateTime::now_utc(),
         listing_source_id: source.listing_source_id,
@@ -232,15 +477,16 @@ async fn qualify(
         end: ProcessEnd::Failed,
         failure: None,
         report: None,
+        stored: None,
         num_turns: 0,
         usage: TokenUsage::default(),
         total_cost_usd: 0.0,
     };
-    let command = match qualifier_command(settings, &source) {
+    let command = match qualifier_command(settings, source) {
         Ok(command) => command,
         Err(error) => {
             record.failure = Some(error.to_string());
-            return (record, None);
+            return (record, None, true);
         }
     };
     let output = run_agent(&command, settings.process_timeout, stop.agent_drain_ended()).await;
@@ -249,7 +495,7 @@ async fn qualify(
         Ok(output) => output,
         Err(error) => {
             record.failure = Some(error.to_string());
-            return (record, None);
+            return (record, None, true);
         }
     };
     let now = OffsetDateTime::now_utc();
@@ -267,14 +513,14 @@ async fn qualify(
             "no result envelope, exit code {:?}",
             output.exit_code
         ));
-        return (record, pause);
+        return (record, pause, false);
     };
     record.num_turns = envelope.num_turns;
     record.usage = envelope.usage;
     record.total_cost_usd = envelope.total_cost_usd;
-    if output.stopped.is_some() {
+    if let Some(stopped) = output.stopped {
         record.failure = Some("stopped before it reported".to_owned());
-        return (record, pause);
+        return (record, pause, stopped == ChildStop::RunnerStop);
     }
     match envelope.outcome(now) {
         EnvelopeOutcome::Reported(report) => {
@@ -295,10 +541,11 @@ async fn qualify(
                 reported_reset: limit.resets_at.is_some(),
                 paced: false,
             });
+            return (record, pause, true);
         }
         EnvelopeOutcome::Failed => record.failure = Some("ended without a report".to_owned()),
     }
-    (record, pause)
+    (record, pause, false)
 }
 
 /// Logs a finished process with its decision, never its summary or the source's pages.
@@ -310,7 +557,7 @@ fn log_record(record: &QualificationRecord) {
         listing_source_name = %record.listing_source_name,
         backfill = record.backfill,
         end = ?record.end,
-        qualification = report.map(|report| report.qualification.as_str()),
+        qualification = record.decided(),
         label = report.map(|report| report.label.as_str()),
         label_effect = report.map(|report| report.label_effect.as_str()),
         failure = record.failure.as_deref(),
@@ -356,9 +603,11 @@ pub fn records_since(state_dir: &Path, since: OffsetDateTime) -> Vec<Qualificati
         .collect()
 }
 
-/// The digest's qualification section for `records`: counts per decision and label, the sources
-/// that wait for a human, the human labels the backfill replaced, the decisions that disagree with
-/// a label the source keeps, and the OTHER decisions grouped by reason.
+/// The digest's qualification section for `records`, from what the console stored after each
+/// process (the agent's report only where the console could not be read): counts per decision and
+/// label, the sources that wait for a human, the human labels the backfill replaced, the decisions
+/// that disagree with a label the source keeps, the sources still on the retired label, and the
+/// OTHER decisions grouped by the reason the qualifier names.
 pub fn digest_section(records: &[QualificationRecord]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "## Qualifications\n");
@@ -366,24 +615,28 @@ pub fn digest_section(records: &[QualificationRecord]) -> String {
         let _ = writeln!(out, "No qualifier process ran.\n");
         return out;
     }
-    let reports: Vec<(&QualificationRecord, &QualifierReport)> = records
+    let decided: Vec<(&QualificationRecord, &str)> = records
         .iter()
-        .filter_map(|record| record.report.as_ref().map(|report| (record, report)))
+        .filter_map(|record| {
+            record
+                .decided()
+                .map(|qualification| (record, qualification))
+        })
         .collect();
     let mut by_outcome: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    for (_, report) in &reports {
+    for (record, qualification) in &decided {
         *by_outcome
-            .entry((report.qualification.as_str(), report.label.as_str()))
+            .entry((qualification, record.label_after().unwrap_or("NONE")))
             .or_default() += 1;
     }
     let cost: f64 = records.iter().map(|record| record.total_cost_usd).sum();
     let backfill = records.iter().filter(|record| record.backfill).count();
     let _ = writeln!(
         out,
-        "{} processes ({} of the backfill), {} reported, ${cost:.2}.\n",
+        "{} processes ({} of the backfill), {} decided, ${cost:.2}.\n",
         records.len(),
         backfill,
-        reports.len()
+        decided.len()
     );
     for ((qualification, label), count) in &by_outcome {
         let _ = writeln!(out, "- {qualification} · {label}: {count}");
@@ -400,81 +653,70 @@ pub fn digest_section(records: &[QualificationRecord]) -> String {
             out.push('\n');
         }
     };
-    let row = |record: &QualificationRecord, report: &QualifierReport| {
+    let row = |record: &QualificationRecord| {
+        let summary = record
+            .report
+            .as_ref()
+            .map_or("no report", |report| report.summary.as_str());
         format!(
-            "{} ({}): {}",
-            record.listing_source_name, record.listing_source_id, report.summary
+            "{} ({}): {summary}",
+            record.listing_source_name, record.listing_source_id
         )
     };
     list(
         "Waiting for a human",
-        reports
+        decided
             .iter()
-            .filter(|(_, report)| report.qualification == "NEEDS_HUMAN")
-            .map(|(record, report)| row(record, report))
+            .filter(|(_, qualification)| *qualification == "NEEDS_HUMAN")
+            .map(|(record, _)| row(record))
             .collect(),
     );
     list(
         "Labels kept against the decision (a human clears or keeps them)",
-        reports
+        records
             .iter()
-            .filter(|(record, _)| record.disagrees_with_label())
-            .map(|(record, report)| {
-                format!(
-                    "{} kept {} by {}",
-                    row(record, report),
-                    record
-                        .previous_label
-                        .as_ref()
-                        .map_or("a label", |label| label.label.as_str()),
-                    record
-                        .previous_label
-                        .as_ref()
-                        .map_or("?", |label| label.labelled_by.as_str())
-                )
+            .filter(|record| record.disagrees_with_label())
+            .map(|record| {
+                let (label, by) = previous(record);
+                format!("{} kept {label} by {by}", row(record))
             })
             .collect(),
     );
     list(
         "Human labels the backfill replaced",
-        reports
+        records
             .iter()
-            .filter(|(record, _)| record.replaced_human_label())
-            .map(|(record, report)| {
+            .filter(|record| record.replaced_human_label())
+            .map(|record| {
                 format!(
                     "{} ({}): {} → {}",
                     record.listing_source_name,
                     record.listing_source_id,
-                    record
-                        .previous_label
-                        .as_ref()
-                        .map_or("?", |label| label.label.as_str()),
-                    report.label
+                    previous(record).0,
+                    record.label_after().unwrap_or("NONE")
                 )
             })
             .collect(),
     );
     list(
         "Still on the retired APPROACH_NOT_APPLICABLE",
-        reports
+        records
             .iter()
-            .filter(|(record, report)| {
-                record
-                    .previous_label
-                    .as_ref()
-                    .is_some_and(|label| label.label == "APPROACH_NOT_APPLICABLE")
-                    && report.label_effect != "LABELLED"
-            })
-            .map(|(record, report)| row(record, report))
+            .filter(|record| record.label_after() == Some("APPROACH_NOT_APPLICABLE"))
+            .map(row)
             .collect(),
     );
     let mut other_reasons: BTreeMap<&str, usize> = BTreeMap::new();
-    for (_, report) in reports.iter().filter(|(_, report)| report.label == "OTHER") {
-        let reason = if report.other_reason.is_empty() {
-            "unnamed"
-        } else {
-            report.other_reason.as_str()
-        };
+    for (record, _) in decided
+        .iter()
+        .filter(|(record, _)| record.label_after() == Some("OTHER"))
+    {
+        let reason = record
+            .report
+            .as_ref()
+            .map(|report| report.other_reason.as_str())
+            .filter(|reason| !reason.is_empty())
+            .unwrap_or("unnamed");
         *other_reasons.entry(reason).or_default() += 1;
     }
     let mut reasons: Vec<(&str, usize)> = other_reasons.into_iter().collect();
@@ -486,20 +728,69 @@ pub fn digest_section(records: &[QualificationRecord]) -> String {
             .map(|(reason, count)| format!("{reason}: {count}"))
             .collect(),
     );
-    let failed: Vec<String> = records
-        .iter()
-        .filter(|record| record.report.is_none())
-        .map(|record| {
-            format!(
-                "{} ({}): {}",
-                record.listing_source_name,
-                record.listing_source_id,
-                record.failure.as_deref().unwrap_or("no report")
-            )
-        })
-        .collect();
-    list("Processes without a report", failed);
+    list(
+        "Processes without a decision",
+        records
+            .iter()
+            .filter(|record| record.decided().is_none())
+            .map(|record| {
+                format!(
+                    "{} ({}): {}",
+                    record.listing_source_name,
+                    record.listing_source_id,
+                    record.failure.as_deref().unwrap_or("no decision")
+                )
+            })
+            .collect(),
+    );
     out
+}
+
+/// The label `record`'s source carried before the process and who set it, `?` for each when the
+/// record names none.
+fn previous(record: &QualificationRecord) -> (&str, &str) {
+    record.previous_label.as_ref().map_or(("?", "?"), |label| {
+        (label.label.as_str(), label.labelled_by.as_str())
+    })
+}
+
+/// The cost of the qualifier processes of `records` that finished within `window` before `now`,
+/// which the runner's rolling sums add to the review agents'.
+pub fn cost_within(
+    records: &[QualificationRecord],
+    window: time::Duration,
+    now: OffsetDateTime,
+) -> f64 {
+    records
+        .iter()
+        .filter(|record| record.finished > now - window)
+        .map(|record| record.total_cost_usd)
+        .sum()
+}
+
+/// Drops the records that finished before `before` from the qualification ledger in `state_dir`,
+/// as the process ledger keeps only its retention.
+pub fn prune(state_dir: &Path, before: OffsetDateTime) -> Result<(), QualificationError> {
+    let path = state_dir.join(QUALIFICATION_LEDGER_FILE);
+    let failed = |source| QualificationError::Ledger {
+        path: path.clone(),
+        source,
+    };
+    if !path.exists() {
+        return Ok(());
+    }
+    let kept: Vec<String> = records_since(state_dir, before)
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<_, _>>()
+        .map_err(|error| failed(io::Error::other(error)))?;
+    let temporary = path.with_extension("jsonl.tmp");
+    let mut text = kept.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    std::fs::write(&temporary, text).map_err(failed)?;
+    std::fs::rename(&temporary, &path).map_err(failed)
 }
 
 #[cfg(test)]
@@ -526,6 +817,7 @@ mod tests {
             }),
             end: ProcessEnd::Reported,
             failure: None,
+            stored: None,
             report: Some(QualifierReport {
                 listing_source_id: String::new(),
                 qualification: qualification.to_owned(),
@@ -607,8 +899,10 @@ mod tests {
         let section = digest_section(&records);
 
         for expected in [
-            "7 processes (7 of the backfill), 7 reported, $1.75.",
-            "- QUALIFIED · NONE: 3",
+            "7 processes (7 of the backfill), 7 decided, $1.75.",
+            "- QUALIFIED · NONE: 1",
+            "- QUALIFIED · OTHER: 2",
+            "- QUALIFIED · APPROACH_NOT_APPLICABLE: 1",
             "- NEEDS_HUMAN · NONE: 1",
             "kept OTHER by HUMAN",
             "kept APPROACH_NOT_APPLICABLE by AGENT_AUTHOR",
@@ -623,5 +917,139 @@ mod tests {
             .and_then(|rest| rest.split("###").next())
             .unwrap_or_default();
         assert_eq!(retired.matches("- Shop").count(), 1, "{retired}");
+    }
+
+    /// The console's stored outcome decides over the agent's report: a report that claims a
+    /// decision the console did not store counts as none, and a label the source keeps against a
+    /// qualification shows as kept, whatever the report says.
+    #[test]
+    fn should_read_the_digest_from_what_the_console_stored() {
+        let stored = |qualification: Option<&str>, label: Option<(&str, &str)>| StoredOutcome {
+            qualification: qualification.map(str::to_owned),
+            label: label.map(|(label, _)| label.to_owned()),
+            labelled_by: label.map(|(_, by)| by.to_owned()),
+        };
+        let mut claimed = record(None, "QUALIFIED", "NONE", "NONE", "");
+        claimed.stored = Some(stored(None, None));
+        let mut kept = record(Some(("OTHER", "HUMAN")), "QUALIFIED", "NONE", "NONE", "");
+        kept.stored = Some(stored(Some("QUALIFIED"), Some(("OTHER", "HUMAN"))));
+        let mut replaced = record(Some(("OTHER", "HUMAN")), "DISQUALIFIED", "NONE", "NONE", "");
+        replaced.stored = Some(stored(
+            Some("DISQUALIFIED"),
+            Some(("SHOP_CLOSED", "AGENT_AUTHOR")),
+        ));
+
+        assert_eq!(claimed.decided(), None);
+        assert!(kept.disagrees_with_label() && !kept.replaced_human_label());
+        assert!(replaced.replaced_human_label() && !replaced.disagrees_with_label());
+        let section = digest_section(&[claimed, kept, replaced]);
+        for expected in [
+            "3 processes (3 of the backfill), 2 decided",
+            "- DISQUALIFIED · SHOP_CLOSED: 1",
+            "- QUALIFIED · OTHER: 1",
+            "OTHER → SHOP_CLOSED",
+        ] {
+            assert!(section.contains(expected), "{expected}\n{section}");
+        }
+    }
+
+    fn runner_settings() -> RunnerSettings {
+        crate::review_agent_runner::settings::RunnerSettings::from_args_and_env(
+            Vec::new(),
+            |_| None,
+            &crate::review_agent_runner::settings::RunnerLocation {
+                working_dir: PathBuf::from("/var/lib/crawler"),
+                executable: PathBuf::from("/opt/crawler/bin/review-agent-runner"),
+            },
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// A process without a decision lets its source cool down and counts it; a decision forgets
+    /// the count; a process the runner ended counts for nothing. No request reaches the console
+    /// below the cap.
+    #[tokio::test]
+    async fn should_cool_a_failing_source_down_and_forget_it_once_decided() {
+        let settings = runner_settings();
+        let directory =
+            std::env::temp_dir().join(format!("qualification-tokens-{}", ListingSourceId::new()));
+        std::fs::create_dir_all(&directory).unwrap_or_else(|error| panic!("{error}"));
+        let token_file = directory.join("review-agent-tokens.json");
+        std::fs::write(
+            &token_file,
+            r#"{"author":"authortoken","reviewer":"reviewertoken"}"#,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        // Nothing listens there: the hand-over at the cap is refused and logged.
+        let console = ConsoleClient::new(
+            &url::Url::parse("http://127.0.0.1:9").unwrap_or_else(|error| panic!("{error}")),
+            crate::review_mcp::RoleTokenFile::new(token_file, crate::review_mcp::AgentRole::Author),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let mut state = RunnerState::default();
+        let failed = record(None, "NOT_DECIDED", "NONE", "NONE", "");
+        let source = failed.listing_source_id;
+
+        for in_a_row in 1..MAX_QUALIFIER_FAILURES {
+            count_attempt(&settings, &console, &mut state, &failed, Attempt::Failed).await;
+            let failures = state.qualification_failures[&source];
+            assert_eq!(failures.in_a_row, in_a_row);
+            assert!(failures.until > OffsetDateTime::now_utc());
+        }
+        count_attempt(
+            &settings,
+            &console,
+            &mut state,
+            &failed,
+            Attempt::NotCounted,
+        )
+        .await;
+        assert_eq!(
+            state.qualification_failures[&source].in_a_row,
+            MAX_QUALIFIER_FAILURES - 1
+        );
+        count_attempt(&settings, &console, &mut state, &failed, Attempt::Decided).await;
+        assert!(state.qualification_failures.is_empty());
+
+        for _ in 0..MAX_QUALIFIER_FAILURES {
+            count_attempt(&settings, &console, &mut state, &failed, Attempt::Failed).await;
+        }
+        assert!(
+            state.qualification_failures.is_empty(),
+            "the last failure hands the source over, which the console decides; a refusal is logged"
+        );
+        std::fs::remove_dir_all(&directory).unwrap_or_default();
+    }
+
+    #[test]
+    fn should_sum_the_cost_within_the_window_and_prune_older_records() {
+        let directory =
+            std::env::temp_dir().join(format!("qualification-ledger-{}", ListingSourceId::new()));
+        std::fs::create_dir_all(&directory).unwrap_or_else(|error| panic!("{error}"));
+        let now = time::macros::datetime!(2026-11-14 12:00:00 UTC);
+        let mut old = record(None, "QUALIFIED", "NONE", "NONE", "");
+        old.finished = now - time::Duration::days(10);
+        let mut recent = record(None, "QUALIFIED", "NONE", "NONE", "");
+        recent.finished = now - time::Duration::hours(1);
+        let path = directory.join(QUALIFICATION_LEDGER_FILE);
+        for record in [&old, &recent] {
+            append(&path, record).unwrap_or_else(|error| panic!("{error}"));
+        }
+
+        assert!(
+            (cost_within(
+                &[old.clone(), recent.clone()],
+                time::Duration::hours(5),
+                now
+            ) - 0.25)
+                .abs()
+                < 1e-9
+        );
+        prune(&directory, now - time::Duration::days(7)).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            records_since(&directory, OffsetDateTime::UNIX_EPOCH),
+            vec![recent]
+        );
+        std::fs::remove_dir_all(&directory).unwrap_or_default();
     }
 }

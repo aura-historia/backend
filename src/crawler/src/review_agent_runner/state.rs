@@ -6,6 +6,7 @@
 
 use super::envelope::UsageLimitKind;
 use crate::CrawlerReviewId;
+use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
@@ -51,6 +52,17 @@ pub struct RunnerState {
     pub cooldowns: BTreeMap<CrawlerReviewId, Cooldown>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub last_digest: Option<OffsetDateTime>,
+    /// Each ListingSource whose qualifier processes ended without a decision: how many did in a
+    /// row, and until when the source waits before its next one.
+    #[serde(default)]
+    pub qualification_failures: BTreeMap<ListingSourceId, QualificationFailures>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualificationFailures {
+    pub in_a_row: u32,
+    #[serde(with = "time::serde::rfc3339")]
+    pub until: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +206,13 @@ mod tests {
                 },
             )]),
             last_digest: Some(NOW - Duration::hours(3)),
+            qualification_failures: BTreeMap::from([(
+                ListingSourceId::new(),
+                QualificationFailures {
+                    in_a_row: 2,
+                    until: NOW + Duration::hours(3),
+                },
+            )]),
         };
 
         save_state(directory.path(), &state).unwrap_or_else(|e| panic!("{e}"));
