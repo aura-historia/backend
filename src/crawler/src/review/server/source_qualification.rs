@@ -11,12 +11,23 @@ use super::{
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{QualificationDecision, ReviewActor};
 use crate::review::page_projection::{PageView, ProjectedHtml, SourcePageProjection, page_links};
+use crate::review::readers::QualificationQueue;
 use listing_source_core::ListingSourceId;
+use serde::Serialize;
 use serde_json::json;
 
 const QUALIFICATIONS: &str = "/api/source-qualifications";
 const QUALIFICATION_SUFFIX: &str = "/qualification";
 const PAGE_SUFFIX: &str = "/page";
+
+/// `GET /api/source-qualifications`: the queue and the decisions the review agents have left this
+/// hour.
+#[derive(Serialize)]
+struct QueueAnswer<'a> {
+    #[serde(flatten)]
+    queue: &'a QualificationQueue,
+    agent_decisions_left: u32,
+}
 
 impl ReviewServer {
     /// Answers the qualification routes, or `None` for any other request:
@@ -30,10 +41,7 @@ impl ReviewServer {
     ) -> Option<HttpResponse> {
         let method = request.method.as_str();
         if method == "GET" && request.path == QUALIFICATIONS {
-            return Some(match self.qualification_queue.read().await {
-                Ok(queue) => HttpResponse::json(200, &queue),
-                Err(error) => internal_error(error),
-            });
+            return Some(self.qualification_queue_answer().await);
         }
         if let Some(rest) = request
             .path
@@ -79,6 +87,25 @@ impl ReviewServer {
             });
         }
         None
+    }
+
+    /// The qualification queue with how many decisions the review agents have left this hour, so
+    /// the runner starts no more qualifiers than can decide.
+    async fn qualification_queue_answer(&self) -> HttpResponse {
+        let queue = match self.qualification_queue.read().await {
+            Ok(queue) => queue,
+            Err(error) => return internal_error(error),
+        };
+        match self.repository.agent_decisions_left().await {
+            Ok(agent_decisions_left) => HttpResponse::json(
+                200,
+                &QueueAnswer {
+                    queue: &queue,
+                    agent_decisions_left,
+                },
+            ),
+            Err(error) => review_error(error),
+        }
     }
 
     async fn decide_qualification(

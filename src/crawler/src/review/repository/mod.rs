@@ -279,7 +279,7 @@ pub enum ReviewRepositoryError {
     #[error("an agent rejection needs notes saying why the candidate is rejected")]
     MissingRejectionNote,
     #[error(
-        "the review agents made their {limit} approvals and rejections of the last hour; retry in {} seconds",
+        "the review agents made their {limit} approvals, rejections and qualifications of the last hour; retry in {} seconds",
         retry_after.as_secs()
     )]
     AgentDecisionLimitReached { limit: u32, retry_after: Duration },

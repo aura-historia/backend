@@ -61,6 +61,9 @@ pub struct QueuedSourceLabel {
 struct QualificationQueue {
     total: usize,
     sources: Vec<QueuedSource>,
+    /// How many more decisions the agents' hourly cap admits now; every qualifier the pass starts
+    /// may take one.
+    agent_decisions_left: usize,
 }
 
 /// The qualifier's report, as its report schema has it.
@@ -266,6 +269,26 @@ pub struct QualificationSummary {
     pub decided: usize,
     /// Whether the pass stopped early for a usage limit or the runner's stop.
     pub stopped: bool,
+    /// Whether the agents' hourly decision cap held sources back: the pass started no more
+    /// qualifiers than decisions were left, so none is refused after reading the shop.
+    pub decision_capped: bool,
+}
+
+/// The sources a pass starts qualifiers for, in queue order: at most `per_run`, and no more than
+/// the agents' hourly cap has `decisions_left`, since every qualifier may take a decision and one
+/// the cap refuses would end without a decision after reading the shop, counting against its
+/// source. Answers whether the cap held sources back, which then wait for the next run.
+fn sources_to_qualify(
+    workable: Vec<QueuedSource>,
+    per_run: usize,
+    decisions_left: usize,
+) -> (Vec<QueuedSource>, bool) {
+    let capped = decisions_left < per_run && workable.len() > decisions_left;
+    let to_qualify = workable
+        .into_iter()
+        .take(per_run.min(decisions_left))
+        .collect();
+    (to_qualify, capped)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -299,7 +322,7 @@ pub async fn qualify_waiting_sources(
         .and_then(|answer| answer.decode())
         .map_err(QualificationError::Console)?;
     summary.waiting = queue.total;
-    let budget = usize::try_from(settings.max_reviews_per_run.get()).unwrap_or(usize::MAX);
+    let per_run = usize::try_from(settings.max_reviews_per_run.get()).unwrap_or(usize::MAX);
     let concurrency = usize::try_from(settings.max_processes.get()).unwrap_or(1);
     let ledger_path = settings.state_dir.join(QUALIFICATION_LEDGER_FILE);
     let now = OffsetDateTime::now_utc();
@@ -314,7 +337,10 @@ pub async fn qualify_waiting_sources(
         .into_iter()
         .filter(|source| !cooling_down(source))
         .collect();
-    let mut waiting = workable.into_iter().take(budget);
+    let (to_qualify, decision_capped) =
+        sources_to_qualify(workable, per_run, queue.agent_decisions_left);
+    summary.decision_capped = decision_capped;
+    let mut waiting = to_qualify.into_iter();
     // A rolling pool: a slot that frees starts the next source at once, so one slow process
     // never holds back the others.
     let mut running = FuturesUnordered::new();
@@ -858,6 +884,56 @@ mod tests {
             usage: TokenUsage::default(),
             total_cost_usd: 0.25,
         }
+    }
+
+    fn waiting_source(index: usize) -> QueuedSource {
+        QueuedSource {
+            listing_source_id: ListingSourceId::new(),
+            listing_source_name: format!("Shop {index}"),
+            crawl_root_url: format!("https://shop{index}.example/"),
+            backfill: true,
+            source_label: None,
+            pending_review_artifacts: Vec::new(),
+            earlier_note: None,
+        }
+    }
+
+    /// The console's queue answer carries the decisions the agents have left this hour.
+    #[test]
+    fn should_read_the_decisions_left_with_the_queue() {
+        let queue: QualificationQueue = serde_json::from_value(json!({
+            "total": 0,
+            "sources": [],
+            "agent_decisions_left": 7,
+        }))
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(queue.agent_decisions_left, 7);
+    }
+
+    /// A pass starts no more qualifiers than the hourly cap has decisions left, in queue order, and
+    /// says when the cap held sources back; with room it starts its per-run budget.
+    #[test]
+    fn should_start_no_more_qualifiers_than_the_cap_has_decisions_left() {
+        let workable: Vec<QueuedSource> = (0..5).map(waiting_source).collect();
+        let first = |count: usize| workable[..count].to_vec();
+
+        assert_eq!(
+            sources_to_qualify(workable.clone(), 60, 2),
+            (first(2), true)
+        );
+        assert_eq!(
+            sources_to_qualify(workable.clone(), 60, 0),
+            (Vec::new(), true)
+        );
+        assert_eq!(
+            sources_to_qualify(workable.clone(), 3, 300),
+            (first(3), false)
+        );
+        assert_eq!(
+            sources_to_qualify(workable.clone(), 60, 5),
+            (first(5), false)
+        );
     }
 
     #[test]

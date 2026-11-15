@@ -598,7 +598,7 @@ async fn should_retry_an_agent_s_needs_human_a_day_later_up_to_three_times() {
 }
 
 /// The agents' qualifications count against their hourly decision cap with their approvals and
-/// rejections.
+/// rejections, and the decisions left say when the next one would be refused.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_count_the_agents_qualifications_against_their_hourly_cap() {
     let pool = get_postgres_client().await;
@@ -631,6 +631,7 @@ async fn should_count_the_agents_qualifications_against_their_hourly_cap() {
         "/ sells antiques with a cart",
     );
 
+    assert_eq!(reviews.agent_decisions_left().await.unwrap(), 2);
     for listing_source_id in &sources[..2] {
         reviews
             .decide_qualification(listing_source_id, ReviewActor::AgentAuthor, &qualified)
@@ -649,6 +650,7 @@ async fn should_count_the_agents_qualifications_against_their_hourly_cap() {
         ),
         "{refused}"
     );
+    assert_eq!(reviews.agent_decisions_left().await.unwrap(), 0);
     reviews
         .decide_qualification(&sources[2], ReviewActor::Human, &qualified)
         .await

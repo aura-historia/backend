@@ -180,12 +180,13 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     // failed qualification pass leaves them waiting for the next run and does not hold up the
     // reviews.
     match qualification::qualify_waiting_sources(settings, &console, stop, &mut state).await {
-        Ok(summary) if summary.processes > 0 => info!(
+        Ok(summary) if summary.processes > 0 || summary.decision_capped => info!(
             event = "crawler.review_agent.qualification_pass_completed",
             waiting = summary.waiting,
             processes = summary.processes,
             decided = summary.decided,
             stopped = summary.stopped,
+            decision_capped = summary.decision_capped,
             "Qualification pass finished"
         ),
         Ok(_) => {}
