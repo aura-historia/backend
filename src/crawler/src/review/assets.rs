@@ -328,6 +328,14 @@ mod tests {
                 "Disallowed by robots.txt",
             ),
             (
+                NetworkErrorKind::RobotsUnreachable,
+                "robots.txt unreachable",
+            ),
+            (
+                NetworkErrorKind::RobotsConnectionDropped,
+                "robots.txt connection dropped",
+            ),
+            (
                 NetworkErrorKind::PageDirectiveDisallowed,
                 "Refused by page directives",
             ),

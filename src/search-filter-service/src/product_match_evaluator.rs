@@ -14,7 +14,7 @@ use search_filter_core::{
 };
 use std::{num::NonZeroUsize, time::Instant};
 
-pub(crate) const MATCH_PROMPT_VERSION: &str = "saved-search-match-v2";
+pub(crate) const MATCH_PROMPT_VERSION: &str = "saved-search-match-v3";
 
 const SHOULD_SHOW_QUESTION: &str = "should_show";
 
@@ -418,17 +418,17 @@ fn product_match_request(
                 ],
                 "matching_policy": [
                     "Preserve AND/OR and exclusions within each base query; base_product_queries are alternatives (OR). Apply enhanced instructions to the base intent without inventing requirements. Distinguish explicit must-have requirements and exclusions from soft ideally, prefer, and other preference language.",
-                    "Missing or uncertain evidence is neither a conflict nor proof that a requirement is satisfied.",
+                    "The candidate must be the kind of item the base queries ask for, not an accessory, book, print, or other item merely related to it.",
+                    "An explicit requirement in the enhanced description counts as satisfied only when the title, description, or images support it; preferences may be unmet.",
                     "Do not invent origin, date, authorship, authenticity, condition, originality, or provenance.",
-                    "Images may establish visible subject, setting, composition, palette, and frame appearance, but not authenticity, provenance, authorship, or age without supporting evidence.",
-                    "Favor recall for plausible or uncertain matches while respecting clearly contradicted must-have requirements and exclusions."
+                    "Images may establish visible subject, setting, composition, palette, and frame appearance, but not authenticity, provenance, authorship, or age without supporting evidence."
                 ]
             },
         }),
         questions: vec![
             BinaryClassificationQuestion {
                 id: question_id(SHOULD_SHOW_QUESTION),
-                instructions: "Should this listing be shown as a saved-search match based on the user's complete base queries and any enhanced instructions, including requirements, preferences, ranges, exclusions, and uncertainty? A preference mismatch alone does not necessarily mean it should be hidden.".to_owned(),
+                instructions: "Should this listing be shown as a saved-search match? Show it only when it is the kind of item the base queries ask for and every explicit requirement in the enhanced instructions is supported by the listing; a preference mismatch alone does not mean it should be hidden.".to_owned(),
             },
         ],
         image_urls: {
@@ -575,7 +575,7 @@ pub(crate) mod tests {
         assert_eq!(request.questions[0].id.as_str(), SHOULD_SHOW_QUESTION);
         assert_eq!(
             request.questions[0].instructions,
-            "Should this listing be shown as a saved-search match based on the user's complete base queries and any enhanced instructions, including requirements, preferences, ranges, exclusions, and uncertainty? A preference mismatch alone does not necessarily mean it should be hidden."
+            "Should this listing be shown as a saved-search match? Show it only when it is the kind of item the base queries ask for and every explicit requirement in the enhanced instructions is supported by the listing; a preference mismatch alone does not mean it should be hidden."
         );
         assert!(!request.questions[0].instructions.contains("probability"));
         assert!(

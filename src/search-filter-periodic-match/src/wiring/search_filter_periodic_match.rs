@@ -36,7 +36,7 @@ use std::{
 
 const MAX_HYBRID_SCAN_LIMIT: usize = 100;
 const DEFAULT_CLASSIFIER_PROVIDER: &str = "cloudflare";
-const DEFAULT_CLASSIFIER_MODEL: &str = "clef-flash";
+const DEFAULT_CLASSIFIER_MODEL: &str = "clef";
 const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
 /// Translations of filters saved while the translator failed, or before translations existed.
 /// The cap bounds how long a translator outage can delay matching; later runs continue.

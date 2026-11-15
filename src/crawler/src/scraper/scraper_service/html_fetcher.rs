@@ -134,6 +134,15 @@ pub enum FetchError {
         retry_after: Option<Duration>,
         details: String,
     },
+    /// robots.txt refuses the URL, which was not requested. `shop_answer` is the status the
+    /// shop's own host answered robots.txt with when this fetch loaded it, which proves the shop
+    /// responsive; `None` when the refusal came from the cached policy.
+    #[error("robots.txt refuses the request: {details}")]
+    RobotsRefused {
+        refusal: RobotsRefusal,
+        shop_answer: Option<u16>,
+        details: String,
+    },
     /// The URL redirected to `final_url`, which robots.txt disallows; the
     /// target was not requested.
     #[error("redirect target is disallowed by robots.txt: final_url={final_url}")]
@@ -149,6 +158,7 @@ impl FetchError {
         match self {
             FetchError::Network { kind, .. } => *kind,
             FetchError::NetworkWithMetadata { kind, .. } => *kind,
+            FetchError::RobotsRefused { refusal, .. } => robots_refusal_kind(*refusal),
             FetchError::RedirectDisallowed { .. } => NetworkErrorKind::RobotsDisallowed,
             FetchError::PageDirectiveRefused { .. } => NetworkErrorKind::PageDirectiveDisallowed,
         }
@@ -157,6 +167,7 @@ impl FetchError {
     pub(crate) fn status(&self) -> Option<u16> {
         match self {
             FetchError::Network { .. }
+            | FetchError::RobotsRefused { .. }
             | FetchError::RedirectDisallowed { .. }
             | FetchError::PageDirectiveRefused { .. } => None,
             FetchError::NetworkWithMetadata { status, .. } => *status,
@@ -166,6 +177,7 @@ impl FetchError {
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
             FetchError::Network { .. }
+            | FetchError::RobotsRefused { .. }
             | FetchError::RedirectDisallowed { .. }
             | FetchError::PageDirectiveRefused { .. } => None,
             FetchError::NetworkWithMetadata { retry_after, .. } => *retry_after,
@@ -320,10 +332,15 @@ impl ReqwestHtmlFetcher {
     /// Returns the origin's robots `Crawl-delay` when robots.txt allows `url`.
     async fn check_robots(&self, url: &Url) -> Result<Option<Duration>, FetchAttemptError> {
         let robots = self.robots_policy(url).await?;
-        robots
-            .check(url)
-            .map_err(|refusal| robots_refusal_error(url, refusal, robots.refusal_details(url)))?;
-        Ok(robots.crawl_delay())
+        robots.policy.check(url).map_err(|refusal| {
+            robots_refusal_error(
+                url,
+                refusal,
+                robots.shop_answer,
+                robots.policy.refusal_details(url),
+            )
+        })?;
+        Ok(robots.policy.crawl_delay())
     }
 
     /// Waits for the domain's pacing delay before a request and returns the
@@ -422,8 +439,8 @@ impl ReqwestHtmlFetcher {
     /// so the pipeline can judge where the source URL led.
     async fn admit_redirect(&self, url: &Url) -> Result<Option<Duration>, FetchAttemptError> {
         let robots = self.robots_policy(url).await?;
-        match robots.check(url) {
-            Ok(()) => Ok(robots.crawl_delay()),
+        match robots.policy.check(url) {
+            Ok(()) => Ok(robots.policy.crawl_delay()),
             Err(RobotsRefusal::Disallowed) => Err(FetchAttemptError {
                 error: FetchError::RedirectDisallowed {
                     final_url: url.clone(),
@@ -432,7 +449,8 @@ impl ReqwestHtmlFetcher {
             Err(refusal) => Err(robots_refusal_error(
                 url,
                 refusal,
-                robots.refusal_details(url),
+                robots.shop_answer,
+                robots.policy.refusal_details(url),
             )),
         }
     }
@@ -621,11 +639,20 @@ fn total_timeout_error() -> FetchError {
     }
 }
 
+/// The kind a robots.txt refusal is recorded as.
+pub(crate) fn robots_refusal_kind(refusal: RobotsRefusal) -> NetworkErrorKind {
+    match refusal {
+        RobotsRefusal::Disallowed => NetworkErrorKind::RobotsDisallowed,
+        RobotsRefusal::Unreachable => NetworkErrorKind::RobotsUnreachable,
+    }
+}
+
 /// The error of a request robots.txt refuses; a disallowed one names the rule
 /// that refuses it, so the refusal can be quoted as evidence.
 fn robots_refusal_error(
     url: &Url,
     refusal: RobotsRefusal,
+    shop_answer: Option<u16>,
     rule: Option<String>,
 ) -> FetchAttemptError {
     let details = match refusal {
@@ -638,11 +665,9 @@ fn robots_refusal_error(
         }
     };
     FetchAttemptError {
-        error: FetchError::Network {
-            kind: match refusal {
-                RobotsRefusal::Disallowed => NetworkErrorKind::RobotsDisallowed,
-                RobotsRefusal::Unreachable => NetworkErrorKind::RobotsUnreachable,
-            },
+        error: FetchError::RobotsRefused {
+            refusal,
+            shop_answer,
             details,
         },
     }
@@ -860,8 +885,8 @@ fn needs_stored_form(error: &FetchError) -> bool {
     matches!(error.status(), Some(404 | 410))
         || matches!(
             error,
-            FetchError::Network {
-                kind: NetworkErrorKind::RobotsDisallowed,
+            FetchError::RobotsRefused {
+                refusal: RobotsRefusal::Disallowed,
                 ..
             }
         )
@@ -1739,6 +1764,80 @@ mod tests {
                 "{status}"
             );
             assert!(shop.page_requests().is_empty());
+            assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    /// A shop that closes the connection of its robots.txt without an answer refuses the
+    /// crawler before any page: the fetch fails naming robots.txt, without a retry or a page
+    /// request, and the next fetch asks robots.txt again instead of caching the failure.
+    #[tokio::test]
+    async fn should_fail_without_a_page_request_when_the_shop_drops_robots_txt() {
+        let shop = spawn_shop(String::new(), vec![OK_PAGE], Duration::ZERO).await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(3),
+            throttle_config(Duration::ZERO),
+        );
+
+        let first = fetcher.fetch(&shop.url).await.unwrap_err();
+        let second = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(first.kind(), NetworkErrorKind::RobotsConnectionDropped);
+        assert_eq!(second.kind(), NetworkErrorKind::RobotsConnectionDropped);
+        assert!(shop.page_requests().is_empty());
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 2);
+    }
+
+    /// A robots.txt that redirects on the shop's own host and whose target is dropped is the
+    /// shop refusing the crawler too, not an unreachable robots.txt of another host.
+    #[tokio::test]
+    async fn should_name_robots_txt_when_its_redirect_on_the_shop_host_is_dropped() {
+        let redirect = "HTTP/1.1 301 Moved Permanently\r\nLocation: /robots-moved.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        let shop = spawn_shop(redirect.to_owned(), vec![""], Duration::ZERO).await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsConnectionDropped);
+        assert_eq!(shop.page_paths(), ["/robots-moved.txt"]);
+    }
+
+    #[tokio::test]
+    async fn should_retry_a_page_whose_connection_the_shop_drops_inline() {
+        let shop = spawn_shop(robots_status("404 Not Found"), vec!["", ""], Duration::ZERO).await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(2),
+            throttle_config(Duration::ZERO),
+        );
+
+        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::ConnectionDropped);
+        assert_eq!(shop.page_requests().len(), 2);
+    }
+
+    fn shop_answer(error: &FetchError) -> Option<u16> {
+        match error {
+            FetchError::RobotsRefused { shop_answer, .. } => *shop_answer,
+            other => panic!("expected a robots.txt refusal: {other:?}"),
+        }
+    }
+
+    /// The refusal names the status the shop's host answered robots.txt with when the fetch
+    /// loaded it, so the shop counts as responsive; a refusal from the cached policy names none.
+    #[tokio::test]
+    async fn should_name_the_robots_txt_answer_only_when_the_fetch_loaded_it() {
+        for (robots, status) in [
+            (robots_status("502 Bad Gateway"), 502),
+            (robots_txt("User-agent: *\nDisallow: /\n"), 200),
+        ] {
+            let shop = spawn_shop(robots, vec![], Duration::ZERO).await;
+            let fetcher = unthrottled_fetcher();
+
+            let loaded = fetcher.fetch(&shop.url).await.unwrap_err();
+            let cached = fetcher.fetch(&shop.url).await.unwrap_err();
+
+            assert_eq!(shop_answer(&loaded), Some(status));
+            assert_eq!(shop_answer(&cached), None);
             assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
         }
     }

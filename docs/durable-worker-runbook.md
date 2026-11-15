@@ -28,7 +28,22 @@ Enter the environment maintenance hold before privileged operations. Pause only 
 reviewed work requires it; retain an intentional prior stopped state. The small
 [maintenance helper](../ci/delivery/maintenance.cjs) records durable pause intent through
 its required evidence writer before calling DMS, observes ambiguous responses and resumes
-only its owned pause on the same task/checkpoint using `resume-processing`.
+only its owned pause on the same task/checkpoint using `resume-processing`. It pauses only
+a task that reports a recovery checkpoint, and a running task can report none until it
+stops.
+
+The helper's resume and the maintenance reconciliation compare the capture identity
+recorded at entry, including table mappings and task settings, so they cannot complete a
+reviewed capture-configuration change such as new removed columns. Such a change needs
+separate approval for an operator stop, the data change set and `resume-processing`, with
+the stop intent, stopped checkpoint and resume evidence written under the hold's
+maintenance prefix, and for an operator reconciliation through the delivery library after
+health verification against the reviewed post-change baseline. A CloudFormation task update
+re-sends the template's task settings and DMS merges them with its current defaults, so
+record the raw task settings before the update. A captured-table column change without a
+mapping change needs no stop: the source endpoint does not capture DDL, so the router never
+receives a schema control record; verify table states and the router failure archive
+afterwards.
 
 A changed identity/checkpoint, exceeded WAL budget, task/table error or ambiguous recovery
 retains the hold. Inspect actual native state before retrying. Never create a start LSN,
@@ -310,7 +325,8 @@ export terms, addresses, producer ownership keys, buyer data or provider payload
 [infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
 runs, verify private PostgreSQL access, ProductListing search with reader credentials,
 complete persisted FX and classifier configuration. Filter candidates and progress come
-from PostgreSQL. Query-only filters need no embedding for lexical retrieval. The update use case repairs missing
+from PostgreSQL. Every filter with text intent retrieves with its stored embedding; one
+without a valid embedding fails as invalid persisted state. The update use case repairs missing
 semantic embeddings outside its transaction and rechecks current intent and tier under
 lock. Preserve authored intent and do not generate embeddings during matching.
 
@@ -360,7 +376,7 @@ historical mail.
 
 ### Saved-search batching quality gate
 
-`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50 for Clef Flash).
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50).
 Search-filter previews in the API always send single candidates; they share only the model,
 threshold and Workers AI token with the matcher.
 The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
@@ -409,7 +425,7 @@ cargo test --locked -p search-filter-service --lib -- --ignored --exact product_
 
 The fixture manifest contains `label_provenance: "human-reviewed"`, `reviewed_by`,
 `dataset_revision`, `should_show_threshold: 0.5`, `batch_candidates` (1–50), optional
-`classifier_model` (default `clef-flash`, must match the deployment), the verified current
+`classifier_model` (default `clef`, must match the deployment), the verified current
 `input_usd_per_million_tokens`, and `groups`. Each group is one filter selection with
 canonical ISO `language`, `base_queries`, optional `enhanced_description`, write-resolved
 `evidence_policy` and 1–50 `cases`. Each case has a unique opaque `id`, nullable

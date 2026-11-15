@@ -38,6 +38,9 @@ google-cloud-auth = { workspace = true }
 html-escape = { workspace = true }
 encoding_rs = { workspace = true }
 httpdate = { workspace = true }
+# Tells a connection the shop closed without an answer apart from other request
+# failures; see `src/network/policy.rs`.
+hyper = { workspace = true }
 mockall = { workspace = true }
 kuchiki = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls", "gzip", "brotli"] }

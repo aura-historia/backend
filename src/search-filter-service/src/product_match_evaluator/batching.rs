@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, num::NonZeroUsize};
 #[cfg(test)]
 mod benchmark;
 
-pub(super) const BATCH_PROMPT_VERSION: &str = "saved-search-match-batch-v2";
+pub(super) const BATCH_PROMPT_VERSION: &str = "saved-search-match-batch-v3";
 
 pub(super) struct CandidateClassification {
     pub(super) result: Result<ClassificationResponse, ClassificationError>,

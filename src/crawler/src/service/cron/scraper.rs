@@ -180,9 +180,9 @@ struct ScrapeCandidateOutcome {
     /// The scrape-health snapshot an applied scrape-circuit write left behind, which the
     /// batch carries forward as the fence for its later writes.
     persisted_scrape_health: Option<ScrapeHealthSnapshot>,
-    /// robots.txt of the URL's origin could not be reached, which disallows
-    /// every URL there until it is fetched again.
-    robots_unreachable: bool,
+    /// The failure refuses every URL of the origin, so the rest of the batch is deferred
+    /// for this reason instead of each URL recording the same failure.
+    origin_deferral: Option<DeferralReason>,
     /// The error kind the failure recorded on its URL; `None` for a review wait, which is no
     /// failure.
     failure_kind: Option<String>,
@@ -246,6 +246,8 @@ enum DeferralReason {
     SchemaReviewPending,
     /// robots.txt of the batch's origin could not be reached.
     RobotsUnreachable,
+    /// The shop's host closed the connection of its robots.txt without an answer.
+    RobotsConnectionDropped,
     /// The URL's process-local lock was held.
     UrlLock,
     /// The ListingSource's scraper lock was held.
@@ -259,8 +261,20 @@ impl DeferralReason {
             Self::TimeBudget => "time_budget",
             Self::SchemaReviewPending => "schema_review_pending",
             Self::RobotsUnreachable => "robots_unreachable",
+            Self::RobotsConnectionDropped => "robots_connection_dropped",
             Self::UrlLock => "url_lock",
             Self::SourceLock => "source_lock",
+        }
+    }
+
+    /// The event that logs a batch this reason stopped, one per robots.txt failure, so a query
+    /// for unreachable robots.txt does not also return the shops that drop the connection.
+    const fn batch_stopped_event(self) -> &'static str {
+        match self {
+            Self::RobotsConnectionDropped => {
+                "crawler.scraper.robots_connection_dropped_batch_stopped"
+            }
+            _ => "crawler.scraper.robots_unreachable_batch_stopped",
         }
     }
 }
@@ -1439,7 +1453,7 @@ async fn handle_scrape_error(
         http_failure: record.answer,
         circuit_opened: record.circuit_opened,
         persisted_scrape_health: record.persisted_scrape_health,
-        robots_unreachable: is_robots_unreachable(&error),
+        origin_deferral: origin_deferral(&error),
         // A wait is no URL failure, so `UrlFailures` leaves it out as `ScrapesFailed` does.
         failure_kind: awaited_schema_review.is_none().then_some(record.error_kind),
         ..Default::default()
@@ -1649,7 +1663,7 @@ async fn open_scrape_circuit(
                 .is_work_locked(WorkLockScope::Spider, candidate.listing_source_id),
             batch_attempted_urls = evidence.attempted_urls() + 1,
             batch_slow_host_urls = evidence.slow_host_urls()
-                + usize::from(!domain_kind.opens_on_first_failure()),
+                + usize::from(domain_kind.is_slow_host()),
             batch_repeated_status_urls = FailedAnswer::of(failure.kind, status_code)
                 .map(|answer| evidence.rejection_run_with(answer, &candidate.url)),
             cooldown_seconds = domain_cooldown.as_secs(),
@@ -2028,8 +2042,16 @@ fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
     )
 }
 
-fn is_robots_unreachable(error: &ScraperError) -> bool {
-    error.network_error_kind() == Some(NetworkErrorKind::RobotsUnreachable)
+/// Why a failure defers the rest of its batch: robots.txt of the URL's origin could not be
+/// reached, which disallows every URL there until it is fetched again, or the shop dropped the
+/// connection of its robots.txt, which refuses the crawler before any page. A dropped connection
+/// of a page leaves the batch running, since once it is a normal transient fault.
+fn origin_deferral(error: &ScraperError) -> Option<DeferralReason> {
+    match error.network_error_kind()? {
+        NetworkErrorKind::RobotsUnreachable => Some(DeferralReason::RobotsUnreachable),
+        NetworkErrorKind::RobotsConnectionDropped => Some(DeferralReason::RobotsConnectionDropped),
+        _ => None,
+    }
 }
 
 /// Refusals by robots.txt or by a page's own robots directives are the crawler honouring a
@@ -2213,17 +2235,20 @@ async fn scrape_batch_candidates(
             break;
         }
 
-        // One unreachable robots.txt refuses the whole origin: the rest of
-        // the batch waits for a later pass instead of each URL recording the
-        // same refusal.
-        if candidate_outcome.robots_unreachable {
+        // A failure that refuses the whole origin: the rest of the batch waits for a later
+        // pass instead of each URL recording the same refusal.
+        if let Some(reason) = candidate_outcome.origin_deferral {
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
-            debug!(
-                event = "crawler.scraper.robots_unreachable_batch_stopped",
-                deferred_urls = remaining,
-                "Deferring remaining scraper URLs while robots.txt is unreachable"
-            );
-            outcome.record_deferred(DeferralReason::RobotsUnreachable, remaining);
+            // A batch's last URL, such as a circuit probe's only one, leaves nothing to defer.
+            if remaining > 0 {
+                debug!(
+                    event = reason.batch_stopped_event(),
+                    reason = reason.as_str(),
+                    deferred_urls = remaining,
+                    "Deferring remaining scraper URLs while robots.txt cannot be read"
+                );
+            }
+            outcome.record_deferred(reason, remaining);
             break;
         }
     }
@@ -5818,6 +5843,179 @@ mod tests {
         assert_eq!(outcome.deferred_urls, 2);
     }
 
+    fn dropped_connection_outcome(url: url::Url, kind: NetworkErrorKind) -> ScrapeOutcome {
+        scrape_outcome(Err(ScraperError::HttpError {
+            url,
+            kind,
+            details: "connection closed before message completed".to_owned(),
+        }))
+    }
+
+    /// A shop that drops the connection of its robots.txt refuses the crawler before any page:
+    /// the failure is recorded as circuit evidence and the rest of the batch waits for a later
+    /// pass instead of asking robots.txt again for every URL.
+    #[tokio::test]
+    async fn should_defer_the_rest_of_the_batch_after_the_shop_drops_robots_txt() {
+        let (candidates, listing_source_id) = source_batch("dropping.example.com", 3);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_scrape_circuit()
+            .once()
+            .withf(|request| {
+                request.url_failure.error_kind == "RobotsConnectionDropped"
+                    && request.scrape_error_kind == DomainFailureKind::ConnectionDropped
+                    && request.next_scrape_at.is_none()
+            })
+            .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                dropped_connection_outcome(url, NetworkErrorKind::RobotsConnectionDropped)
+            })
+        });
+
+        let outcome = scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(
+            outcome.deferred_reasons.get("robots_connection_dropped"),
+            Some(&2)
+        );
+    }
+
+    /// A dropped page connection leaves the batch running, and the next dropped connection of
+    /// the batch opens the circuit, which skips the rest.
+    #[tokio::test]
+    async fn should_open_the_circuit_on_the_second_dropped_page_connection_of_a_batch() {
+        let (candidates, listing_source_id) = source_batch("dropping.example.com", 3);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        let mut writes = mockall::Sequence::new();
+        for opens in [false, true] {
+            scraper_candidates
+                .expect_mark_fetch_failure_and_open_scrape_circuit()
+                .once()
+                .in_sequence(&mut writes)
+                .withf(move |request| {
+                    request.url_failure.error_kind == "ConnectionDropped"
+                        && request.scrape_error_kind == DomainFailureKind::ConnectionDropped
+                        && request.next_scrape_at.is_some() == opens
+                })
+                .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
+        }
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(2)
+            .returning(|request| {
+                let url = request.url;
+                Box::pin(async move {
+                    dropped_connection_outcome(url, NetworkErrorKind::ConnectionDropped)
+                })
+            });
+
+        let outcome = scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 2);
+        assert_eq!(outcome.skip_reasons.get("scrape_circuit_open"), Some(&1));
+        assert_eq!(outcome.deferred_urls, 0);
+    }
+
+    /// Regression check for a host that drops every connection, robots.txt included, as the
+    /// shops of #2955 do for the crawler's user agent: the first pass records one failure and
+    /// defers the rest without a fetch, the next pass opens the circuit on its first URL with the
+    /// grown cooldown and skips the rest, so no pass asks robots.txt once per candidate URL.
+    #[tokio::test]
+    async fn should_open_the_circuit_on_the_next_pass_when_a_host_drops_every_connection() {
+        let first_pass = robots_dropping_pass(ScrapeHealthSnapshot::default(), |request| {
+            request.next_scrape_at.is_none()
+        })
+        .await;
+        let after_first_pass = ScrapeHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some(DomainFailureKind::ConnectionDropped.as_str().to_owned()),
+            next_scrape_at: None,
+        };
+        let second_pass = robots_dropping_pass(after_first_pass, |request| {
+            let cooldown = request
+                .next_scrape_at
+                .map(|at| at - time::OffsetDateTime::now_utc());
+            cooldown.is_some_and(|cooldown| {
+                (time::Duration::minutes(59)..=time::Duration::minutes(60)).contains(&cooldown)
+            })
+        })
+        .await;
+
+        assert_eq!(first_pass.failed, 1);
+        assert_eq!(
+            first_pass.deferred_reasons.get("robots_connection_dropped"),
+            Some(&99)
+        );
+        assert_eq!(second_pass.failed, 1);
+        assert_eq!(
+            second_pass.skip_reasons.get("scrape_circuit_open"),
+            Some(&99)
+        );
+        assert_eq!(second_pass.deferred_urls, 0);
+    }
+
+    /// One scraper pass of a 100-URL batch against a host whose robots.txt connection is always
+    /// dropped, selected with `scrape_health`; `expected_write` judges the one circuit write.
+    async fn robots_dropping_pass(
+        scrape_health: ScrapeHealthSnapshot,
+        expected_write: fn(&ScrapeCircuitOpenRequest) -> bool,
+    ) -> ScrapeBatchOutcome {
+        let (mut candidates, listing_source_id) = source_batch("dropping.example.com", 100);
+        for candidate in &mut candidates {
+            candidate.scrape_health = scrape_health.clone();
+        }
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_scrape_circuit()
+            .once()
+            .withf(move |request| {
+                request.scrape_error_kind == DomainFailureKind::ConnectionDropped
+                    && expected_write(request)
+            })
+            .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                dropped_connection_outcome(url, NetworkErrorKind::RobotsConnectionDropped)
+            })
+        });
+
+        scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await
+    }
+
     #[tokio::test]
     async fn should_defer_urls_left_when_the_scraper_batch_time_budget_runs_out() {
         let (candidates, listing_source_id) = source_batch("slow.example.com", 3);
@@ -6984,6 +7182,58 @@ mod tests {
         assert_eq!(outcome.awaiting_schema_review, 1);
         assert_eq!(outcome.failed, 0);
         assert_eq!(outcome.skipped, 0);
+    }
+
+    /// The probe after a `CONNECTION_DROPPED` cooldown is refused by a robots.txt the shop's host
+    /// answered with a 502: the shop no longer drops connections, so the circuit closes and the
+    /// refusal stays with its URL instead of the expired circuit being probed every pass.
+    #[tokio::test]
+    async fn should_close_the_probe_circuit_when_robots_txt_answered_the_refusal() {
+        let url = url::Url::parse("https://probe-robots.example.com/product/1").unwrap();
+        let mut candidate = scraper_candidate("ListingSource", url);
+        candidate.is_circuit_probe = true;
+        candidate.scrape_health = ScrapeHealthSnapshot {
+            scrape_failure_streak: 2,
+            last_scrape_error_kind: Some(DomainFailureKind::ConnectionDropped.as_str().to_owned()),
+            next_scrape_at: Some(time::OffsetDateTime::now_utc() - time::Duration::minutes(1)),
+        };
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(|_, _, error_kind, _, status_code, _, _| {
+                error_kind == "RobotsUnreachable" && status_code.is_none()
+            })
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        scraper_candidates
+            .expect_close_scrape_circuit()
+            .once()
+            .withf(|_, snapshot| snapshot.scrape_failure_streak == 2)
+            .returning(|_, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                ScrapeOutcome {
+                    result: Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::RobotsUnreachable,
+                        details: "robots.txt is unreachable".to_owned(),
+                    }),
+                    scrape_health: DomainFetchHealth::Responsive,
+                    fetch_failure: None,
+                    telemetry: Default::default(),
+                }
+            })
+        });
+
+        let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+        ctx.listing_source_id = candidate.listing_source_id;
+        let outcome = scrape_batch_candidates(vec![candidate], ctx).await;
+
+        assert_eq!(outcome.failed, 1);
     }
 
     #[tokio::test]
