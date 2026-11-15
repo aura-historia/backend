@@ -298,7 +298,7 @@ const TONES = {
     PENDING_REVIEW: 'warn', APPROVED: 'ok', REJECTED: 'bad', SUPERSEDED: 'neutral',
     human_required: 'bad', waiting_for_repair: 'warn', live: 'ok', rejection_revoked: 'neutral', source_disabled: 'neutral',
     rejected_by_model: 'bad',
-    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
+    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn', identity_conflict: 'bad',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
     awaiting_qualification: 'warn', qualification_needs_human: 'bad',
     QUALIFIED: 'ok', DISQUALIFIED: 'bad', NEEDS_HUMAN: 'bad',
@@ -587,7 +587,8 @@ function overviewTilesHtml() {
     // itself a link cannot hold, so this tile's number and label link and its breakdown does apart.
     const breakdown = sources ? [
         ['crawl_failing', `${sources.crawl_failing} crawl failing`], ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl stuck`], ['blocked', `${sources.blocked_by_review} blocked`],
-        ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`]
+        ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`],
+        ['identity_conflict', `${sources.identity_conflicts} identity conflict`]
     ].map(([status, text]) => `<a href="#sources&status=${status}">${escapeHtml(text)}</a>`).join(' · ') : '';
     const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need attention')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
     const byType = reviews?.pending_by_artifact;
@@ -1064,6 +1065,15 @@ function sourceConditions(source) {
             title: 'These URLs are not scraped until the pending product-schema review is decided'
         });
     }
+    const conflicted = Number(source.identity_conflict_urls) || 0;
+    if (conflicted > 0) {
+        conditions.push({
+            key: 'identity_conflict', text: 'Identity conflict',
+            more: `${formatCount(conflicted)} of ${formatCount(Number(source.product_urls) || 0)} URLs not captured`,
+            since: source.identity_conflict_since, sinceLabel: 'In conflict since',
+            title: 'The product schemas derive another identity from these pages than the one their listings were captured under, so their listings stop updating until an identity rule matches the captured identities again'
+        });
+    }
     const held = Number(source.held_removal_urls) || 0;
     if (held > 0 || source.mass_removal_confirmed_until) {
         conditions.push({
@@ -1169,7 +1179,7 @@ const FAILURES = {
     ConnectionDropped: {label: 'Connection dropped', cause: 'The shop closed the connection without answering the page.', profile: 'page'},
     RobotsConnectionDropped: {label: 'robots.txt connection dropped', cause: 'The shop closed the connection without answering robots.txt, so the page was not requested.', profile: 'page'},
     RawCaptureFailed: {label: 'Capture failed', cause: "The page's content could not be stored.", profile: 'page'},
-    SourceListingIdConflict: {label: 'Identity conflict', cause: 'Two pages claim the same listing identity.', profile: 'page'},
+    SourceListingIdConflict: {label: 'Identity conflict', cause: 'The schemas derive another identity from the page than the one its listing was captured under, so the page is not captured; the retry delay grows until the product schemas change.', profile: 'page'},
     FreshSchemaNormalizationFailed: {label: 'New schema failed', cause: 'A freshly generated schema extracts values that fail the plausibility checks.', profile: 'page'},
     SchemaGenerationValidationFailed: {label: 'Schema generation failed', cause: 'The generated schemas did not pass the checks.', profile: 'page'}
 };
@@ -1226,7 +1236,7 @@ function sourceColumns() {
 // condition the rows share, with how many sources have it.
 const SOURCE_GROUP_LABELS = {
     crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
-    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled',
+    removals_held: 'Removals held', identity_conflict: 'Identity conflict', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled',
     awaiting_qualification: 'Awaiting qualification', qualification_needs_human: 'Qualification needs a human'
 };
 
@@ -1234,7 +1244,8 @@ function sourceGroupCount(key) {
     const sources = overviewCounts?.sources;
     const counts = {
         crawl_needs_operator: sources?.crawl_needs_operator, crawl_failing: sources?.crawl_failing, failing_to_scrape: sources?.failing_to_scrape,
-        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals, labelled: sources?.labelled
+        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals,
+        identity_conflict: sources?.identity_conflicts, labelled: sources?.labelled
     };
     return counts[key];
 }
@@ -1925,7 +1936,7 @@ function watchSourceStatus(source) {
     sourceStatusWatch = status.key;
 }
 
-const SOURCE_CONDITION_KEYS = new Set(['crawl_needs_operator', 'crawl_failing', 'failing_to_scrape', 'blocked_by_review', 'removals_held']);
+const SOURCE_CONDITION_KEYS = new Set(['crawl_needs_operator', 'crawl_failing', 'failing_to_scrape', 'blocked_by_review', 'removals_held', 'identity_conflict']);
 
 function renderSourceChange() {
     if (!sourceChange) return '';

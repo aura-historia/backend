@@ -966,7 +966,8 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
             "sources": {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
                 "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
-                "failing_to_scrape": 1, "held_removals": 0, "labelled": 0
+                "failing_to_scrape": 1, "held_removals": 0, "identity_conflicts": 0,
+                "labelled": 0
             },
             "reviews": {
                 "pending_total": 3,

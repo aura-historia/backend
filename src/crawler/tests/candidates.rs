@@ -2967,6 +2967,123 @@ async fn scraper_page_directive_refusal_run_should_last_until_another_outcome() 
     assert_eq!(stored, (0, None));
 }
 
+/// Each identity conflict continues the URL's run from its first conflict, so the scraper grows
+/// its retry delay; a change of the source's product schemas after the latest conflict makes the
+/// URL due at once, and another failure ends the run (#2983).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_identity_conflict_run_should_hold_the_url_until_the_schemas_change() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "conflict.example.com").await;
+    let url = "https://conflict.example.com/p/1";
+    let parsed_url = url::Url::parse(url).unwrap();
+    insert_product_url(&pool, listing_source_id, url).await;
+    insert_cached_product_schemas(&pool, listing_source_id, serde_json::json!([{}])).await;
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            parsed_url.clone(),
+            (
+                "h".repeat(64),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-1",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        ))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(url)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fail = |error_kind: &'static str, retry_in: time::Duration| {
+        let service = &service;
+        let parsed_url = &parsed_url;
+        async move {
+            let outcome = service
+                .mark_fetch_failure(
+                    &listing_source_id,
+                    parsed_url,
+                    error_kind,
+                    "extracted source listing id `BG-1` differs from the captured `SKU-1`",
+                    None,
+                    time::OffsetDateTime::now_utc() + retry_in,
+                    Some(&raw_input_hash()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome, CrawlerUrlWriteOutcome::Applied);
+        }
+    };
+    let due_streak = || async {
+        let candidates = service.get_candidates(10, 10, &[]).await.unwrap();
+        candidates
+            .iter()
+            .find(|candidate| candidate.url.as_str() == url)
+            .map(|candidate| candidate.identity_conflict_streak)
+    };
+    let stored_run = || async {
+        sqlx::query_as::<
+            _,
+            (
+                i32,
+                Option<time::OffsetDateTime>,
+                Option<time::OffsetDateTime>,
+            ),
+        >(
+            "SELECT identity_conflict_streak, identity_conflict_since, identity_conflict_last
+             FROM listing_source_urls WHERE url = $1",
+        )
+        .bind(url)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+
+    fail("SourceListingIdConflict", -time::Duration::minutes(1)).await;
+    assert_eq!(due_streak().await, Some(1));
+    let (_, first_since, _) = stored_run().await;
+    fail("SourceListingIdConflict", time::Duration::hours(1)).await;
+    assert_eq!(
+        due_streak().await,
+        None,
+        "a conflict holds the URL until its retry delay passes"
+    );
+    let (streak, since, last) = stored_run().await;
+    assert_eq!(streak, 2);
+    assert_eq!(since, first_since, "conflicts in a row continue the run");
+    assert!(last >= since);
+
+    let overview = crawler::review::readers::ListingSourceOverviewReader::new(pool.clone());
+    let conflicts = overview.identity_conflicts(10).await.unwrap();
+    assert_eq!((conflicts.sources_total, conflicts.urls_total), (1, 1));
+    assert_eq!(conflicts.sources[0].since, first_since);
+
+    sqlx::query(
+        "UPDATE listing_source_product_schemas
+         SET updated = NOW() + INTERVAL '1 second' WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        due_streak().await,
+        Some(2),
+        "a schema change after the latest conflict releases the URL at once"
+    );
+
+    fail("Timeout", -time::Duration::minutes(1)).await;
+    assert_eq!(due_streak().await, Some(0), "another failure ends the run");
+    assert_eq!(stored_run().await, (0, None, None));
+}
+
 /// A withdrawal the mass-removal guard held is recorded as held, where an operator's confirmation
 /// finds it, and keeps the refusal run that withdrew it: the next refusal continues that run.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

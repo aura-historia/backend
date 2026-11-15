@@ -6,6 +6,7 @@
 use super::{ReviewServer, live_fetch_error, live_jobs_busy, review_error, review_page_url};
 use crate::CrawlerReviewId;
 use crate::network::robots::MAX_CRAWL_DELAY;
+use crate::review::captured_identity_sample::{CapturedProductUrl, SampledCapturedPage};
 use crate::review::http::HttpResponse;
 use crate::review::matrix_refresh::{
     HandBack, HumanRequiredRefusal, MatrixRefreshFailure, MatrixRefreshOutcome, MatrixRefreshStatus,
@@ -18,7 +19,7 @@ use crate::review::repository::ReviewRepositoryError;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use serde_json::json;
 use std::time::Duration;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// A matrix refresh fetches every review page at the shop's `Crawl-delay`, so it runs in
 /// the background with a budget per page: the longest honoured delay plus a full fetch.
@@ -120,21 +121,52 @@ impl ReviewServer {
         Ok(detail)
     }
 
-    /// Fetches each of the review's `pages` that is no marked non-product page live within a
-    /// deadline sized for the shop's pacing.
+    /// Fetches each of the review's `pages` that is no marked non-product page live, and then
+    /// the `captured_sample`, within one deadline sized for the shop's pacing. A review page that
+    /// fails to fetch fails the refresh; a sampled captured URL that fails is recorded as not
+    /// fetched, as a captured product may be gone since.
     async fn live_review_pages(
         &self,
         review_id: CrawlerReviewId,
         pages: Vec<CrawlerReviewPage>,
-    ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
+        captured_sample: Vec<CapturedProductUrl>,
+    ) -> Result<(Vec<(CrawlerReviewPage, String)>, Vec<SampledCapturedPage>), HttpResponse> {
         let pages: Vec<CrawlerReviewPage> = pages
             .into_iter()
             .filter(|page| !page.is_marked_not_product())
             .collect();
-        let deadline = matrix_refresh_deadline(pages.len());
-        tokio::time::timeout(deadline, self.fetch_review_pages(pages))
+        let deadline = matrix_refresh_deadline(pages.len() + captured_sample.len());
+        let fetch_all = async {
+            let pages = self.fetch_review_pages(pages).await?;
+            let sample = self.fetch_captured_sample(captured_sample).await;
+            Ok((pages, sample))
+        };
+        tokio::time::timeout(deadline, fetch_all)
             .await
             .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
+    }
+
+    /// Fetches each sampled captured product URL live, one after the other at the shop's pacing.
+    async fn fetch_captured_sample(
+        &self,
+        captured_sample: Vec<CapturedProductUrl>,
+    ) -> Vec<SampledCapturedPage> {
+        let mut sampled = Vec::with_capacity(captured_sample.len());
+        for page in captured_sample {
+            let html = match self.html_fetcher.fetch(&page.url).await {
+                Ok(fetched) => Some(fetched.html),
+                Err(error) => {
+                    debug!(
+                        url = %page.url,
+                        error = %error,
+                        "A sampled captured product URL could not be fetched for the live matrix"
+                    );
+                    None
+                }
+            };
+            sampled.push(SampledCapturedPage { page, html });
+        }
+        sampled
     }
 
     /// Fetches each of `pages` live, one after the other at the shop's pacing.
@@ -172,10 +204,17 @@ impl ReviewServer {
             .await
             .map_err(review_error)?;
         let hand_back = HandBack::of(&review);
-        let pages = self.live_review_pages(review_id, review.pages).await?;
+        let captured_sample = self
+            .repository
+            .captured_identity_sample_urls(review_id)
+            .await
+            .map_err(review_error)?;
+        let (pages, captured_sample) = self
+            .live_review_pages(review_id, review.pages, captured_sample)
+            .await?;
         let evaluated = self
             .repository
-            .evaluate_schema_matrix_for_live_pages(review_id, pages, fetched_at)
+            .evaluate_schema_matrix_for_live_pages(review_id, pages, captured_sample, fetched_at)
             .await
             .map_err(review_error)?;
         self.repository

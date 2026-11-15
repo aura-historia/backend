@@ -113,6 +113,15 @@ pub trait UrlMetadataRepository: Send + Sync {
         listing_source_id: &ListingSourceId,
         limit: usize,
     ) -> Result<Vec<String>, sqlx::Error>;
+
+    /// Up to `limit` of the ListingSource's active product URLs whose last scrape captured a
+    /// product page, not a removal, the most recently scraped first: the pages that show which
+    /// URLs the shop serves its products under now.
+    async fn captured_product_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+        limit: usize,
+    ) -> Result<Vec<String>, sqlx::Error>;
 }
 
 pub struct UrlMetadataRepositoryImpl {
@@ -539,6 +548,25 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
              ORDER BY md5(url), url LIMIT $2",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(i64::try_from(limit).unwrap_or(i64::MAX))
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    async fn captured_product_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+        limit: usize,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT url FROM listing_source_urls \
+             WHERE listing_source_id = $1 AND url_class = $2 AND crawler_disposition = $3 \
+               AND last_scraped_hash IS NOT NULL \
+             ORDER BY last_scraped DESC NULLS LAST, url LIMIT $4",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(UrlClass::ProductListing.as_str())
+        .bind(CrawlerDisposition::Active.as_str())
         .bind(i64::try_from(limit).unwrap_or(i64::MAX))
         .fetch_all(&self.pool)
         .await
