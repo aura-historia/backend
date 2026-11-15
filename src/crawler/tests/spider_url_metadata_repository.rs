@@ -1260,3 +1260,59 @@ async fn should_collapse_product_rows_stored_under_a_spelling_the_crawler_no_lon
         "a moved row keeps its scrape state and raw-capture identity"
     );
 }
+
+/// Only active product rows whose last scrape captured a product page vouch for a stored URL
+/// pattern (#2953): not a removal, a never-scraped row, a retired duplicate or another class.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_answer_the_active_product_urls_whose_last_scrape_captured_a_product() {
+    const SHOP: &str = "https://captured.example.com";
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id, "captured.example.com").await;
+    for (path, class, disposition, scraped_ago, hash) in [
+        ("/prod_older", "product", "ACTIVE", Some(2), Some("hash")),
+        ("/prod_newer", "product", "ACTIVE", Some(1), Some("hash")),
+        ("/prod_removed", "product", "ACTIVE", Some(1), None),
+        ("/prod_unscraped", "product", "ACTIVE", None, None),
+        (
+            "/prod_duplicate",
+            "product",
+            "DUPLICATE",
+            Some(1),
+            Some("hash"),
+        ),
+        ("/category", "category", "ACTIVE", Some(1), Some("hash")),
+    ] {
+        sqlx::query(
+            "INSERT INTO listing_source_urls \
+             (listing_source_id, url, raw_source_record_key, url_class, crawler_disposition, \
+              last_scraped, last_scraped_hash) \
+             VALUES ($1, $2, $2, $3, $4, NOW() - make_interval(hours => $5), $6)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(format!("{SHOP}{path}"))
+        .bind(class)
+        .bind(disposition)
+        .bind(scraped_ago)
+        .bind(hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let captured = repository
+        .captured_product_urls(&listing_source_id, 10)
+        .await
+        .unwrap();
+    let first = repository
+        .captured_product_urls(&listing_source_id, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        captured,
+        [format!("{SHOP}/prod_newer"), format!("{SHOP}/prod_older")]
+    );
+    assert_eq!(first, [format!("{SHOP}/prod_newer")]);
+}
