@@ -146,6 +146,10 @@ pub struct QualificationRecord {
     /// What the console stored after the process; `None` when the runner could not read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored: Option<StoredOutcome>,
+    /// Whether the runner handed the source to a human after this process, the last of
+    /// [`MAX_QUALIFIER_FAILURES`] without a decision.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub handed_over: bool,
     #[serde(default)]
     pub num_turns: u64,
     #[serde(default)]
@@ -155,6 +159,13 @@ pub struct QualificationRecord {
 }
 
 impl QualificationRecord {
+    /// Why the process ended without a decision, in the runner's words, or how it ended.
+    pub fn failure_text(&self) -> String {
+        self.failure
+            .clone()
+            .unwrap_or_else(|| format!("{:?}", self.end))
+    }
+
     /// The qualification the process decided as the console stored it, else as the agent
     /// reported it.
     pub fn decided(&self) -> Option<&str> {
@@ -318,10 +329,10 @@ pub async fn qualify_waiting_sources(
             };
             running.push(qualify(settings, console, stop, source));
         }
-        let Some((record, pause, attempt)) = running.next().await else {
+        let Some((mut record, pause, attempt)) = running.next().await else {
             break;
         };
-        count_attempt(settings, console, state, &record, attempt).await;
+        count_attempt(settings, console, state, &mut record, attempt).await;
         summary.processes += 1;
         summary.decided += usize::from(attempt == Attempt::Decided);
         if let Some(pause) = pause
@@ -399,7 +410,7 @@ async fn count_attempt(
     settings: &RunnerSettings,
     console: &ConsoleClient,
     state: &mut RunnerState,
-    record: &QualificationRecord,
+    record: &mut QualificationRecord,
     attempt: Attempt,
 ) {
     let listing_source_id = record.listing_source_id;
@@ -425,18 +436,16 @@ async fn count_attempt(
                 return;
             }
             state.qualification_failures.remove(&listing_source_id);
-            hand_over(console, record, in_a_row).await;
+            record.handed_over = hand_over(console, record, in_a_row).await;
         }
     }
 }
 
 /// Decides `NEEDS_HUMAN` for the source of `record`, whose last `in_a_row` processes ended
-/// without a decision; a refusal is logged, and the source waits in the queue as before.
-async fn hand_over(console: &ConsoleClient, record: &QualificationRecord, in_a_row: u32) {
-    let last = record
-        .failure
-        .as_deref()
-        .map_or_else(|| format!("{:?}", record.end), str::to_owned);
+/// without a decision, and answers whether the console took it; a refusal is logged, and the
+/// source waits in the queue as before.
+async fn hand_over(console: &ConsoleClient, record: &QualificationRecord, in_a_row: u32) -> bool {
+    let last = record.failure_text();
     let note: String = format!(
         "{in_a_row} qualifier processes in a row ended without a decision; the last: {last}"
     )
@@ -446,18 +455,24 @@ async fn hand_over(console: &ConsoleClient, record: &QualificationRecord, in_a_r
     let path = format!("/api/source-qualifications/{}", record.listing_source_id);
     let body = serde_json::json!({ "qualification": "NEEDS_HUMAN", "note": note });
     match console.post(&path, &body).await {
-        Ok(_) => info!(
+        Ok(_) => {
+            info!(
             event = "crawler.review_agent.qualification_handed_to_human",
             listing_source_id = %record.listing_source_id,
             listing_source_name = %record.listing_source_name,
             failures = in_a_row,
             "Qualifier processes kept ending without a decision; the source waits for a human"
-        ),
-        Err(error) => warn!(
-            listing_source_id = %record.listing_source_id,
-            error = %error,
-            "Cannot hand the source to a human after its qualifier processes failed"
-        ),
+            );
+            true
+        }
+        Err(error) => {
+            warn!(
+                listing_source_id = %record.listing_source_id,
+                error = %error,
+                "Cannot hand the source to a human after its qualifier processes failed"
+            );
+            false
+        }
     }
 }
 
@@ -478,6 +493,7 @@ async fn run_qualifier(
         failure: None,
         report: None,
         stored: None,
+        handed_over: false,
         num_turns: 0,
         usage: TokenUsage::default(),
         total_cost_usd: 0.0,
@@ -665,10 +681,21 @@ pub fn digest_section(records: &[QualificationRecord]) -> String {
     };
     list(
         "Waiting for a human",
-        decided
+        records
             .iter()
-            .filter(|(_, qualification)| *qualification == "NEEDS_HUMAN")
-            .map(|(record, _)| row(record))
+            .filter(|record| record.decided() == Some("NEEDS_HUMAN") || record.handed_over)
+            .map(|record| {
+                if record.handed_over {
+                    format!(
+                        "{} ({}): handed over after {MAX_QUALIFIER_FAILURES} processes without a decision; the last: {}",
+                        record.listing_source_name,
+                        record.listing_source_id,
+                        record.failure_text()
+                    )
+                } else {
+                    row(record)
+                }
+            })
             .collect(),
     );
     list(
@@ -738,7 +765,7 @@ pub fn digest_section(records: &[QualificationRecord]) -> String {
                     "{} ({}): {}",
                     record.listing_source_name,
                     record.listing_source_id,
-                    record.failure.as_deref().unwrap_or("no decision")
+                    record.failure_text()
                 )
             })
             .collect(),
@@ -818,6 +845,7 @@ mod tests {
             end: ProcessEnd::Reported,
             failure: None,
             stored: None,
+            handed_over: false,
             report: Some(QualifierReport {
                 listing_source_id: String::new(),
                 qualification: qualification.to_owned(),
@@ -987,11 +1015,18 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("{error}"));
         let mut state = RunnerState::default();
-        let failed = record(None, "NOT_DECIDED", "NONE", "NONE", "");
+        let mut failed = record(None, "NOT_DECIDED", "NONE", "NONE", "");
         let source = failed.listing_source_id;
 
         for in_a_row in 1..MAX_QUALIFIER_FAILURES {
-            count_attempt(&settings, &console, &mut state, &failed, Attempt::Failed).await;
+            count_attempt(
+                &settings,
+                &console,
+                &mut state,
+                &mut failed,
+                Attempt::Failed,
+            )
+            .await;
             let failures = state.qualification_failures[&source];
             assert_eq!(failures.in_a_row, in_a_row);
             assert!(failures.until > OffsetDateTime::now_utc());
@@ -1000,7 +1035,7 @@ mod tests {
             &settings,
             &console,
             &mut state,
-            &failed,
+            &mut failed,
             Attempt::NotCounted,
         )
         .await;
@@ -1008,15 +1043,33 @@ mod tests {
             state.qualification_failures[&source].in_a_row,
             MAX_QUALIFIER_FAILURES - 1
         );
-        count_attempt(&settings, &console, &mut state, &failed, Attempt::Decided).await;
+        count_attempt(
+            &settings,
+            &console,
+            &mut state,
+            &mut failed,
+            Attempt::Decided,
+        )
+        .await;
         assert!(state.qualification_failures.is_empty());
 
         for _ in 0..MAX_QUALIFIER_FAILURES {
-            count_attempt(&settings, &console, &mut state, &failed, Attempt::Failed).await;
+            count_attempt(
+                &settings,
+                &console,
+                &mut state,
+                &mut failed,
+                Attempt::Failed,
+            )
+            .await;
         }
         assert!(
             state.qualification_failures.is_empty(),
             "the last failure hands the source over, which the console decides; a refusal is logged"
+        );
+        assert!(
+            !failed.handed_over,
+            "an unreachable console took no hand-over"
         );
         std::fs::remove_dir_all(&directory).unwrap_or_default();
     }
