@@ -75,22 +75,32 @@ fn origin_key(url: &Url) -> String {
     url.origin().ascii_serialization()
 }
 
+/// An origin's robots.txt policy as one request finds it.
+pub(super) struct RobotsLookup {
+    pub(super) policy: Arc<RobotsPolicy>,
+    /// The status the shop's own host last answered robots.txt with when this request loaded
+    /// the policy, which proves the shop responsive; `None` when the policy came from the cache
+    /// or the shop's host gave no answer.
+    pub(super) shop_answer: Option<u16>,
+}
+
 impl ReqwestHtmlFetcher {
     /// The robots.txt policy for `url`'s origin, fetched once per cache
     /// lifetime. A transport failure is returned instead of cached so the
     /// scrape circuit sees it like any other failed request; the next
     /// request fetches robots.txt again.
-    pub(super) async fn robots_policy(
-        &self,
-        url: &Url,
-    ) -> Result<Arc<RobotsPolicy>, FetchAttemptError> {
+    pub(super) async fn robots_policy(&self, url: &Url) -> Result<RobotsLookup, FetchAttemptError> {
         let origin_key = origin_key(url);
         let origin = self.robots.origin(&origin_key);
         let mut cached = origin.cached.lock().await;
         if let Some(cached) = cached.as_ref().filter(|cached| cached.is_fresh()) {
-            return Ok(Arc::clone(&cached.policy));
+            return Ok(RobotsLookup {
+                policy: Arc::clone(&cached.policy),
+                shop_answer: None,
+            });
         }
-        let loaded = CachedPolicy::new(self.load_robots_policy(url).await?);
+        let (policy, shop_answer) = self.load_robots_policy(url).await?;
+        let loaded = CachedPolicy::new(policy);
         debug!(
             event = "crawler.scraper.robots_loaded",
             origin = %origin_key,
@@ -103,34 +113,51 @@ impl ReqwestHtmlFetcher {
         drop(cached);
         drop(origin);
         self.robots.evict_expired();
-        Ok(policy)
+        Ok(RobotsLookup {
+            policy,
+            shop_answer,
+        })
     }
 
-    /// Redirects are followed to any public host, as RFC 9309 asks.
-    async fn load_robots_policy(&self, url: &Url) -> Result<RobotsPolicy, FetchAttemptError> {
+    /// The policy robots.txt sets for `url`'s origin and the status the shop's own host last
+    /// answered it with. Redirects are followed to any public host, as RFC 9309 asks.
+    async fn load_robots_policy(
+        &self,
+        url: &Url,
+    ) -> Result<(RobotsPolicy, Option<u16>), FetchAttemptError> {
         let mut robots_url = robots_txt_url(url);
+        let mut shop_answer = None;
         for hop in 0..=MAX_ROBOTS_TXT_REDIRECTS {
+            let shop_host = is_same_or_www_host(url, &robots_url);
             match self.robots_txt_step(&robots_url).await {
-                Ok(RobotsFetchStep::Policy(policy)) => return Ok(policy),
-                Ok(RobotsFetchStep::Redirect(next)) => robots_url = next,
+                Ok((step, status)) => {
+                    if shop_host {
+                        shop_answer = Some(status);
+                    }
+                    match step {
+                        RobotsFetchStep::Policy(policy) => return Ok((policy, shop_answer)),
+                        RobotsFetchStep::Redirect(next) => robots_url = next,
+                    }
+                }
                 Err(error) => {
-                    let shop_host = is_same_or_www_host(url, &robots_url);
                     return RobotsPolicy::for_failed_request(
                         error.error.kind(),
                         hop > 0,
                         shop_host,
                     )
+                    .map(|policy| (policy, shop_answer))
                     .ok_or_else(|| shop_robots_failure(error));
                 }
             }
         }
-        Ok(RobotsPolicy::Unavailable)
+        Ok((RobotsPolicy::Unavailable, shop_answer))
     }
 
+    /// One robots.txt request: the step its answer sets and the answer's status.
     async fn robots_txt_step(
         &self,
         robots_url: &Url,
-    ) -> Result<RobotsFetchStep, FetchAttemptError> {
+    ) -> Result<(RobotsFetchStep, u16), FetchAttemptError> {
         // robots.txt is small: it keeps the base timeout however slowly the
         // shop's pages answer.
         let response = self
@@ -144,16 +171,18 @@ impl ReqwestHtmlFetcher {
         debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt");
         if status.is_success() {
             let body = read_robots_body(response).await?;
-            return Ok(RobotsFetchStep::Policy(RobotsPolicy::from_body(&body)));
+            return Ok((
+                RobotsFetchStep::Policy(RobotsPolicy::from_body(&body)),
+                status.as_u16(),
+            ));
         }
         let location = response
             .headers()
             .get(reqwest::header::LOCATION)
             .and_then(crate::network::policy::location_text);
-        Ok(RobotsFetchStep::for_unsuccessful(
+        Ok((
+            RobotsFetchStep::for_unsuccessful(status.as_u16(), location, robots_url),
             status.as_u16(),
-            location,
-            robots_url,
         ))
     }
 }

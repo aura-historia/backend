@@ -7184,6 +7184,58 @@ mod tests {
         assert_eq!(outcome.skipped, 0);
     }
 
+    /// The probe after a `CONNECTION_DROPPED` cooldown is refused by a robots.txt the shop's host
+    /// answered with a 502: the shop no longer drops connections, so the circuit closes and the
+    /// refusal stays with its URL instead of the expired circuit being probed every pass.
+    #[tokio::test]
+    async fn should_close_the_probe_circuit_when_robots_txt_answered_the_refusal() {
+        let url = url::Url::parse("https://probe-robots.example.com/product/1").unwrap();
+        let mut candidate = scraper_candidate("ListingSource", url);
+        candidate.is_circuit_probe = true;
+        candidate.scrape_health = ScrapeHealthSnapshot {
+            scrape_failure_streak: 2,
+            last_scrape_error_kind: Some(DomainFailureKind::ConnectionDropped.as_str().to_owned()),
+            next_scrape_at: Some(time::OffsetDateTime::now_utc() - time::Duration::minutes(1)),
+        };
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(|_, _, error_kind, _, status_code, _, _| {
+                error_kind == "RobotsUnreachable" && status_code.is_none()
+            })
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        scraper_candidates
+            .expect_close_scrape_circuit()
+            .once()
+            .withf(|_, snapshot| snapshot.scrape_failure_streak == 2)
+            .returning(|_, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                ScrapeOutcome {
+                    result: Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::RobotsUnreachable,
+                        details: "robots.txt is unreachable".to_owned(),
+                    }),
+                    scrape_health: DomainFetchHealth::Responsive,
+                    fetch_failure: None,
+                    telemetry: Default::default(),
+                }
+            })
+        });
+
+        let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+        ctx.listing_source_id = candidate.listing_source_id;
+        let outcome = scrape_batch_candidates(vec![candidate], ctx).await;
+
+        assert_eq!(outcome.failed, 1);
+    }
+
     #[tokio::test]
     async fn should_persist_schema_seed_failure_against_seed_url_and_fence() {
         let primary_url =

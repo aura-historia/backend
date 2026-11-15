@@ -6,10 +6,10 @@ use crate::scraper::scraper_service::domain::errors::{
     HttpErrorMetadata, RemovalEvidence, RemovalEvidenceKind, ScraperError,
 };
 use crate::scraper::scraper_service::domain::product::{
-    FetchFailureSource, ScrapeRequest, record_product_page_fetch, record_transport_failure,
-    record_transport_success,
+    FetchFailureSource, ScrapeRequest, answers_responsively, record_product_page_fetch,
+    record_transport_failure, record_transport_success,
 };
-use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml};
+use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, robots_refusal_kind};
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     RedirectTarget, is_same_logical_host,
 };
@@ -149,6 +149,33 @@ impl ScraperServiceImpl {
                     details: format!(
                         "product URL redirected to a URL robots.txt disallows: final={final_url}"
                     ),
+                })
+            }
+            // The page was not requested, so the refusal is no answer of the shop. A robots.txt
+            // this fetch loaded is, unless it answered as a circuit counts it (408, 429, 503, 504):
+            // the probe after a cooldown is judged by it too.
+            Err(FetchError::RobotsRefused {
+                refusal,
+                shop_answer,
+                details,
+            }) => {
+                let kind = robots_refusal_kind(refusal);
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    kind,
+                    None,
+                    None,
+                    None,
+                );
+                if shop_answer.is_some_and(answers_responsively) {
+                    record_transport_success();
+                }
+                Err(ScraperError::HttpError {
+                    url: url.clone(),
+                    kind,
+                    details,
                 })
             }
             Err(FetchError::PageDirectiveRefused { final_url, details }) => {

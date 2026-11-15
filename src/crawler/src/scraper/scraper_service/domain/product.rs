@@ -314,6 +314,13 @@ pub(crate) fn scrape_health_for_fetch_error(
     }
 }
 
+/// Whether an HTTP answer with `status` proves the shop responsive, as for any page answer: every
+/// status but those a scrape circuit counts as a failure (408, 429, 503 and 504).
+pub(crate) fn answers_responsively(status: u16) -> bool {
+    scrape_health_for_fetch_error(NetworkErrorKind::HttpStatus(status), Some(status), None)
+        == DomainFetchHealth::Responsive
+}
+
 pub(crate) fn scrape_health_for_scraper_error(error: &ScraperError) -> DomainFetchHealth {
     match error {
         // A robots.txt refusal sent nothing to the shop.
