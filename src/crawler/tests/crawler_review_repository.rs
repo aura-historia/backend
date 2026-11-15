@@ -1622,6 +1622,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
                     )
                 })
                 .collect(),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -1685,6 +1686,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
                     )
                 })
                 .collect(),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -1773,6 +1775,7 @@ async fn schema_matrix_write_drops_the_generated_matrix_summary() {
                     )
                 })
                 .collect(),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -1901,6 +1904,7 @@ async fn store_schema_matrix(
         .evaluate_schema_matrix_for_live_pages(
             review_id,
             live_pages,
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -2133,6 +2137,7 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
                 .into_iter()
                 .map(|page| (page, html.to_owned()))
                 .collect(),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -5160,6 +5165,7 @@ async fn should_show_a_stored_template_that_matches_a_product_page_in_the_schema
                 .into_iter()
                 .map(|page| (page, html.to_owned()))
                 .collect(),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await
@@ -5259,6 +5265,7 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
                 .cloned()
                 .zip(review_pages().into_iter().map(|page| page.raw_html))
                 .collect(),
+            Vec::new(),
             time::OffsetDateTime::now_utc(),
         )
         .await

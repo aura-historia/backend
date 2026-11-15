@@ -10,6 +10,7 @@ use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
+use crawler::review::captured_identity_sample::SampledCapturedPage;
 use crawler::review::model::{
     HandoverCategory, HandoverCause, HandoverReason, PAGE_ROLE_PRIMARY, PageSize,
     PendingReviewSummary, PendingReviewTotals, ReviewActor, ReviewEventAction, STATUS_APPROVED,
@@ -287,7 +288,7 @@ async fn store_live_matrix(
         })
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, pages, fetched_at)
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, Vec::new(), fetched_at)
         .await
         .unwrap();
     repository
@@ -734,6 +735,122 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
         Some("searched the listing")
     );
     assert_eq!(detail.review.status, STATUS_APPROVED);
+}
+
+/// Stores `url` as a product URL of the source whose listing was captured under
+/// `captured_identity`.
+async fn captured_product_url(
+    pool: &PgPool,
+    listing_source_id: &ListingSourceId,
+    url: &str,
+    captured_identity: &str,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+         (listing_source_id, url, url_class, raw_source_record_key, last_source_listing_id) \
+         VALUES ($1, $2, 'product', $2, $3)",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url)
+    .bind(captured_identity)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The review's own pages were never captured, so only the sample of the source's other captured
+/// product URLs, which a refresh draws and fetches with them, shows that the candidate's identity
+/// rule derives another identity than the listings were captured under (#2983).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_the_agent_approval_of_a_candidate_that_changes_the_captured_identities() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let listing_source_id = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1"), schema("h2")],
+        vec![page("chair"), page("table")],
+    )
+    .await;
+    let lamp = "https://example.com/products/lamp";
+    captured_product_url(&pool, &listing_source_id, lamp, "LAMP-7").await;
+    captured_product_url(
+        &pool,
+        &listing_source_id,
+        "https://example.com/products/chair",
+        "chair",
+    )
+    .await;
+
+    let sample = repository
+        .captured_identity_sample_urls(review_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        sample
+            .iter()
+            .map(|captured| (captured.url.as_str(), captured.captured_identity.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(lamp, "LAMP-7")],
+        "the sample leaves out the review's own pages"
+    );
+    let pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|page| {
+            let html = shop_page(&page.url);
+            (page, html)
+        })
+        .collect();
+    let sampled = sample
+        .into_iter()
+        .map(|page| SampledCapturedPage {
+            html: Some(shop_page(page.url.as_str())),
+            page,
+        })
+        .collect();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, sampled, OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    repository
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
+        .await
+        .unwrap();
+
+    let refused = failed_checks(
+        repository
+            .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
+            .await,
+    );
+
+    let [
+        FailedApprovalCheck::CapturedIdentityDiffers {
+            sample_total,
+            pages,
+        },
+    ] = refused.as_slice()
+    else {
+        panic!("expected only the captured identity check to fail: {refused:?}");
+    };
+    assert_eq!(*sample_total, 1);
+    assert_eq!(
+        (pages[0].url.as_str(), pages[0].captured_identity.as_str()),
+        (lamp, "LAMP-7")
+    );
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .status,
+        STATUS_PENDING_REVIEW
+    );
 }
 
 /// A no-sold-page record stands until a human acts on the review: after a human's verdict hands
@@ -2236,7 +2353,12 @@ async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_th
         .map(|page| (page.clone(), shop_page(&page.url)))
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, live_pages, OffsetDateTime::now_utc())
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            live_pages,
+            Vec::new(),
+            OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     let refusals = [

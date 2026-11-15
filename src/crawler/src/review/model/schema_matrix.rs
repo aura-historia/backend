@@ -1,4 +1,5 @@
 use super::{CrawlerReviewPage, PageSignals, RemovedPageTemplateMatch, SchemaCandidateEvaluation};
+use crate::review::captured_identity_sample::CapturedIdentitySample;
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,11 @@ pub struct LiveMatrixEvaluation {
     /// When the first review page was fetched.
     #[serde(with = "time::serde::rfc3339")]
     pub fetched_at: OffsetDateTime,
+    /// What the schemas derive from a sample of the ListingSource's captured product URLs
+    /// outside the review pages; `None` for a matrix stored before the sample, which the approval
+    /// guard treats as outdated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_identity_sample: Option<CapturedIdentitySample>,
 }
 
 /// A review's schema matrix as the review API answers it: the matrix, and the review pages it

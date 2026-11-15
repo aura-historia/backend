@@ -6,6 +6,9 @@
 
 use crate::CrawlerReviewPageId;
 use crate::network::policy::url_on_crawl_host;
+use crate::review::captured_identity_sample::{
+    CapturedIdentityOutcome, CapturedIdentityPage, CapturedIdentitySample,
+};
 use crate::review::model::{
     CrawlerReviewPage, LiveMatrixEvaluation, SchemaMatrix, SchemaPageReference, UrlPatternDecision,
     UrlPatternReviewCandidate,
@@ -78,6 +81,18 @@ pub enum FailedApprovalCheck {
     /// the pages they apply to, and what the normalization resolves each to.
     NoSoldPageTested {
         states_seen: Vec<SeenState>,
+    },
+    /// Captured product URLs of the ListingSource outside the review pages, sampled by the live
+    /// matrix, from which a candidate schema derives another identity than the one their listing
+    /// was captured under: approval would leave every such URL in `SourceListingIdConflict`.
+    CapturedIdentityDiffers {
+        sample_total: usize,
+        pages: Vec<CapturedIdentityPage>,
+    },
+    /// The live matrix sampled captured product URLs of the ListingSource but could fetch none of
+    /// them, so it shows nothing about the identities approval would derive from them.
+    CapturedIdentitySampleNotFetched {
+        sample_total: usize,
     },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
@@ -176,6 +191,23 @@ pub struct SampleRedirectFinding {
     pub redirect_target: String,
 }
 
+/// A sampled captured URL a `CAPTURED_IDENTITY_DIFFERS` refusal names, as
+/// `<url> captured as 'J054', derives 'https://…'`.
+fn describe_differing_identity(page: &CapturedIdentityPage) -> String {
+    let derived = match &page.outcome {
+        CapturedIdentityOutcome::Differs { identities } => identities
+            .iter()
+            .map(|identity| format!("'{identity}'"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => String::new(),
+    };
+    format!(
+        "{} captured as '{}', derives {derived}",
+        page.url, page.captured_identity
+    )
+}
+
 /// A review page a check names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GuardedPage {
@@ -241,6 +273,23 @@ impl fmt::Display for FailedApprovalCheck {
                 "no review page's state resolves to sold or unavailable; states seen: {}; add a sold page with add_review_page and refresh the matrix, or record the pages you checked with record_no_sold_page when the shop has none",
                 describe_states(states_seen)
             ),
+            Self::CapturedIdentityDiffers {
+                sample_total,
+                pages,
+            } => write!(
+                formatter,
+                "the candidate derives another identity than the captured one from {} of the {sample_total} captured product URL(s) sampled: {}; approval would leave every such URL in SourceListingIdConflict, so keep an identity rule that derives the identities the listings were captured under",
+                pages.len(),
+                pages
+                    .iter()
+                    .map(describe_differing_identity)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            Self::CapturedIdentitySampleNotFetched { sample_total } => write!(
+                formatter,
+                "none of the {sample_total} captured product URL(s) sampled could be fetched, so nothing shows that the candidate keeps their identities; evaluate the matrix again"
+            ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
             Self::PatternMatchesNoSampleUrl { sample_total } => write!(
                 formatter,
@@ -296,7 +345,9 @@ pub(crate) struct CurrentReview<'a> {
 /// product page; no rule matches nothing on every page its schema applies to; no extraction fails
 /// a plausibility check that deterministic approval refuses, so the guard is never less strict
 /// than the `auto` gate; a review page shows a sold or unavailable product, or the review records
-/// that its author found none; and no page shows a price or a description no rule captures.
+/// that its author found none; no page shows a price or a description no rule captures; and no
+/// schema derives another identity than the captured one from the matrix's sample of the
+/// ListingSource's captured product URLs, of which it fetched at least one when it sampled any.
 pub(crate) fn product_schema_approval_checks(
     matrix: Option<&SchemaMatrix>,
     review: &CurrentReview<'_>,
@@ -355,7 +406,23 @@ pub(crate) fn product_schema_approval_checks(
             rules: content_rules,
         });
     }
+    if let Some(sample) = &evaluation.captured_identity_sample {
+        failed.extend(captured_identity_check(sample));
+    }
     failed
+}
+
+/// The check the matrix's captured-identity `sample` fails, if any.
+fn captured_identity_check(sample: &CapturedIdentitySample) -> Option<FailedApprovalCheck> {
+    let sample_total = sample.pages.len();
+    if sample.fetched_none() {
+        return Some(FailedApprovalCheck::CapturedIdentitySampleNotFetched { sample_total });
+    }
+    let pages = sample.differing_pages();
+    (!pages.is_empty()).then_some(FailedApprovalCheck::CapturedIdentityDiffers {
+        sample_total,
+        pages,
+    })
 }
 
 /// Why a stored live matrix no longer describes the review, `None` while it does.
@@ -379,6 +446,12 @@ fn outdated_reason(
     if pages_without_signals(matrix) {
         return Some(
             "it predates the page signals the guard reads; evaluate the matrix again".to_owned(),
+        );
+    }
+    if evaluation.captured_identity_sample.is_none() {
+        return Some(
+            "it predates the sample of captured product URLs the guard reads; evaluate the matrix again"
+                .to_owned(),
         );
     }
     let evaluates_a_review_page = |reference: &SchemaPageReference| match reference {
@@ -589,6 +662,7 @@ fn expired_check(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::captured_identity_sample::{CapturedProductUrl, SampledCapturedPage};
     use crate::review::model::PAGE_ROLE_PRIMARY;
     use crate::review::schema_evaluation::{
         evaluate_schema_matrix_for_live_review_pages, schema_matrix_deterministic_approval_ok,
@@ -692,7 +766,34 @@ mod tests {
             candidate_version: 3,
             configuration_sha256: CONFIGURATION.to_owned(),
             fetched_at: OffsetDateTime::now_utc() - fetched_ago,
+            captured_identity_sample: Some(CapturedIdentitySample::default()),
         });
+        matrix
+    }
+
+    /// `matrix` with the captured-identity sample of `schemas` evaluated on `captured`, each a
+    /// captured product URL's slug, the identity its listing was captured under, and its HTML
+    /// (`None` when its fetch failed).
+    fn with_captured_sample(
+        mut matrix: SchemaMatrix,
+        schemas: &[ProductCssSelectorSchema],
+        captured: &[(&str, &str, Option<String>)],
+    ) -> SchemaMatrix {
+        let sampled: Vec<SampledCapturedPage> = captured
+            .iter()
+            .map(|(slug, captured_identity, html)| SampledCapturedPage {
+                page: CapturedProductUrl {
+                    url: url::Url::parse(&format!("https://shop.example/products/{slug}")).unwrap(),
+                    captured_identity: (*captured_identity).to_owned(),
+                },
+                html: html.clone(),
+            })
+            .collect();
+        matrix
+            .live_evaluation
+            .as_mut()
+            .unwrap()
+            .captured_identity_sample = Some(CapturedIdentitySample::evaluate(schemas, &sampled));
         matrix
     }
 
@@ -1291,6 +1392,94 @@ mod tests {
                 [FailedApprovalCheck::LiveMatrixOutdated { .. }]
             ),
             "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn should_treat_a_live_matrix_without_a_captured_identity_sample_as_outdated() {
+        let pages = [product_page("chair", "h1", "Chair")];
+        let mut matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        matrix
+            .live_evaluation
+            .as_mut()
+            .unwrap()
+            .captured_identity_sample = None;
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::LiveMatrixOutdated { reason }] if reason.contains("captured product URLs")
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// The review's own pages were never captured, so only the sample of the ListingSource's
+    /// captured URLs shows that the candidate's identity rule contradicts the captured listings.
+    #[test]
+    fn should_refuse_an_identity_that_differs_from_a_captured_url_outside_the_review_pages() {
+        let pages = [product_page("chair", "h1", "Chair")];
+        let schemas = [schema("h1")];
+        let (_, lamp_html) = product_page("lamp-0815", "h1", "Lamp");
+        let (_, vase_html) = product_page("vase", "h1", "Vase");
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[
+                ("lamp-0815", "SKU-0815", Some(lamp_html)),
+                ("vase", "vase", Some(vase_html)),
+            ],
+        );
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert_eq!(
+            refused,
+            vec![FailedApprovalCheck::CapturedIdentityDiffers {
+                sample_total: 2,
+                pages: vec![CapturedIdentityPage {
+                    url: "https://shop.example/products/lamp-0815".to_owned(),
+                    captured_identity: "SKU-0815".to_owned(),
+                    outcome: CapturedIdentityOutcome::Differs {
+                        identities: vec!["lamp-0815".to_owned()],
+                    },
+                }],
+            }]
+        );
+        assert!(refused[0].to_string().contains(
+            "https://shop.example/products/lamp-0815 captured as 'SKU-0815', derives 'lamp-0815'"
+        ));
+    }
+
+    #[test]
+    fn should_pass_a_candidate_that_keeps_the_identities_of_the_sampled_captured_urls() {
+        let pages = [product_page("chair", "h1", "Chair")];
+        let schemas = [schema("h1")];
+        let (_, vase_html) = product_page("vase", "h1", "Vase");
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[("vase", "vase", Some(vase_html)), ("gone", "gone", None)],
+        );
+
+        assert_eq!(checks(Some(&matrix), &review_pages(&pages)), Vec::new());
+    }
+
+    #[test]
+    fn should_refuse_a_captured_identity_sample_whose_urls_could_not_be_fetched() {
+        let pages = [product_page("chair", "h1", "Chair")];
+        let schemas = [schema("h1")];
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[("vase", "vase", None), ("lamp", "lamp", None)],
+        );
+
+        assert_eq!(
+            checks(Some(&matrix), &review_pages(&pages)),
+            vec![FailedApprovalCheck::CapturedIdentitySampleNotFetched { sample_total: 2 }]
         );
     }
 

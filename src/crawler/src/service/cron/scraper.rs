@@ -1346,8 +1346,10 @@ async fn handle_successful_scrape(
 
 /// A page whose schema derives another identity than the one its listing was captured
 /// under is not captured: the new identity would start a second listing. The conflict is
-/// a schema outcome the reviewer resolves, so the URL keeps it with the schema cooldown
-/// instead of being refetched on every scheduler pass.
+/// a schema outcome a human resolves, so the URL keeps it with a retry delay that grows with
+/// each conflict in a row instead of being refetched on every scheduler pass; a change of the
+/// ListingSource's product schemas releases it at once
+/// (`docs/crawler/scheduling-and-retries.md#identity-conflicts`).
 async fn reject_identity_conflict(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
@@ -1368,11 +1370,12 @@ async fn reject_identity_conflict(
         "extracted source listing id `{}` differs from the captured `{captured_identity}`",
         scraped.source_listing_id
     );
-    persist_schema_retry_cooldown(
+    persist_schema_retry_after(
         candidate,
         ctx,
         SOURCE_LISTING_ID_CONFLICT_ERROR_KIND,
         &error_message,
+        identity_conflict_retry_delay(candidate.identity_conflict_streak.saturating_add(1)),
     )
     .await;
     ScrapeCandidateOutcome {
@@ -1860,8 +1863,26 @@ async fn persist_schema_retry_cooldown(
     error_kind: &str,
     error_message: &str,
 ) {
-    let next_retry_at = time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
+    persist_schema_retry_after(
+        candidate,
+        ctx,
+        error_kind,
+        error_message,
+        SCHEMA_ERROR_RETRY_COOLDOWN,
+    )
+    .await;
+}
+
+/// Records a schema outcome on the URL, due again after `retry_delay`.
+async fn persist_schema_retry_after(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    error_kind: &str,
+    error_message: &str,
+    retry_delay: Duration,
+) {
+    let next_retry_at =
+        time::OffsetDateTime::now_utc() + time::Duration::seconds(retry_delay.as_secs() as i64);
     persist_url_failure(
         ctx,
         FetchFailureRequest {
@@ -1937,6 +1958,13 @@ fn schema_review_wait_retry_delay(streak: u32) -> Duration {
         .map_or(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY, |delay| {
             delay.min(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY)
         })
+}
+
+/// The retry delay of a URL's `streak`-th identity conflict in a row. It grows as a page's wait on
+/// a pending product-schema review does: nothing a rescrape sees changes before the schemas do,
+/// and a schema change releases the URL at once.
+fn identity_conflict_retry_delay(streak: u32) -> Duration {
+    schema_review_wait_retry_delay(streak)
 }
 
 async fn persist_scraper_failure(
@@ -7509,6 +7537,56 @@ mod tests {
             assert!(
                 !outcome.skipped,
                 "an identity conflict has a durable outcome"
+            );
+        }
+
+        /// A conflict repeats until the schemas change, which releases the URL at once, so each
+        /// conflict in a row doubles the delay instead of refetching every schema cooldown.
+        #[tokio::test]
+        async fn should_double_the_retry_delay_of_an_identity_conflict_that_repeats() {
+            let before = time::OffsetDateTime::now_utc();
+            let mut candidate = sold_candidate();
+            candidate.identity_conflict_streak = 2;
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .once()
+                .withf(move |_, _, kind, _, _, next_retry_at, _| {
+                    let third_conflict = time::Duration::hours(2);
+                    kind == SOURCE_LISTING_ID_CONFLICT_ERROR_KIND
+                        && *next_retry_at >= before + third_conflict
+                        && *next_retry_at <= time::OffsetDateTime::now_utc() + third_conflict
+                })
+                .returning(|_, _, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            let ctx = context(
+                &candidate,
+                schema(attribute("div.product", "id"), "p.stock"),
+                scraper_candidates,
+            );
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert_eq!(
+                outcome.failure_kind.as_deref(),
+                Some(SOURCE_LISTING_ID_CONFLICT_ERROR_KIND)
+            );
+        }
+
+        #[test]
+        fn should_cap_the_identity_conflict_retry_delay_at_the_review_wait_bound() {
+            assert_eq!(
+                identity_conflict_retry_delay(1),
+                SCHEMA_ERROR_RETRY_COOLDOWN
+            );
+            assert_eq!(
+                identity_conflict_retry_delay(2),
+                Duration::from_secs(60 * 60)
+            );
+            assert_eq!(
+                identity_conflict_retry_delay(50),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
             );
         }
     }

@@ -49,6 +49,14 @@ pub struct ListingSourceOverview {
     /// start. `None` while `held_removal_urls` is 0.
     #[serde(with = "time::serde::rfc3339::option")]
     pub held_since: Option<time::OffsetDateTime>,
+    /// Product URLs in an identity conflict (`SourceListingIdConflict`): the source's schemas
+    /// derive another identity from their pages than the one their listings were captured
+    /// under, so they are not captured until the identity rule matches again.
+    pub identity_conflict_urls: i64,
+    /// The earliest start of a current URL's run of identity conflicts; `None` while
+    /// `identity_conflict_urls` is 0.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub identity_conflict_since: Option<time::OffsetDateTime>,
     /// The end of the operator's live confirmation of the source's mass removal, until which the
     /// mass-removal guard captures its removals; `None` without a live confirmation.
     #[serde(with = "time::serde::rfc3339::option")]
@@ -130,6 +138,8 @@ mod tests {
             blocking_review_id: None,
             held_removal_urls: 0,
             held_since: None,
+            identity_conflict_urls: 0,
+            identity_conflict_since: None,
             mass_removal_confirmed_until: None,
             mass_removal_confirmed_by: None,
             url_error_kinds: Vec::new(),

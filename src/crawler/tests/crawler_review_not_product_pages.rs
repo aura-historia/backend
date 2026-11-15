@@ -144,7 +144,12 @@ async fn store_live_matrix(repository: &CrawlerReviewRepository, review_id: Craw
         })
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages,
+            Vec::new(),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     repository
