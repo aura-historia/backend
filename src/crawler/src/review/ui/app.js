@@ -1104,6 +1104,7 @@ const FAILURES = {
     CONNECTION_DROPPED: {label: 'Connections dropped', cause: "The shop closes the scraper's connections without answering, for robots.txt or for pages, which most likely means it blocks the AuraHistoriaBot user agent. Ask the shop to allow-list AuraHistoriaBot, or disable the source.", profile: 'circuit'},
     HttpError: {label: 'HTTP error', cause: 'The page answered with an error status.', profile: 'page'},
     RobotsDisallowed: {label: 'Disallowed by robots.txt', cause: "The shop's robots.txt forbids this page.", profile: 'page'},
+    RobotsUnreachable: {label: 'robots.txt unreachable', cause: "The shop's robots.txt answered a server error or 429, or redirected to a host that failed, which disallows every page until it can be read again.", profile: 'page'},
     PageDirectiveDisallowed: {label: 'Refused by page directives', cause: "The page's X-Robots-Tag header or meta robots tag forbids capturing it.", profile: 'page'},
     Timeout: {label: 'Timeout', cause: 'The page did not answer in time.', profile: 'page'},
     ConnectionDropped: {label: 'Connection dropped', cause: 'The shop closed the connection without answering the page.', profile: 'page'},

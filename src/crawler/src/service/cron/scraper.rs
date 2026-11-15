@@ -2239,12 +2239,15 @@ async fn scrape_batch_candidates(
         // pass instead of each URL recording the same refusal.
         if let Some(reason) = candidate_outcome.origin_deferral {
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
-            debug!(
-                event = reason.batch_stopped_event(),
-                reason = reason.as_str(),
-                deferred_urls = remaining,
-                "Deferring remaining scraper URLs while robots.txt cannot be read"
-            );
+            // A batch's last URL, such as a circuit probe's only one, leaves nothing to defer.
+            if remaining > 0 {
+                debug!(
+                    event = reason.batch_stopped_event(),
+                    reason = reason.as_str(),
+                    deferred_urls = remaining,
+                    "Deferring remaining scraper URLs while robots.txt cannot be read"
+                );
+            }
             outcome.record_deferred(reason, remaining);
             break;
         }
