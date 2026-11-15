@@ -15,6 +15,7 @@ use super::review_events::{
     commit_with_event, has_no_sold_page_record,
 };
 use super::sample_labels::url_pattern_review_crawl_host;
+use super::sample_redirects::fetch_sample_redirects;
 use super::schema_payload::ProductSchemaReviewCandidate;
 use super::url_pattern_sample::fetch_sample_urls;
 use super::{
@@ -25,7 +26,8 @@ use super::{
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::approval_guard::{
-    CurrentReview, FailedApprovalCheck, product_schema_approval_checks, url_pattern_approval_checks,
+    CurrentReview, FailedApprovalCheck, product_schema_approval_checks, redirect_probe_urls,
+    url_pattern_approval_checks,
 };
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
@@ -49,6 +51,27 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::debug;
+
+/// The approval-guard checks of the URL-pattern review `review_id`'s `candidate`, read from its
+/// stored sample and the sample redirects the console recorded.
+async fn guarded_url_pattern_checks(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    candidate: &UrlPatternReviewCandidate,
+) -> Result<Vec<FailedApprovalCheck>, ReviewRepositoryError> {
+    let crawl_host = url_pattern_review_crawl_host(transaction, review_id).await?;
+    let sample = fetch_sample_urls(&mut **transaction, review_id).await?;
+    let probe_urls = redirect_probe_urls(candidate, &crawl_host, &sample);
+    let redirects =
+        fetch_sample_redirects(transaction, review_id, listing_source_id, &probe_urls).await?;
+    Ok(url_pattern_approval_checks(
+        candidate,
+        &crawl_host,
+        &sample,
+        &redirects,
+    ))
+}
 
 /// An approval of a pending review as its approver sends it.
 #[derive(Debug, Clone, Copy)]
@@ -101,13 +124,13 @@ impl CrawlerReviewRepository {
             ARTIFACT_URL_PATTERN => {
                 let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let crawl_host = url_pattern_review_crawl_host(&mut transaction, review_id).await?;
-                let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
-                Ok(url_pattern_approval_checks(
+                guarded_url_pattern_checks(
+                    &mut transaction,
+                    review_id,
+                    &review.listing_source_id,
                     &candidate,
-                    &crawl_host,
-                    &sample,
-                ))
+                )
+                .await
             }
             ARTIFACT_PRODUCT_SCHEMA => {
                 let going_live = read_product_schemas_going_live(&mut transaction, &review).await?;
@@ -169,12 +192,15 @@ impl CrawlerReviewRepository {
                 let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 if guarded {
-                    let crawl_host =
-                        url_pattern_review_crawl_host(&mut transaction, review_id).await?;
-                    let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
-                        url_pattern_approval_checks(&candidate, &crawl_host, &sample),
+                        guarded_url_pattern_checks(
+                            &mut transaction,
+                            review_id,
+                            &review.listing_source_id,
+                            &candidate,
+                        )
+                        .await?,
                     )?;
                 }
                 let configuration = make_reviewed_url_pattern_live(

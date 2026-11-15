@@ -1594,6 +1594,24 @@ async fn should_keep_the_sample_labels_when_the_decision_changes() {
     );
 }
 
+/// Records, as the console's fetch before an agent approval does, that each sample URL whose
+/// redirect the guard reads for the review's current candidate led to itself.
+async fn record_fetches_without_redirect(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) {
+    let due = repository
+        .redirect_probes_due(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the redirect probe URLs: {error}"));
+    for url in due {
+        repository
+            .record_sample_redirect(review_id, &url, &url)
+            .await
+            .unwrap_or_else(|error| panic!("record a sample URL's fetch: {error}"));
+    }
+}
+
 /// In `agent` mode the reviewer agent approves a URL pattern on the local checks alone, never on
 /// labels or on what the crawler guesses: a pattern that takes none or all of the review's stored
 /// sample, or made-up paths, is refused, one that takes some of it is approved without a label, and the approval
@@ -1608,6 +1626,7 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_pattern_takes_
     let reviewer_approves = |expected_candidate_version: i64| {
         let repository = repository.clone();
         async move {
+            record_fetches_without_redirect(&repository, review_id).await;
             repository
                 .approve_review(
                     review_id,
