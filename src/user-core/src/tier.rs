@@ -23,6 +23,16 @@ impl UserTier {
             Self::Ultimate => "ULTIMATE",
         }
     }
+
+    /// How many saved searches may be active at once. The create and reactivate checks and the
+    /// tier reconciliation both read it from here, so the two cannot disagree.
+    pub fn active_search_filter_quota(self) -> usize {
+        match self {
+            Self::Free => 1,
+            Self::Pro => 5,
+            Self::Ultimate => usize::MAX,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -56,6 +66,13 @@ mod tests {
         assert_eq!("FREE", UserTier::Free.as_str());
         assert_eq!("PRO", UserTier::Pro.as_str());
         assert_eq!("ULTIMATE", UserTier::Ultimate.as_str());
+    }
+
+    #[test]
+    fn should_apply_active_search_filter_quotas_by_tier() {
+        assert_eq!(1, UserTier::Free.active_search_filter_quota());
+        assert_eq!(5, UserTier::Pro.active_search_filter_quota());
+        assert_eq!(usize::MAX, UserTier::Ultimate.active_search_filter_quota());
     }
 
     #[test]
