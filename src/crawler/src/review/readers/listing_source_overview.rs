@@ -26,6 +26,8 @@ pub struct ListingSourceQuery {
     pub search: Option<SearchTerm>,
     pub activity: Option<SourceActivity>,
     pub status: Option<SourceStatus>,
+    /// ListingSources that carry this label.
+    pub label: Option<SourceLabel>,
     pub sort: SourceSort,
     pub direction: SortDirection,
     pub window: ListWindow,
@@ -295,6 +297,7 @@ impl ListingSourceOverviewReader {
         .bind(query.status.map(status_name))
         .bind(i64::try_from(query.window.offset()).unwrap_or(i64::MAX))
         .bind(i64::try_from(query.window.limit()).unwrap_or(i64::MAX))
+        .bind(query.label.map(SourceLabel::as_str))
         .fetch_all(&self.pool)
         .await?;
 
@@ -385,7 +388,8 @@ const RANKED_SELECT: &str = "SELECT overview.*,
 /// of them. Binds `$1` to `$3` of [`OVERVIEW_CTES`], `$4` and `$5`, the ListingSources the spider
 /// and the scraper of this process work right now, `$6`, the `ILIKE` pattern of the name or host
 /// or null, `$7`, the activity filter or null, `$8`, the status filter or null, `$9`, the rows to
-/// skip, and `$10`, the most rows to answer. Every row carries the total; an empty window is one
+/// skip, `$10`, the most rows to answer, and `$11`, the label filter or null. Every row carries the
+/// total; an empty window is one
 /// row with the total and no ListingSource.
 ///
 /// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
@@ -418,6 +422,7 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
                     OR ($8 = 'failing' AND crawl_enabled AND scrape_failure_streak > 0)
                     OR ($8 = 'held' AND crawl_enabled AND held_removal_urls > 0))
+               AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
          )

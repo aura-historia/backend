@@ -209,6 +209,30 @@ pub struct AppliedSourceLabel {
     pub labelled_by: ReviewActor,
 }
 
+impl super::QueryValue for SourceLabel {
+    /// Every label a source may carry, the retired one included, so the console finds the sources
+    /// that still carry it.
+    const VALUES: &'static [(&'static str, Self)] = &[
+        ("NOT_AN_ESHOP", Self::NotAnEshop),
+        ("NOT_AN_ANTIQUE_SHOP", Self::NotAnAntiqueShop),
+        (
+            "URL_PATTERN_APPROACH_NOT_APPLICABLE",
+            Self::UrlPatternApproachNotApplicable,
+        ),
+        (
+            "PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE",
+            Self::ProductSchemaApproachNotApplicable,
+        ),
+        ("ROBOTS_DISALLOWED", Self::RobotsDisallowed),
+        ("SHOP_CLOSED", Self::ShopClosed),
+        ("BOT_PROTECTION", Self::BotProtection),
+        ("JAVASCRIPT_RENDERED", Self::JavascriptRendered),
+        ("LOGIN_REQUIRED", Self::LoginRequired),
+        ("OTHER", Self::Other),
+        ("APPROACH_NOT_APPLICABLE", Self::ApproachNotApplicable),
+    ];
+}
+
 /// What one entry of a ListingSource's label history did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -331,6 +355,21 @@ mod tests {
         }) {
             assert_eq!(None, label.required_artifact(), "{label:?}");
         }
+    }
+
+    #[test]
+    fn should_name_every_label_in_a_query_by_its_persisted_name() {
+        use crate::review::model::QueryValue;
+        assert_eq!(
+            SourceLabel::VALUES
+                .iter()
+                .map(|(name, label)| (*name, *label))
+                .collect::<Vec<_>>(),
+            SourceLabel::ALL
+                .iter()
+                .map(|label| (label.as_str(), *label))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

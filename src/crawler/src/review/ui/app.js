@@ -715,6 +715,7 @@ function listApiQuery(kind, params) {
     ['q', 'status', 'sort', 'dir'].forEach(copy);
     if (kind === 'sources') {
         copy('activity');
+        copy('label');
     } else {
         copy('artifact');
         copy('waiting');
@@ -734,7 +735,7 @@ function listApiPath(kind) {
 }
 
 function listFiltersActive(kind) {
-    const names = kind === 'sources' ? ['q', 'status', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
+    const names = kind === 'sources' ? ['q', 'status', 'label', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
     return names.some(name => listParameter(name));
 }
 
@@ -866,6 +867,7 @@ function renderListFilters(kind) {
     if (kind === 'sources') {
         return `${search}
           ${renderChips('Status', SOURCE_STATUS_CHIPS, listParameter('status'), 'status')}
+          ${renderSelect('Label', 'label', [['', 'Any label'], ...Object.entries({...SOURCE_LABELS, ...RETIRED_SOURCE_LABELS})], listParameter('label'))}
           ${renderSelect('Activity', 'activity', [['', 'Any activity'], ['crawling', 'Crawling now'], ['scraping', 'Scraping now'], ['idle', 'Idle']], listParameter('activity'))}
           ${reset}`;
     }

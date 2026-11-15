@@ -1221,3 +1221,50 @@ async fn should_count_a_failed_crawl_as_needing_attention_and_say_why_a_source_f
         .expect("the source exists");
     assert!(healthy_detail.failing_urls.is_empty());
 }
+
+/// The `label` filter lists the sources that carry that label, the retired one included.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_filter_listing_sources_by_their_label() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let closed = source(&pool, "Closed", "closed.example.com", true).await;
+    let gallery = source(&pool, "Gallery", "gallery.example.com", true).await;
+    let retired = source(&pool, "Retired", "retired.example.com", false).await;
+    source(&pool, "Unlabelled", "plain.example.com", true).await;
+    for (listing_source_id, label) in [
+        (closed, SourceLabel::ShopClosed),
+        (gallery, SourceLabel::NotAnEshop),
+    ] {
+        repository
+            .label_source(
+                &listing_source_id,
+                ReviewActor::Human,
+                &SourceLabelRequest::new(label, None).unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "UPDATE listing_sources SET source_label = 'APPROACH_NOT_APPLICABLE', \
+         source_labelled_at = NOW(), source_labelled_by = 'AGENT_AUTHOR' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(retired.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let with = |label| ListingSourceQuery {
+        label: Some(label),
+        ..ListingSourceQuery::default()
+    };
+
+    assert_eq!(
+        source_ids(&list_sources(&pool, with(SourceLabel::ShopClosed)).await),
+        vec![closed]
+    );
+    assert_eq!(
+        source_ids(&list_sources(&pool, with(SourceLabel::ApproachNotApplicable)).await),
+        vec![retired]
+    );
+    assert!(source_ids(&list_sources(&pool, with(SourceLabel::Other)).await).is_empty());
+}
