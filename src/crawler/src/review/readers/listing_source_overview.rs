@@ -4,9 +4,9 @@
 //! ListingSources.
 
 use crate::review::model::{
-    AppliedSourceLabel, CrawlStateOverview, ListPage, ListWindow, ListingSourceOverview,
-    ReviewActor, SearchTerm, SortDirection, SourceActivity, SourceLabel, SourceSort, SourceStatus,
-    UrlErrorKindCount,
+    AppliedQualification, AppliedSourceLabel, CrawlStateOverview, ListPage, ListWindow,
+    ListingSourceOverview, Qualification, ReviewActor, SearchTerm, SortDirection, SourceActivity,
+    SourceLabel, SourceSort, SourceStatus, UrlErrorKindCount,
 };
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
@@ -26,6 +26,8 @@ pub struct ListingSourceQuery {
     pub search: Option<SearchTerm>,
     pub activity: Option<SourceActivity>,
     pub status: Option<SourceStatus>,
+    /// ListingSources that carry this label.
+    pub label: Option<SourceLabel>,
     pub sort: SourceSort,
     pub direction: SortDirection,
     pub window: ListWindow,
@@ -84,6 +86,11 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.source_label_note,
         s.source_labelled_at,
         s.source_labelled_by,
+        s.in_crawl_scope,
+        s.qualification,
+        s.qualification_note,
+        s.qualified_at,
+        s.qualified_by,
         s.updated,
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
@@ -290,6 +297,7 @@ impl ListingSourceOverviewReader {
         .bind(query.status.map(status_name))
         .bind(i64::try_from(query.window.offset()).unwrap_or(i64::MAX))
         .bind(i64::try_from(query.window.limit()).unwrap_or(i64::MAX))
+        .bind(query.label.map(SourceLabel::as_str))
         .fetch_all(&self.pool)
         .await?;
 
@@ -355,6 +363,10 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Healthy => "healthy",
         SourceStatus::Disabled => "disabled",
         SourceStatus::Labelled => "labelled",
+        SourceStatus::Unqualified => "unqualified",
+        SourceStatus::Qualified => "qualified",
+        SourceStatus::Disqualified => "disqualified",
+        SourceStatus::QualificationNeedsHuman => "qualification_needs_human",
         SourceStatus::CrawlFailing => "crawl_failing",
         SourceStatus::CrawlNeedsOperator => "crawl_needs_operator",
         SourceStatus::Blocked => "blocked",
@@ -376,7 +388,8 @@ const RANKED_SELECT: &str = "SELECT overview.*,
 /// of them. Binds `$1` to `$3` of [`OVERVIEW_CTES`], `$4` and `$5`, the ListingSources the spider
 /// and the scraper of this process work right now, `$6`, the `ILIKE` pattern of the name or host
 /// or null, `$7`, the activity filter or null, `$8`, the status filter or null, `$9`, the rows to
-/// skip, and `$10`, the most rows to answer. Every row carries the total; an empty window is one
+/// skip, `$10`, the most rows to answer, and `$11`, the label filter or null. Every row carries the
+/// total; an empty window is one
 /// row with the total and no ListingSource.
 ///
 /// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
@@ -400,11 +413,16 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'healthy' AND crawl_enabled AND NOT needs_attention)
                     OR ($8 = 'disabled' AND NOT crawl_enabled AND source_label IS NULL)
                     OR ($8 = 'labelled' AND source_label IS NOT NULL)
+                    OR ($8 = 'unqualified' AND in_crawl_scope AND qualification IS NULL)
+                    OR ($8 = 'qualified' AND qualification = 'QUALIFIED')
+                    OR ($8 = 'disqualified' AND qualification = 'DISQUALIFIED')
+                    OR ($8 = 'qualification_needs_human' AND qualification = 'NEEDS_HUMAN')
                     OR ($8 = 'crawl_failing' AND crawl_enabled AND crawl_failed)
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
                     OR ($8 = 'failing' AND crawl_enabled AND scrape_failure_streak > 0)
                     OR ($8 = 'held' AND crawl_enabled AND held_removal_urls > 0))
+               AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
          )
@@ -417,20 +435,28 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
 }
 
 /// The `ORDER BY` list of `sort` in `direction`: every key in that direction, nulls last, the
-/// ListingSource id last. `Attention` ranks crawl-enabled sources first and labelled ones last,
-/// then those whose crawl waits for an operator, those whose last crawl failed, those with blocked
-/// URLs, the longest scrape failure streaks, those with held removals, the most pending reviews and
-/// the most recently updated.
+/// ListingSource id last. `Attention` follows the console's grouping of the table by each source's
+/// primary status, so every group is one run of rows: crawl-enabled sources first and labelled ones
+/// last; among the disabled ones, those whose qualification waits for a human, then those that wait
+/// for their qualification, then the others; among the crawl-enabled ones the conditions in the
+/// console's order of severity (crawl waits for an operator, last crawl failed, scrape failure
+/// streak, blocked URLs, held removals), then those never scraped before the healthy ones; within a
+/// group the longest scrape failure streaks, the most pending reviews and the most recently
+/// updated first.
 fn order_by(sort: SourceSort, direction: SortDirection) -> String {
     let keys: &[&str] = match sort {
         SourceSort::Attention => &[
             "crawl_enabled",
             "(source_label IS NULL)",
+            "(NOT crawl_enabled AND qualification IS NOT DISTINCT FROM 'NEEDS_HUMAN')",
+            "(NOT crawl_enabled AND in_crawl_scope AND qualification IS NULL)",
             "needs_operator",
             "crawl_failed",
+            "(scrape_failure_streak > 0)",
             "(blocked_urls > 0)",
-            "scrape_failure_streak",
             "(held_removal_urls > 0)",
+            "(last_successful_scrape IS NULL)",
+            "scrape_failure_streak",
             "pending_reviews",
             "updated",
         ],
@@ -460,6 +486,8 @@ fn overview_of_row(
         listing_source_name: row.try_get("listing_source_name")?,
         crawl_enabled: row.try_get("crawl_enabled")?,
         source_label: applied_source_label(row)?,
+        in_crawl_scope: row.try_get("in_crawl_scope")?,
+        qualification: applied_qualification(row)?,
         crawl_root_url: row.try_get("crawl_root_url")?,
         last_successful_crawl: row.try_get("last_successful_crawl")?,
         last_successful_scrape: row.try_get("last_successful_scrape")?,
@@ -539,6 +567,29 @@ fn applied_source_label(row: &PgRow) -> Result<Option<AppliedSourceLabel>, sqlx:
         note: row.try_get("source_label_note")?,
         labelled_at,
         labelled_by,
+    }))
+}
+
+/// The qualification the row's source carries; an unknown qualification or actor, or one without
+/// its note, time or actor, fails, so the console never shows a decision it cannot read whole.
+fn applied_qualification(row: &PgRow) -> Result<Option<AppliedQualification>, sqlx::Error> {
+    let Some(name) = row.try_get::<Option<String>, _>("qualification")? else {
+        return Ok(None);
+    };
+    let missing =
+        |column: &str| sqlx::Error::Decode(format!("qualification without {column}").into());
+    Ok(Some(AppliedQualification {
+        qualification: Qualification::from_persisted(&name).ok_or_else(|| {
+            sqlx::Error::Decode(format!("invalid persisted qualification `{name}`").into())
+        })?,
+        note: row
+            .try_get::<Option<String>, _>("qualification_note")?
+            .ok_or_else(|| missing("qualification_note"))?,
+        qualified_at: row
+            .try_get::<Option<OffsetDateTime>, _>("qualified_at")?
+            .ok_or_else(|| missing("qualified_at"))?,
+        qualified_by: persisted_actor("qualified_by", row.try_get("qualified_by")?)?
+            .ok_or_else(|| missing("qualified_by"))?,
     }))
 }
 

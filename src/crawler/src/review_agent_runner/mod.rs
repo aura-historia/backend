@@ -24,6 +24,7 @@ mod ledger;
 mod login;
 mod pass;
 mod process;
+mod qualification;
 mod queue;
 mod reports;
 mod settings;
@@ -167,20 +168,58 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     }
     let mut ledger = ProcessLedger::open(&settings.state_dir)?;
     ledger.prune(started - LEDGER_RETENTION)?;
+    if let Err(error) = qualification::prune(&settings.state_dir, started - LEDGER_RETENTION) {
+        warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Cannot prune the qualification ledger; the next run tries again"
+        );
+    }
+
+    // New sources are not crawled until they are qualified, so they come before the reviews; a
+    // failed qualification pass leaves them waiting for the next run and does not hold up the
+    // reviews.
+    match qualification::qualify_waiting_sources(settings, &console, stop, &mut state).await {
+        Ok(summary) if summary.processes > 0 || summary.decision_capped => info!(
+            event = "crawler.review_agent.qualification_pass_completed",
+            waiting = summary.waiting,
+            processes = summary.processes,
+            decided = summary.decided,
+            stopped = summary.stopped,
+            decision_capped = summary.decision_capped,
+            "Qualification pass finished"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Qualification pass failed; its sources wait for the next run"
+        ),
+    }
+    save_state(&settings.state_dir, &state)?;
 
     let (pass, mut state, ledger) =
         work_pending_reviews(settings, &console, limits, stop, state, ledger).await;
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
-    log_pass_finished(&summary, &ledger, now);
+    let qualifications = qualification::records_since(&settings.state_dir, now - LEDGER_RETENTION);
+    log_pass_finished(&summary, &ledger, &qualifications, now);
     if stop.is_requested() {
         return Ok(RunOutcome::Ran {
             summary,
             digest: None,
         });
     }
-    let digest = write_digest(settings, &console, &mut state, &ledger, now).await;
+    let digest = write_digest(
+        settings,
+        &console,
+        &mut state,
+        &ledger,
+        &qualifications,
+        now,
+    )
+    .await;
     if digest.is_some() {
         save_state(&settings.state_dir, &state)?;
     }
@@ -188,8 +227,13 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
 }
 
 /// Logs how a pass ended: at INFO when it started a process, at DEBUG when it only looked at the
-/// queue, which is most passes of an idle runner.
-fn log_pass_finished(summary: &PassSummary, ledger: &ProcessLedger, now: OffsetDateTime) {
+/// queue, which is most passes of an idle runner. The cost sums count the qualifier processes too.
+fn log_pass_finished(
+    summary: &PassSummary,
+    ledger: &ProcessLedger,
+    qualifications: &[qualification::QualificationRecord],
+    now: OffsetDateTime,
+) {
     macro_rules! log_pass_finished {
         ($level:expr) => {
             tracing::event!(
@@ -205,8 +249,10 @@ fn log_pass_finished(summary: &PassSummary, ledger: &ProcessLedger, now: OffsetD
                 processes = summary.processes,
                 decided = summary.decided,
                 stopped = %PassStop::describe(summary.stopped),
-                five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now),
-                weekly_cost_usd = ledger.cost_within(ONE_WEEK, now),
+                five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now)
+                    + qualification::cost_within(qualifications, FIVE_HOURS, now),
+                weekly_cost_usd = ledger.cost_within(ONE_WEEK, now)
+                    + qualification::cost_within(qualifications, ONE_WEEK, now),
                 "Review agents pass finished"
             )
         };
@@ -264,6 +310,7 @@ async fn write_digest(
     console: &ConsoleClient,
     state: &mut RunnerState,
     ledger: &ProcessLedger,
+    qualifications: &[qualification::QualificationRecord],
     now: OffsetDateTime,
 ) -> Option<PathBuf> {
     let from = match settings.mode {
@@ -286,8 +333,10 @@ async fn write_digest(
         }
     };
     let rolling = RollingCost {
-        five_hour_cost_usd: ledger.cost_within(FIVE_HOURS, now),
-        weekly_cost_usd: ledger.cost_within(ONE_WEEK, now),
+        five_hour_cost_usd: ledger.cost_within(FIVE_HOURS, now)
+            + qualification::cost_within(qualifications, FIVE_HOURS, now),
+        weekly_cost_usd: ledger.cost_within(ONE_WEEK, now)
+            + qualification::cost_within(qualifications, ONE_WEEK, now),
         paused_until: state.pause_at(now).map(|pause| {
             let limit = usage_limit_name(pause.limit);
             let name = if pause.paced {
@@ -306,7 +355,14 @@ async fn write_digest(
         ledger.since(from).cloned().collect(),
         queue,
         rolling,
-    );
+    )
+    .with_qualifications(qualification::digest_section(
+        &qualifications
+            .iter()
+            .filter(|record| record.finished >= from)
+            .cloned()
+            .collect::<Vec<_>>(),
+    ));
     match digest.write(&settings.state_dir) {
         Ok(path) => {
             info!(

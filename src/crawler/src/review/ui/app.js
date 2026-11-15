@@ -27,7 +27,13 @@ let selectedReviewRefreshReason = '';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 // A status the header shows until it is replaced: `Signed out`, or why the refresh failed.
 let transientStatus = null;
-let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
+// The review token the operator entered once. It is kept in this browser's local storage, so every
+// tab and every later visit uses it without asking again, until the operator signs out or the
+// console refuses it.
+const REVIEW_TOKEN_KEY = 'crawlerReviewAuthToken';
+let reviewAuthToken = readStoredReviewToken();
+// The prompt for the token while one is open, so requests refused at the same time share it.
+let reviewTokenPrompt = null;
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
 // The page and schema a URL fragment asks for, applied when its review has loaded.
@@ -85,14 +91,28 @@ function toggleTheme() {
     applyTheme(theme === 'dark' ? 'light' : 'dark');
 }
 
+// The stored token, taking over one an older console kept for this tab only; storage that cannot
+// be read leaves the console to ask for the token.
+function readStoredReviewToken() {
+    try {
+        const stored = localStorage.getItem(REVIEW_TOKEN_KEY) || sessionStorage.getItem(REVIEW_TOKEN_KEY) || '';
+        if (stored) localStorage.setItem(REVIEW_TOKEN_KEY, stored);
+        sessionStorage.removeItem(REVIEW_TOKEN_KEY);
+        return stored;
+    } catch (_) {
+        return '';
+    }
+}
+
 function setReviewAuthToken(token) {
     reviewAuthToken = token || '';
     reviewSessionEstablished = false;
-    if (reviewAuthToken) {
-        if (transientStatus?.text === 'Signed out') transientStatus = null;
-        sessionStorage.setItem('crawlerReviewAuthToken', reviewAuthToken);
-    } else {
-        sessionStorage.removeItem('crawlerReviewAuthToken');
+    if (reviewAuthToken && transientStatus?.text === 'Signed out') transientStatus = null;
+    try {
+        if (reviewAuthToken) localStorage.setItem(REVIEW_TOKEN_KEY, reviewAuthToken);
+        else localStorage.removeItem(REVIEW_TOKEN_KEY);
+    } catch (_) {
+        // Without storage the token lasts as long as this page.
     }
     updateSignOutButton();
 }
@@ -129,7 +149,18 @@ async function fetchOrNetworkError(path, options) {
     }
 }
 
-async function requestReviewAuthToken() {
+// Asks for the token once however many requests the console refused together: they all wait for
+// the one prompt and retry with its answer.
+function requestReviewAuthToken() {
+    if (!reviewTokenPrompt) {
+        reviewTokenPrompt = promptForReviewAuthToken().finally(() => {
+            reviewTokenPrompt = null;
+        });
+    }
+    return reviewTokenPrompt;
+}
+
+async function promptForReviewAuthToken() {
     const token = window.prompt('Enter crawler review token');
     if (token === null || !token.trim()) return false;
     const response = await fetchOrNetworkError('/api/session', {
@@ -159,8 +190,13 @@ async function api(path, options = {}, allowPrompt = true) {
     await ensureReviewSession();
     const headers = new Headers(options.headers || {});
     headers.set('content-type', 'application/json');
-    if (reviewAuthToken) headers.set('authorization', `Bearer ${reviewAuthToken}`);
+    const sentToken = reviewAuthToken;
+    if (sentToken) headers.set('authorization', `Bearer ${sentToken}`);
     const res = await fetchOrNetworkError(path, {...options, headers, credentials: 'same-origin'});
+    // A request refused while another one's prompt was answered retries with the new token first.
+    if (res.status === 401 && allowPrompt && sentToken !== reviewAuthToken && reviewAuthToken) {
+        return api(path, options, false);
+    }
     if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
         return api(path, options, false);
     }
@@ -264,6 +300,8 @@ const TONES = {
     rejected_by_model: 'bad',
     crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
+    awaiting_qualification: 'warn', qualification_needs_human: 'bad',
+    QUALIFIED: 'ok', DISQUALIFIED: 'bad', NEEDS_HUMAN: 'bad',
     crawling: 'info', scraping: 'info',
     HUMAN: 'info', AGENT_AUTHOR: 'neutral', AGENT_REVIEWER: 'neutral', SYSTEM: 'neutral',
     applied: 'ok', failed_check: 'bad', did_not_apply: 'bad', not_evaluated: 'warn', changed: 'info'
@@ -285,6 +323,14 @@ function pluralize(count, one, many) {
 
 function listingSourceName(source) {
     return String(source.listing_source_name || 'Unnamed source');
+}
+
+// The shop's real site, its crawl root, as a link that opens in a new tab under the source's name;
+// the host as plain text without a crawl root.
+function sourceSiteLink(source) {
+    const host = escapeHtml(sourceHost(source));
+    if (!isHttpUrl(source.crawl_root_url || '')) return `<span class="cell-sub">${host}</span>`;
+    return `<a class="cell-sub site-link" href="${escapeHtmlAttr(source.crawl_root_url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(source.crawl_root_url)} in a new tab">${host} ↗</a>`;
 }
 
 function sourceHost(source) {
@@ -648,7 +694,8 @@ const lists = {
     reviews: {items: undefined, total: 0, failure: '', sequence: 0, loading: false, unfilteredTotal: null}
 };
 
-const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled']];
+const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled'],
+    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -668,6 +715,7 @@ function listApiQuery(kind, params) {
     ['q', 'status', 'sort', 'dir'].forEach(copy);
     if (kind === 'sources') {
         copy('activity');
+        copy('label');
     } else {
         copy('artifact');
         copy('waiting');
@@ -687,7 +735,7 @@ function listApiPath(kind) {
 }
 
 function listFiltersActive(kind) {
-    const names = kind === 'sources' ? ['q', 'status', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
+    const names = kind === 'sources' ? ['q', 'status', 'label', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
     return names.some(name => listParameter(name));
 }
 
@@ -819,6 +867,7 @@ function renderListFilters(kind) {
     if (kind === 'sources') {
         return `${search}
           ${renderChips('Status', SOURCE_STATUS_CHIPS, listParameter('status'), 'status')}
+          ${renderSelect('Label', 'label', [['', 'Any label'], ...Object.entries({...SOURCE_LABELS, ...RETIRED_SOURCE_LABELS})], listParameter('label'))}
           ${renderSelect('Activity', 'activity', [['', 'Any activity'], ['crawling', 'Crawling now'], ['scraping', 'Scraping now'], ['idle', 'Idle']], listParameter('activity'))}
           ${reset}`;
     }
@@ -1039,6 +1088,15 @@ function primaryStatus(source) {
             title: `Labelled by ${actorWord(applied.labelled_by)}; not crawled until a human clears the label`
         };
     }
+    if (!source.crawl_enabled && source.qualification?.qualification === 'NEEDS_HUMAN') {
+        return {
+            key: 'qualification_needs_human', text: 'Qualification needs a human', more: source.qualification.note, note: true,
+            title: 'The review agent could not tell whether this is a real art and antiques e-shop; not crawled until a human qualifies it'
+        };
+    }
+    if (!source.crawl_enabled && source.in_crawl_scope && !source.qualification) {
+        return {key: 'awaiting_qualification', text: 'Awaiting qualification', more: '', title: 'Not crawled until the review agent qualifies it as a real art and antiques e-shop'};
+    }
     if (!source.crawl_enabled) return {key: 'crawling_disabled', text: 'Crawling disabled', more: ''};
     const [condition] = sourceConditions(source);
     if (condition) {
@@ -1167,7 +1225,8 @@ function sourceColumns() {
 // condition the rows share, with how many sources have it.
 const SOURCE_GROUP_LABELS = {
     crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
-    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled'
+    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled',
+    awaiting_qualification: 'Awaiting qualification', qualification_needs_human: 'Qualification needs a human'
 };
 
 function sourceGroupCount(key) {
@@ -1221,7 +1280,7 @@ function renderSourceRow(source) {
     const blockingLink = status.key === 'blocked_by_review' && blocking
         ? ` · <a href="${reviewHash(blocking)}">its review →</a>` : '';
     return `<tr${rowClasses(source.crawl_enabled ? '' : 'dim', listReturnId() === source.listing_source_id ? 'selected' : '', lists.sources.changes?.added.has(source.listing_source_id) ? 'changed' : '')}>
-      <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span><span class="cell-sub">${escapeHtml(sourceHost(source))}</span></a></td>
+      <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span></a>${sourceSiteLink(source)}</td>
       <td>${statusKeyBadge(status)}${status.more ? ` <span class="more${status.note ? ' more-note' : ''}"${status.note ? ` title="${escapeHtmlAttr(status.more)}"` : ''}>${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}</td>
       <td class="num">${pending ? `<a href="${escapeHtmlAttr(pendingHref)}">${formatCount(pending)}</a>` : '<span class="muted">0</span>'}</td>
       <td class="col-md">${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
@@ -1259,6 +1318,7 @@ let sourcePage = null;
 const openMassRemovalConfirmations = new Set();
 // The sources whose label form is open on their page.
 const openSourceLabelForms = new Set();
+const openQualificationForms = new Set();
 const MASS_REMOVAL_CONFIRMATION_HOURS = [[6, '6 hours'], [24, '24 hours'], [72, '3 days'], [168, '7 days']];
 
 function sourcePageId() {
@@ -1421,6 +1481,9 @@ function renderSourceHealth(source) {
     if (source.source_label) lines.push(renderSourceLabelLine(source));
     else if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
     if (!source.source_label && openSourceLabelForms.has(source.listing_source_id)) lines.push(renderSourceLabelForm(source.listing_source_id));
+    const qualification = renderQualificationLine(source);
+    if (qualification) lines.push(qualification);
+    if (openQualificationForms.has(source.listing_source_id)) lines.push(renderQualificationForm(source.listing_source_id));
     const crawl = source.last_crawl_outcome
         ? `${escapeHtml(reasonWord(source.last_crawl_outcome))}${source.last_successful_crawl ? ` ${timeBadge(source.last_successful_crawl, 'Last successful crawl')}` : ''}${Number(source.crawl_failure_count) > 0 && source.last_crawl_outcome !== 'NEEDS_OPERATOR' ? ` · ${pluralize(Number(source.crawl_failure_count), 'failed crawl', 'failed crawls')}` : ''}`
         : 'not crawled yet';
@@ -1430,10 +1493,12 @@ function renderSourceHealth(source) {
         : (Number(source.scrape_failure_streak) || 0) > 0 ? 'never scraped' : 'no failure streak';
     const errors = (source.url_error_kinds || []).filter(entry => !STATUS_ERROR_KINDS.has(entry.kind));
     return `<div class="card">
-      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an online shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
+      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an art and antiques e-shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
+        ${renderSourceLabelHistory(source)}
+        ${renderQualificationHistory(source)}
         <dl class="kv">
           <dt>Crawl</dt><dd>${crawl} · next ${nextCrawlText(source)}</dd>
           <dt>Scrape</dt><dd>${scrape}</dd>
@@ -1595,22 +1660,34 @@ async function revokeMassRemovalConfirmation(listingSourceId) {
 
 // ───────────────────────────── ListingSource labels ─────────────────────────────
 // What a human labels a source with when the crawler should not crawl it, in the order the form
-// offers them. The keys are the labels the crawler persists.
+// offers them. The keys are the labels the crawler offers for a new label.
 const SOURCE_LABELS = {
     NOT_AN_ESHOP: 'NOT AN E-SHOP',
-    APPROACH_NOT_APPLICABLE: 'APPROACH NOT APPLICABLE',
+    NOT_AN_ANTIQUE_SHOP: 'NOT AN ANTIQUE SHOP',
+    URL_PATTERN_APPROACH_NOT_APPLICABLE: 'URL PATTERN APPROACH NOT APPLICABLE',
+    PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE: 'PRODUCT SCHEMA APPROACH NOT APPLICABLE',
+    ROBOTS_DISALLOWED: 'ROBOTS DISALLOWED',
+    SHOP_CLOSED: 'SHOP CLOSED',
     BOT_PROTECTION: 'BOT PROTECTION',
     JAVASCRIPT_RENDERED: 'JAVASCRIPT RENDERED',
     LOGIN_REQUIRED: 'LOGIN REQUIRED',
     OTHER: 'OTHER',
 };
 
-// A label's colour says what kind of reason it is: blue for a site that is no shop, nothing
-// broken; amber where the crawler's technique does not fit the shop; red where the shop keeps the
-// crawler out; grey for any other reason.
+// Labels a source may still carry but no new label may use.
+const RETIRED_SOURCE_LABELS = {
+    APPROACH_NOT_APPLICABLE: 'APPROACH NOT APPLICABLE (RETIRED)',
+};
+
+// A label's colour says what kind of reason it is: blue for a site that is not an art and antiques e-shop,
+// nothing broken; amber where the crawler's technique does not fit the shop; red where the shop
+// keeps the crawler out or is gone; grey for any other reason.
 const SOURCE_LABEL_TONES = {
-    NOT_AN_ESHOP: 'info', APPROACH_NOT_APPLICABLE: 'warn', JAVASCRIPT_RENDERED: 'warn',
-    BOT_PROTECTION: 'bad', LOGIN_REQUIRED: 'bad', OTHER: 'neutral'
+    NOT_AN_ESHOP: 'info', NOT_AN_ANTIQUE_SHOP: 'info',
+    URL_PATTERN_APPROACH_NOT_APPLICABLE: 'warn', PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE: 'warn',
+    APPROACH_NOT_APPLICABLE: 'warn', JAVASCRIPT_RENDERED: 'warn',
+    ROBOTS_DISALLOWED: 'bad', SHOP_CLOSED: 'bad', BOT_PROTECTION: 'bad', LOGIN_REQUIRED: 'bad',
+    OTHER: 'neutral'
 };
 
 function sourceLabelTone(label) {
@@ -1618,7 +1695,22 @@ function sourceLabelTone(label) {
 }
 
 function sourceLabelName(label) {
-    return SOURCE_LABELS[label] || displayName(label);
+    return SOURCE_LABELS[label] || RETIRED_SOURCE_LABELS[label] || displayName(label);
+}
+
+// Every label the source was given or lost, oldest first, collapsed: the label a line replaced or
+// cleared is the line before it.
+function renderSourceLabelHistory(source) {
+    const events = source.label_history || [];
+    if (!events.length) return '';
+    const items = events.map(event => {
+        const what = event.event === 'CLEARED'
+            ? '<span class="badge badge-neutral">CLEARED</span>'
+            : `<span class="badge badge-${sourceLabelTone(event.label)}">${escapeHtml(sourceLabelName(event.label))}</span>`;
+        const note = event.note ? ` · ${escapeHtml(event.note)}` : '';
+        return `<li>${what} by ${escapeHtml(actorWord(event.actor))} ${timeBadge(event.occurred_at, event.event === 'CLEARED' ? 'Cleared' : 'Labelled')}${note}</li>`;
+    }).join('');
+    return `<details class="label-history"><summary>Label history (${formatCount(events.length)})</summary><ul>${items}</ul></details>`;
 }
 
 function renderSourceLabelLine(source) {
@@ -1626,6 +1718,82 @@ function renderSourceLabelLine(source) {
     const id = escapeHtmlAttr(source.listing_source_id);
     const note = applied.note ? `${escapeHtml(applied.note)} · ` : '';
     return `<div class="status-line"><span class="badge badge-${sourceLabelTone(applied.label)}">${escapeHtml(sourceLabelName(applied.label))}</span><div class="status-line-text">${note}not crawled · by ${escapeHtml(actorWord(applied.labelled_by))} ${timeBadge(applied.labelled_at, 'Labelled')} · <button class="btn-link" onclick="clearSourceLabel('${id}')" title="Crawl the source again once the next scope refresh enables it" type="button">Clear label</button></div></div>`;
+}
+
+// ───────────────────────────── ListingSource qualification ─────────────────────────────
+// Whether the source is a real art and antiques e-shop, as the review agent or a human decided it, with the
+// note that names the evidence; a source the scope admits without one is not crawled in agent mode.
+const QUALIFICATION_NAMES = {QUALIFIED: 'QUALIFIED', DISQUALIFIED: 'DISQUALIFIED', NEEDS_HUMAN: 'QUALIFICATION NEEDS A HUMAN'};
+
+function renderQualificationLine(source) {
+    const id = escapeHtmlAttr(source.listing_source_id);
+    const applied = source.qualification;
+    const qualify = `<button class="btn-link" aria-expanded="${openQualificationForms.has(source.listing_source_id)}" onclick="toggleQualificationForm('${id}')" title="Decide whether this is a real art and antiques e-shop" type="button">Qualify…</button>`;
+    if (!applied) {
+        if (!source.in_crawl_scope) return '';
+        return `<div class="status-line"><span class="badge badge-warn">AWAITING QUALIFICATION</span><div class="status-line-text">The review agent decides whether this is a real art and antiques e-shop before it is crawled · ${qualify}</div></div>`;
+    }
+    const tone = TONES[applied.qualification] || 'neutral';
+    return `<div class="status-line"><span class="badge badge-${tone}">${escapeHtml(QUALIFICATION_NAMES[applied.qualification] || displayName(applied.qualification))}</span><div class="status-line-text">${escapeHtml(applied.note)} · by ${escapeHtml(actorWord(applied.qualified_by))} ${timeBadge(applied.qualified_at, 'Qualified')} · ${qualify} · <button class="btn-link" onclick="clearQualification('${id}')" title="Clear the qualification so the source waits for a new one; the review agent decides it unless a human's label stands" type="button">Qualify again</button></div></div>`;
+}
+
+// A human qualifies the source with a note; qualifying it without a label clears its label.
+function renderQualificationForm(listingSourceId) {
+    const id = escapeHtmlAttr(listingSourceId);
+    return `<div class="list-row">
+      <select class="sm" aria-label="Qualification" id="qualification-${id}">
+        <option value="QUALIFIED">QUALIFIED</option>
+        <option value="DISQUALIFIED|NOT_AN_ESHOP">DISQUALIFIED: NOT AN E-SHOP</option>
+        <option value="DISQUALIFIED|NOT_AN_ANTIQUE_SHOP">DISQUALIFIED: NOT AN ANTIQUE SHOP</option>
+        <option value="DISQUALIFIED|ROBOTS_DISALLOWED">DISQUALIFIED: ROBOTS DISALLOWED</option>
+        <option value="DISQUALIFIED|SHOP_CLOSED">DISQUALIFIED: SHOP CLOSED</option>
+      </select>
+      <input class="sm" aria-label="Note" id="qualificationNote-${id}" maxlength="500" placeholder="Note (required)">
+      <button class="btn btn-primary btn-sm" onclick="qualifySource('${id}')" title="Qualifying without a label clears the source's label" type="button">Save</button>
+      <button class="btn btn-quiet btn-sm" onclick="toggleQualificationForm('${id}')" type="button">Cancel</button>
+    </div>`;
+}
+
+function toggleQualificationForm(listingSourceId) {
+    if (!openQualificationForms.delete(listingSourceId)) openQualificationForms.add(listingSourceId);
+    updateSourcePage();
+}
+
+async function qualifySource(listingSourceId) {
+    const [qualification, label] = (document.getElementById(`qualification-${listingSourceId}`)?.value || '').split('|');
+    const note = document.getElementById(`qualificationNote-${listingSourceId}`)?.value.trim() || '';
+    if (!qualification) return;
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/qualification`,
+            {method: 'PUT', body: JSON.stringify({qualification, label: label || null, note})});
+        openQualificationForms.delete(listingSourceId);
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+async function clearQualification(listingSourceId) {
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/qualification`, {method: 'DELETE'});
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+function renderQualificationHistory(source) {
+    const events = source.qualification_history || [];
+    if (!events.length) return '';
+    const items = events.map(event => {
+        const what = event.qualification
+            ? `<span class="badge badge-${TONES[event.qualification] || 'neutral'}">${escapeHtml(QUALIFICATION_NAMES[event.qualification] || displayName(event.qualification))}</span>`
+            : '<span class="badge badge-neutral">CLEARED</span>';
+        const label = event.label ? ` <span class="badge badge-${sourceLabelTone(event.label)}">${escapeHtml(sourceLabelName(event.label))}</span>` : '';
+        const note = event.note ? ` · ${escapeHtml(event.note)}` : '';
+        return `<li>${what}${label} by ${escapeHtml(actorWord(event.actor))} ${timeBadge(event.occurred_at, 'Decided')}${note}</li>`;
+    }).join('');
+    return `<details class="label-history"><summary>Qualification history (${formatCount(events.length)})</summary><ul>${items}</ul></details>`;
 }
 
 // The handler names the source by id and reads the form's own fields, never the page's HTML.
@@ -1772,12 +1940,17 @@ function renderRailItem(review, meta, badgeHtml) {
 
 const CHEVRON_ICON = direction => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${direction === 'left' ? 'M10 4l-4 4 4 4' : 'M6 4l4 4-4 4'}"/></svg>`;
 
-// The source's name opens the shop's site, its crawl root, in a new tab; without a crawl root it is
-// plain text.
-function railSourceName(name) {
+// The source's name opens its overview in the console; without a known source it is plain text.
+function railSourceName(name, listingSourceId) {
+    if (!listingSourceId) return `<span class="rail-source">${escapeHtml(name)}</span>`;
+    return `<a class="rail-source" href="${sourceHash(listingSourceId)}" title="Open this source's overview">${escapeHtml(name)}</a>`;
+}
+
+// Under the name, the shop's real site, its crawl root, opens in a new tab; nothing without one.
+function railSourceSite() {
     const site = rail.source?.crawl_root_url;
-    if (!isHttpUrl(site || '')) return `<span class="rail-source">${escapeHtml(name)}</span>`;
-    return `<a class="rail-source" href="${escapeHtmlAttr(site)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(site)} in a new tab">${escapeHtml(name)}</a>`;
+    if (!isHttpUrl(site || '')) return '';
+    return `<a class="rail-site" href="${escapeHtmlAttr(site)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(site)} in a new tab">${escapeHtml(sourceHost(rail.source))} ↗</a>`;
 }
 
 function renderRailContent() {
@@ -1785,7 +1958,7 @@ function renderRailContent() {
         return `<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(false)" aria-label="Show this source's reviews" title="Show this source's reviews" aria-expanded="false" type="button">${CHEVRON_ICON('right')}</button>`;
     }
     const name = selectedDetail?.review.listing_source_name || 'This source';
-    const head = `<div class="card-head"><h3>${railSourceName(name)}${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}</h3>
+    const head = `<div class="card-head"><div class="rail-source-head"><h3>${railSourceName(name, selectedDetail?.review.listing_source_id)}${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}</h3>${railSourceSite()}</div>
       <button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" aria-expanded="true" type="button">${CHEVRON_ICON('left')}</button></div>`;
     if (rail.items === undefined) {
         return `${head}<div class="rail-body">${rail.failure ? stateBlock('error', 'Reviews unavailable', rail.failure) : stateBlock('loading', 'Loading')}</div>`;

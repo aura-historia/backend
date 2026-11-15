@@ -79,7 +79,7 @@ where
                 (None, tools_for(role)?)
             }
         },
-        ReviewScope::AnyReview => (None, tools_for(role)?),
+        ReviewScope::AnyReview | ReviewScope::OnlySource(_) => (None, tools_for(role)?),
     };
     let server = ReviewMcpServer::new(role, scope, tools, context);
     info!(

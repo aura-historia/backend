@@ -6,7 +6,7 @@
 
 use super::review_events::ReviewMutation;
 use crate::CrawlerReviewId;
-use crate::review::model::{ReviewActor, SourceLabel};
+use crate::review::model::{Qualification, ReviewActor, SourceLabel};
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -26,6 +26,8 @@ pub(super) const MASS_REMOVAL_REVOKED_EVENT: &str = "crawler.source.mass_removal
 pub(super) const CRAWL_RESUMED_EVENT: &str = "crawler.source.crawl_resumed";
 pub(super) const SOURCE_LABELLED_EVENT: &str = "crawler.source.labelled";
 pub(super) const SOURCE_LABEL_CLEARED_EVENT: &str = "crawler.source.label_cleared";
+pub(super) const SOURCE_QUALIFIED_EVENT: &str = "crawler.source.qualified";
+pub(super) const SOURCE_QUALIFICATION_CLEARED_EVENT: &str = "crawler.source.qualification_cleared";
 
 /// What one review state change logs besides the source: which event, who acted, and the one
 /// detail that names the change.
@@ -62,6 +64,8 @@ pub(super) struct ReviewLogEntry {
     /// is never logged.
     source_label: Option<&'static str>,
     has_note: Option<bool>,
+    /// What a qualification of a ListingSource decided; its note is never logged.
+    qualification: Option<&'static str>,
 }
 
 impl ReviewLogEntry {
@@ -85,6 +89,7 @@ impl ReviewLogEntry {
             crawl_failure_count: None,
             source_label: None,
             has_note: None,
+            qualification: None,
         }
     }
 
@@ -166,6 +171,32 @@ impl ReviewLogEntry {
                 Some(actor),
             )
         }
+    }
+
+    /// `actor` decided the source's qualification, with the label it set, if any.
+    pub(super) fn source_qualified(
+        actor: ReviewActor,
+        qualification: Qualification,
+        label: Option<SourceLabel>,
+    ) -> Self {
+        Self {
+            qualification: Some(qualification.as_str()),
+            source_label: label.map(SourceLabel::as_str),
+            has_note: Some(true),
+            ..Self::new(
+                SOURCE_QUALIFIED_EVENT,
+                "ListingSource qualification decided",
+                Some(actor),
+            )
+        }
+    }
+
+    pub(super) fn source_qualification_cleared(actor: ReviewActor) -> Self {
+        Self::new(
+            SOURCE_QUALIFICATION_CLEARED_EVENT,
+            "ListingSource qualification cleared; the source waits for a new qualification",
+            Some(actor),
+        )
     }
 
     pub(super) fn source_label_cleared(actor: ReviewActor) -> Self {
@@ -508,6 +539,7 @@ impl PreparedReviewLog {
                     crawl_failure_count = entry.crawl_failure_count,
                     source_label = entry.source_label,
                     has_note = entry.has_note,
+                    qualification = entry.qualification,
                     incomplete_coverage = entry.incomplete_coverage,
                     "{}",
                     entry.message

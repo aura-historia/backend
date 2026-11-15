@@ -172,7 +172,12 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    pointing at the token file above; stderr to a file of its own. Drive each over stdio with a
    small scripted client in the scratchpad (newline-delimited JSON-RPC: `initialize`,
    `notifications/initialized`, `tools/list`, `tools/call`), never with the `claude` CLI, so the run
-   spends no LLM budget and no login. Expect 17 author and 9 reviewer tools, JSON-RPC error
+   spends no LLM budget and no login. In `agent` mode a new ListingSource is not crawled until it is
+   qualified (`docs/crawler/README.md#listingsource-qualification`): drive
+   `target/debug/review-mcp --role qualifier --listing-source <id>` the same way, expect its two
+   tools, `read_source_page` (the page with `links`, the shop pages it links) and `qualify_source`,
+   and `SOURCE_OUTSIDE_SCOPE` for any other source; a qualified source is crawl-enabled at the next
+   scope refresh. Expect 17 author and 9 reviewer tools, JSON-RPC error
    `-32602` for the other role's tool, `isError` results whose text is a JSON object with `kind`
    (`URL_OUTSIDE_REVIEW_SOURCE` for a URL off the review's ListingSource, before any request;
    `FORBIDDEN` with `reason`; `CONFLICT` with `failed_checks` when the approval guard refuses, for a
@@ -200,10 +205,14 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    expect `Started the review agent runner as a child of dev`, a pass every 30 seconds in the same
    log, and no runner process left after `dev` stops. Write a fake `claude` in the scratchpad, a shell script that answers
    `auth status --json` with `{"loggedIn": true, "authMethod": "claude.ai"}` and every other call
-   with a canned stream per role (`--mcp-config` names `--role author` or `reviewer`; the prompt
-   on stdin names the review id): JSON lines, as `--output-format stream-json --verbose` prints
-   them, ending with one `{"type":"result",...}` line; it records each call's argv, stdin and
-   environment.
+   with a canned stream per role (`--mcp-config` names `--role author`, `reviewer` or
+   `qualifier`; the prompt on stdin names the review id, or for the qualifier the ListingSource id
+   after `Your ListingSource:`): JSON lines, as `--output-format stream-json --verbose` prints
+   them, ending with one `{"type":"result",...}` line whose `structured_output` follows the role's
+   report schema (`src/crawler/src/review_agent_runner/schemas/`); it records each call's argv,
+   stdin and environment. A qualifier the fake answers can drive the real `review-mcp` from the
+   `--mcp-config` it is given, so the run checks the qualification end to end. Each run works the
+   qualification queue before the reviews and records it in `qualification-processes.jsonl`.
    Pass it by path, never through `PATH`: build with
    `cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner` and run
    `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake> CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=<scratchpad dir> target/debug/review-agent-runner --once`

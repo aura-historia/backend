@@ -29,6 +29,7 @@ pub mod sort_direction;
 pub mod source_event;
 pub mod source_label;
 pub mod source_product_url;
+pub mod source_qualification;
 pub mod status;
 pub mod url_pattern_candidate;
 
@@ -73,8 +74,14 @@ pub use sort_direction::SortDirection;
 pub use source_event::{SourceEvent, SourceEventKind};
 pub use source_label::{
     AppliedSourceLabel, MAX_SOURCE_LABEL_NOTE_CHARS, SourceLabel, SourceLabelError,
-    SourceLabelNote, SourceLabelRequest,
+    SourceLabelEvent, SourceLabelEventKind, SourceLabelNote, SourceLabelRequest,
 };
 pub use source_product_url::SourceProductUrl;
+pub use source_qualification::{
+    AGENT_NEEDS_HUMAN_RETRY_HOURS, AppliedQualification, MAX_AGENT_NEEDS_HUMAN_DECISIONS,
+    PreviousSourceLabel, Qualification, QualificationDecision, QualificationDecisionError,
+    QualificationEvent, QualificationLabelEffect, QualificationOutcome, QueuedSourceLabel,
+    SourceAwaitingQualification,
+};
 pub use status::*;
 pub use url_pattern_candidate::{UrlPatternDecision, UrlPatternReviewCandidate};

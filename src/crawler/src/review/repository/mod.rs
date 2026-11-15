@@ -49,6 +49,7 @@ mod revocation;
 mod sample_labels;
 mod schema_payload;
 mod source_label;
+mod source_qualification;
 mod url_pattern_sample;
 mod verdicts;
 
@@ -60,6 +61,7 @@ pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use schema_payload::ProductSchemaCandidateFailure;
+pub(crate) use source_qualification::AGENT_RETRY_DUE;
 pub use verdicts::Approval;
 
 use review_events::{
@@ -132,6 +134,27 @@ pub enum ReviewRepositoryError {
         "a review agent labels a ListingSource only with a note naming the evidence: what it read and why the crawler should not crawl the shop"
     )]
     AgentSourceLabelNeedsNote,
+    #[error(
+        "the label {label} names another approach than the {artifact_type} review it is set on: label a URL-pattern review URL_PATTERN_APPROACH_NOT_APPLICABLE and a product-schema review PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE"
+    )]
+    SourceLabelDoesNotFitReview {
+        label: &'static str,
+        artifact_type: String,
+    },
+    #[error(transparent)]
+    InvalidSourceLabel(#[from] crate::review::model::SourceLabelError),
+    #[error(
+        "ListingSource {0} has a qualification already; only a human decides it again or clears it"
+    )]
+    SourceAlreadyQualified(ListingSourceId),
+    #[error(
+        "ListingSource {0} is not admitted to crawling by the scope, or has no crawl root, so there is nothing to qualify"
+    )]
+    SourceNotInCrawlScope(ListingSourceId),
+    #[error(
+        "a human labelled ListingSource {0}; a review agent replaces a human's label only in the one-off backfill"
+    )]
+    HumanLabelStands(ListingSourceId),
     #[error(
         "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
     )]
@@ -256,7 +279,7 @@ pub enum ReviewRepositoryError {
     #[error("an agent rejection needs notes saying why the candidate is rejected")]
     MissingRejectionNote,
     #[error(
-        "the review agents made their {limit} approvals and rejections of the last hour; retry in {} seconds",
+        "the review agents made their {limit} approvals, rejections and qualifications of the last hour; retry in {} seconds",
         retry_after.as_secs()
     )]
     AgentDecisionLimitReached { limit: u32, retry_after: Duration },

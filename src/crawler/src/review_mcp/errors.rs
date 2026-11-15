@@ -37,6 +37,10 @@ pub enum ToolError {
         "this agent process works review {0} only; the review tools refuse every call that names no review or another one"
     )]
     ReviewOutsideScope(CrawlerReviewId),
+    #[error(
+        "this agent process qualifies ListingSource {0} only; the qualification tools refuse every call that names no ListingSource or another one"
+    )]
+    SourceOutsideScope(listing_source_core::ListingSourceId),
     #[error("{0}")]
     Console(#[from] ConsoleError),
     #[error(
@@ -100,6 +104,7 @@ impl ToolError {
             Self::InvalidArguments(_) => "INVALID_ARGUMENTS",
             Self::UrlOutsideReviewSource(_) => "URL_OUTSIDE_REVIEW_SOURCE",
             Self::ReviewOutsideScope(_) => "REVIEW_OUTSIDE_SCOPE",
+            Self::SourceOutsideScope(_) => "SOURCE_OUTSIDE_SCOPE",
             Self::Console(ConsoleError::Refused(refusal)) => refusal_kind(refusal.status),
             Self::Console(ConsoleError::Unauthorized | ConsoleError::TokenFile(_)) => {
                 "UNAUTHORIZED"

@@ -124,7 +124,8 @@ pub struct RunnerSettings {
 impl RunnerSettings {
     pub fn role(&self, role: AgentRole) -> &AgentProcessSettings {
         match role {
-            AgentRole::Author => &self.author,
+            // The qualifier is the author agent with the qualification tools.
+            AgentRole::Author | AgentRole::Qualifier => &self.author,
             AgentRole::Reviewer => &self.reviewer,
         }
     }
@@ -132,7 +133,7 @@ impl RunnerSettings {
     /// The model of `role` on a URL-pattern review in place of the role's model, if any.
     pub fn url_pattern_model(&self, role: AgentRole) -> Option<&str> {
         match role {
-            AgentRole::Author => self.author_url_pattern_model.as_deref(),
+            AgentRole::Author | AgentRole::Qualifier => self.author_url_pattern_model.as_deref(),
             AgentRole::Reviewer => self.reviewer_url_pattern_model.as_deref(),
         }
     }
@@ -313,7 +314,7 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
     /// [`REVIEWER_URL_PATTERN_MODEL_ENV`], `None` when the role's setting names none.
     fn url_pattern_model(&self, role: AgentRole) -> Result<Option<String>, RunnerSettingsError> {
         self.model(match role {
-            AgentRole::Author => AUTHOR_URL_PATTERN_MODEL_ENV,
+            AgentRole::Author | AgentRole::Qualifier => AUTHOR_URL_PATTERN_MODEL_ENV,
             AgentRole::Reviewer => REVIEWER_URL_PATTERN_MODEL_ENV,
         })
     }

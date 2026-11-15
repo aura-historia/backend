@@ -6,6 +6,7 @@
 
 use crate::CrawlerReviewId;
 use crate::review::agent_tokens::REVIEW_AGENT_TOKEN_FILE;
+use listing_source_core::ListingSourceId;
 use std::fmt;
 use std::path::PathBuf;
 use url::Url;
@@ -21,6 +22,9 @@ pub const REVIEW_AGENT_TOKEN_FILE_ENV: &str = "CRAWLER_REVIEW_AGENT_TOKEN_FILE";
 pub enum AgentRole {
     Author,
     Reviewer,
+    /// The author agent qualifying one ListingSource as a real art and antiques e-shop before it is
+    /// crawled: it acts with the author's token and has only the qualification tools.
+    Qualifier,
 }
 
 impl AgentRole {
@@ -29,11 +33,12 @@ impl AgentRole {
         match self {
             Self::Author => "author",
             Self::Reviewer => "reviewer",
+            Self::Qualifier => "qualifier",
         }
     }
 
     fn parse(value: &str) -> Option<Self> {
-        [Self::Author, Self::Reviewer]
+        [Self::Author, Self::Reviewer, Self::Qualifier]
             .into_iter()
             .find(|role| role.as_str() == value)
     }
@@ -53,6 +58,9 @@ pub enum ReviewScope {
     /// Only this review. The runner starts each agent process for one review, so page content
     /// the agent reads cannot turn it on any other review.
     Only(CrawlerReviewId),
+    /// Only the qualification of this ListingSource, for the qualifier: the runner starts each
+    /// qualifier process for one source.
+    OnlySource(ListingSourceId),
 }
 
 impl ReviewScope {
@@ -61,13 +69,25 @@ impl ReviewScope {
         match self {
             Self::AnyReview => true,
             Self::Only(scoped) => scoped == review_id,
+            Self::OnlySource(_) => false,
+        }
+    }
+
+    /// Whether a tool call on the ListingSource `listing_source_id` stays within the scope.
+    pub fn admits_source(self, listing_source_id: ListingSourceId) -> bool {
+        match self {
+            Self::AnyReview => true,
+            Self::Only(_) => false,
+            Self::OnlySource(scoped) => scoped == listing_source_id,
         }
     }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ReviewMcpSettingsError {
-    #[error("usage: review-mcp --role author|reviewer [--review <review id>]; {0}")]
+    #[error(
+        "usage: review-mcp --role author|reviewer [--review <review id>] | --role qualifier [--listing-source <ListingSource id>]; {0}"
+    )]
     Usage(String),
     /// The value itself is not repeated: a refused one may carry credentials or a token.
     #[error(
@@ -145,8 +165,8 @@ impl ReviewConsoleAccess {
     }
 }
 
-/// The role from `--role`, required, and the scope from `--review`, optional; each at most once,
-/// as `--flag value` or `--flag=value`.
+/// The role from `--role`, required, and the scope from `--review` or, for the qualifier only,
+/// `--listing-source`, optional; each at most once, as `--flag value` or `--flag=value`.
 fn command_line(
     args: impl IntoIterator<Item = String>,
 ) -> Result<(AgentRole, ReviewScope), ReviewMcpSettingsError> {
@@ -154,12 +174,16 @@ fn command_line(
     let mut args = args.into_iter();
     let mut role = None;
     let mut review = None;
+    let mut listing_source = None;
     while let Some(arg) = args.next() {
-        let Some((flag, inline)) = ["--role", "--review"].into_iter().find_map(|flag| {
-            arg.strip_prefix(flag)
-                .filter(|rest| rest.is_empty() || rest.starts_with('='))
-                .map(|rest| (flag, rest))
-        }) else {
+        let Some((flag, inline)) = ["--role", "--review", "--listing-source"]
+            .into_iter()
+            .find_map(|flag| {
+                arg.strip_prefix(flag)
+                    .filter(|rest| rest.is_empty() || rest.starts_with('='))
+                    .map(|rest| (flag, rest))
+            })
+        else {
             return Err(usage(format!("unexpected argument {arg:?}")));
         };
         let value = match inline.strip_prefix('=') {
@@ -175,6 +199,13 @@ fn command_line(
             if role.replace(parsed).is_some() {
                 return Err(given_twice());
             }
+        } else if flag == "--listing-source" {
+            let parsed = value
+                .parse::<ListingSourceId>()
+                .map_err(|_| usage(format!("{value:?} is not a ListingSource id")))?;
+            if listing_source.replace(parsed).is_some() {
+                return Err(given_twice());
+            }
         } else {
             let parsed = value
                 .parse::<CrawlerReviewId>()
@@ -185,10 +216,20 @@ fn command_line(
         }
     }
     let role = role.ok_or_else(|| usage("--role is required".to_owned()))?;
-    Ok((
-        role,
-        review.map_or(ReviewScope::AnyReview, ReviewScope::Only),
-    ))
+    let scope = match (role, review, listing_source) {
+        (AgentRole::Qualifier, Some(_), _) => {
+            return Err(usage("the qualifier works no review".to_owned()));
+        }
+        (AgentRole::Author | AgentRole::Reviewer, _, Some(_)) => {
+            return Err(usage(
+                "only the qualifier takes --listing-source".to_owned(),
+            ));
+        }
+        (_, Some(review_id), None) => ReviewScope::Only(review_id),
+        (_, None, Some(listing_source_id)) => ReviewScope::OnlySource(listing_source_id),
+        (_, None, None) => ReviewScope::AnyReview,
+    };
+    Ok((role, scope))
 }
 
 /// The console's base URL. The bearer token travels with every request, so plain http is
@@ -239,6 +280,51 @@ mod tests {
             |name| env.get(name).cloned(),
             || PathBuf::from("/var/lib/crawler"),
         )
+    }
+
+    /// The qualifier works one ListingSource and no review; only it takes `--listing-source`.
+    #[test]
+    fn should_scope_the_qualifier_to_one_listing_source_and_no_review() {
+        let listing_source_id = ListingSourceId::new();
+        let read = settings(
+            &[
+                "--role",
+                "qualifier",
+                "--listing-source",
+                &listing_source_id.to_string(),
+            ],
+            &[],
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(read.role, AgentRole::Qualifier);
+        assert_eq!(read.scope, ReviewScope::OnlySource(listing_source_id));
+        assert!(read.scope.admits_source(listing_source_id));
+        assert!(!read.scope.admits_source(ListingSourceId::new()));
+        assert!(!read.scope.admits(CrawlerReviewId::new()));
+
+        let review = CrawlerReviewId::new().to_string();
+        let source = listing_source_id.to_string();
+        for refused in [
+            &["--role", "qualifier", "--review", review.as_str()][..],
+            &["--role", "author", "--listing-source", source.as_str()][..],
+            &["--role", "qualifier", "--listing-source", "not-an-id"][..],
+            &[
+                "--role",
+                "qualifier",
+                "--listing-source",
+                source.as_str(),
+                "--listing-source",
+                source.as_str(),
+            ][..],
+        ] {
+            assert!(
+                matches!(
+                    settings(refused, &[]),
+                    Err(ReviewMcpSettingsError::Usage(_))
+                ),
+                "{refused:?}"
+            );
+        }
     }
 
     #[test]

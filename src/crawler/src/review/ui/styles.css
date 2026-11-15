@@ -246,6 +246,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .failing-urls-title { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
 .failing-urls ul { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
 .failing-urls li { display: grid; gap: 1px; min-width: 0; }
+.label-history { font-size: var(--fs-sm); }
+.label-history summary { color: var(--muted); cursor: pointer; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.label-history ul { display: grid; gap: var(--s-2); margin: var(--s-2) 0 0; padding: 0; list-style: none; }
+.label-history li { overflow-wrap: anywhere; }
 .failing-url-kind { color: var(--ink-2); }
 .failing-url-message { color: var(--muted); overflow-wrap: anywhere; }
 
@@ -314,6 +318,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .data-table a.cell-main:hover { color: var(--accent); }
 .data-table .row-link { color: inherit; }
 .data-table .row-link:hover { color: var(--accent); text-decoration: none; }
+.data-table a.site-link { width: fit-content; max-width: 100%; text-decoration: none; }
+.data-table a.site-link:hover { color: var(--ink-2); text-decoration: underline; }
 .data-table td .badge + .badge { margin-left: 4px; }
 .data-table .more { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
 /* A label's free-text note stays on one line, cut short, so it never widens the table. */
@@ -573,6 +579,9 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .rail .card-head h3 { flex-wrap: wrap; min-width: 0; }
 .rail .card-head .rail-source { color: var(--ink); text-decoration: none; }
 .rail .card-head a.rail-source:hover { text-decoration: underline; }
+.rail .rail-source-head { display: grid; gap: 2px; min-width: 0; }
+.rail .rail-site { color: var(--muted); font-size: var(--fs-xs); text-decoration: none; overflow-wrap: anywhere; }
+.rail .rail-site:hover { color: var(--ink-2); text-decoration: underline; }
 .rail .card-head .btn { flex: none; margin-left: auto; }
 @media (max-width: 1319px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 719px) { .refresh-state { display: none; } .queue-bar .kbd-hint { display: none; } }

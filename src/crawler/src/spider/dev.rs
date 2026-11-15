@@ -43,7 +43,7 @@ use crawler::logging::{
 };
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
-    ScopedListingSource,
+    QualificationGate, ScopedListingSource,
 };
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -272,7 +272,7 @@ async fn register_demo_listing_source(
 ) -> Result<CrawlRoot, DemoError> {
     let crawl_root = CrawlRoot::from_presentation_url(crawl_root_url)
         .map_err(|error| DemoError::Demo(error.to_string()))?;
-    ListingSourceRegistrationRepositoryImpl::new(pool.clone())
+    ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off)
         .apply_snapshot(&[ScopedListingSource {
             listing_source_id,
             listing_source_name: listing_source_core::ListingSourceName::try_from("Demo source")

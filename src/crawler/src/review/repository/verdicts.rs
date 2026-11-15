@@ -434,9 +434,35 @@ async fn refuse_approval_of_own_change(
 /// their review's row lock.
 const AGENT_DECISION_LOCK: i64 = 0x2533_0001;
 
-/// Refuses a review agent's verdict once the agents made `limit` approvals and rejections within
-/// the last hour, as the event trail records them, so the cap holds across restarts.
-async fn check_agent_decision_rate(
+/// The review agents' approvals, rejections and qualifications within the last hour, as the review
+/// event trail and the qualification history record them, oldest first: for each, how many
+/// seconds it stays within that hour. Reading them from the stores holds the cap across restarts.
+async fn agent_decisions_of_the_last_hour(
+    executor: impl sqlx::PgExecutor<'_>,
+) -> Result<Vec<f64>, sqlx::Error> {
+    sqlx::query_scalar::<_, f64>(
+        "SELECT EXTRACT(EPOCH FROM decided + INTERVAL '1 hour' - clock_timestamp())::float8 \
+         FROM (SELECT created AS decided FROM crawler_review_events \
+               WHERE actor = ANY($1) AND action = ANY($2) \
+                 AND created > clock_timestamp() - INTERVAL '1 hour' \
+               UNION ALL \
+               SELECT occurred_at FROM listing_source_qualification_events \
+               WHERE actor = ANY($1) AND qualification IS NOT NULL \
+                 AND occurred_at > clock_timestamp() - INTERVAL '1 hour') decisions \
+         ORDER BY decided",
+    )
+    .bind(ReviewActor::AGENTS.map(ReviewActor::as_str))
+    .bind([
+        ReviewEventAction::Approved.as_str(),
+        ReviewEventAction::Rejected.as_str(),
+    ])
+    .fetch_all(executor)
+    .await
+}
+
+/// Refuses a review agent's verdict or qualification once the agents made `limit` approvals,
+/// rejections and qualifications within the last hour.
+pub(super) async fn check_agent_decision_rate(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     limit: NonZeroU32,
 ) -> Result<(), ReviewRepositoryError> {
@@ -444,26 +470,24 @@ async fn check_agent_decision_rate(
         .bind(AGENT_DECISION_LOCK)
         .execute(&mut **transaction)
         .await?;
-    let seconds_left = sqlx::query_scalar::<_, f64>(
-        "SELECT EXTRACT(EPOCH FROM created + INTERVAL '1 hour' - clock_timestamp())::float8 \
-         FROM crawler_review_events \
-         WHERE actor = ANY($1) AND action = ANY($2) \
-           AND created > clock_timestamp() - INTERVAL '1 hour' \
-         ORDER BY created",
-    )
-    .bind(ReviewActor::AGENTS.map(ReviewActor::as_str))
-    .bind([
-        ReviewEventAction::Approved.as_str(),
-        ReviewEventAction::Rejected.as_str(),
-    ])
-    .fetch_all(&mut **transaction)
-    .await?;
+    let seconds_left = agent_decisions_of_the_last_hour(&mut **transaction).await?;
     match agent_decision_wait(&seconds_left, limit) {
         None => Ok(()),
         Some(retry_after) => Err(ReviewRepositoryError::AgentDecisionLimitReached {
             limit: limit.get(),
             retry_after,
         }),
+    }
+}
+
+impl CrawlerReviewRepository {
+    /// How many more approvals, rejections and qualifications the review agents may make now
+    /// before their hourly cap refuses one, for the runner to start no more qualifiers than can
+    /// decide. A snapshot: a decision made after it can still be refused.
+    pub async fn agent_decisions_left(&self) -> Result<u32, ReviewRepositoryError> {
+        let made = agent_decisions_of_the_last_hour(&self.pool).await?.len();
+        let limit = self.agent_decisions.limits().max_decisions_per_hour.get();
+        Ok(limit.saturating_sub(u32::try_from(made).unwrap_or(u32::MAX)))
     }
 }
 

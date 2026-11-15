@@ -101,7 +101,8 @@ impl RoleTokenFile {
                 source,
             })?;
         let token = match self.role {
-            AgentRole::Author => tokens.author,
+            // The qualifier is the author agent with other tools.
+            AgentRole::Author | AgentRole::Qualifier => tokens.author,
             AgentRole::Reviewer => tokens.reviewer,
         };
         if token.is_empty() || !token.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
@@ -159,10 +160,16 @@ pub(super) mod tests {
 
         let author = RoleTokenFile::new(directory.path(), AgentRole::Author).read();
         let reviewer = RoleTokenFile::new(directory.path(), AgentRole::Reviewer).read();
+        let qualifier = RoleTokenFile::new(directory.path(), AgentRole::Qualifier).read();
 
         assert_eq!(
             author.map(|token| token.authorization()).ok(),
             Some("Bearer authortoken1".to_owned())
+        );
+        assert_eq!(
+            qualifier.map(|token| token.authorization()).ok(),
+            Some("Bearer authortoken1".to_owned()),
+            "the qualifier acts as the author agent"
         );
         assert_eq!(
             reviewer.map(|token| token.authorization()).ok(),

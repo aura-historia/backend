@@ -5,7 +5,7 @@
 use crawler::CrawlRoot;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
-    ScopedListingSource,
+    QualificationGate, ScopedListingSource,
 };
 use crawler::spider::crawl_frontier_repository::{
     CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
@@ -20,7 +20,7 @@ const MIGRATION: &str = include_str!("../migrations/20261114000000_drop_made_up_
 
 async fn insert_listing_source(pool: &PgPool) -> ListingSourceId {
     let listing_source_id = ListingSourceId::new();
-    ListingSourceRegistrationRepositoryImpl::new(pool.clone())
+    ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off)
         .apply_snapshot(&[ScopedListingSource {
             listing_source_id,
             listing_source_name: ListingSourceName::try_from("Base href shop").unwrap(),

@@ -124,6 +124,8 @@ pub struct Digest {
     context_use: ContextUseSummary,
     reports: Vec<ProcessRecord>,
     rolling: RollingCost,
+    /// The qualification pass's section, which its own ledger feeds; empty without one.
+    qualifications: String,
 }
 
 impl Digest {
@@ -198,6 +200,7 @@ impl Digest {
             schema_wait,
             decisions,
             events_truncated: events.truncated,
+            qualifications: String::new(),
             refusals_by_check: BTreeMap::new(),
             refusals_by_kind: BTreeMap::new(),
             processes_by_end: BTreeMap::new(),
@@ -284,8 +287,17 @@ impl Digest {
         self.write_processes(&mut out);
         self.context_use.write_markdown(&mut out);
         self.write_reports(&mut out);
+        out.push_str(&self.qualifications);
         self.write_rolling_cost(&mut out);
         out
+    }
+
+    /// The digest with the qualification pass's Markdown `section` before its usage.
+    pub fn with_qualifications(self, section: String) -> Self {
+        Self {
+            qualifications: section,
+            ..self
+        }
     }
 
     /// When the oldest pending review that waits for a human opened, if any waits.
@@ -611,6 +623,7 @@ fn role_name(role: ProcessRole) -> &'static str {
     match role {
         ProcessRole::Author => "author",
         ProcessRole::Reviewer => "reviewer",
+        ProcessRole::Qualifier => "qualifier",
     }
 }
 

@@ -4,7 +4,7 @@
 
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
-    ListingSourceSnapshotResult, ScopedListingSource,
+    ListingSourceSnapshotResult, QualificationGate, ScopedListingSource,
 };
 use crawler::spider::candidate_service::{
     CrawlRateLimitWrite, SpiderCandidateService, SpiderCandidateServiceImpl,
@@ -36,7 +36,7 @@ async fn apply_scope(
     listing_source_id: ListingSourceId,
     root: &str,
 ) -> ListingSourceSnapshotResult {
-    ListingSourceRegistrationRepositoryImpl::new(pool.clone())
+    ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off)
         .apply_snapshot(&[ScopedListingSource {
             listing_source_id,
             listing_source_name: ListingSourceName::try_from("Moving shop").unwrap(),

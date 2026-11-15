@@ -33,6 +33,48 @@ impl CrawlerReviewRepository {
     }
 }
 
+impl CrawlerReviewRepository {
+    /// `raw_url` without its fragment when it is a plain http(s) URL on the crawl host of the
+    /// ListingSource `listing_source_id`; a source that does not exist is refused.
+    pub async fn listing_source_url(
+        &self,
+        listing_source_id: &listing_source_core::ListingSourceId,
+        raw_url: &str,
+    ) -> Result<Url, ReviewRepositoryError> {
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM listing_sources WHERE listing_source_id = $1)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await?;
+        if !exists {
+            return Err(ReviewRepositoryError::ListingSourceNotFound(
+                *listing_source_id,
+            ));
+        }
+        let crawl_host =
+            listing_source_crawl_host(&self.pool, *listing_source_id.as_uuid()).await?;
+        review_source_url(raw_url, crawl_host.as_deref())
+    }
+
+    /// The crawl root of the ListingSource `listing_source_id`, `None` without one; a source that
+    /// does not exist is refused.
+    pub async fn listing_source_crawl_root(
+        &self,
+        listing_source_id: &listing_source_core::ListingSourceId,
+    ) -> Result<Option<String>, ReviewRepositoryError> {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT crawl_root_url FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(ReviewRepositoryError::ListingSourceNotFound(
+            *listing_source_id,
+        ))
+    }
+}
+
 /// The crawl host of the ListingSource `listing_source_id`, `None` without a crawl root.
 pub(super) async fn listing_source_crawl_host(
     pool: &PgPool,

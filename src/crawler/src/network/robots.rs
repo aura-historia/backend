@@ -116,6 +116,17 @@ impl RobotsPolicy {
         }
     }
 
+    /// Why robots.txt refuses `url`, for a diagnostic: the refusing rule
+    /// with its group, or that robots.txt is unreachable; `None` when it
+    /// allows `url`.
+    pub fn refusal_details(&self, url: &Url) -> Option<String> {
+        match self {
+            Self::Rules(rules) => rules.refusing_rule(url),
+            Self::Unavailable => None,
+            Self::Unreachable => Some("robots.txt is unreachable".to_owned()),
+        }
+    }
+
     pub fn check(&self, url: &Url) -> Result<(), RobotsRefusal> {
         match self {
             Self::Rules(rules) if !rules.allows(url) => Err(RobotsRefusal::Disallowed),
@@ -146,6 +157,8 @@ impl RobotsPolicy {
 pub struct RobotsRules {
     rules: Vec<Rule>,
     crawl_delay: Option<Duration>,
+    /// Whether the rules come from groups naming the crawler, not from the `*` groups.
+    names_crawler: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,10 +192,12 @@ impl RobotsRules {
                 .collect::<Vec<_>>()
         };
         let mut selected = applies(CRAWLER_PRODUCT_TOKEN);
-        if selected.is_empty() {
+        let names_crawler = !selected.is_empty();
+        if !names_crawler {
             selected = applies("*");
         }
         Self {
+            names_crawler,
             rules: selected
                 .iter()
                 .flat_map(|group| group.rules.iter().cloned())
@@ -198,15 +213,31 @@ impl RobotsRules {
     /// The longest matching rule decides; `Allow` wins a tie and a URL no
     /// rule matches is allowed (RFC 9309 section 2.2.2).
     pub fn allows(&self, url: &Url) -> bool {
+        self.deciding_rule(url).is_none_or(|rule| rule.allow)
+    }
+
+    /// The rule that refuses `url`, as robots.txt states it with the group it
+    /// belongs to, such as `User-agent: *; Disallow: /shop`; `None` when the
+    /// rules allow `url`.
+    pub fn refusing_rule(&self, url: &Url) -> Option<String> {
+        let rule = self.deciding_rule(url).filter(|rule| !rule.allow)?;
+        let agent = if self.names_crawler {
+            "AuraHistoriaBot"
+        } else {
+            "*"
+        };
+        Some(format!("User-agent: {agent}; Disallow: {}", rule.pattern))
+    }
+
+    fn deciding_rule(&self, url: &Url) -> Option<&Rule> {
         let path = request_path(url);
         if path == "/robots.txt" {
-            return true;
+            return None;
         }
         self.rules
             .iter()
             .filter(|rule| pattern_matches(&rule.pattern, &path))
             .max_by_key(|rule| (rule.pattern.len(), rule.allow))
-            .is_none_or(|rule| rule.allow)
     }
 }
 
@@ -407,6 +438,25 @@ mod tests {
 
         assert!(rules.allows(&url("/products/1")));
         assert!(!rules.allows(&url("/private/1")));
+    }
+
+    #[test]
+    fn should_name_the_refusing_rule_with_its_group() {
+        let crawler = RobotsRules::parse(
+            "User-agent: *\nDisallow: /\n\nUser-agent: AuraHistoriaBot\nDisallow: /private\nAllow: /private/open\n",
+        );
+        let wildcard = RobotsRules::parse("User-agent: *\nDisallow: /\n");
+
+        assert_eq!(
+            Some("User-agent: AuraHistoriaBot; Disallow: /private".to_owned()),
+            crawler.refusing_rule(&url("/private/1"))
+        );
+        assert_eq!(None, crawler.refusing_rule(&url("/private/open/2")));
+        assert_eq!(None, crawler.refusing_rule(&url("/products/1")));
+        assert_eq!(
+            Some("User-agent: *; Disallow: /".to_owned()),
+            wildcard.refusing_rule(&url("/products/1"))
+        );
     }
 
     #[test]

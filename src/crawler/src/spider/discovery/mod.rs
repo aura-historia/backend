@@ -7,3 +7,5 @@ mod redirects;
 mod robots;
 pub mod root_host;
 pub mod website_spider;
+
+pub(crate) use page_base::link_base;

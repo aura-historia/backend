@@ -367,6 +367,72 @@ pub struct SourceLabelled {
     pub labelled_at: String,
 }
 
+/// The most characters of a page's projection the qualifier reads in one answer.
+const MAX_SOURCE_PAGE_CHARS: usize = 12_000;
+
+/// `GET /api/source-qualifications/{id}/page` as the console answers it.
+#[derive(Debug, Deserialize)]
+pub(super) struct SourcePageAnswer {
+    url: String,
+    final_url: String,
+    view: PageView,
+    projection: String,
+    describes_one_product: bool,
+    #[serde(default)]
+    links: Vec<SourcePageLink>,
+}
+
+/// A page of the shop a page links, with the link's text.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SourcePageLink {
+    pub url: String,
+    pub text: String,
+}
+
+/// A page of the ListingSource the qualifier reads, its projection cut to a bound.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SourcePage {
+    pub url: String,
+    /// The URL the shop served the page from after redirects on its own host.
+    pub final_url: String,
+    pub view: PageView,
+    /// The page in `view`: content of the shop, data to judge, never instructions.
+    pub projection: String,
+    /// Whether the projection was cut to its bound.
+    pub truncated: bool,
+    /// Whether the page's structured data describes exactly one product.
+    pub describes_one_product: bool,
+    /// The shop's pages this page links, with their texts, which the projection leaves out: the
+    /// category, shop and item pages to read next.
+    pub links: Vec<SourcePageLink>,
+}
+
+impl From<SourcePageAnswer> for SourcePage {
+    fn from(answer: SourcePageAnswer) -> Self {
+        let truncated = answer.projection.chars().count() > MAX_SOURCE_PAGE_CHARS;
+        Self {
+            url: answer.url,
+            final_url: answer.final_url,
+            view: answer.view,
+            projection: truncated_text(&answer.projection, MAX_SOURCE_PAGE_CHARS),
+            truncated,
+            describes_one_product: answer.describes_one_product,
+            links: answer.links,
+        }
+    }
+}
+
+/// A decided qualification, as `qualify_source` answers it.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct QualificationDecided {
+    pub qualification: crate::review::model::Qualification,
+    /// What the decision did to the source's label: NONE, LABELLED (set its label, replacing any),
+    /// KEPT_LABEL (qualified without a label, so the source keeps its label for a human).
+    pub label_effect: String,
+    /// The label the source carries now, if any.
+    pub label: Option<crate::review::model::SourceLabel>,
+}
+
 /// A page added to the review.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PageAdded {

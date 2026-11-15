@@ -1,6 +1,7 @@
 //! Synchronizes the crawler-local ListingSources, their crawl eligibility and their crawl roots
 //! from business truth (`docs/crawler/README.md#listingsource-scope`).
 
+use crate::authoring::CrawlerAuthoringMode;
 use crate::crawl_root::{CrawlRoot, CrawlRootRejection};
 use async_trait::async_trait;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
@@ -69,10 +70,11 @@ pub trait ListingSourceRegistrationSource: Send + Sync {
 #[async_trait]
 #[mockall::automock]
 pub trait ListingSourceRegistrationRepository: Send + Sync {
-    /// Upserts every source of `listing_sources`, keeping a source a human labelled disabled,
+    /// Upserts every source of `listing_sources`, keeping a labelled source disabled, and under
+    /// the qualification gate a source that waits for its qualification or was not qualified,
     /// disables every crawl-enabled source it does not hold, and moves each source whose stored
-    /// crawl root differs to the snapshot's: the move clears the crawl state and frontier of the
-    /// old root and keeps the source's URLs, URL pattern and scrape state. All of it commits
+    /// crawl root differs to the snapshot's: the move clears the crawl state, frontier and
+    /// qualification of the old root and keeps the source's URLs, URL pattern and scrape state. All of it commits
     /// together or not at all.
     async fn apply_snapshot(
         &self,
@@ -250,13 +252,44 @@ fn shared_hosts<'a>(roots: impl Iterator<Item = &'a CrawlRoot>) -> HashSet<Strin
     shared
 }
 
+/// Whether a ListingSource must be qualified as a real art and antiques e-shop before it is crawled
+/// (`docs/crawler/README.md#listingsource-qualification`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QualificationGate {
+    /// A source is crawled only once it is qualified; a source that existed before qualification
+    /// did is crawled while it waits for its first qualification.
+    Required,
+    /// No qualification holds back crawling.
+    Off,
+}
+
+impl QualificationGate {
+    /// The gate of `mode`: only the review agents of `agent` mode qualify sources, so only that
+    /// mode waits for a qualification.
+    pub const fn of(mode: CrawlerAuthoringMode) -> Self {
+        if mode.has_review_agents() {
+            Self::Required
+        } else {
+            Self::Off
+        }
+    }
+
+    const fn is_required(self) -> bool {
+        matches!(self, Self::Required)
+    }
+}
+
 pub struct ListingSourceRegistrationRepositoryImpl {
     pool: PgPool,
+    qualification_gate: QualificationGate,
 }
 
 impl ListingSourceRegistrationRepositoryImpl {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, qualification_gate: QualificationGate) -> Self {
+        Self {
+            pool,
+            qualification_gate,
+        }
     }
 }
 
@@ -299,6 +332,13 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        sqlx::query(
+            "UPDATE listing_sources SET in_crawl_scope = FALSE \
+             WHERE in_crawl_scope AND NOT (listing_source_id = ANY($1::uuid[]))",
+        )
+        .bind(&enabled_ids)
+        .execute(&mut *transaction)
+        .await?;
 
         let moved_ids = sqlx::query_scalar::<_, uuid::Uuid>(
             "UPDATE listing_sources AS s \
@@ -328,18 +368,46 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
             .bind(&moved_ids)
             .execute(&mut *transaction)
             .await?;
+        // A moved root may present another site, so its qualification no longer stands and a
+        // backfill source loses its pass: the source waits for a new qualification, and its
+        // history records a cleared one as the crawler's.
+        sqlx::query(
+            "WITH moved AS ( \
+                 SELECT listing_source_id, qualification IS NOT NULL AS was_qualified \
+                 FROM listing_sources WHERE listing_source_id = ANY($1)), \
+             cleared AS ( \
+                 UPDATE listing_sources s \
+                 SET qualification = NULL, qualification_note = NULL, qualified_at = NULL, \
+                     qualified_by = NULL, qualification_backfill = FALSE, updated = NOW() \
+                 FROM moved WHERE s.listing_source_id = moved.listing_source_id \
+                 RETURNING s.listing_source_id, moved.was_qualified) \
+             INSERT INTO listing_source_qualification_events (listing_source_id, actor) \
+             SELECT listing_source_id, 'SYSTEM' FROM cleared WHERE was_qualified",
+        )
+        .bind(&moved_ids)
+        .execute(&mut *transaction)
+        .await?;
 
         for listing_source in listing_sources {
+            // A source is crawled while the scope admits it with a crawl root, no label stands
+            // and, under the gate, it is qualified, or waits for the first qualification of the
+            // backfill. `in_crawl_scope` keeps what the scope admits, which the qualification
+            // queue reads.
             sqlx::query(
                 "INSERT INTO listing_sources \
                     (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
-                     crawl_root_url, crawl_host, created, updated) \
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) \
+                     in_crawl_scope, crawl_root_url, crawl_host, created, updated) \
+                 VALUES ($1, $2, $3, $4 AND NOT $7, $4 AND $5 IS NOT NULL, $5, $6, NOW(), NOW()) \
                  ON CONFLICT (listing_source_id) DO UPDATE SET \
                     listing_source_name = EXCLUDED.listing_source_name, \
                     listing_source_slug = EXCLUDED.listing_source_slug, \
-                    crawl_enabled = EXCLUDED.crawl_enabled \
-                        AND listing_sources.source_label IS NULL, \
+                    crawl_enabled = $4 \
+                        AND listing_sources.source_label IS NULL \
+                        AND (NOT $7 \
+                             OR listing_sources.qualification IS NOT DISTINCT FROM 'QUALIFIED' \
+                             OR (listing_sources.qualification IS NULL \
+                                 AND listing_sources.qualification_backfill)), \
+                    in_crawl_scope = EXCLUDED.in_crawl_scope, \
                     crawl_root_url = EXCLUDED.crawl_root_url, \
                     crawl_host = EXCLUDED.crawl_host, \
                     updated = NOW()",
@@ -355,6 +423,7 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
                     .map(|root| root.url().as_str()),
             )
             .bind(listing_source.crawl_root.as_ref().map(CrawlRoot::host))
+            .bind(self.qualification_gate.is_required())
             .execute(&mut *transaction)
             .await?;
         }

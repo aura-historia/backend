@@ -332,10 +332,14 @@ impl ReqwestHtmlFetcher {
     /// Returns the origin's robots `Crawl-delay` when robots.txt allows `url`.
     async fn check_robots(&self, url: &Url) -> Result<Option<Duration>, FetchAttemptError> {
         let robots = self.robots_policy(url).await?;
-        robots
-            .policy
-            .check(url)
-            .map_err(|refusal| robots_refusal_error(url, refusal, robots.shop_answer))?;
+        robots.policy.check(url).map_err(|refusal| {
+            robots_refusal_error(
+                url,
+                refusal,
+                robots.shop_answer,
+                robots.policy.refusal_details(url),
+            )
+        })?;
         Ok(robots.policy.crawl_delay())
     }
 
@@ -442,7 +446,12 @@ impl ReqwestHtmlFetcher {
                     final_url: url.clone(),
                 },
             }),
-            Err(refusal) => Err(robots_refusal_error(url, refusal, robots.shop_answer)),
+            Err(refusal) => Err(robots_refusal_error(
+                url,
+                refusal,
+                robots.shop_answer,
+                robots.policy.refusal_details(url),
+            )),
         }
     }
 
@@ -638,20 +647,28 @@ pub(crate) fn robots_refusal_kind(refusal: RobotsRefusal) -> NetworkErrorKind {
     }
 }
 
+/// The error of a request robots.txt refuses; a disallowed one names the rule
+/// that refuses it, so the refusal can be quoted as evidence.
 fn robots_refusal_error(
     url: &Url,
     refusal: RobotsRefusal,
     shop_answer: Option<u16>,
+    rule: Option<String>,
 ) -> FetchAttemptError {
     let details = match refusal {
-        RobotsRefusal::Disallowed => "robots.txt disallows",
-        RobotsRefusal::Unreachable => "robots.txt is unreachable, which disallows",
+        RobotsRefusal::Disallowed => match rule {
+            Some(rule) => format!("robots.txt disallows {url} ({rule})"),
+            None => format!("robots.txt disallows {url}"),
+        },
+        RobotsRefusal::Unreachable => {
+            format!("robots.txt is unreachable, which disallows {url}")
+        }
     };
     FetchAttemptError {
         error: FetchError::RobotsRefused {
             refusal,
             shop_answer,
-            details: format!("{details} {url}"),
+            details,
         },
     }
 }

@@ -6,13 +6,15 @@
 use super::query_params::{list_window, named, reject_unknown, search_term, sort_direction};
 use super::{ReviewServer, read_error};
 use crate::review::http::{HttpResponse, ParsedRequest};
-use crate::review::model::{SourceActivity, SourceSort, SourceStatus};
+use crate::review::model::{SourceActivity, SourceLabel, SourceSort, SourceStatus};
 use crate::review::readers::ListingSourceQuery;
 use listing_source_core::ListingSourceId;
 use serde_json::json;
 use std::collections::HashMap;
 
-const LIST_PARAMETERS: [&str; 7] = ["q", "status", "activity", "sort", "dir", "limit", "offset"];
+const LIST_PARAMETERS: [&str; 8] = [
+    "q", "status", "label", "activity", "sort", "dir", "limit", "offset",
+];
 const DETAIL_PREFIX: &str = "/api/listing-sources/";
 const REVIEWS_SUFFIX: &str = "/reviews";
 
@@ -87,7 +89,7 @@ pub(super) fn source_not_found(listing_source_id: ListingSourceId) -> HttpRespon
     )
 }
 
-/// The window `query` asks for: `status` and `activity` filter the ListingSources, `q` searches
+/// The window `query` asks for: `status`, `label` and `activity` filter the ListingSources, `q` searches
 /// their name and host, `sort` names the overview column to sort by, with the direction `dir`
 /// names or the column's own. A value that is given but not accepted is refused with what is
 /// accepted.
@@ -98,6 +100,7 @@ fn listing_source_query(query: &HashMap<String, String>) -> Result<ListingSource
         search: search_term(query)?,
         activity: named::<SourceActivity>(query, "activity")?,
         status: named::<SourceStatus>(query, "status")?,
+        label: named::<SourceLabel>(query, "label")?,
         sort,
         direction: sort_direction(query, sort.default_direction())?,
         window: list_window(query)?,
@@ -129,6 +132,7 @@ mod tests {
         let query = query_of(&[
             ("q", "antik.example"),
             ("status", "failing"),
+            ("label", "SHOP_CLOSED"),
             ("activity", "idle"),
             ("sort", "last_successful_scrape"),
             ("dir", "asc"),
@@ -142,6 +146,7 @@ mod tests {
                 search: SearchTerm::new("antik.example"),
                 activity: Some(SourceActivity::Idle),
                 status: Some(SourceStatus::Failing),
+                label: Some(SourceLabel::ShopClosed),
                 sort: SourceSort::LastSuccessfulScrape,
                 direction: SortDirection::Ascending,
                 window: ListWindow::new(25, 50).unwrap_or_default(),

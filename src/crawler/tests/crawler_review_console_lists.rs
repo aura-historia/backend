@@ -522,6 +522,101 @@ async fn should_read_listing_sources_in_windows_of_the_order_asked_for() {
     assert_eq!(source_ids(&by_reviews)[..2], [echo, charlie]);
 }
 
+/// The attention order keeps the disabled sources of each console group together: those whose
+/// qualification waits for a human, then those that wait for their qualification, then the
+/// others, whatever their pending reviews.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_rank_disabled_sources_by_their_qualification_for_attention() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let disabled = source(&pool, "Out of scope", "out.example.com", false).await;
+    let awaiting = source(&pool, "Awaiting", "awaiting.example.com", false).await;
+    let needs_human = source(&pool, "Unclear", "unclear.example.com", false).await;
+    pending_schema_review(&repository, disabled).await;
+    for (id, set) in [
+        (awaiting, "in_crawl_scope = TRUE"),
+        (
+            needs_human,
+            "in_crawl_scope = TRUE, qualification = 'NEEDS_HUMAN', \
+             qualification_note = 'every page answers a bot challenge', qualified_at = NOW(), \
+             qualified_by = 'AGENT_AUTHOR'",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let ranked = list_sources(&pool, ListingSourceQuery::default()).await;
+
+    assert_eq!(source_ids(&ranked), vec![needs_human, awaiting, disabled]);
+}
+
+/// The attention order keeps each status the console groups the table by in one run of rows: a
+/// source failing to scrape that is also blocked shows as failing, so it ranks with the failing
+/// ones before every blocked one, and the never-scraped sources come before the healthy ones
+/// whatever their pending reviews.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_rank_crawl_enabled_sources_in_the_groups_the_console_shows() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let failing_and_blocked = source(&pool, "Failing and blocked", "both.example.com", true).await;
+    let failing = source(&pool, "Failing", "failing.example.com", true).await;
+    let blocked = source(&pool, "Blocked", "blocked.example.com", true).await;
+    let healthy = source(&pool, "Healthy", "healthy.example.com", true).await;
+    let never_scraped = source(&pool, "Never scraped", "never.example.com", true).await;
+    for (listing_source_id, host, scraped) in [
+        (failing_and_blocked, "both.example.com", false),
+        (blocked, "blocked.example.com", false),
+        (healthy, "healthy.example.com", true),
+    ] {
+        sqlx::query(
+            "INSERT INTO listing_source_urls \
+             (listing_source_id, url, url_class, raw_source_record_key, last_scraped) \
+             VALUES ($1, $2, 'product', $2, CASE WHEN $3 THEN NOW() END)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(format!("https://{host}/item/1"))
+        .bind(scraped)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for listing_source_id in [failing_and_blocked, blocked] {
+        pending_schema_review(&repository, listing_source_id).await;
+    }
+    // URL-pattern reviews block no URL; they only rank the healthy source by its pending reviews.
+    for _ in 0..2 {
+        pending_url_pattern_review(&repository, healthy).await;
+    }
+    for listing_source_id in [failing_and_blocked, failing] {
+        sqlx::query(
+            "UPDATE listing_sources SET scrape_failure_streak = 2, last_scrape_error_kind = 'TIMEOUT' \
+             WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let ranked = list_sources(&pool, ListingSourceQuery::default()).await;
+
+    let ids = source_ids(&ranked);
+    let position = |id| ids.iter().position(|ranked| *ranked == id).unwrap();
+    assert!(position(failing_and_blocked) < position(blocked));
+    assert!(position(failing) < position(blocked), "{ids:?}");
+    assert!(
+        position(never_scraped) < position(healthy),
+        "a healthy source with more pending reviews must not split the never-scraped group: {ids:?}"
+    );
+    assert_eq!(position(healthy), ids.len() - 1);
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_filter_and_search_listing_sources_in_sql() {
     let pool = get_postgres_client().await;
@@ -1125,4 +1220,51 @@ async fn should_count_a_failed_crawl_as_needing_attention_and_say_why_a_source_f
         .unwrap()
         .expect("the source exists");
     assert!(healthy_detail.failing_urls.is_empty());
+}
+
+/// The `label` filter lists the sources that carry that label, the retired one included.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_filter_listing_sources_by_their_label() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let closed = source(&pool, "Closed", "closed.example.com", true).await;
+    let gallery = source(&pool, "Gallery", "gallery.example.com", true).await;
+    let retired = source(&pool, "Retired", "retired.example.com", false).await;
+    source(&pool, "Unlabelled", "plain.example.com", true).await;
+    for (listing_source_id, label) in [
+        (closed, SourceLabel::ShopClosed),
+        (gallery, SourceLabel::NotAnEshop),
+    ] {
+        repository
+            .label_source(
+                &listing_source_id,
+                ReviewActor::Human,
+                &SourceLabelRequest::new(label, None).unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "UPDATE listing_sources SET source_label = 'APPROACH_NOT_APPLICABLE', \
+         source_labelled_at = NOW(), source_labelled_by = 'AGENT_AUTHOR' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(retired.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let with = |label| ListingSourceQuery {
+        label: Some(label),
+        ..ListingSourceQuery::default()
+    };
+
+    assert_eq!(
+        source_ids(&list_sources(&pool, with(SourceLabel::ShopClosed)).await),
+        vec![closed]
+    );
+    assert_eq!(
+        source_ids(&list_sources(&pool, with(SourceLabel::ApproachNotApplicable)).await),
+        vec![retired]
+    );
+    assert!(source_ids(&list_sources(&pool, with(SourceLabel::Other)).await).is_empty());
 }
