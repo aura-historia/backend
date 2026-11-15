@@ -831,26 +831,23 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         // Pages still buffered count too: a crawl smaller than one batch has
         // flushed nothing yet.
-        if state.pattern_loaded_from_store
-            && !state.pattern_matched_any()
-            && !has_pattern_match(&state.page_buffer, &state.pattern)
-            && !state.inference_sample.is_empty()
+        if !state.pattern_loaded_from_store
+            || state.pattern_matched_any()
+            || has_pattern_match(&state.page_buffer, &state.pattern)
+            || state.inference_sample.is_empty()
         {
-            warn_in_source!(
-                "Persisted product URL pattern did not match crawl results, reclassifying"
-            );
-
-            self.classify_and_save_for_stage(
-                state,
-                listing_source_id,
-                crawl_root_url,
-                "refresh",
-                self.config.min_inference_sample_urls,
-            )
-            .await?;
+            return Ok(());
         }
+        warn_in_source!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-        Ok(())
+        self.classify_and_save_for_stage(
+            state,
+            listing_source_id,
+            crawl_root_url,
+            "refresh",
+            self.config.min_inference_sample_urls,
+        )
+        .await
     }
 
     async fn flush_remaining_pages(
