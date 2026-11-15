@@ -16,6 +16,8 @@ use super::state::{Pause, RunnerState};
 use super::stop::RunnerStop;
 use super::usage_pacing::UsageWindows;
 use crate::review_mcp::{ConsoleClient, ConsoleError};
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -182,29 +184,35 @@ pub async fn qualify_waiting_sources(
     let budget = usize::try_from(settings.max_reviews_per_run.get()).unwrap_or(usize::MAX);
     let concurrency = usize::try_from(settings.max_processes.get()).unwrap_or(1);
     let ledger_path = settings.state_dir.join(QUALIFICATION_LEDGER_FILE);
-    let sources: Vec<QueuedSource> = queue.sources.into_iter().take(budget).collect();
-    for batch in sources.chunks(concurrency.max(1)) {
-        if stop.is_requested() || state.pause_at(OffsetDateTime::now_utc()).is_some() {
-            summary.stopped = true;
-            break;
-        }
-        let records =
-            futures::future::join_all(batch.iter().map(|source| qualify(settings, stop, source)))
-                .await;
-        for (record, pause) in records {
-            summary.processes += 1;
-            summary.decided += usize::from(record.report.is_some());
-            if let Some(pause) = pause {
-                let later = state
-                    .paused
-                    .is_none_or(|current| current.until < pause.until);
-                if later {
-                    state.paused = Some(pause);
-                }
+    let mut waiting = queue.sources.into_iter().take(budget);
+    // A rolling pool: a slot that frees starts the next source at once, so one slow process
+    // never holds back the others.
+    let mut running = FuturesUnordered::new();
+    loop {
+        while running.len() < concurrency.max(1) {
+            if stop.is_requested() || state.pause_at(OffsetDateTime::now_utc()).is_some() {
+                summary.stopped = true;
+                break;
             }
-            log_record(&record);
-            append(&ledger_path, &record)?;
+            let Some(source) = waiting.next() else {
+                break;
+            };
+            running.push(qualify(settings, stop, source));
         }
+        let Some((record, pause)) = running.next().await else {
+            break;
+        };
+        summary.processes += 1;
+        summary.decided += usize::from(record.report.is_some());
+        if let Some(pause) = pause
+            && state
+                .paused
+                .is_none_or(|current| current.until < pause.until)
+        {
+            state.paused = Some(pause);
+        }
+        log_record(&record);
+        append(&ledger_path, &record)?;
     }
     Ok(summary)
 }
@@ -213,7 +221,7 @@ pub async fn qualify_waiting_sources(
 async fn qualify(
     settings: &RunnerSettings,
     stop: &RunnerStop,
-    source: &QueuedSource,
+    source: QueuedSource,
 ) -> (QualificationRecord, Option<Pause>) {
     let mut record = QualificationRecord {
         finished: OffsetDateTime::now_utc(),
@@ -228,7 +236,7 @@ async fn qualify(
         usage: TokenUsage::default(),
         total_cost_usd: 0.0,
     };
-    let command = match qualifier_command(settings, source) {
+    let command = match qualifier_command(settings, &source) {
         Ok(command) => command,
         Err(error) => {
             record.failure = Some(error.to_string());
