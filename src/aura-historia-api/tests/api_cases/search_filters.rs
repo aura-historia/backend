@@ -767,6 +767,78 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_reject_ultimate_create_and_reactivation_once_the_active_quota_is_reached() {
+    let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let pool = get_postgres_client().await;
+    let quota = usize::from(UserTier::Ultimate.active_search_filter_quota());
+    let template_id = create_search_filter(&client, &token)
+        .await
+        .parse::<UserSearchFilterId>()
+        .unwrap_or_else(|error| panic!("invalid search filter identifier: {error}"));
+    let mut active_ids = vec![template_id];
+    active_ids.extend(copy_search_filter(&pool, template_id, quota - 1, "ACTIVE").await);
+    let restricted_id =
+        copy_search_filter(&pool, template_id, 1, "INACTIVE_BY_RESTRICTED_PLAN").await[0];
+
+    let created = client
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&search_filter_body())
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create search filter: {error}"));
+    let (status, body) = json_response(created).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        "SEARCH_FILTER_QUOTA_EXCEEDED",
+    );
+    assert!(
+        body["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains(&format!("{quota}/{quota}"))),
+        "unexpected quota detail: {body}"
+    );
+
+    let patch_state = |filter_id: UserSearchFilterId, state: &'static str| {
+        client
+            .patch(format!(
+                "{}/v1/me/search-filters/{filter_id}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .json(&serde_json::json!({ "state": state }))
+            .send()
+    };
+    let reactivated = patch_state(restricted_id, "ACTIVE")
+        .await
+        .unwrap_or_else(|error| panic!("failed to reactivate search filter: {error}"));
+    let (status, body) = json_response(reactivated).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        "SEARCH_FILTER_QUOTA_EXCEEDED",
+    );
+
+    let deactivated = patch_state(active_ids[0], "INACTIVE_BY_USER")
+        .await
+        .unwrap_or_else(|error| panic!("failed to deactivate search filter: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, deactivated.status());
+    let reactivated = patch_state(restricted_id, "ACTIVE")
+        .await
+        .unwrap_or_else(|error| panic!("failed to reactivate search filter: {error}"));
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        reactivated.status(),
+        "a freed slot admits the reactivation"
+    );
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_update_search_filter_match_feedback() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -1215,6 +1287,32 @@ fn search_filter_body() -> serde_json::Value {
             "productQuery": ["desk"]
         }
     })
+}
+
+/// Stores `count` copies of an API-created filter in `state`, bypassing the quota. Copying keeps the
+/// stored search and embedding that a filter must have to load.
+async fn copy_search_filter(
+    pool: &sqlx::PgPool,
+    template_id: UserSearchFilterId,
+    count: usize,
+    state: &str,
+) -> Vec<UserSearchFilterId> {
+    let mut filter_ids = Vec::with_capacity(count);
+    for position in 0..count {
+        let filter_id = UserSearchFilterId::new();
+        sqlx::query(
+            "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated, matching_evidence_policy) SELECT $1, user_id, $2, notifications, $3, search, enhanced_search_description, embedding, language, currency, version, created, updated, matching_evidence_policy FROM search_filters WHERE user_search_filter_id = $4",
+        )
+        .bind(filter_id.as_uuid())
+        .bind(format!("{state} copy {position}"))
+        .bind(state)
+        .bind(template_id.as_uuid())
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to copy search filter as {state}: {error}"));
+        filter_ids.push(filter_id);
+    }
+    filter_ids
 }
 
 fn search_filter_id(body: &serde_json::Value) -> String {

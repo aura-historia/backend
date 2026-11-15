@@ -8,7 +8,7 @@ use crate::ports::{
     SearchIntentTranslator,
 };
 use crate::shipping_destination::AcceptShippingDestination;
-use crate::tier_policy::{active_filter_quota, matching_evidence_policy, validate_search_features};
+use crate::tier_policy::{matching_evidence_policy, validate_search_features};
 use crate::use_cases::embedding_query;
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -242,7 +242,7 @@ where
             CreateSearchFilterError::SearchFilterFeatureRestricted { feature }
         })?;
         filter.resolve_matching_evidence(matching_evidence_policy(tier));
-        let quota = active_filter_quota(tier);
+        let quota = usize::from(tier.active_search_filter_quota());
         let active_count = self
             .quotas
             .in_transaction(&mut tx)

@@ -4456,7 +4456,7 @@ paths:
         - `PRO`: Up to 5 active search filters. All search fields, including `geography` and `shipping`, are allowed
         except `enhancedSearchDescription`.
 
-        - `ULTIMATE`: Unlimited search filters. All search fields are allowed.
+        - `ULTIMATE`: Up to 20 active search filters. All search fields are allowed.
 
 
         Scheduled matching classifies candidates against an English translation of `productQuery` and
@@ -4612,7 +4612,7 @@ paths:
                     status: 422
                     title: Unprocessable Content
                     error: SEARCH_FILTER_QUOTA_EXCEEDED
-                    detail: Exceeded the maximum amount of search filters. There are already 1/1 search filters occupied.
+                    detail: Exceeded the maximum amount of search filters. There are already 1/1 active search filters occupied.
                 restricted_feature:
                   summary: Search filter contains a field not available for the user's tier
                   value:
@@ -5054,6 +5054,11 @@ paths:
         Requires a Cognito JWT or an Aura access token with `search-filters:write`.
 
 
+        Setting `state` to `ACTIVE` on an inactive search filter counts against the user's tier limit of active search
+        filters (`FREE`: 1, `PRO`: 5, `ULTIMATE`: 20) and returns `SEARCH_FILTER_QUOTA_EXCEEDED` once the limit is
+        reached. Inactive search filters do not count.
+
+
         The set of usable search filter fields depends on the user's tier:
 
         - `FREE`: Allowed search fields are `language`, `currency`, `productQuery`, `price`, `excludeProductListingId`,
@@ -5271,7 +5276,7 @@ paths:
                     status: 422
                     title: Unprocessable Content
                     error: SEARCH_FILTER_QUOTA_EXCEEDED
-                    detail: Exceeded the maximum amount of search filters. There are already 1/1 search filters occupied.
+                    detail: Exceeded the maximum amount of search filters. There are already 1/1 active search filters occupied.
         "409":
           description: >-
             Conflict - the search filter changed concurrently while this patch was applied, including a concurrent
@@ -25826,7 +25831,7 @@ components:
         - `PRO`: Premium tier. Allows up to 100 watchlist entries, up to 5 search filters with access to all filter fields,
         and unlimited product matches per filter.
 
-        - `ULTIMATE`: Highest tier. Allows unlimited watchlist entries, unlimited search filters with access to all filter
+        - `ULTIMATE`: Highest tier. Allows unlimited watchlist entries, up to 20 search filters with access to all filter
         fields, and unlimited product matches per filter.
 
         "

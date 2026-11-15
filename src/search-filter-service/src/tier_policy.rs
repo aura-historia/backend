@@ -12,14 +12,6 @@ pub(crate) fn matching_evidence_policy(
     }
 }
 
-pub(crate) fn active_filter_quota(tier: UserTier) -> usize {
-    match tier {
-        UserTier::Free => 1,
-        UserTier::Pro => 5,
-        UserTier::Ultimate => usize::MAX,
-    }
-}
-
 pub(crate) fn monthly_match_quota(tier: UserTier) -> usize {
     match tier {
         UserTier::Free => 10,
@@ -126,10 +118,7 @@ impl RestrictedFeature {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        active_filter_quota, monthly_match_quota, validate_search_feature_changes,
-        validate_search_features,
-    };
+    use super::{monthly_match_quota, validate_search_feature_changes, validate_search_features};
     use auction_core::AuctionId;
     use listing_source_core::ListingSourceId;
     use localization::Language;
@@ -145,10 +134,7 @@ mod tests {
     use user_core::tier::UserTier;
 
     #[test]
-    fn should_apply_active_filter_quotas_by_tier() {
-        assert_eq!(1, active_filter_quota(UserTier::Free));
-        assert_eq!(5, active_filter_quota(UserTier::Pro));
-        assert_eq!(usize::MAX, active_filter_quota(UserTier::Ultimate));
+    fn should_apply_monthly_match_quotas_by_tier() {
         assert_eq!(10, monthly_match_quota(UserTier::Free));
         assert_eq!(usize::MAX, monthly_match_quota(UserTier::Pro));
     }

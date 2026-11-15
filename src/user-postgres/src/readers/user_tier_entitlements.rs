@@ -164,7 +164,8 @@ impl UserTierEntitlements for SqlxUserTierEntitlements<'_> {
         user_id: UserId,
         tier: UserTier,
     ) -> Result<(), UserTierEntitlementsError> {
-        let quota = watchlist_quota(tier);
+        // An unlimited tier has no bound, so the ranking keeps every entry active.
+        let quota = tier.active_watchlist_quota().map_or(i64::MAX, i64::from);
         sqlx::query(RECONCILE_WATCHLIST_SQL)
             .bind(user_id.into_uuid())
             .bind(quota)
@@ -174,7 +175,7 @@ impl UserTierEntitlements for SqlxUserTierEntitlements<'_> {
                 source: box_error(SqlxUserTierEntitlementsError::ReconcileWatchlist(source)),
             })?;
 
-        let quota = search_filter_quota(tier);
+        let quota = i64::from(tier.active_search_filter_quota());
         sqlx::query(RECONCILE_SEARCH_FILTERS_SQL)
             .bind(user_id.into_uuid())
             .bind(quota)
@@ -188,21 +189,5 @@ impl UserTierEntitlements for SqlxUserTierEntitlements<'_> {
             })?;
 
         Ok(())
-    }
-}
-
-fn watchlist_quota(tier: UserTier) -> i64 {
-    match tier {
-        UserTier::Free => 20,
-        UserTier::Pro => 100,
-        UserTier::Ultimate => i64::MAX,
-    }
-}
-
-fn search_filter_quota(tier: UserTier) -> i64 {
-    match tier {
-        UserTier::Free => 1,
-        UserTier::Pro => 5,
-        UserTier::Ultimate => i64::MAX,
     }
 }

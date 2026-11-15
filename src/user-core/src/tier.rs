@@ -23,6 +23,32 @@ impl UserTier {
             Self::Ultimate => "ULTIMATE",
         }
     }
+
+    /// How many saved searches may be active at once. The create and reactivate checks and the
+    /// tier reconciliation both read it from here, so the two cannot disagree.
+    ///
+    /// Every tier is bounded because each active saved search costs matching work every day: an
+    /// unbounded tier would leave one account's cost and run time unbounded too. The `u16` makes
+    /// that unrepresentable and converts losslessly to the `usize` counts the use cases compare
+    /// and to the `i64` bound of the reconciliation.
+    pub fn active_search_filter_quota(self) -> u16 {
+        match self {
+            Self::Free => 1,
+            Self::Pro => 5,
+            Self::Ultimate => 20,
+        }
+    }
+
+    /// How many watchlist entries may be active at once, or `None` when the tier has no limit.
+    /// The watch and reactivate checks and the tier reconciliation both read it from here, so
+    /// the two cannot disagree.
+    pub fn active_watchlist_quota(self) -> Option<u16> {
+        match self {
+            Self::Free => Some(20),
+            Self::Pro => Some(100),
+            Self::Ultimate => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -56,6 +82,20 @@ mod tests {
         assert_eq!("FREE", UserTier::Free.as_str());
         assert_eq!("PRO", UserTier::Pro.as_str());
         assert_eq!("ULTIMATE", UserTier::Ultimate.as_str());
+    }
+
+    #[test]
+    fn should_apply_active_search_filter_quotas_by_tier() {
+        assert_eq!(1, UserTier::Free.active_search_filter_quota());
+        assert_eq!(5, UserTier::Pro.active_search_filter_quota());
+        assert_eq!(20, UserTier::Ultimate.active_search_filter_quota());
+    }
+
+    #[test]
+    fn should_apply_active_watchlist_quotas_by_tier() {
+        assert_eq!(Some(20), UserTier::Free.active_watchlist_quota());
+        assert_eq!(Some(100), UserTier::Pro.active_watchlist_quota());
+        assert_eq!(None, UserTier::Ultimate.active_watchlist_quota());
     }
 
     #[test]

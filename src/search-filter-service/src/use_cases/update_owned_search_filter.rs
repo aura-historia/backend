@@ -8,9 +8,7 @@ use crate::ports::{
     SearchFilterRepositoryFactory, SearchIntentTranslator,
 };
 use crate::shipping_destination::AcceptShippingDestination;
-use crate::tier_policy::{
-    active_filter_quota, validate_search_feature_changes, validate_search_features,
-};
+use crate::tier_policy::{validate_search_feature_changes, validate_search_features};
 use crate::use_cases::embedding_query;
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -335,7 +333,7 @@ where
             .resolve_matching_evidence(crate::tier_policy::matching_evidence_policy(tier))
             .changed();
         if reactivating {
-            let quota = active_filter_quota(tier);
+            let quota = usize::from(tier.active_search_filter_quota());
             let active_count = self
                 .quotas
                 .in_transaction(&mut tx)
