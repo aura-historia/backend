@@ -1,5 +1,5 @@
-//! Whether a ListingSource is a real antique e-shop, decided before the crawler crawls it: it
-//! sells antiques in the broad sense (antiques, art and collectibles) and sells them online. In
+//! Whether a ListingSource is a real art and antiques e-shop, decided before the crawler crawls it:
+//! it sells art and antiques, antique and vintage collectibles included, and sells them online. In
 //! `agent` mode the author agent decides it from the shop's own pages; a human may override or
 //! clear it. The contract is in `docs/crawler/README.md#listingsource-qualification`.
 
@@ -21,10 +21,11 @@ pub const MAX_AGENT_NEEDS_HUMAN_DECISIONS: i64 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Qualification {
-    /// A real antique e-shop. With a label, one the crawler cannot crawl for the label's reason.
+    /// A real art and antiques e-shop. With a label, one the crawler cannot crawl for the label's
+    /// reason.
     Qualified,
-    /// Not an antique e-shop, or one the crawler may not or cannot reach at all; its label says
-    /// which.
+    /// Not an art and antiques e-shop, or one the crawler may not or cannot reach at all; its label
+    /// says which.
     Disqualified,
     /// The decider could not tell from what it could read; a human decides.
     NeedsHuman,
@@ -49,8 +50,8 @@ impl Qualification {
 }
 
 impl SourceLabel {
-    /// Whether the label says the source is not an antique e-shop the crawler may reach at all,
-    /// which a qualification decides, rather than why a qualified shop cannot be crawled.
+    /// Whether the label says the source is not an art and antiques e-shop the crawler may reach at
+    /// all, which a qualification decides, rather than why a qualified shop cannot be crawled.
     pub const fn disqualifies(self) -> bool {
         matches!(
             self,
@@ -68,7 +69,7 @@ pub enum QualificationDecisionError {
     )]
     DisqualificationNeedsItsLabel,
     #[error(
-        "a QUALIFIED decision may carry only a label that keeps a real antique e-shop from being crawled, not {0}"
+        "a QUALIFIED decision may carry only a label that keeps a real art and antiques e-shop from being crawled, not {0}"
     )]
     QualifiedWithDisqualifyingLabel(&'static str),
     #[error("a NEEDS_HUMAN decision carries no label")]

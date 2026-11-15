@@ -1,6 +1,6 @@
-//! The console's routes for the qualification of a ListingSource as a real antique e-shop: the
-//! agents' queue of the sources that wait for one, the pages of a queued source as a live job, and
-//! a decision; a human decides or clears any source's qualification on the source's own route.
+//! The console's routes for the qualification of a ListingSource as a real art and antiques e-shop:
+//! the agents' queue of the sources that wait for one, the pages of a queued source as a live job,
+//! and a decision; a human decides or clears any source's qualification on the source's own route.
 //! The contract is in `docs/crawler/operations.md` (review service).
 
 use super::query_params::named;

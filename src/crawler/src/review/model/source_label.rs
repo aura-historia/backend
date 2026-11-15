@@ -18,7 +18,8 @@ pub const MAX_SOURCE_LABEL_NOTE_CHARS: usize = 500;
 pub enum SourceLabel {
     /// The site shows items but sells nothing online, such as a gallery's catalogue.
     NotAnEshop,
-    /// The site sells online, but not antiques, art or collectibles.
+    /// The site sells online, but not art or antiques; antique and vintage collectibles count as
+    /// antiques, new collectibles and reproductions do not.
     NotAnAntiqueShop,
     /// The shop's product URLs cannot be told apart by a URL pattern.
     UrlPatternApproachNotApplicable,

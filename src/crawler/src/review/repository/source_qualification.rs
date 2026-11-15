@@ -1,10 +1,10 @@
-//! The qualification of a ListingSource as a real antique e-shop, decided before it is crawled
-//! (`docs/crawler/README.md#listingsource-qualification`). In `agent` mode the author agent
-//! decides each source of the qualification queue once; a human decides or clears any source's.
-//! A decision that names a label sets it as a label is set, replacing the source's label, which
-//! stays in its label history. A review agent never clears a label: an agent qualification of a
-//! labelled source without a label keeps the label for a human. Every decision and clear appends
-//! one entry to the source's qualification history in its transaction.
+//! The qualification of a ListingSource as a real art and antiques e-shop, decided before it is
+//! crawled (`docs/crawler/README.md#listingsource-qualification`). In `agent` mode the author agent
+//! decides each source of the qualification queue once; a human decides or clears any source's. A
+//! decision that names a label sets it as a label is set, replacing the source's label, which stays
+//! in its label history. A review agent never clears a label: an agent qualification of a labelled
+//! source without a label keeps the label for a human. Every decision and clear appends one entry
+//! to the source's qualification history in its transaction.
 
 use super::review_log::{ReviewLogEntry, log_committed_source};
 use super::source_label::{clear_label, persisted_label, store_label};

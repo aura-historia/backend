@@ -14,8 +14,8 @@ pub struct ListingSourceOverview {
     /// Whether the latest scope refresh admits the source to crawling with a crawl root, which a
     /// label or a missing qualification may still keep from being crawled.
     pub in_crawl_scope: bool,
-    /// Whether the source is a real antique e-shop, as decided; `None` while it waits for its
-    /// qualification (`docs/crawler/README.md#listingsource-qualification`).
+    /// Whether the source is a real art and antiques e-shop, as decided; `None` while it waits for
+    /// its qualification (`docs/crawler/README.md#listingsource-qualification`).
     pub qualification: Option<AppliedQualification>,
     /// Where the source's crawl starts, derived from its presentation URL; `None` while the scope
     /// gives it no crawl root (`docs/crawler/README.md#listingsource-scope`).

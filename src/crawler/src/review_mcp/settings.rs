@@ -22,7 +22,7 @@ pub const REVIEW_AGENT_TOKEN_FILE_ENV: &str = "CRAWLER_REVIEW_AGENT_TOKEN_FILE";
 pub enum AgentRole {
     Author,
     Reviewer,
-    /// The author agent qualifying one ListingSource as a real antique e-shop before it is
+    /// The author agent qualifying one ListingSource as a real art and antiques e-shop before it is
     /// crawled: it acts with the author's token and has only the qualification tools.
     Qualifier,
 }

@@ -1,6 +1,6 @@
-//! The qualification of a ListingSource as a real antique e-shop against PostgreSQL: the gate the
-//! scope sync applies in `agent` mode, the queue the author agent works, what a decision does to
-//! the source's label, and the append-only history of each
+//! The qualification of a ListingSource as a real art and antiques e-shop against PostgreSQL: the
+//! gate the scope sync applies in `agent` mode, the queue the author agent works, what a decision
+//! does to the source's label, and the append-only history of each
 //! (`docs/crawler/README.md#listingsource-qualification`).
 
 use async_trait::async_trait;

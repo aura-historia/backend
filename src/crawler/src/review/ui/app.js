@@ -1091,11 +1091,11 @@ function primaryStatus(source) {
     if (!source.crawl_enabled && source.qualification?.qualification === 'NEEDS_HUMAN') {
         return {
             key: 'qualification_needs_human', text: 'Qualification needs a human', more: source.qualification.note, note: true,
-            title: 'The review agent could not tell whether this is a real antique e-shop; not crawled until a human qualifies it'
+            title: 'The review agent could not tell whether this is a real art and antiques e-shop; not crawled until a human qualifies it'
         };
     }
     if (!source.crawl_enabled && source.in_crawl_scope && !source.qualification) {
-        return {key: 'awaiting_qualification', text: 'Awaiting qualification', more: '', title: 'Not crawled until the review agent qualifies it as a real antique e-shop'};
+        return {key: 'awaiting_qualification', text: 'Awaiting qualification', more: '', title: 'Not crawled until the review agent qualifies it as a real art and antiques e-shop'};
     }
     if (!source.crawl_enabled) return {key: 'crawling_disabled', text: 'Crawling disabled', more: ''};
     const [condition] = sourceConditions(source);
@@ -1493,7 +1493,7 @@ function renderSourceHealth(source) {
         : (Number(source.scrape_failure_streak) || 0) > 0 ? 'never scraped' : 'no failure streak';
     const errors = (source.url_error_kinds || []).filter(entry => !STATUS_ERROR_KINDS.has(entry.kind));
     return `<div class="card">
-      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an antique e-shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
+      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an art and antiques e-shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
@@ -1679,7 +1679,7 @@ const RETIRED_SOURCE_LABELS = {
     APPROACH_NOT_APPLICABLE: 'APPROACH NOT APPLICABLE (RETIRED)',
 };
 
-// A label's colour says what kind of reason it is: blue for a site that is not an antique e-shop,
+// A label's colour says what kind of reason it is: blue for a site that is not an art and antiques e-shop,
 // nothing broken; amber where the crawler's technique does not fit the shop; red where the shop
 // keeps the crawler out or is gone; grey for any other reason.
 const SOURCE_LABEL_TONES = {
@@ -1721,17 +1721,17 @@ function renderSourceLabelLine(source) {
 }
 
 // ───────────────────────────── ListingSource qualification ─────────────────────────────
-// Whether the source is a real antique e-shop, as the review agent or a human decided it, with the
+// Whether the source is a real art and antiques e-shop, as the review agent or a human decided it, with the
 // note that names the evidence; a source the scope admits without one is not crawled in agent mode.
 const QUALIFICATION_NAMES = {QUALIFIED: 'QUALIFIED', DISQUALIFIED: 'DISQUALIFIED', NEEDS_HUMAN: 'QUALIFICATION NEEDS A HUMAN'};
 
 function renderQualificationLine(source) {
     const id = escapeHtmlAttr(source.listing_source_id);
     const applied = source.qualification;
-    const qualify = `<button class="btn-link" aria-expanded="${openQualificationForms.has(source.listing_source_id)}" onclick="toggleQualificationForm('${id}')" title="Decide whether this is a real antique e-shop" type="button">Qualify…</button>`;
+    const qualify = `<button class="btn-link" aria-expanded="${openQualificationForms.has(source.listing_source_id)}" onclick="toggleQualificationForm('${id}')" title="Decide whether this is a real art and antiques e-shop" type="button">Qualify…</button>`;
     if (!applied) {
         if (!source.in_crawl_scope) return '';
-        return `<div class="status-line"><span class="badge badge-warn">AWAITING QUALIFICATION</span><div class="status-line-text">The review agent decides whether this is a real antique e-shop before it is crawled · ${qualify}</div></div>`;
+        return `<div class="status-line"><span class="badge badge-warn">AWAITING QUALIFICATION</span><div class="status-line-text">The review agent decides whether this is a real art and antiques e-shop before it is crawled · ${qualify}</div></div>`;
     }
     const tone = TONES[applied.qualification] || 'neutral';
     return `<div class="status-line"><span class="badge badge-${tone}">${escapeHtml(QUALIFICATION_NAMES[applied.qualification] || displayName(applied.qualification))}</span><div class="status-line-text">${escapeHtml(applied.note)} · by ${escapeHtml(actorWord(applied.qualified_by))} ${timeBadge(applied.qualified_at, 'Qualified')} · ${qualify} · <button class="btn-link" onclick="clearQualification('${id}')" title="Clear the qualification so the source waits for a new one; the review agent decides it unless a human's label stands" type="button">Qualify again</button></div></div>`;

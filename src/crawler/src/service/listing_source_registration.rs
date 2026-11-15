@@ -252,7 +252,7 @@ fn shared_hosts<'a>(roots: impl Iterator<Item = &'a CrawlRoot>) -> HashSet<Strin
     shared
 }
 
-/// Whether a ListingSource must be qualified as a real antique e-shop before it is crawled
+/// Whether a ListingSource must be qualified as a real art and antiques e-shop before it is crawled
 /// (`docs/crawler/README.md#listingsource-qualification`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QualificationGate {

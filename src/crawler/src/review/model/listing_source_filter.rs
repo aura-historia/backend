@@ -34,9 +34,9 @@ pub enum SourceStatus {
     Labelled,
     /// The scope admits the source, which waits for its qualification.
     Unqualified,
-    /// Qualified as a real antique e-shop.
+    /// Qualified as a real art and antiques e-shop.
     Qualified,
-    /// Disqualified: not an antique e-shop the crawler may reach.
+    /// Disqualified: not an art and antiques e-shop the crawler may reach.
     Disqualified,
     /// Its qualification could not be decided and waits for a human.
     QualificationNeedsHuman,

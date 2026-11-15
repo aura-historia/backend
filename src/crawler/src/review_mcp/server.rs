@@ -69,7 +69,7 @@ impl ReviewMcpServer {
                 "You are the reviewer agent: you check what the author agent or a human staged and approve, reject or ask for repair; you change no candidate."
             }
             AgentRole::Qualifier => {
-                "You are the qualifier: you read a ListingSource's own pages and decide once whether it is a real antique e-shop the crawler may crawl."
+                "You are the qualifier: you read a ListingSource's own pages and decide once whether it is a real art and antiques e-shop the crawler may crawl."
             }
         };
         let scope = match self.scope {

@@ -1,8 +1,8 @@
-//! The qualification pass: before it works the reviews, each run works the ListingSources that
-//! wait for their qualification as a real antique e-shop, one qualifier process per source, at
+//! The qualification pass: before it works the reviews, each run works the ListingSources that wait
+//! for their qualification as a real art and antiques e-shop, one qualifier process per source, at
 //! most `max_reviews_per_run` of them and `max_processes` at once. New sources come first, since
-//! they are not crawled until they are decided; the sources that existed before qualification
-//! did follow, which is the one-off backfill. The console decides everything: the qualifier calls
+//! they are not crawled until they are decided; the sources that existed before qualification did
+//! follow, which is the one-off backfill. The console decides everything: the qualifier calls
 //! `qualify_source`, and its report only tells the runner what happened. Each process is recorded
 //! in the qualification ledger, which the digest reads (`docs/crawler/operations.md`, review agent
 //! runner).
