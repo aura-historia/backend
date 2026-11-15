@@ -34,7 +34,7 @@ pub(super) fn absolute_base(document: &Html) -> Option<Url> {
 /// page's first absolute `<base href>` when it has one, otherwise the page URL itself. Spider never
 /// follows a redirect itself, so a page with links was served at the URL it was fetched as. Only
 /// the page's `<head>` is read, and parsed only when it names a `<base>` element at all.
-pub(super) fn link_base(page_url: &Url, html: &[u8]) -> Url {
+pub(crate) fn link_base(page_url: &Url, html: &[u8]) -> Url {
     let head = head_of(html);
     let names_base = head
         .windows(BASE_TAG_START.len())

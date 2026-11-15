@@ -10,7 +10,7 @@ use super::{
 };
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{QualificationDecision, ReviewActor};
-use crate::review::page_projection::{PageView, ProjectedHtml, SourcePageProjection};
+use crate::review::page_projection::{PageView, ProjectedHtml, SourcePageProjection, page_links};
 use listing_source_core::ListingSourceId;
 use serde_json::json;
 
@@ -146,9 +146,13 @@ impl ReviewServer {
             .await
             .map_err(|error| live_url_fetch_error(url.as_str(), &error))?;
         let html = fetched.html;
-        let projected = tokio::task::spawn_blocking(move || {
+        let final_url = fetched.final_url.clone();
+        let (projected, links) = tokio::task::spawn_blocking(move || {
             let _live_job = live_job;
-            ProjectedHtml::of(&html, view)
+            (
+                ProjectedHtml::of(&html, view),
+                page_links(&html, &final_url),
+            )
         })
         .await
         .map_err(internal_error)?;
@@ -161,6 +165,7 @@ impl ReviewServer {
                 view: projected.view,
                 projection: projected.projection,
                 describes_one_product: projected.describes_one_product,
+                links,
             },
         ))
     }

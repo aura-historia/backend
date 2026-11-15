@@ -378,6 +378,15 @@ pub(super) struct SourcePageAnswer {
     view: PageView,
     projection: String,
     describes_one_product: bool,
+    #[serde(default)]
+    links: Vec<SourcePageLink>,
+}
+
+/// A page of the shop a page links, with the link's text.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SourcePageLink {
+    pub url: String,
+    pub text: String,
 }
 
 /// A page of the ListingSource the qualifier reads, its projection cut to a bound.
@@ -393,6 +402,9 @@ pub struct SourcePage {
     pub truncated: bool,
     /// Whether the page's structured data describes exactly one product.
     pub describes_one_product: bool,
+    /// The shop's pages this page links, with their texts, which the projection leaves out: the
+    /// category, shop and item pages to read next.
+    pub links: Vec<SourcePageLink>,
 }
 
 impl From<SourcePageAnswer> for SourcePage {
@@ -405,6 +417,7 @@ impl From<SourcePageAnswer> for SourcePage {
             projection: truncated_text(&answer.projection, MAX_SOURCE_PAGE_CHARS),
             truncated,
             describes_one_product: answer.describes_one_product,
+            links: answer.links,
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::scraper::css_selector::product_schema_service::{
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 /// Which view of a page a projection shows: its outline, from which selectors are written, or its
 /// markdown, for reading what it shows. The console's `view` query parameter names it in lower
@@ -95,6 +96,58 @@ pub struct SourcePageProjection {
     pub projection: String,
     /// Whether the page's structured data describes exactly one product. Information only.
     pub describes_one_product: bool,
+    /// The pages of the shop the page links, which the projection leaves out: where to read on.
+    pub links: Vec<PageLink>,
+}
+
+/// The most links of a page the qualification reads.
+pub const MAX_PAGE_LINKS: usize = 80;
+
+/// The longest link text kept, in characters.
+const MAX_LINK_TEXT_CHARS: usize = 80;
+
+/// One page of the shop a page links, with the link's text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PageLink {
+    pub url: String,
+    pub text: String,
+}
+
+/// The distinct http(s) pages on `page_url`'s host or its www twin that `html` links, resolved as
+/// Spider resolves them, without fragments, in page order, at most [`MAX_PAGE_LINKS`]; the page
+/// itself is left out. A shop's own navigation names its category and item pages, which the
+/// projection's views drop.
+pub fn page_links(html: &str, page_url: &Url) -> Vec<PageLink> {
+    static LINKS: std::sync::LazyLock<scraper::Selector> =
+        std::sync::LazyLock::new(|| scraper::Selector::parse("a[href]").expect("link selector"));
+    let base = crate::spider::discovery::link_base(page_url, html.as_bytes());
+    let document = scraper::Html::parse_document(html);
+    let mut seen = std::collections::HashSet::new();
+    let mut page = page_url.clone();
+    page.set_fragment(None);
+    seen.insert(page.to_string());
+    document
+        .select(&LINKS)
+        .filter_map(|anchor| {
+            let mut url = base.join(anchor.value().attr("href")?.trim()).ok()?;
+            url.set_fragment(None);
+            let on_shop = matches!(url.scheme(), "http" | "https")
+                && crate::network::policy::is_same_or_www_host(&url, page_url);
+            (on_shop && seen.insert(url.to_string())).then(|| PageLink {
+                text: anchor
+                    .text()
+                    .collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(MAX_LINK_TEXT_CHARS)
+                    .collect(),
+                url: url.to_string(),
+            })
+        })
+        .take(MAX_PAGE_LINKS)
+        .collect()
 }
 
 /// What a page's `html` shows the review agents: its projection in one view, and whether its
@@ -127,6 +180,36 @@ impl ProjectedHtml {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The links a qualifier reads on: the shop's own pages, resolved against the page's base,
+    /// once each, without the page itself, other hosts, fragments or non-http links.
+    #[test]
+    fn should_list_the_shop_pages_a_page_links_once_each() {
+        let html = r##"<html><head><base href="https://www.shop.example/de/"></head><body>
+            <a href="/">Home</a>
+            <a href="moebel/">  Möbel
+               und Lampen </a>
+            <a href="moebel/#top">again</a>
+            <a href="https://shop.example/artikel/1">Art. 1</a>
+            <a href="https://elsewhere.example/">other shop</a>
+            <a href="mailto:info@shop.example">mail</a>
+            <a href="#cart">cart</a>
+        </body></html>"##;
+
+        let links = page_links(html, &Url::parse("https://www.shop.example/de/").unwrap());
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| (link.url.as_str(), link.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("https://www.shop.example/", "Home"),
+                ("https://www.shop.example/de/moebel/", "Möbel und Lampen"),
+                ("https://shop.example/artikel/1", "Art. 1"),
+            ]
+        );
+    }
 
     #[test]
     fn should_outline_the_page_and_report_its_product_markup() {
