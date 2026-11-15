@@ -38,6 +38,17 @@ impl UserTier {
             Self::Ultimate => 20,
         }
     }
+
+    /// How many watchlist entries may be active at once, or `None` when the tier has no limit.
+    /// The watch and reactivate checks and the tier reconciliation both read it from here, so
+    /// the two cannot disagree.
+    pub fn active_watchlist_quota(self) -> Option<u16> {
+        match self {
+            Self::Free => Some(20),
+            Self::Pro => Some(100),
+            Self::Ultimate => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -78,6 +89,13 @@ mod tests {
         assert_eq!(1, UserTier::Free.active_search_filter_quota());
         assert_eq!(5, UserTier::Pro.active_search_filter_quota());
         assert_eq!(20, UserTier::Ultimate.active_search_filter_quota());
+    }
+
+    #[test]
+    fn should_apply_active_watchlist_quotas_by_tier() {
+        assert_eq!(Some(20), UserTier::Free.active_watchlist_quota());
+        assert_eq!(Some(100), UserTier::Pro.active_watchlist_quota());
+        assert_eq!(None, UserTier::Ultimate.active_watchlist_quota());
     }
 
     #[test]

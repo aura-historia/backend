@@ -2,7 +2,6 @@ use crate::ports::{
     WatchlistQuotaReadError, WatchlistQuotaReader, WatchlistQuotaReaderFactory,
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
 };
-use crate::tier_policy::active_watchlist_quota;
 use application::error::{BoxError, box_error, static_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -272,7 +271,7 @@ where
                 }
                 Some(ListingLifecycle::Active) => {}
             }
-            if let Some(quota) = active_watchlist_quota(tier) {
+            if let Some(quota) = tier.active_watchlist_quota().map(usize::from) {
                 let active_count = self
                     .quotas
                     .in_transaction(&mut tx)
