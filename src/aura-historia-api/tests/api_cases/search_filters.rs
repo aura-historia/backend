@@ -773,10 +773,14 @@ async fn should_reject_ultimate_create_and_reactivation_once_the_active_quota_is
     let client = reqwest::Client::new();
     let pool = get_postgres_client().await;
     let quota = UserTier::Ultimate.active_search_filter_quota();
-    let active_ids = seed_search_filters(&pool, user_id, quota, "ACTIVE").await;
-    let restricted_id = seed_search_filters(&pool, user_id, 1, "INACTIVE_BY_RESTRICTED_PLAN")
+    let template_id = create_search_filter(&client, &token)
         .await
-        .remove(0);
+        .parse::<UserSearchFilterId>()
+        .unwrap_or_else(|error| panic!("invalid search filter identifier: {error}"));
+    let mut active_ids = vec![template_id];
+    active_ids.extend(copy_search_filter(&pool, template_id, quota - 1, "ACTIVE").await);
+    let restricted_id =
+        copy_search_filter(&pool, template_id, 1, "INACTIVE_BY_RESTRICTED_PLAN").await[0];
 
     let created = client
         .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
@@ -1285,10 +1289,11 @@ fn search_filter_body() -> serde_json::Value {
     })
 }
 
-/// Stores `count` text-free filters in `state` for an Ultimate account, bypassing the quota.
-async fn seed_search_filters(
+/// Stores `count` copies of an API-created filter in `state`, bypassing the quota. Copying keeps the
+/// stored search and embedding that a filter must have to load.
+async fn copy_search_filter(
     pool: &sqlx::PgPool,
-    user_id: user_core::user_id::UserId,
+    template_id: UserSearchFilterId,
     count: usize,
     state: &str,
 ) -> Vec<UserSearchFilterId> {
@@ -1296,15 +1301,15 @@ async fn seed_search_filters(
     for position in 0..count {
         let filter_id = UserSearchFilterId::new();
         sqlx::query(
-            "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency, matching_evidence_policy) VALUES ($1, $2, $3, $4, '{}'::jsonb, 'en', 'EUR', 'ENHANCED_TEXT_AND_FOUR_IMAGES')",
+            "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated, matching_evidence_policy) SELECT $1, user_id, $2, notifications, $3, search, enhanced_search_description, embedding, language, currency, version, created, updated, matching_evidence_policy FROM search_filters WHERE user_search_filter_id = $4",
         )
         .bind(filter_id.as_uuid())
-        .bind(uuid::Uuid::from(user_id))
-        .bind(format!("{state} {position}"))
+        .bind(format!("{state} copy {position}"))
         .bind(state)
+        .bind(template_id.as_uuid())
         .execute(pool)
         .await
-        .unwrap_or_else(|error| panic!("failed to seed {state} search filter: {error}"));
+        .unwrap_or_else(|error| panic!("failed to copy search filter as {state}: {error}"));
         filter_ids.push(filter_id);
     }
     filter_ids
