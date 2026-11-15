@@ -5,7 +5,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 ## 2026-11-15 — Ultimate saved searches are capped at 20 active (#2981)
 
 - **Behavior change:** the `ULTIMATE` tier allows up to 20 active saved searches instead of an unlimited number, counted across all active filters whether or not they use an enhanced description. As for `FREE` and `PRO`, creating a search filter or reactivating one (`PATCH` with `state` `ACTIVE`) while the account already has 20 active returns `422 SEARCH_FILTER_QUOTA_EXCEEDED`. Inactive filters do not count. Request and response shapes are unchanged.
-- The `ULTIMATE` descriptions in `UserTierData` and in `POST /v1/me/search-filters` now state the cap.
+- The `ULTIMATE` descriptions in `UserTierData` and in the search-filter create and update endpoints now state the cap, and the 422 examples show the message the API actually returns.
 
 ## 2026-11-14 — Content notices (#2934)
 
