@@ -87,6 +87,7 @@ pub(super) mod test_support {
             removed_by_redirect_target: None,
             page_error_streak: 0,
             page_directive_refusals: None,
+            identity_conflict_streak: 0,
         }
     }
 }

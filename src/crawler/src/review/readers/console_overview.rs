@@ -45,6 +45,7 @@ impl ConsoleOverviewReader {
                 blocked_by_review: health.blocked_by_review,
                 failing_to_scrape: health.failing_to_scrape,
                 held_removals: health.held_removals,
+                identity_conflicts: health.identity_conflicts,
                 labelled: health.labelled,
             },
             reviews,

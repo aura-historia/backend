@@ -57,6 +57,10 @@ pub struct ScraperCandidate {
     /// The page-directive refusals the URL's fetches answered in a row up to now, if its last
     /// outcome was one.
     pub page_directive_refusals: Option<PageDirectiveRefusalRun>,
+    /// The identity conflicts (`SourceListingIdConflict`) the URL's scrapes recorded in a row up to
+    /// now, which grow its retry delay; 0 when its last outcome was none
+    /// (`docs/crawler/scheduling-and-retries.md#identity-conflicts`).
+    pub identity_conflict_streak: u32,
 }
 
 /// Refusals in a row, at least, after which a stored listing whose page refuses capture by its
@@ -627,6 +631,11 @@ impl ScraperCandidateServiceImpl {
     /// other failure, a wait included, resets it, as every completed scrape does
     /// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
     ///
+    /// An identity conflict (`SourceListingIdConflict`) continues the URL's run of conflicts,
+    /// which records its streak, its start and its latest conflict, and any other failure ends
+    /// it. Candidate selection reads the run only while `last_error_kind` is still the conflict,
+    /// so a write that leaves the columns ends it as well.
+    ///
     /// A page-directive refusal continues the URL's [refusal run](PageDirectiveRefusalRun) and
     /// any other failure ends it. Every other outcome write ends the run as well, except a held
     /// page-directive withdrawal, which keeps it; so the stored run is always the current one.
@@ -668,7 +677,19 @@ impl ScraperCandidateServiceImpl {
                      CASE WHEN $3 <> 'PageDirectiveDisallowed' THEN NULL
                           WHEN last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
                           THEN COALESCE(page_directive_refused_since, NOW())
-                          ELSE NOW() END
+                          ELSE NOW() END,
+                 identity_conflict_streak =
+                     CASE WHEN $3 <> 'SourceListingIdConflict' THEN 0
+                          WHEN last_error_kind = 'SourceListingIdConflict'
+                          THEN identity_conflict_streak + 1
+                          ELSE 1 END,
+                 identity_conflict_since =
+                     CASE WHEN $3 <> 'SourceListingIdConflict' THEN NULL
+                          WHEN last_error_kind = 'SourceListingIdConflict'
+                          THEN COALESCE(identity_conflict_since, NOW())
+                          ELSE NOW() END,
+                 identity_conflict_last =
+                     CASE WHEN $3 <> 'SourceListingIdConflict' THEN NULL ELSE NOW() END
              WHERE listing_source_id = $1
                AND url = $2
                AND url_class = 'product'
@@ -844,6 +865,7 @@ struct ScraperCandidateRow {
     last_error_kind: Option<String>,
     page_directive_refusal_streak: i32,
     page_directive_refused_since: Option<OffsetDateTime>,
+    identity_conflict_streak: i32,
 }
 
 /// The ListingSource conditions of scraper eligibility over `listing_sources s`: crawling is
@@ -909,6 +931,24 @@ macro_rules! holds_on_schema_review_wait {
     };
 }
 
+/// Whether the identity conflict a URL `listing_source_urls su` last recorded is released: the
+/// product schemas of its ListingSource changed, or were removed, since that conflict, so the
+/// next scrape may derive the captured identity again and the URL is due at once instead of at
+/// the end of its growing retry delay
+/// (`docs/crawler/scheduling-and-retries.md#identity-conflicts`).
+macro_rules! identity_conflict_released {
+    () => {
+        r#"(su.last_error_kind = 'SourceListingIdConflict'
+                   AND su.identity_conflict_last IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM listing_source_product_schemas ps
+                       WHERE ps.listing_source_id = su.listing_source_id
+                         AND ps.updated <= su.identity_conflict_last
+                   ))"#
+    };
+}
+
 /// The URLs due for scraping, shared by every query that selects or counts them so their
 /// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
 /// ListingSource IDs to leave out. A URL whose redirect target no cached schema could judge
@@ -957,6 +997,8 @@ macro_rules! eligible_scraper_urls_cte {
                    AS page_directive_refusal_streak
             , CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
                    THEN su.page_directive_refused_since END AS page_directive_refused_since
+            , CASE WHEN su.last_error_kind = 'SourceListingIdConflict'
+                   THEN su.identity_conflict_streak ELSE 0 END AS identity_conflict_streak
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         WHERE "#,
@@ -967,7 +1009,10 @@ macro_rules! eligible_scraper_urls_cte {
           AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW()
                OR (su.last_error_kind = 'RedirectTargetUnverified' AND "#,
             has_product_schema!(),
-            r#"))
+            r#")
+               OR "#,
+            identity_conflict_released!(),
+            r#")
           AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
           AND NOT "#,
             awaits_first_product_schema!(),
@@ -1015,7 +1060,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
         removed_by_redirect_target,
         page_error_streak, last_error_kind,
-        page_directive_refusal_streak, page_directive_refused_since
+        page_directive_refusal_streak, page_directive_refused_since,
+        identity_conflict_streak
     FROM ranked_urls
     WHERE (is_circuit_probe AND source_url_rank = 1)
        OR (NOT is_circuit_probe AND source_url_rank <= $4)
@@ -1069,6 +1115,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 row.page_directive_refusal_streak,
                 row.page_directive_refused_since,
             )?;
+            let identity_conflict_streak = u32::try_from(row.identity_conflict_streak)
+                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -1103,6 +1151,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 removed_by_redirect_target,
                 page_error_streak,
                 page_directive_refusals,
+                identity_conflict_streak,
             });
         }
 

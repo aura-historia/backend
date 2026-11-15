@@ -1071,7 +1071,12 @@ async fn approve_removed_page_template_for_notice_page(
         .map(|page| (page, REMOVAL_NOTICE_HTML.to_owned()))
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages,
+            Vec::new(),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap_or_else(|error| panic!("evaluate the declaration: {error}"));
     repository

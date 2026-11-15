@@ -126,7 +126,7 @@ impl IdentityAgreementFindings {
 
 /// The identity a raw extraction is captured under when it yields one, as the scraper
 /// compares it with the captured identity.
-fn capturable_identity(raw: &str) -> Option<String> {
+pub(crate) fn capturable_identity(raw: &str) -> Option<String> {
     SourceListingId::try_from(raw).ok().map(String::from)
 }
 

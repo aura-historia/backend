@@ -20,6 +20,7 @@ mod cross_page;
 mod identity_agreement;
 
 pub use cross_page::{CrossPageCheck, CrossPageFinding, CrossPageFindings, PageExtraction};
+pub(crate) use identity_agreement::capturable_identity;
 pub use identity_agreement::{
     IdentityAgreementCheck, IdentityAgreementFinding, IdentityAgreementFindings,
 };
