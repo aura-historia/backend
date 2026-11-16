@@ -4,13 +4,14 @@
 use super::{FetchAttemptError, FetchError, ReqwestHtmlFetcher};
 use crate::network::policy::{NetworkErrorKind, is_same_or_www_host};
 use crate::network::robots::{
-    MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy, robots_txt_url,
+    MAX_CRAWL_DELAY, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy,
+    robots_txt_url,
 };
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::debug;
+use tracing::{debug, info};
 use url::Url;
 
 /// How long a fetched robots.txt (or a 4xx answer) is trusted; RFC 9309
@@ -105,9 +106,23 @@ impl ReqwestHtmlFetcher {
             event = "crawler.scraper.robots_loaded",
             origin = %origin_key,
             policy = loaded.policy.label(),
-            crawl_delay_ms = loaded.policy.crawl_delay().map(|delay| delay.as_millis() as u64),
+            crawl_delay_ms = loaded
+                .policy
+                .crawl_delay()
+                .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
             "Loaded robots.txt for scraper origin"
         );
+        if let RobotsPolicy::Rules(rules) = loaded.policy.as_ref()
+            && rules.crawl_delay_too_long()
+        {
+            info!(
+                event = "crawler.scraper.robots_crawl_delay_too_long",
+                origin = %origin_key,
+                crawl_delay_secs = rules.crawl_delay().map(|delay| delay.as_secs_f64()),
+                max_crawl_delay_secs = MAX_CRAWL_DELAY.as_secs(),
+                "robots.txt asks for a longer Crawl-delay than the crawler honours; refusing the origin"
+            );
+        }
         let policy = Arc::clone(&loaded.policy);
         *cached = Some(loaded);
         drop(cached);

@@ -432,6 +432,24 @@ mod tests {
         assert_eq!(third.wait(), Duration::from_secs(20));
     }
 
+    /// The pacer spaces starts by the whole delay it is given, above the former 60 s cap too;
+    /// what the crawler honours is decided by robots.txt admission, never by shortening here.
+    #[tokio::test(start_paused = true)]
+    async fn crawl_delay_above_the_former_cap_spaces_request_starts_whole() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            enabled: false,
+            ..Default::default()
+        });
+        let crawl_delay = Some(Duration::from_secs(90));
+
+        throttle
+            .reserve_request_start("example.com", Duration::ZERO, crawl_delay)
+            .claim();
+        let next = throttle.reserve_request_start("example.com", Duration::ZERO, crawl_delay);
+
+        assert_eq!(next.wait(), Duration::from_secs(90));
+    }
+
     #[tokio::test(start_paused = true)]
     async fn dropping_an_unclaimed_reservation_hands_its_start_back() {
         let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {

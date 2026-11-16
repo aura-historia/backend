@@ -12,8 +12,11 @@ use url::Url;
 mod deny_list;
 pub use deny_list::DenyList;
 
-/// Upper bound for an honoured `Crawl-delay`; the Spider library caps the
-/// delay it reads from robots.txt at the same value.
+/// The longest `Crawl-delay` the crawler honours. A robots.txt asking for a longer one refuses
+/// its origin ([`RobotsRefusal::CrawlDelayTooLong`]) rather than being crawled faster than it
+/// asked: such a delay would hold a scraper pass past its batch budget, and leave a spider crawl
+/// fewer pages than the URL-pattern inference sample within its longest budget
+/// (`docs/crawler/networking.md#robotstxt`).
 pub const MAX_CRAWL_DELAY: Duration = Duration::from_secs(60);
 
 /// RFC 9309 requires parsing at least the first 500 KiB of a robots.txt file;
@@ -78,6 +81,9 @@ pub enum RobotsPolicy {
 pub enum RobotsRefusal {
     Disallowed,
     Unreachable,
+    /// robots.txt asks for a `Crawl-delay` above [`MAX_CRAWL_DELAY`], which the crawler does not
+    /// honour, so it requests nothing from the origin.
+    CrawlDelayTooLong,
 }
 
 impl RobotsPolicy {
@@ -121,6 +127,9 @@ impl RobotsPolicy {
     /// allows `url`.
     pub fn refusal_details(&self, url: &Url) -> Option<String> {
         match self {
+            Self::Rules(rules) if rules.crawl_delay_too_long() => rules
+                .crawl_delay
+                .map(|delay| format!("Crawl-delay: {}", delay.as_secs_f64())),
             Self::Rules(rules) => rules.refusing_rule(url),
             Self::Unavailable => None,
             Self::Unreachable => Some("robots.txt is unreachable".to_owned()),
@@ -129,6 +138,9 @@ impl RobotsPolicy {
 
     pub fn check(&self, url: &Url) -> Result<(), RobotsRefusal> {
         match self {
+            Self::Rules(rules) if rules.crawl_delay_too_long() => {
+                Err(RobotsRefusal::CrawlDelayTooLong)
+            }
             Self::Rules(rules) if !rules.allows(url) => Err(RobotsRefusal::Disallowed),
             Self::Rules(_) | Self::Unavailable => Ok(()),
             Self::Unreachable => Err(RobotsRefusal::Unreachable),
@@ -206,8 +218,15 @@ impl RobotsRules {
         }
     }
 
+    /// The `Crawl-delay` as robots.txt states it, also one above [`MAX_CRAWL_DELAY`].
     pub fn crawl_delay(&self) -> Option<Duration> {
         self.crawl_delay
+    }
+
+    /// Whether the `Crawl-delay` is longer than the crawler honours.
+    pub fn crawl_delay_too_long(&self) -> bool {
+        self.crawl_delay
+            .is_some_and(|delay| delay > MAX_CRAWL_DELAY)
     }
 
     /// The longest matching rule decides; `Allow` wins a tie and a URL no
@@ -314,10 +333,11 @@ pub(crate) fn product_token(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// A delay too long to represent, `inf` included, is kept as the longest one, so it refuses the
+/// origin instead of being ignored; a negative or non-numeric value is no delay.
 fn parse_crawl_delay(value: &str) -> Option<Duration> {
     let seconds = value.parse::<f64>().ok()?;
-    (seconds.is_finite() && seconds >= 0.0)
-        .then(|| Duration::from_secs_f64(seconds.min(MAX_CRAWL_DELAY.as_secs_f64())))
+    (seconds >= 0.0).then(|| Duration::try_from_secs_f64(seconds).unwrap_or(Duration::MAX))
 }
 
 /// Brings patterns and request paths into one form: non-ASCII characters
@@ -528,10 +548,41 @@ mod tests {
     }
 
     #[test]
-    fn should_cap_the_crawl_delay() {
-        let rules = RobotsRules::parse("User-agent: *\nCrawl-delay: 3600\n");
+    fn should_honour_a_crawl_delay_up_to_the_cap() {
+        let policy = RobotsPolicy::from_body(b"User-agent: *\nCrawl-delay: 60\n");
 
-        assert_eq!(rules.crawl_delay, Some(MAX_CRAWL_DELAY));
+        assert_eq!(policy.crawl_delay(), Some(MAX_CRAWL_DELAY));
+        assert_eq!(policy.check(&url("/a")), Ok(()));
+    }
+
+    #[test]
+    fn should_refuse_the_origin_when_the_crawl_delay_exceeds_the_cap() {
+        for delay in ["60.5", "3600", "1e300", "inf"] {
+            let policy = RobotsPolicy::from_body(
+                format!("User-agent: *\nAllow: /\nCrawl-delay: {delay}\n").as_bytes(),
+            );
+
+            assert_eq!(
+                policy.check(&url("/a")),
+                Err(RobotsRefusal::CrawlDelayTooLong),
+                "{delay}"
+            );
+            assert!(
+                policy
+                    .refusal_details(&url("/a"))
+                    .is_some_and(|details| details.starts_with("Crawl-delay: ")),
+                "{delay}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_ignore_a_crawl_delay_that_is_no_delay() {
+        for delay in ["-5", "NaN", "soon"] {
+            let rules = RobotsRules::parse(&format!("User-agent: *\nCrawl-delay: {delay}\n"));
+
+            assert_eq!(rules.crawl_delay, None, "{delay}");
+        }
     }
 
     #[test]

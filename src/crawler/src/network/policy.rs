@@ -299,6 +299,10 @@ pub enum NetworkErrorKind {
     RobotsDisallowed,
     /// robots.txt could not be reached, so RFC 9309 disallows the whole origin.
     RobotsUnreachable,
+    /// robots.txt asks for a `Crawl-delay` longer than the crawler honours, so the whole origin
+    /// is refused rather than crawled faster than it asked
+    /// ([`MAX_CRAWL_DELAY`](crate::network::robots::MAX_CRAWL_DELAY)).
+    RobotsCrawlDelayTooLong,
     /// The shop answered the page, and the page's own robots directives (its `X-Robots-Tag`
     /// header or meta robots tag) forbid capturing it
     /// ([`robots_directives`](crate::network::robots_directives)).
@@ -518,6 +522,7 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::HttpStatus(_)
         | NetworkErrorKind::RobotsDisallowed
         | NetworkErrorKind::RobotsUnreachable
+        | NetworkErrorKind::RobotsCrawlDelayTooLong
         | NetworkErrorKind::RobotsConnectionDropped
         | NetworkErrorKind::PageDirectiveDisallowed
         | NetworkErrorKind::BotChallenge
@@ -538,6 +543,7 @@ impl NetworkErrorKind {
             Self::HttpStatus(_) => "HTTP_STATUS",
             Self::RobotsDisallowed => "ROBOTS_DISALLOWED",
             Self::RobotsUnreachable => "ROBOTS_UNREACHABLE",
+            Self::RobotsCrawlDelayTooLong => "ROBOTS_CRAWL_DELAY_TOO_LONG",
             Self::PageDirectiveDisallowed => "PAGE_DIRECTIVE_DISALLOWED",
             Self::BotChallenge => "BOT_CHALLENGE",
             Self::ConnectionDropped => "CONNECTION_DROPPED",
@@ -548,7 +554,10 @@ impl NetworkErrorKind {
 
     /// robots.txt refused the request, so nothing reached the shop.
     pub fn is_robots_refusal(self) -> bool {
-        matches!(self, Self::RobotsDisallowed | Self::RobotsUnreachable)
+        matches!(
+            self,
+            Self::RobotsDisallowed | Self::RobotsUnreachable | Self::RobotsCrawlDelayTooLong
+        )
     }
 
     /// The shop's robots rules refused the page: robots.txt before the request, or the page's
@@ -600,9 +609,9 @@ pub const PAGE_DIRECTIVE_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 
 /// for minutes.
 pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
-        NetworkErrorKind::UnsafeTarget | NetworkErrorKind::RobotsDisallowed => {
-            Duration::from_secs(24 * 60 * 60)
-        }
+        NetworkErrorKind::UnsafeTarget
+        | NetworkErrorKind::RobotsDisallowed
+        | NetworkErrorKind::RobotsCrawlDelayTooLong => Duration::from_secs(24 * 60 * 60),
         NetworkErrorKind::PageDirectiveDisallowed => PAGE_DIRECTIVE_RETRY_COOLDOWN,
         NetworkErrorKind::RobotsUnreachable => Duration::from_secs(15 * 60),
         NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10 * 60),

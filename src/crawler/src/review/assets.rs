@@ -336,6 +336,10 @@ mod tests {
                 "robots.txt connection dropped",
             ),
             (
+                NetworkErrorKind::RobotsCrawlDelayTooLong,
+                "Crawl-delay too long",
+            ),
+            (
                 NetworkErrorKind::PageDirectiveDisallowed,
                 "Refused by page directives",
             ),

@@ -12,8 +12,8 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error,
 };
 use crate::network::robots::{
-    DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy,
-    RobotsRules, robots_txt_url,
+    DenyList, MAX_CRAWL_DELAY, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep,
+    RobotsPolicy, RobotsRules, robots_txt_url,
 };
 use crate::spider::utils::url::CrawledUrl;
 use std::time::Duration;
@@ -68,6 +68,19 @@ fn admit_policy(root: &Url, policy: RobotsPolicy) -> Result<CrawlRobots, SpiderD
             rules: None,
             policy: label,
         }),
+        RobotsPolicy::Rules(rules) if rules.crawl_delay_too_long() => {
+            info!(
+                event = "crawler.spider.robots_crawl_delay_too_long",
+                crawl_root = %root,
+                crawl_delay_secs = rules.crawl_delay().map(|delay| delay.as_secs_f64()),
+                max_crawl_delay_secs = MAX_CRAWL_DELAY.as_secs(),
+                "robots.txt asks for a longer Crawl-delay than the crawler honours; refusing the crawl"
+            );
+            Err(SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RobotsBlocked,
+                "robots.txt asks for a Crawl-delay above the 60 s the crawler honours",
+            ))
+        }
         RobotsPolicy::Rules(rules) if !rules.allows(root) => Err(SpiderDiscoveryError::preflight(
             CrawlFailureKind::RobotsBlocked,
             "robots.txt disallows the crawl root",
@@ -317,5 +330,37 @@ mod tests {
 
         assert_eq!(unreachable.status(), None);
         assert_eq!(unreachable.transport_error(), Some("TIMEOUT"));
+    }
+
+    fn root() -> Url {
+        Url::parse("https://example.com/").unwrap()
+    }
+
+    #[test]
+    fn should_pace_the_crawl_at_a_crawl_delay_up_to_the_cap() {
+        let policy = RobotsPolicy::from_body(b"User-agent: *\nCrawl-delay: 60\n");
+
+        let robots = admit_policy(&root(), policy).unwrap();
+
+        assert_eq!(robots.crawl_delay, Some(MAX_CRAWL_DELAY));
+    }
+
+    #[test]
+    fn should_refuse_the_crawl_when_the_crawl_delay_exceeds_the_cap() {
+        let policy = RobotsPolicy::from_body(b"User-agent: *\nAllow: /\nCrawl-delay: 120\n");
+
+        let error = admit_policy(&root(), policy).unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                SpiderDiscoveryError::Preflight {
+                    kind: CrawlFailureKind::RobotsBlocked,
+                    reason,
+                    ..
+                } if reason.contains("Crawl-delay")
+            ),
+            "{error:?}"
+        );
     }
 }
