@@ -1278,9 +1278,13 @@ async fn root_page_reroot(
 /// Bounded Spider retries that never re-fetch what a retry cannot improve: a
 /// body the transport ceiling already truncated would truncate again, and a
 /// 429 limits the client, not the page, so the crawl reacts to it instead
-/// (see `RateLimitSignal`).
+/// (see `RateLimitSignal`). A retry runs inside the page's task, outside
+/// Spider's delay between request starts, so it waits `backoff`, the crawl's
+/// own delay, rather than Spider's own short exponential backoff, and never re-requests a
+/// page faster than the crawl requests pages.
 struct PageRetryStrategy {
     max_retries: u32,
+    backoff: Duration,
 }
 
 impl RetryStrategy for PageRetryStrategy {
@@ -1292,7 +1296,10 @@ impl RetryStrategy for PageRetryStrategy {
         if outcome.content_truncated || outcome.status_code.as_u16() == 429 {
             RetryDirective::stop()
         } else {
-            RetryDirective::default()
+            RetryDirective {
+                backoff: Some(self.backoff),
+                ..RetryDirective::default()
+            }
         }
     }
 }
@@ -1791,6 +1798,7 @@ impl SpiderImpl {
             .with_caching(false)
             .with_retry_strategy(Arc::new(PageRetryStrategy {
                 max_retries: u32::from(self.config.retry_count),
+                backoff: Duration::from_millis(delay_millis),
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
@@ -5833,6 +5841,38 @@ mod tests {
         );
     }
 
+    /// A retried page waits the crawl's own delay, `Crawl-delay` included, never Spider's
+    /// own short default backoff, so a 5xx page is not re-requested faster than the shop asked.
+    #[test]
+    fn should_back_off_a_page_retry_by_the_crawl_delay() {
+        let delay_millis =
+            crawl_request_delay_millis(500, Some(Duration::from_secs(45)), Duration::ZERO);
+        let strategy = PageRetryStrategy {
+            max_retries: 2,
+            backoff: Duration::from_millis(delay_millis),
+        };
+        let outcome = AttemptOutcome {
+            attempt: 1,
+            status_code: spider::reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            should_retry: true,
+            content_truncated: false,
+            waf_check: false,
+            anti_bot_tech: &AntiBotTech::None,
+            proxy_configured: false,
+            url: "https://example.com/",
+            profile_key: None,
+            html_length: 0,
+            bytes_transferred: None,
+            error_status: None,
+            final_redirect_destination: None,
+        };
+
+        let directive = strategy.on_retry(&outcome);
+
+        assert!(directive.should_retry);
+        assert_eq!(directive.backoff, Some(Duration::from_secs(45)));
+    }
+
     /// A delay above the former 60 s cap reaches Spider whole: its static delay is not capped,
     /// and its latency throttle may lengthen it but never clamps it back below.
     #[test]
@@ -6092,7 +6132,10 @@ mod tests {
 
     #[test]
     fn should_stop_spider_retries_for_truncated_bodies_and_rate_limits_only() {
-        let strategy = PageRetryStrategy { max_retries: 2 };
+        let strategy = PageRetryStrategy {
+            max_retries: 2,
+            backoff: Duration::from_millis(500),
+        };
         let outcome = |status_code: u16, content_truncated: bool| AttemptOutcome {
             attempt: 1,
             status_code: spider::reqwest::StatusCode::from_u16(status_code).unwrap(),

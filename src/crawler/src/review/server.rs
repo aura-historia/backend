@@ -1484,7 +1484,9 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 
 /// The `502` a failed live fetch of `url` answers. A bot challenge the shop answered instead of
 /// the page says so and carries `reason` `BOT_CHALLENGE`, so a reviewer does not read it as the
-/// page failing a schema.
+/// page failing a schema. A robots.txt refusal carries `reason` `ROBOTS_DISALLOWED`, or
+/// `ROBOTS_CRAWL_DELAY_TOO_LONG` when its `Crawl-delay` is longer than the crawler honours, with
+/// the refusing rule quoted in the details.
 fn live_fetch_failure(url: &str, failed: &str, error: &FetchError) -> HttpResponse {
     let body = if error.kind() == NetworkErrorKind::BotChallenge {
         json!({
@@ -1497,6 +1499,13 @@ fn live_fetch_failure(url: &str, failed: &str, error: &FetchError) -> HttpRespon
         json!({
             "error": format!("the shop's robots.txt refuses the crawler {url}; the details quote the refusing rule"),
             "reason": "ROBOTS_DISALLOWED",
+            "url": url,
+            "details": error.to_string(),
+        })
+    } else if error.kind() == NetworkErrorKind::RobotsCrawlDelayTooLong {
+        json!({
+            "error": format!("the shop's robots.txt asks for a longer Crawl-delay than the crawler honours, which refuses {url}; the details quote the rule"),
+            "reason": "ROBOTS_CRAWL_DELAY_TOO_LONG",
             "url": url,
             "details": error.to_string(),
         })
@@ -1548,6 +1557,26 @@ mod tests {
             assert_eq!(body["reason"], "BOT_CHALLENGE");
             assert_eq!(body["url"], "https://shop.example/p/1");
             assert!(body["error"].as_str().unwrap().contains("bot challenge"));
+        }
+
+        #[test]
+        fn should_name_a_robots_txt_crawl_delay_refusal_with_its_rule() {
+            let error = FetchError::RobotsRefused {
+                refusal: crate::network::robots::RobotsRefusal::CrawlDelayTooLong,
+                shop_answer: Some(200),
+                details: "robots.txt asks for a longer delay than the crawler honours (User-agent: *; Crawl-delay: 120)".to_owned(),
+            };
+
+            let (status, body) = body_of(live_url_fetch_error("https://shop.example/", &error));
+
+            assert!(status.starts_with("HTTP/1.1 502"), "{status}");
+            assert_eq!(body["reason"], "ROBOTS_CRAWL_DELAY_TOO_LONG");
+            assert!(
+                body["details"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Crawl-delay: 120")
+            );
         }
 
         #[test]

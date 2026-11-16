@@ -76,10 +76,14 @@ fn admit_policy(root: &Url, policy: RobotsPolicy) -> Result<CrawlRobots, SpiderD
                 max_crawl_delay_secs = MAX_CRAWL_DELAY.as_secs(),
                 "robots.txt asks for a longer Crawl-delay than the crawler honours; refusing the crawl"
             );
-            Err(SpiderDiscoveryError::preflight(
-                CrawlFailureKind::RobotsBlocked,
-                "robots.txt asks for a Crawl-delay above the 60 s the crawler honours",
-            ))
+            Err(SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::RobotsBlocked,
+                reason: "robots.txt asks for a Crawl-delay above the 60 s the crawler honours",
+                source: Some(Box::new(CrawlDelayTooLong {
+                    rule: rules.crawl_delay_rule().unwrap_or_default(),
+                })),
+                root_reroot: None,
+            })
         }
         RobotsPolicy::Rules(rules) if !rules.allows(root) => Err(SpiderDiscoveryError::preflight(
             CrawlFailureKind::RobotsBlocked,
@@ -105,6 +109,13 @@ fn crawl_robots(root: &Url, rules: &RobotsRules, policy: &'static str) -> CrawlR
         rules: Some(rules.clone()),
         policy,
     }
+}
+
+/// The `Crawl-delay` rule that refused a crawl, with its group, for the failure log.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("robots.txt states {rule}")]
+struct CrawlDelayTooLong {
+    rule: String,
 }
 
 /// Why robots.txt could not be reached: the HTTP status it answered, or the kind of the
@@ -351,16 +362,20 @@ mod tests {
 
         let error = admit_policy(&root(), policy).unwrap_err();
 
-        assert!(
-            matches!(
-                error,
-                SpiderDiscoveryError::Preflight {
-                    kind: CrawlFailureKind::RobotsBlocked,
-                    reason,
-                    ..
-                } if reason.contains("Crawl-delay")
-            ),
-            "{error:?}"
+        let SpiderDiscoveryError::Preflight {
+            kind,
+            reason,
+            source: Some(source),
+            ..
+        } = error
+        else {
+            panic!("expected a preflight failure with its rule: {error:?}");
+        };
+        assert_eq!(kind, CrawlFailureKind::RobotsBlocked);
+        assert!(reason.contains("Crawl-delay"), "{reason}");
+        assert_eq!(
+            source.to_string(),
+            "robots.txt states User-agent: *; Crawl-delay: 120"
         );
     }
 }
