@@ -91,7 +91,8 @@ environment configuration. The limits apply per **group**:
 - **Budget:** when 10 notices of the group were stored within the window, a further notice
   is rejected with `429 CONTENT_NOTICE_RATE_LIMITED` and `Retry-After` (exposed to browsers
   through CORS): the whole seconds until enough of them leave the window, normally the oldest.
-  The webapp then offers its `mailto:` fallback.
+  For a target without address it is always the whole window, because the exact wait would
+  tell anyone when others reported the target. The webapp then offers its `mailto:` fallback.
 - **No races:** after resolving the target, the submission transaction takes a
   transaction-scoped advisory lock on the group, then checks for a duplicate, then the
   budget, then inserts. Concurrent identical submissions store one notice, and concurrent
@@ -103,10 +104,10 @@ environment configuration. The limits apply per **group**:
 
 The address is unverified, so the budget throttles volume, not people: anyone can use up
 another address's budget for a day, and address variants such as plus-addressing get separate
-budgets. Likewise anyone can use up a target's anonymous budget for a day; reporters can still give an
-email address, which has its own budget. A human reviews every notice, so this is accepted for
-phase 1. There is no per-IP limit: handlers have no trustworthy client IP and notices store none, and the web ACL has no
-rate rule ([front door](http-api-front-door.md)).
+budgets. Likewise anyone can use up a target's anonymous budget for a day; reporters can still
+give an email address, which has its own budget. A human reviews every notice, so this is
+accepted for phase 1. There is no per-IP limit: handlers have no trustworthy client IP and
+notices store none, and the web ACL has no rate rule ([front door](http-api-front-door.md)).
 
 ## Receipt email
 

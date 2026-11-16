@@ -7,7 +7,9 @@ use crate::{
         ContentNoticeTargetReader, ContentNoticeTargetReaderFactory, SubmissionGroup,
     },
     submission_fingerprint::submission_fingerprint,
-    submission_policy::{RetryAfter, SubmissionDecision, decide, submission_group, window_start},
+    submission_policy::{
+        RetryAfter, SUBMISSION_WINDOW, SubmissionDecision, decide, submission_group, window_start,
+    },
 };
 use application::{
     error::{BoxError, box_error},
@@ -208,6 +210,7 @@ where
             .await?;
         let result = match decision {
             SubmissionDecision::RateLimited { retry_after } => {
+                let retry_after = disclosed_retry_after(group, retry_after);
                 log_rate_limited(context, group, retry_after);
                 return Err(SubmitContentNoticeError::RateLimited { retry_after });
             }
@@ -334,6 +337,16 @@ fn log_accepted(
             correlation_id = %context.correlation_id,
             outcome = "duplicate",
         ),
+    }
+}
+
+/// The wait a rate-limited submitter is told. For anonymous notices about a target the exact
+/// wait would tell anyone when others reported it, so they are told the whole window, which is
+/// never too early.
+fn disclosed_retry_after(group: SubmissionGroup<'_>, retry_after: RetryAfter) -> RetryAfter {
+    match group {
+        SubmissionGroup::Address(_) => retry_after,
+        SubmissionGroup::TargetWithoutAddress(_) => RetryAfter::rounded_up(SUBMISSION_WINDOW),
     }
 }
 
@@ -1237,9 +1250,13 @@ mod tests {
 
         assert!(matches!(last, SubmitContentNoticeResult::Stored { .. }));
         assert_eq!(SubmitContentNoticeResult::Duplicate, resubmitted);
-        assert!(
-            matches!(limited, Err(SubmitContentNoticeError::RateLimited { .. })),
-            "{limited:?}"
+        let Err(SubmitContentNoticeError::RateLimited { retry_after }) = limited else {
+            panic!("expected rate limit, got {limited:?}");
+        };
+        assert_eq!(
+            SUBMISSION_WINDOW.whole_seconds() as u64,
+            retry_after.seconds(),
+            "an anonymous submitter is not told when others reported the target"
         );
         assert!(matches!(
             other_target,

@@ -80,13 +80,18 @@ impl ContentNoticeSubmissionHistory for History<'_> {
             )
             .bind(email.as_str())
             .bind(after),
-            // The target type follows from whether a listing is named, so the identifiers
-            // select exactly the notices about this target.
-            SubmissionGroup::TargetWithoutAddress(target) => sqlx::query_as::<_, RecentSubmissionRow>(
-                "SELECT submission_fingerprint, created FROM content_notices WHERE submitter_email_key IS NULL AND listing_source_id = $1 AND product_listing_id IS NOT DISTINCT FROM $2 AND created > $3",
-            )
-            .bind(target.listing_source_id().into_uuid())
-            .bind(target.product_listing_id().map(|id| id.into_uuid()))
+            // A listing is identified by its ID alone, as in the lock key; a notice about a
+            // listing source as a whole names no listing.
+            SubmissionGroup::TargetWithoutAddress(target) => match target.product_listing_id() {
+                Some(product_listing_id) => sqlx::query_as::<_, RecentSubmissionRow>(
+                    "SELECT submission_fingerprint, created FROM content_notices WHERE submitter_email_key IS NULL AND product_listing_id = $1 AND created > $2",
+                )
+                .bind(product_listing_id.into_uuid()),
+                None => sqlx::query_as::<_, RecentSubmissionRow>(
+                    "SELECT submission_fingerprint, created FROM content_notices WHERE submitter_email_key IS NULL AND listing_source_id = $1 AND product_listing_id IS NULL AND created > $2",
+                )
+                .bind(target.listing_source_id().into_uuid()),
+            }
             .bind(after),
         };
         query

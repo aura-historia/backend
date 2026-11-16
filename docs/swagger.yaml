@@ -10633,8 +10633,8 @@ paths:
         or a double click, is safe and stores the notice at most once. A changed submission is a new notice.
 
         Receipt: every stored notice with an `email` gets exactly one receipt email to it, sent asynchronously
-        after the
-        `202`, in `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It confirms the
+        after the `202`, in `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It
+        confirms the
         receipt time, a reference (the ContentNotice ID), the provider, what the notice covers (the listing and
         its title for `PRODUCT_LISTING` targets, the whole provider with all of its listings for
         `LISTING_SOURCE` targets) and the reason category. It never repeats anything the submitter typed. An
@@ -10824,9 +10824,10 @@ paths:
         "429":
           description: |
             10 notices from this email address, or without an email address about this target, were stored
-            within the last 24 hours. Nothing was stored. Retry
-            after the `Retry-After` seconds, once enough of them are 24 hours old (normally the oldest), or use
-            another contact channel.
+            within the last 24 hours. Nothing was stored. Retry after the `Retry-After` seconds, once enough of
+            them are 24 hours old (normally the oldest), or use another contact channel. Without an email
+            address `Retry-After` is always the full 24 hours, so it does not reveal when others reported the
+            target.
           headers:
             Retry-After:
               description: Whole seconds until the address or target can store a notice again; at least 1.
