@@ -4444,7 +4444,12 @@ function selectedMatrixPage(candidate) {
     const pages = candidate.pages || [];
     const selected = pages.find(page => pageReferenceKey(page.page_reference) === `persisted:${selectedPageId}`);
     if (selected) return selected;
-    return isLiveMatrixCandidate(candidate) ? null : pages[0] || null;
+    if (isLiveMatrixCandidate(candidate)) return null;
+    // A generated matrix names its pages by input position, so it is matched to the selected
+    // review page by URL; the preview and the extracted data then show the same page.
+    const selectedUrl = (selectedDetail?.pages || [])
+        .find(page => page.review_page_id === selectedPageId)?.url;
+    return (selectedUrl && pages.find(page => page.url === selectedUrl)) || pages[0] || null;
 }
 
 function isLiveMatrixCandidate(candidate) {
