@@ -7,7 +7,9 @@ use serde_json::Value;
 
 mod schema_org_product;
 
-pub(crate) use schema_org_product::{is_product_iri, top_level_products};
+pub(crate) use schema_org_product::{
+    ActiveContext, is_product_iri, schema_org_term_of_iri, top_level_products,
+};
 
 /// How deep the search follows nested objects, `@graph` entries and offers, so a hostile
 /// document cannot make extraction recurse without bound.

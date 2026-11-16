@@ -433,7 +433,7 @@ pub trait ScraperCandidateService: Send + Sync {
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// The Product markup verdicts recorded on the ListingSource's live product URLs (class
-    /// `product`, not retired), counted in one read
+    /// `product`, not retired), counted in one read of their partial index
     /// (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
     async fn product_markup_evidence(
         &self,
@@ -1639,12 +1639,13 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         listing_source_id: &ListingSourceId,
     ) -> Result<ProductMarkupEvidence, sqlx::Error> {
         let (pages_with_verdict, pages_describing_one_product): (i64, i64) = sqlx::query_as(
-            "SELECT COUNT(last_scraped_describes_one_product),
+            "SELECT COUNT(*),
                     COUNT(*) FILTER (WHERE last_scraped_describes_one_product)
              FROM listing_source_urls
              WHERE listing_source_id = $1
                AND url_class = 'product'
-               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_scraped_describes_one_product IS NOT NULL",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .fetch_one(&self.pool)

@@ -1711,9 +1711,10 @@ fn every_product_page_marked_up() -> ProductMarkupEvidence {
 }
 
 /// A page that fails the stale live schema, scraped by a manual-authoring scraper over
-/// `candidates`, whose page is `html`.
-async fn scrape_failing_page(
+/// `candidates`: `html` answered from `final_url` for the request `request` builds.
+async fn scrape_failing_page_at(
     html: String,
+    final_url: Url,
     candidates: MockScraperCandidateService,
     request: impl FnOnce(&ListingSourceId, &Url) -> ScrapeRequest,
 ) -> (
@@ -1724,8 +1725,13 @@ async fn scrape_failing_page(
     let pool = test_api::get_postgres_client().await;
     let id = insert_listing_source(&pool).await;
     let repository = CrawlerReviewRepository::new(pool.clone());
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let (html, final_url) = (html.clone(), final_url.clone());
+        Box::pin(async move { Ok(fetch_result_for(html, final_url)) })
+    });
     let service = scraper_with_review_gate(
-        fetcher_returning_once(html),
+        fetcher,
         schema_service_without_generation(Some(cached_schemas(id, vec![stale_schema()]))),
         repository.clone(),
         candidates,
@@ -1733,6 +1739,19 @@ async fn scrape_failing_page(
     );
     let result = service.scrape(request(&id, &product_url())).await.result;
     (result, repository, id)
+}
+
+/// [`scrape_failing_page_at`] for a page answered from the requested URL.
+async fn scrape_failing_page(
+    html: String,
+    candidates: MockScraperCandidateService,
+    request: impl FnOnce(&ListingSourceId, &Url) -> ScrapeRequest,
+) -> (
+    Result<Option<ScrapedProduct>, ScraperError>,
+    CrawlerReviewRepository,
+    ListingSourceId,
+) {
+    scrape_failing_page_at(html, product_url(), candidates, request).await
 }
 
 async fn pending_product_schema_review(
@@ -1745,66 +1764,104 @@ async fn pending_product_schema_review(
         .unwrap_or_else(|error| panic!("read pending reviews: {error}"))
 }
 
-/// A category grid marking each product card as its own top-level Product.
-fn category_grid_html() -> String {
-    let card = |slug: &str| {
-        format!(
-            r#"<script type="application/ld+json">{{"@context":"https://schema.org","@type":"Product","name":"{slug}","url":"https://example.com/{slug}/"}}</script>"#
-        )
-    };
-    format!(
-        "<!DOCTYPE html><html><head>{}{}</head><body><h1>Rings</h1></body></html>",
-        card("ring-a"),
-        card("ring-b")
+/// The sample page, which fails the stale live schema, with `json` as its one JSON-LD script.
+fn sample_page_with_json_ld(json: &str) -> String {
+    sample_html().replace(
+        "<body>",
+        &format!(r#"<head><script type="application/ld+json">{json}</script></head><body>"#),
     )
 }
 
-/// A product page whose JSON-LD describes its one Product, failing the stale live schema.
-fn marked_up_product_html() -> String {
-    sample_html().replace(
-        "<body>",
-        r#"<head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Biedermeier Chair"}</script></head><body>"#,
+/// A category page listing its products' URLs in an `ItemList`, as Maison Baume's do.
+fn category_list_html() -> String {
+    sample_page_with_json_ld(
+        r#"{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","item":"https://example.com/"}]},{"@type":"ItemList","itemListElement":[{"@type":"ListItem","url":"https://example.com/ring-a/"},{"@type":"ListItem","url":"https://example.com/ring-b/"}]}]}"#,
     )
+}
+
+/// A category grid marking each product card as its own top-level Product.
+fn category_grid_html() -> String {
+    sample_page_with_json_ld(
+        r#"[{"@context":"https://schema.org","@type":"Product","url":"https://example.com/ring-a/"},{"@context":"https://schema.org","@type":"Product","url":"https://example.com/ring-b/"}]"#,
+    )
+}
+
+/// Candidates whose source reliably marks its products up, expecting the page at
+/// [`product_url`] to be classified as other with `outcome`.
+fn candidates_classifying_the_page(
+    outcome: impl Fn() -> Result<CrawlerUrlWriteOutcome, sqlx::Error> + Send + Sync + 'static,
+) -> MockScraperCandidateService {
+    let mut candidates = candidates_with_markup_evidence(every_product_page_marked_up());
+    let expected_url = product_url();
+    candidates
+        .expect_set_class()
+        .once()
+        .withf(move |_, url, url_class, expected_sha| {
+            url == &expected_url
+                && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
+                && expected_sha.is_none()
+        })
+        .returning(move |_, _, _, _| {
+            let outcome = outcome();
+            Box::pin(async move { outcome })
+        });
+    candidates
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_classify_a_page_without_one_product_as_other_instead_of_opening_a_review_when_the_source_marks_its_products()
+async fn should_classify_a_listing_as_other_instead_of_opening_a_review_when_the_source_marks_its_products()
  {
-    for html in [sample_html(), category_grid_html()] {
-        let mut candidates = candidates_with_markup_evidence(every_product_page_marked_up());
-        let expected_url = product_url();
-        candidates
-            .expect_set_class()
-            .once()
-            .withf(move |_, url, url_class, expected_sha| {
-                url == &expected_url
-                    && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
-                    && expected_sha.is_none()
-            })
-            .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    for html in [category_list_html(), category_grid_html()] {
+        let candidates = candidates_classifying_the_page(|| Ok(CrawlerUrlWriteOutcome::Applied));
 
         let (result, repository, id) =
             scrape_failing_page(html, candidates, primary_only_request).await;
 
         assert!(
-            matches!(result, Err(ScraperError::NotProductPage { .. })),
-            "expected NotProductPage, got {result:?}"
+            matches!(result, Err(ScraperError::NotProductPageByMarkup { .. })),
+            "expected NotProductPageByMarkup, got {result:?}"
         );
         assert_eq!(pending_product_schema_review(&repository, &id).await, None);
     }
 }
 
+/// A classification the row's guard or the database refuses classifies nothing: the page goes to
+/// its review as if the check had not run.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_open_a_review_for_a_page_without_one_product_when_a_product_page_of_the_source_lacks_the_markup()
- {
-    let mut candidates = candidates_with_markup_evidence(ProductMarkupEvidence {
-        pages_with_verdict: MIN_PRODUCT_PAGES_WITH_VERDICT + 1,
-        pages_describing_one_product: MIN_PRODUCT_PAGES_WITH_VERDICT,
-    });
+async fn should_open_a_review_when_the_markup_classification_is_not_written() {
+    let outcomes: [fn() -> Result<CrawlerUrlWriteOutcome, sqlx::Error>; 2] = [
+        || Ok(CrawlerUrlWriteOutcome::NoopStale),
+        || Err(sqlx::Error::PoolTimedOut),
+    ];
+    for outcome in outcomes {
+        let candidates = candidates_classifying_the_page(outcome);
+
+        let (result, repository, id) =
+            scrape_failing_page(category_list_html(), candidates, primary_only_request).await;
+
+        let review_id = pending_review_id(result);
+        assert_eq!(
+            pending_product_schema_review(&repository, &id).await,
+            Some(review_id)
+        );
+    }
+}
+
+/// A page without any product markup shows nothing, such as a removal notice answered with status
+/// 200: it goes to its review, where it can be declared removed, also on a source that marks its
+/// products up.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_a_review_for_a_page_without_any_product_markup() {
+    let mut candidates = MockScraperCandidateService::new();
+    candidates.expect_product_markup_evidence().never();
     candidates.expect_set_class().never();
+    let removal_notice = sample_html().replace(
+        "<h1>Biedermeier Chair</h1>",
+        "<h1>This item is no longer available</h1>",
+    );
 
     let (result, repository, id) =
-        scrape_failing_page(sample_html(), candidates, primary_only_request).await;
+        scrape_failing_page(removal_notice, candidates, primary_only_request).await;
 
     let review_id = pending_review_id(result);
     assert_eq!(
@@ -1814,32 +1871,94 @@ async fn should_open_a_review_for_a_page_without_one_product_when_a_product_page
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_open_a_review_without_reading_markup_evidence_when_the_page_describes_one_product()
-{
-    let mut candidates = MockScraperCandidateService::new();
-    candidates.expect_product_markup_evidence().never();
+async fn should_open_a_review_for_a_listing_when_a_product_page_of_the_source_lacks_the_markup() {
+    let mut candidates = candidates_with_markup_evidence(ProductMarkupEvidence {
+        pages_with_verdict: MIN_PRODUCT_PAGES_WITH_VERDICT + 1,
+        pages_describing_one_product: MIN_PRODUCT_PAGES_WITH_VERDICT,
+    });
     candidates.expect_set_class().never();
 
-    let (result, _, _) =
-        scrape_failing_page(marked_up_product_html(), candidates, primary_only_request).await;
+    let (result, repository, id) =
+        scrape_failing_page(category_list_html(), candidates, primary_only_request).await;
 
-    pending_review_id(result);
+    let review_id = pending_review_id(result);
+    assert_eq!(
+        pending_product_schema_review(&repository, &id).await,
+        Some(review_id)
+    );
+}
+
+/// A page that names one product of any product type, such as a variant template's
+/// `ProductGroup`, or whose markup cannot be read, is no evidence of a non-product page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_a_review_without_reading_markup_evidence_when_the_page_may_be_a_product() {
+    for json in [
+        r#"{"@context":"https://schema.org","@type":"Product","name":"Biedermeier Chair"}"#,
+        r#"{"@context":"https://schema.org","@type":"ProductGroup","name":"Ring","hasVariant":[{"@type":"Product"},{"@type":"Product"}]}"#,
+        r#"{"@context":"https://schema.org","@type":"WebPage","mainEntity":{"@type":"IndividualProduct","name":"Lot 12"}}"#,
+        r#"{"@context":"https://schema.org","@type":"Product","name":"Chair",}"#,
+    ] {
+        let mut candidates = MockScraperCandidateService::new();
+        candidates.expect_product_markup_evidence().never();
+        candidates.expect_set_class().never();
+
+        let (result, _, _) = scrape_failing_page(
+            sample_page_with_json_ld(json),
+            candidates,
+            primary_only_request,
+        )
+        .await;
+
+        pending_review_id(result);
+    }
 }
 
 /// A URL that once captured a product may now show its removal, which the markup cannot tell
-/// from a non-product page, so the page goes to its review.
+/// from a non-product page, so the page goes to its review: also when a removal being captured
+/// reset its capture hash, since its captured listing id stays.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_open_a_review_without_reading_markup_evidence_when_the_url_captured_a_product_before()
  {
+    let requests: [fn(&ListingSourceId, &Url) -> ScrapeRequest; 2] = [
+        |id, url| ScrapeRequest {
+            expected_last_captured_raw_input_sha256: Some(vec![4; 32]),
+            ..primary_only_request(id, url)
+        },
+        |id, url| ScrapeRequest {
+            last_source_listing_id: Some("SKU-42".to_owned()),
+            ..primary_only_request(id, url)
+        },
+    ];
+    for request in requests {
+        let mut candidates = MockScraperCandidateService::new();
+        candidates.expect_product_markup_evidence().never();
+        candidates.expect_set_class().never();
+
+        let (result, _, _) = scrape_failing_page(category_list_html(), candidates, request).await;
+
+        pending_review_id(result);
+    }
+}
+
+/// The page a redirect moved the requested URL to may be where a removed product's URL now leads,
+/// so the requested URL is not classified by that page's markup.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_a_review_without_reading_markup_evidence_when_a_redirect_moved_the_page() {
     let mut candidates = MockScraperCandidateService::new();
     candidates.expect_product_markup_evidence().never();
     candidates.expect_set_class().never();
+    let moved = Url::parse("https://example.com/products/456").unwrap();
 
-    let (result, _, _) = scrape_failing_page(sample_html(), candidates, |id, url| ScrapeRequest {
-        expected_last_captured_raw_input_sha256: Some(vec![4; 32]),
-        ..primary_only_request(id, url)
-    })
+    let (result, _, _) = scrape_failing_page_at(
+        category_list_html(),
+        moved.clone(),
+        candidates,
+        |id, url| primary_only_request_with_pattern(id, url, "/products/"),
+    )
     .await;
 
-    pending_review_id(result);
+    match result {
+        Err(ScraperError::PendingSchemaReview { url, .. }) => assert_eq!(url, moved),
+        other => panic!("expected the moved page to wait on a review, got {other:?}"),
+    }
 }

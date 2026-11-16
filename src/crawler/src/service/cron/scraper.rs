@@ -2019,6 +2019,7 @@ async fn record_batch_error_state(ctx: &ScrapeBatchContext, error: &ScraperError
         error,
         ScraperError::ProductListingRemoved(_)
             | ScraperError::NotProductPage { .. }
+            | ScraperError::NotProductPageByMarkup { .. }
             | ScraperError::RedirectToKnownProduct { .. }
             | ScraperError::PendingSchemaReview { .. }
     ) || is_robots_rules_refusal(error)
@@ -2040,6 +2041,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::HttpError { .. } | ScraperError::HttpErrorWithMetadata(_) => "HttpError",
         ScraperError::ProductListingRemoved(_) => "ProductListingRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
+        ScraperError::NotProductPageByMarkup { .. } => "NotProductPageByMarkup",
         // These labels are persisted as `last_error_kind` of a URL left at a redirect.
         ScraperError::RedirectToKnownProduct { .. } => "RedirectToKnownProduct",
         ScraperError::RedirectDestinationUnsettled { .. } => "RedirectDestinationUnsettled",

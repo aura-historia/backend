@@ -59,10 +59,13 @@ async fn should_skip_a_page_that_differs_only_in_per_request_tokens() {
     cand_svc
         .expect_touch_scraped()
         .once()
-        .withf(move |_, _, _, _, _, actual_raw_input_sha256| {
-            actual_raw_input_sha256.as_deref()
-                == Some(expected_raw_input_sha256_for_mock.as_slice())
-        })
+        .withf(
+            move |_, _, _, _, describes_one_product, actual_raw_input_sha256| {
+                !describes_one_product
+                    && actual_raw_input_sha256.as_deref()
+                        == Some(expected_raw_input_sha256_for_mock.as_slice())
+            },
+        )
         .returning(|_, _, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -87,6 +90,33 @@ async fn should_skip_a_page_that_differs_only_in_per_request_tokens() {
     assert!(result.is_none());
 }
 
+/// The sample page with JSON-LD naming its one product.
+fn marked_up_sample_html() -> String {
+    sample_html().replace(
+        "<body>",
+        r#"<head><script type="application/ld+json">{"@context":"https://schema.org","@type":"ProductGroup","name":"Biedermeier Chair"}</script></head><body>"#,
+    )
+}
+
+/// Every scrape that fetches a product page records its markup verdict, the evidence of the
+/// product markup pre-check: a page found unchanged as a capture does.
+#[tokio::test]
+async fn should_record_the_page_markup_verdict_when_skipping_or_capturing_a_page() {
+    let id = listing_source_id();
+    let current = scraper_context_fingerprint(EXTRACTOR_VERSION, id);
+    let outdated = scraper_context_fingerprint(EXTRACTOR_VERSION - 1, id);
+    for (html, one_product) in [(marked_up_sample_html(), true), (sample_html(), false)] {
+        let skipped =
+            scrape_page(id, &html, html.clone(), current.clone(), Some(one_product)).await;
+        assert!(skipped.is_none());
+
+        let captured = scrape_page(id, &html, html.clone(), outdated.clone(), None)
+            .await
+            .unwrap_or_else(|| panic!("an outdated fingerprint must capture the page"));
+        assert_eq!(captured.describes_one_product, one_product);
+    }
+}
+
 #[tokio::test]
 async fn should_extract_an_unchanged_page_when_the_extractor_version_was_raised() {
     let id = listing_source_id();
@@ -97,7 +127,7 @@ async fn should_extract_an_unchanged_page_when_the_extractor_version_was_raised(
         &sample_html(),
         sample_html(),
         scraper_context_fingerprint(previous_version, id),
-        0,
+        None,
     )
     .await
     .unwrap_or_else(|| panic!("a raised extractor version must extract the page again"));
@@ -118,7 +148,7 @@ async fn should_skip_an_unchanged_page_when_the_extractor_version_is_unchanged()
         &sample_html(),
         sample_html(),
         scraper_context_fingerprint(EXTRACTOR_VERSION, id),
-        1,
+        Some(false),
     )
     .await;
 
@@ -135,7 +165,7 @@ async fn should_extract_a_page_whose_product_values_changed() {
         &sample_html(),
         sold_html.clone(),
         scraper_context_fingerprint(EXTRACTOR_VERSION, id),
-        0,
+        None,
     )
     .await
     .unwrap_or_else(|| panic!("a changed product value must extract the page"));
@@ -162,7 +192,7 @@ async fn should_skip_an_unchanged_page_without_a_main_element() {
         &html,
         html.clone(),
         scraper_context_fingerprint(EXTRACTOR_VERSION, id),
-        1,
+        Some(false),
     )
     .await;
 
@@ -181,14 +211,14 @@ fn scraper_context_fingerprint(
 }
 
 /// Scrapes `fetched_html` under the cached schema set, after a scrape that stored the hash of
-/// `stored_html` and `stored_fingerprint`, and expects the fast path to touch the URL
-/// `fast_path_touches` times.
+/// `stored_html` and `stored_fingerprint`, and expects the fast path to touch the URL once with
+/// the markup verdict `fast_path_touch`, or not at all when it is `None`.
 async fn scrape_page(
     listing_source_id: ListingSourceId,
     stored_html: &str,
     fetched_html: String,
     stored_fingerprint: String,
-    fast_path_touches: usize,
+    fast_path_touch: Option<bool>,
 ) -> Option<ScrapedProduct> {
     let url = product_url();
     let stored_hash = hash_page(
@@ -213,7 +243,10 @@ async fn scrape_page(
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
         .expect_touch_scraped()
-        .times(fast_path_touches)
+        .times(usize::from(fast_path_touch.is_some()))
+        .withf(move |_, _, _, _, describes_one_product, _| {
+            Some(*describes_one_product) == fast_path_touch
+        })
         .returning(|_, _, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(

@@ -1,7 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::logging::warn_in_source;
-use crate::review::product_markup::describes_one_product;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -10,6 +9,7 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
+use crate::scraper::product_markup::ProductMarkup;
 use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
@@ -268,6 +268,9 @@ pub(crate) struct FetchedPage<'a> {
     pub(crate) redirect: RedirectTarget,
     pub(crate) html: &'a str,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+    /// The listing id the requested URL's last product capture recorded, which no removal clears:
+    /// `Some` for a URL that captured a product at any time.
+    pub(crate) last_source_listing_id: Option<&'a str>,
 }
 
 impl<'a> FetchedPage<'a> {
@@ -286,6 +289,7 @@ impl<'a> FetchedPage<'a> {
             html: self.html,
             existing_schemas,
             expected_last_captured_raw_input_sha256: self.expected_last_captured_raw_input_sha256,
+            last_source_listing_id: self.last_source_listing_id,
         }
     }
 }
@@ -537,7 +541,7 @@ fn capture_selection(
         hash,
         schema_fingerprint,
         raw_input_sha256,
-        describes_one_product: describes_one_product(&page.html),
+        describes_one_product: ProductMarkup::of_page(&page.html) == ProductMarkup::OneProduct,
     })
 }
 
@@ -639,6 +643,7 @@ impl ScraperServiceImpl {
             redirect: page.redirect,
             html: &page.html,
             expected_last_captured_raw_input_sha256,
+            last_source_listing_id: request.last_source_listing_id.as_deref(),
         };
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.
@@ -663,7 +668,7 @@ impl ScraperServiceImpl {
                 listing_source_id,
                 url,
                 &stored,
-                describes_one_product(&page.html),
+                ProductMarkup::of_page(&page.html) == ProductMarkup::OneProduct,
                 expected_last_captured_raw_input_sha256,
             )
             .await;

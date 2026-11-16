@@ -23,6 +23,9 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) html: &'a str,
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+    /// The listing id the requested URL's last product capture recorded; `Some` for a URL that
+    /// captured a product at any time, also after a removal reset its capture hash.
+    pub(crate) last_source_listing_id: Option<&'a str>,
 }
 
 impl ScraperServiceImpl {

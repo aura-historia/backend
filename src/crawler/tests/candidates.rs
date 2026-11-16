@@ -2109,8 +2109,8 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     assert_eq!(row, (None, None, None));
 }
 
-/// Each scrape that fetched a product page records whether it described one schema.org Product,
-/// a captured removal forgets it, and the evidence counts only the source's live product URLs
+/// Each scrape that fetched a product page records whether it named one product of its own, a
+/// captured removal forgets it, and the evidence counts only the source's live product URLs
 /// (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_product_markup_evidence_should_count_the_verdicts_of_live_product_urls() {
@@ -2202,6 +2202,90 @@ async fn scraper_product_markup_evidence_should_count_the_verdicts_of_live_produ
         ),
         (1, 0)
     );
+}
+
+async fn product_markup_verdict(pool: &sqlx::PgPool, url: &url::Url) -> Option<bool> {
+    sqlx::query_scalar(
+        "SELECT last_scraped_describes_one_product FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// A redirect move records the verdict of the page it captured on the moved row.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_move_redirected_url_should_record_the_product_markup_verdict() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let host = "scraper-markup-redirect.example.com";
+    insert_listing_source(&pool, listing_source_id, host).await;
+    let original_url = url::Url::parse(&format!("https://{host}/p/old")).unwrap();
+    let effective_url = url::Url::parse(&format!("https://{host}/p/new")).unwrap();
+    insert_product_url(&pool, listing_source_id, original_url.as_str()).await;
+
+    assert_eq!(
+        service
+            .move_redirected_url(RedirectUrlMove {
+                listing_source_id,
+                original_url,
+                effective_url: effective_url.clone(),
+                hash: "redirect-hash".to_owned(),
+                schema_fingerprint: "redirect-schema".to_owned(),
+                raw_input_sha256: raw_input_hash(),
+                source_listing_id: "SKU-1".to_owned(),
+                title: Some("Captured title".to_owned()),
+                disposition: CrawlerDisposition::Active,
+                expected_last_captured_raw_input_sha256: None,
+                describes_one_product: true,
+            })
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert_eq!(
+        product_markup_verdict(&pool, &effective_url).await,
+        Some(true)
+    );
+}
+
+/// A verdict describes the page as a product URL: any write that changes the URL's class forgets
+/// it, so a URL that becomes a product URL again carries no verdict from before, while a write
+/// that keeps the class keeps it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn product_markup_verdict_should_be_forgotten_when_the_url_class_changes() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let host = "scraper-markup-reclassified.example.com";
+    insert_listing_source(&pool, listing_source_id, host).await;
+    let url = url::Url::parse(&format!("https://{host}/p/chair")).unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    service
+        .touch_scraped(
+            &listing_source_id,
+            &url,
+            "page-hash",
+            "fingerprint",
+            true,
+            None,
+        )
+        .await
+        .unwrap();
+
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    assert_eq!(product_markup_verdict(&pool, &url).await, Some(true));
+
+    service
+        .set_class(&listing_source_id, &url, UrlClass::Other, None)
+        .await
+        .unwrap();
+    assert_eq!(product_markup_verdict(&pool, &url).await, None);
+
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    assert_eq!(product_markup_verdict(&pool, &url).await, None);
 }
 
 /// A template removal records the templates that captured it, and the next product capture of

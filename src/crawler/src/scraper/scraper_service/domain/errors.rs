@@ -46,6 +46,15 @@ pub enum ScraperError {
     #[error("URL is not a product page while scraping '{url}': {details}")]
     NotProductPage { url: Url, details: String },
 
+    /// The product markup pre-check classified the never-captured page as no product page: its
+    /// structured data names no product or several, while the ListingSource's product pages
+    /// reliably name one each (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
+    /// Its own kind, so passes count it apart from an operator's or an LLM's verdict.
+    #[error(
+        "URL is not a product page by its markup while scraping '{url}': its structured data names no product or several, while all {pages_with_verdict} product pages of its ListingSource with a recorded verdict name one"
+    )]
+    NotProductPageByMarkup { url: Url, pages_with_verdict: u64 },
+
     /// The product URL redirects to a product URL its ListingSource stores under its own row, so
     /// the URL is that page's duplicate (`docs/crawler/networking.md#duplicate-targets`).
     #[error("redirects to '{destination}', a product URL of its ListingSource")]

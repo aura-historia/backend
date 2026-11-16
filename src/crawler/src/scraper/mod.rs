@@ -1,6 +1,7 @@
 pub mod candidate_service;
 pub mod css_selector;
 pub mod plausibility;
+pub(crate) mod product_markup;
 pub(crate) mod raw_input;
 pub mod removal_guard;
 pub mod scrape_circuit;

@@ -53,8 +53,14 @@ fn json_ld_products(document: &Html) -> usize {
     for value in &scripts {
         nodes.extend(top_level_products(value));
     }
-    let identified: BTreeSet<String> = nodes.iter().filter_map(|node| identity(node)).collect();
-    let anonymous = nodes.iter().filter(|node| identity(node).is_none()).count();
+    let identified: BTreeSet<String> = nodes
+        .iter()
+        .filter_map(|node| json_ld_identity(node))
+        .collect();
+    let anonymous = nodes
+        .iter()
+        .filter(|node| json_ld_identity(node).is_none())
+        .count();
     identified.len() + anonymous
 }
 
@@ -138,7 +144,7 @@ fn image_url(image: &Value) -> Option<String> {
 }
 
 /// What names the product a node describes: its `url`, or else its `@id`.
-fn identity(node: &Map<String, Value>) -> Option<String> {
+pub(crate) fn json_ld_identity(node: &Map<String, Value>) -> Option<String> {
     ["url", "@id"].into_iter().find_map(|key| {
         node.get(key)
             .and_then(Value::as_str)

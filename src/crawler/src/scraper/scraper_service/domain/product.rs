@@ -29,8 +29,9 @@ pub struct ScrapedProduct {
     pub schema_fingerprint: String,
     /// Shared provider-neutral raw-input hash used for local change detection.
     pub raw_input_sha256: Vec<u8>,
-    /// Whether the page describes exactly one schema.org `Product` in its structured data, the
-    /// URL's markup verdict ([`describes_one_product`](crate::review::product_markup::describes_one_product)).
+    /// Whether the page's structured data makes exactly one product, of schema.org's `Product` or
+    /// a subtype, the page's own: the URL's markup verdict
+    /// ([`ProductMarkup`](crate::scraper::product_markup::ProductMarkup)).
     pub describes_one_product: bool,
 }
 
@@ -358,6 +359,7 @@ pub(crate) fn scrape_health_for_scraper_error(error: &ScraperError) -> DomainFet
         },
         ScraperError::ProductListingRemoved(_)
         | ScraperError::NotProductPage { .. }
+        | ScraperError::NotProductPageByMarkup { .. }
         | ScraperError::RedirectToKnownProduct { .. }
         | ScraperError::RedirectDestinationLookup(_)
         | ScraperError::ProductMarkupEvidenceLookup(_)

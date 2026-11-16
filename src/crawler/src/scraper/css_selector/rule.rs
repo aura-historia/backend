@@ -13,8 +13,11 @@ mod image_url;
 mod json_ld;
 mod visible_text;
 
+pub(crate) use json_ld::{
+    ActiveContext as JsonLdContext, is_product_iri as is_schema_org_product_iri,
+    schema_org_term_of_iri, top_level_products,
+};
 pub use json_ld::{JsonLdOfferProperty, JsonLdProductProperty};
-pub(crate) use json_ld::{is_product_iri as is_schema_org_product_iri, top_level_products};
 
 /// `property` of the top-level schema.org `Product` of the JSON-LD document `json`, as a
 /// `json_ld_product` rule reads it.
