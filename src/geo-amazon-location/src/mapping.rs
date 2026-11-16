@@ -1,7 +1,7 @@
 use application::error::{box_error, static_error};
 use aws_sdk_geoplaces::{
     operation::geocode::GeocodeOutput,
-    types::{Country, GeocodeResultItem},
+    types::{Address, Country, GeocodeResultItem, MatchScoreDetails, PlaceType},
 };
 use geo::{
     CountryCode, DerivedGeography, GeoPoint, GeographicDescription, PostalCode, SpatialPosition,
@@ -38,11 +38,12 @@ pub(crate) fn map_response(
     let candidates = items
         .iter()
         .map(|item| {
-            let candidate = map_candidate(item, request)?;
-            Ok(match retention {
-                ResultRetention::SingleUse => candidate,
-                ResultRetention::Storage => retain_or_withhold(candidate, item),
-            })
+            map_place(
+                ReturnedPlace::from(item),
+                GEOCODE_PRODUCT,
+                request,
+                retention,
+            )
         })
         .collect::<Result<Vec<_>, GeocodingError>>()?;
     if !candidates.is_empty()
@@ -63,8 +64,49 @@ pub(crate) fn map_response(
     Ok(GeocodingResult { outcome, retention })
 }
 
+const GEOCODE_PRODUCT: &str = "PLACES_V2_GEOCODE";
+
+/// The fields every Places v2 operation returns for one place. Operations differ in their
+/// envelopes, not in how a returned place is interpreted.
+pub(crate) struct ReturnedPlace<'a> {
+    pub(crate) place_id: &'a str,
+    pub(crate) place_type: &'a PlaceType,
+    pub(crate) address: Option<&'a Address>,
+    pub(crate) position: Option<&'a [f64]>,
+    pub(crate) estimated_point_address: Option<bool>,
+    pub(crate) match_scores: Option<&'a MatchScoreDetails>,
+}
+
+impl<'a> From<&'a GeocodeResultItem> for ReturnedPlace<'a> {
+    fn from(item: &'a GeocodeResultItem) -> Self {
+        Self {
+            place_id: &item.place_id,
+            place_type: &item.place_type,
+            address: item.address.as_ref(),
+            position: item.position.as_deref(),
+            estimated_point_address: item.estimated_point_address,
+            match_scores: item.match_scores.as_ref(),
+        }
+    }
+}
+
+pub(crate) fn map_place(
+    place: ReturnedPlace<'_>,
+    product: &'static str,
+    request: &GeocodingRequest,
+    retention: ResultRetention,
+) -> Result<GeocodingCandidate, GeocodingError> {
+    let address = place.address;
+    let candidate = map_candidate(place, product, request)?;
+    Ok(match retention {
+        ResultRetention::SingleUse => candidate,
+        ResultRetention::Storage => retain_or_withhold(candidate, address),
+    })
+}
+
 fn map_candidate(
-    item: &GeocodeResultItem,
+    item: ReturnedPlace<'_>,
+    product: &'static str,
     request: &GeocodingRequest,
 ) -> Result<GeocodingCandidate, GeocodingError> {
     if item.place_id.is_empty()
@@ -76,7 +118,6 @@ fn map_candidate(
     let mut issues = Vec::new();
     let score = item
         .match_scores
-        .as_ref()
         .map(|scores| {
             ProviderMatchScore::new(scores.overall)
                 .ok_or_else(|| invalid_response("invalid provider match score"))
@@ -86,7 +127,7 @@ fn map_candidate(
         // zero. It cannot distinguish an actual zero from omitted evidence, so do not
         // report either as a supplied score. Nonzero scores still retain their meaning.
         .filter(|score| score.value() != 0.0);
-    let country_data = item.address.as_ref().and_then(|a| a.country.as_ref());
+    let country_data = item.address.and_then(|a| a.country.as_ref());
     let country = country_data.and_then(returned_country);
     if country.is_none() {
         issues.push(CandidateIssue::UnsupportedCountry);
@@ -100,7 +141,7 @@ fn map_candidate(
     // AWS documents Region.Code as an abbreviation, not ISO 3166-2. The only approved
     // compatibility mapping is its documented Canadian BC example. Never prefix arbitrary
     // provider codes with the country or guess a code from a localized region name.
-    let region = item.address.as_ref().and_then(|a| a.region.as_ref());
+    let region = item.address.and_then(|a| a.region.as_ref());
     let subdivision = match (country, region.and_then(|r| r.code.as_deref())) {
         (Some(CountryCode::CAN), Some("BC")) => Some(SubdivisionCode::new("CA-BC").map_err(
             |source| GeocodingError {
@@ -111,15 +152,12 @@ fn map_candidate(
         _ => None,
     };
     if (region.is_some() && subdivision.is_none())
-        || item
-            .address
-            .as_ref()
-            .is_some_and(|a| a.sub_region.is_some())
+        || item.address.is_some_and(|a| a.sub_region.is_some())
     {
         issues.push(CandidateIssue::UnsupportedSubdivision);
     }
 
-    let point = match item.position.as_deref() {
+    let point = match item.position {
         None => {
             issues.push(CandidateIssue::MissingPosition);
             None
@@ -168,7 +206,6 @@ fn map_candidate(
     // coordinate decimal places are not accuracy estimates.
     let postal = item
         .address
-        .as_ref()
         .and_then(|a| a.postal_code.as_ref())
         .map(|value| PostalCode::new(value.clone()))
         .transpose()
@@ -227,11 +264,11 @@ fn map_candidate(
         score,
         GeocodingProvenance {
             provider: "AMAZON_LOCATION",
-            product: "PLACES_V2_GEOCODE",
+            product,
             data_source: "AMAZON_LOCATION_DEFAULT",
             region: super::REGION.to_owned(),
             interpretation_profile: super::TERMS_PROFILE,
-            external_reference: item.place_id.clone(),
+            external_reference: item.place_id.to_owned(),
             attribution_url: "https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html",
         },
     ))
@@ -242,12 +279,12 @@ fn map_candidate(
 /// such candidates keeps their verified alternatives retainable.
 fn retain_or_withhold(
     candidate: GeocodingCandidate,
-    item: &GeocodeResultItem,
+    address: Option<&Address>,
 ) -> GeocodingCandidate {
     let Some(reason) = withholding_reason(&candidate) else {
         return candidate;
     };
-    let fields = item.address.as_ref().and_then(|a| a.country.as_ref());
+    let fields = address.and_then(|a| a.country.as_ref());
     tracing::info!(
         metric = "geocoding_candidate_withheld",
         reason,
@@ -327,7 +364,6 @@ fn invalid_response(message: &'static str) -> GeocodingError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aws_sdk_geoplaces::types::{Address, PlaceType};
     use geo::AddressText;
 
     fn request() -> GeocodingRequest {
@@ -423,7 +459,9 @@ mod tests {
             (None, None, Some("UNVERIFIABLE_COUNTRY")),
             (Some("CA"), Some("USA"), Some("CONTRADICTORY_COUNTRY")),
         ] {
-            let candidate = map_candidate(&item("synthetic", code2, code3), &request()).unwrap();
+            let item = item("synthetic", code2, code3);
+            let candidate =
+                map_candidate(ReturnedPlace::from(&item), GEOCODE_PRODUCT, &request()).unwrap();
             assert_eq!(
                 expected,
                 withholding_reason(&candidate),

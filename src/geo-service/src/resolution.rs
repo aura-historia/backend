@@ -404,6 +404,49 @@ pub fn evaluate(
             accepted_index: None,
         });
     };
+    let (mut candidates, compatible_count) = normalize_candidates(input, &set, profile)?;
+    // Count all returned alternatives, including ones we cannot normalize.
+    if set.as_slice().len() == 1 && compatible_count == 1 {
+        if input.purpose == RetentionPurpose::UserLocation
+            && candidates[0].acceptable
+            && candidates[0].geography.position().is_some()
+            && candidates[0]
+                .geography
+                .description()
+                .and_then(|d| d.country())
+                .is_some()
+            && !set.as_slice()[0]
+                .issues()
+                .contains(&CandidateIssue::UnsupportedCountry)
+        {
+            return Ok(ResolutionEvidence {
+                status: ResolutionStatus::Accepted,
+                accepted_index: Some(0),
+                candidates,
+            });
+        }
+        if let Some(accepted) = administrative_only(&candidates[0])? {
+            candidates.push(accepted);
+            return Ok(ResolutionEvidence {
+                status: ResolutionStatus::Accepted,
+                accepted_index: Some(candidates.len() - 1),
+                candidates,
+            });
+        }
+    }
+    Ok(ResolutionEvidence {
+        status: ResolutionStatus::Ambiguous,
+        candidates,
+        accepted_index: None,
+    })
+}
+/// Permitted, normalized evidence of every returned alternative that has retainable geography,
+/// and how many of them are usable and compatible with the input's assertions.
+fn normalize_candidates(
+    input: &ResolutionInput,
+    set: &CandidateSet,
+    profile: &str,
+) -> Result<(Vec<ResolutionCandidate>, usize), GeocodingError> {
     if set.as_slice().len() > input.request.candidate_limit() {
         return Err(GeocodingError {
             kind: GeocodingFailure::InvalidResponse,
@@ -445,62 +488,39 @@ pub fn evaluate(
             attribution_url: p.attribution_url.into(),
         });
     }
-    // Count all returned alternatives, including ones we cannot normalize.
-    if set.as_slice().len() == 1 && compatible_count == 1 {
-        if input.purpose == RetentionPurpose::UserLocation
-            && candidates[0].acceptable
-            && candidates[0].geography.position().is_some()
-            && candidates[0]
-                .geography
-                .description()
-                .and_then(|d| d.country())
-                .is_some()
-            && !set.as_slice()[0]
-                .issues()
-                .contains(&CandidateIssue::UnsupportedCountry)
-        {
-            return Ok(ResolutionEvidence {
-                status: ResolutionStatus::Accepted,
-                accepted_index: Some(0),
-                candidates,
-            });
-        }
-        let description = candidates[0].geography.description();
-        let coarse = description
-            .map(|d| {
-                GeographicDescription::new_in_release(
-                    d.reference_release(),
-                    None,
-                    d.country(),
-                    d.subdivision(),
-                    None,
-                )
-            })
-            .transpose()
-            .map_err(|e| GeocodingError {
-                kind: GeocodingFailure::InvalidResponse,
-                source: Box::new(e),
-            })?
-            .flatten();
-        if let Some(geography) = DerivedGeography::new(coarse, None) {
-            // Keep the complete candidate for review; the automatically accepted item
-            // contains only administrative geography and retains its provenance.
-            let mut accepted = candidates[0].clone();
-            accepted.geography = geography;
-            accepted.acceptable = true;
-            candidates.push(accepted);
-            return Ok(ResolutionEvidence {
-                status: ResolutionStatus::Accepted,
-                accepted_index: Some(candidates.len() - 1),
-                candidates,
-            });
-        }
-    }
-    Ok(ResolutionEvidence {
-        status: ResolutionStatus::Ambiguous,
-        candidates,
-        accepted_index: None,
-    })
+    Ok((candidates, compatible_count))
+}
+/// An acceptable copy of `candidate` that keeps only its country and subdivision, or `None`
+/// when it has neither. The complete candidate stays in the evidence for review; the copy
+/// retains its provenance.
+fn administrative_only(
+    candidate: &ResolutionCandidate,
+) -> Result<Option<ResolutionCandidate>, GeocodingError> {
+    let coarse = candidate
+        .geography
+        .description()
+        .map(|d| {
+            GeographicDescription::new_in_release(
+                d.reference_release(),
+                None,
+                d.country(),
+                d.subdivision(),
+                None,
+            )
+        })
+        .transpose()
+        .map_err(|e| GeocodingError {
+            kind: GeocodingFailure::InvalidResponse,
+            source: Box::new(e),
+        })?
+        .flatten();
+    Ok(
+        DerivedGeography::new(coarse, None).map(|geography| ResolutionCandidate {
+            geography,
+            acceptable: true,
+            ..candidate.clone()
+        }),
+    )
 }
 pub fn candidate_compatible(input: &ResolutionInput, geography: &DerivedGeography) -> bool {
     let d = geography.description();
