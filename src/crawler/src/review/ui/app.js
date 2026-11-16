@@ -2558,7 +2558,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         selectedSchemaIndex = requested.schemaIndex ?? 0;
         compareSchemaIndex = 1;
         selectedField = 'title';
-        selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
+        selectedPageId = reviewPageOrDefault(pages, requested.pageId)?.review_page_id || null;
         previewUrlOverride = '';
     }
     candidateBaseline = cloneJson(detail.review.candidate_payload);
@@ -2696,6 +2696,16 @@ function pageRemovable(page) {
 
 function pageRoleLabel(role) {
     return PAGE_ROLE_LABELS[role] || displayName(role);
+}
+
+function reviewPageOrDefault(pages, reviewPageId) {
+    return pages.find(page => page.review_page_id === reviewPageId) || defaultReviewPage(pages);
+}
+
+// The schema matrix leaves pages marked no product out, so the console opens on a page the
+// review is judged on, whatever role order the server lists the pages in.
+function defaultReviewPage(pages) {
+    return pages.find(page => !page.not_product_reason) || pages[0];
 }
 
 function reviewPageLabel(page) {
@@ -3481,8 +3491,10 @@ async function saveSampleLabels() {
 function renderSchemaWorkbench(detail, matrix) {
     const pages = detail.pages || [];
     const schemas = currentSchemas();
-    const page = pages.find(p => p.review_page_id === selectedPageId) || pages[0];
-    if (page && !selectedPageId) selectedPageId = page.review_page_id;
+    const page = reviewPageOrDefault(pages, selectedPageId);
+    // A page removed since it was selected falls back to the default, so the dropdown, the
+    // preview and the link must all move to that page, not keep the removed page's id.
+    if (page && page.review_page_id !== selectedPageId) selectedPageId = page.review_page_id;
     const previewUrl = previewUrlOverride || (page ? page.url : '');
     const templates = currentRemovedPageTemplates().length;
     const dataIssues = groupFindingsByDescription(selectedCandidate(matrix)).size;
