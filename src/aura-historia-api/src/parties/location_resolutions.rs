@@ -414,6 +414,7 @@ mod tests {
             selected_candidate: Some(1),
             last_failure: None,
             attempts: 1,
+            selected_place: None,
         }
     }
     fn work() -> ResolutionWork {

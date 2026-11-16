@@ -60,6 +60,40 @@ impl GeographicConstraint {
     }
 }
 
+/// A provider's reference to one place, returned by address suggestions and redeemed by a
+/// place lookup. It is opaque: never an Aura identifier, never parsed and never trusted to
+/// name a place that exists. An unknown or stale reference is an ordinary lookup outcome.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PlaceReference(String);
+
+impl PlaceReference {
+    pub const MAX_BYTES: usize = 512;
+
+    pub fn new(value: impl Into<String>) -> Result<Self, InvalidPlaceReference> {
+        let value = value.into();
+        if value.is_empty()
+            || value.len() > Self::MAX_BYTES
+            || value.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
+            return Err(InvalidPlaceReference);
+        }
+        Ok(Self(value))
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for PlaceReference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PlaceReference(<redacted>)")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("place reference must be 1..=512 bytes without whitespace or control characters")]
+pub struct InvalidPlaceReference;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidGeocodingRequest {
     #[error("candidate limit must be between 1 and 10")]
@@ -401,9 +435,25 @@ impl fmt::Debug for GeocodingError {
     }
 }
 
+/// What a place lookup found for a reference.
+#[derive(Debug, Clone)]
+pub enum PlaceLookup {
+    /// The referenced place, as a result with exactly one candidate.
+    Found(GeocodingResult),
+    /// The provider does not know the reference: malformed, stale or from another provider.
+    Unknown,
+}
+
 #[async_trait::async_trait]
 pub trait GeocodingProvider: Send + Sync {
     async fn geocode(&self, request: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError>;
+    /// Looks up one referenced place. `request` supplies the submitted assertions, constraint
+    /// and language its candidate is checked and rendered against; its query is not sent.
+    async fn look_up_place(
+        &self,
+        place: &PlaceReference,
+        request: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError>;
 }
 
 #[async_trait::async_trait]
@@ -444,6 +494,13 @@ impl<P: GeocodingProvider + ?Sized> GeocodingProvider for Arc<P> {
     async fn geocode(&self, request: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError> {
         self.as_ref().geocode(request).await
     }
+    async fn look_up_place(
+        &self,
+        place: &PlaceReference,
+        request: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        self.as_ref().look_up_place(place, request).await
+    }
 }
 
 #[cfg(test)]
@@ -459,6 +516,13 @@ mod tests {
             _request: &GeocodingRequest,
         ) -> Result<GeocodingResult, GeocodingError> {
             Ok(self.0.clone())
+        }
+        async fn look_up_place(
+            &self,
+            _place: &PlaceReference,
+            _request: &GeocodingRequest,
+        ) -> Result<PlaceLookup, GeocodingError> {
+            Ok(PlaceLookup::Unknown)
         }
     }
 
@@ -588,5 +652,22 @@ mod tests {
         };
         assert!(!format!("{error:?} {error}").contains("sensitive"));
         assert!(std::error::Error::source(&error).is_some());
+    }
+
+    #[test]
+    fn should_accept_only_opaque_single_token_references_when_constructing_a_place_reference() {
+        let reference = PlaceReference::new("AQAAAFsynthetic_-=").unwrap();
+        assert_eq!("AQAAAFsynthetic_-=", reference.as_str());
+        assert!(!format!("{reference:?}").contains("synthetic"));
+        assert!(PlaceReference::new("x".repeat(PlaceReference::MAX_BYTES)).is_ok());
+        for invalid in [
+            String::new(),
+            "x".repeat(PlaceReference::MAX_BYTES + 1),
+            "two words".into(),
+            "line\nbreak".into(),
+            "tab\t".into(),
+        ] {
+            assert_eq!(Err(InvalidPlaceReference), PlaceReference::new(invalid));
+        }
     }
 }

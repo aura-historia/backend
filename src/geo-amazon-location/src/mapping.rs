@@ -1,6 +1,6 @@
 use application::error::{box_error, static_error};
 use aws_sdk_geoplaces::{
-    operation::geocode::GeocodeOutput,
+    operation::{geocode::GeocodeOutput, get_place::GetPlaceOutput},
     types::{Address, Country, GeocodeResultItem, MatchScoreDetails, PlaceType},
 };
 use geo::{
@@ -65,6 +65,40 @@ pub(crate) fn map_response(
 }
 
 const GEOCODE_PRODUCT: &str = "PLACES_V2_GEOCODE";
+const GET_PLACE_PRODUCT: &str = "PLACES_V2_GET_PLACE";
+
+/// The one place a GetPlace lookup returns, as a single-candidate result. A place whose data
+/// cannot be retained fails storage like a Geocode result without a retainable candidate.
+pub(crate) fn map_place_response(
+    response: &GetPlaceOutput,
+    request: &GeocodingRequest,
+    retention: ResultRetention,
+) -> Result<GeocodingResult, GeocodingError> {
+    if response.pricing_bucket.trim().is_empty() {
+        return Err(invalid_response(
+            "place lookup response omitted its pricing metadata",
+        ));
+    }
+    let candidate = map_place(
+        ReturnedPlace::from(response),
+        GET_PLACE_PRODUCT,
+        request,
+        retention,
+    )?;
+    if candidate.is_withheld_from_storage() {
+        return Err(GeocodingError {
+            kind: GeocodingFailure::StorageNotPermitted,
+            source: static_error("the looked-up place does not permit retained geocoding"),
+        });
+    }
+    Ok(GeocodingResult {
+        outcome: GeocodingOutcome::Candidates(CandidateSet::new(
+            vec![candidate],
+            request.candidate_limit(),
+        )?),
+        retention,
+    })
+}
 
 /// The fields every Places v2 operation returns for one place. Operations differ in their
 /// envelopes, not in how a returned place is interpreted.
@@ -86,6 +120,19 @@ impl<'a> From<&'a GeocodeResultItem> for ReturnedPlace<'a> {
             position: item.position.as_deref(),
             estimated_point_address: item.estimated_point_address,
             match_scores: item.match_scores.as_ref(),
+        }
+    }
+}
+
+impl<'a> From<&'a GetPlaceOutput> for ReturnedPlace<'a> {
+    fn from(output: &'a GetPlaceOutput) -> Self {
+        Self {
+            place_id: &output.place_id,
+            place_type: &output.place_type,
+            address: output.address.as_ref(),
+            position: output.position.as_deref(),
+            estimated_point_address: output.estimated_point_address,
+            match_scores: None,
         }
     }
 }
@@ -354,7 +401,7 @@ fn is_code_shaped(code: &str, length: usize) -> bool {
     code.len() == length && code.bytes().all(|b| b.is_ascii_uppercase())
 }
 
-fn invalid_response(message: &'static str) -> GeocodingError {
+pub(crate) fn invalid_response(message: &'static str) -> GeocodingError {
     GeocodingError {
         kind: GeocodingFailure::InvalidResponse,
         source: static_error(message),

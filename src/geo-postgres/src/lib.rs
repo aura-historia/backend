@@ -1,4 +1,5 @@
 mod codec;
+mod suggestion_usage;
 use application::error::box_error;
 use codec::*;
 use geo_service::{geocoding::GeocodingFailure, resolution::*};
@@ -6,6 +7,8 @@ use platform_postgres::SqlxTransaction;
 use sqlx::{FromRow, PgConnection};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
+
+pub use suggestion_usage::SqlxSuggestionUsageRepositoryFactory;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxResolutionRepositoryFactory;
@@ -120,7 +123,8 @@ fn valid_evidence(e: &ResolutionEvidence, input: &ResolutionInput, profile: &str
             && source.external_reference == projected.external_reference
             && source.attribution_url == projected.attribution_url;
     }
-    input.purpose() == RetentionPurpose::UserLocation
+    // A point is accepted automatically only for private browsing or a picked place.
+    (input.purpose() == RetentionPurpose::UserLocation || input.selected_place().is_some())
         && index == 0
         && e.candidates.len() == 1
         && accepted.acceptable
@@ -577,7 +581,8 @@ impl ResolutionRepository for Repository<'_> {
             FROM geo_resolutions r
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile
             WHERE c.is_default AND (r.status='PENDING' OR (
-                r.status='BLOCKED' AND r.policy_version='AUTOMATIC_USER_BROWSING_V1'
+                r.status='BLOCKED' AND (r.policy_version='AUTOMATIC_USER_BROWSING_V1'
+                    OR (r.policy_version='SELECTED_PLACE_V1' AND r.input->>'purpose'='USER_LOCATION'))
                 AND r.last_failure IN ('AUTHENTICATION','CONFIGURATION','STORAGE_NOT_PERMITTED')
             )) AND r.attempts<5
                 AND r.next_attempt_at<=$1 AND (r.lease_until IS NULL OR r.lease_until<=$1)
@@ -806,6 +811,7 @@ impl ResolutionRow {
             selected_candidate: selected,
             last_failure: self.last_failure.clone(),
             attempts: self.attempts as u32,
+            selected_place: input.selected_place().cloned(),
         })
     }
 }

@@ -130,6 +130,7 @@ async fn location(
             },
             evidence: None,
             relocates: None,
+            place: None,
         },
     )
     .await

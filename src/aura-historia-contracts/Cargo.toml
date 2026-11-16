@@ -11,6 +11,7 @@ base64 = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true, features = ["data"] }
+geo-service = { workspace = true }
 indexmap = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }

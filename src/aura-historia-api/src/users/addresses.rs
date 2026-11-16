@@ -1,7 +1,9 @@
 #[cfg(test)]
 use aura_historia_contracts::users::destination::DestinationData;
 use aura_historia_contracts::users::{
-    addresses::{AddressData, CreateData, ExpectedData, PageData, PageQuery, UpdateData},
+    addresses::{
+        AddressData, CreateWithPlaceData, ExpectedData, PageData, PageQuery, UpdateWithPlaceData,
+    },
     destination::{DestinationResponse, SetDestinationData},
 };
 
@@ -73,7 +75,7 @@ pub(crate) async fn create(
         Err(r) => return *r,
     };
     let command = (|| {
-        let d: CreateData = parse(&body)?;
+        let d: CreateWithPlaceData = parse(&body)?;
         d.into_command().map_err(ApiError::from)
     })();
     let command = match command {
@@ -133,7 +135,7 @@ pub(crate) async fn update(
     };
     let command = (|| {
         let id = parse_path_object_id(&raw, "address_id", "UserAddress")?;
-        let d: UpdateData = parse(&body)?;
+        let d: UpdateWithPlaceData = parse(&body)?;
         d.into_command(id).map_err(ApiError::from)
     })();
     let c = match command {
@@ -213,7 +215,7 @@ impl From<aura_historia_contracts::users::addresses::InvalidAddressData> for Api
     fn from(error: aura_historia_contracts::users::addresses::InvalidAddressData) -> Self {
         use aura_historia_contracts::users::addresses::InvalidAddressData;
         match error {
-            InvalidAddressData::Label(_) => bad(),
+            InvalidAddressData::Label(_) | InvalidAddressData::Place(_) => bad(),
             InvalidAddressData::Geography(error) => error.into(),
         }
     }

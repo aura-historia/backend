@@ -120,13 +120,14 @@ impl PartyLocation {
         }
     }
     /// Explicit assertion that the correction describes the same physical site.
-    /// Relocation must create a different aggregate and retire this one.
+    /// Relocation must create a different aggregate and retire this one. `other_input_changed`
+    /// says a resolution input outside the content changed, such as evidence or a picked place.
     pub fn correct_same_site(
         &mut self,
         content: PartyLocationContent,
-        evidence_changed: bool,
+        other_input_changed: bool,
     ) -> Result<ChangeOutcome, PartyLocationError> {
-        if self.content == content && !evidence_changed {
+        if self.content == content && !other_input_changed {
             return Ok(ChangeOutcome::Unchanged);
         }
         if self.lifecycle == PartyLocationLifecycle::Retired {
@@ -134,7 +135,7 @@ impl PartyLocation {
         }
         if self.content.geography != content.geography
             || self.content.position != content.position
-            || evidence_changed
+            || other_input_changed
         {
             if self.input_revision.into_inner() >= i64::MAX as u64 {
                 return Err(PartyLocationError::RevisionExhausted);

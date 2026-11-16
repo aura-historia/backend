@@ -105,6 +105,13 @@ impl GeocodingProvider for SyntheticGeocoder {
             retention: ResultRetention::Storage,
         })
     }
+    async fn look_up_place(
+        &self,
+        _: &PlaceReference,
+        _: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        Ok(PlaceLookup::Unknown)
+    }
 }
 async fn resolve(pool: &sqlx::PgPool, id: UserAddressId, calls: Arc<AtomicUsize>) {
     let uow = SqlxUnitOfWork::new(pool.clone());

@@ -491,6 +491,7 @@ async fn listings_return_generic_terms_and_selected_destination_personalization(
                 )
                 .unwrap()
                 .unwrap(),
+                place: None,
             },
         )
         .await

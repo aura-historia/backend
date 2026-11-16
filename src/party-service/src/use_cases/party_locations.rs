@@ -8,7 +8,10 @@ use application::{
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use geo::{GeographicDescription, SpatialPosition};
-use geo_service::{geocoding::GeocodingRequest, resolution::*};
+use geo_service::{
+    geocoding::{GeocodingRequest, PlaceReference},
+    resolution::*,
+};
 use party_core::{
     party_id::PartyId,
     party_location::{
@@ -96,6 +99,8 @@ pub struct CreatePartyLocationCommand {
     pub evidence: Option<LocationEvidence>,
     /// Explicit relocation, never inferred from address equality or a label edit.
     pub relocates: Option<ExpectedPartyLocation>,
+    /// A place the caller picked from address suggestions for this location's address.
+    pub place: Option<PlaceReference>,
 }
 #[derive(Clone, PartialEq)]
 pub struct UpdatePartyLocationCommand {
@@ -106,6 +111,9 @@ pub struct UpdatePartyLocationCommand {
     pub geography: PatchField<GeographicDescription>,
     pub position: PatchField<SpatialPosition>,
     pub evidence: PatchField<LocationEvidence>,
+    /// A newly picked place. Without one, an unchanged address keeps its current pick and a
+    /// changed address is resolved from its text.
+    pub place: Option<PlaceReference>,
 }
 impl std::fmt::Debug for UpdatePartyLocationCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -267,6 +275,7 @@ pub(crate) async fn sync_resolution<Tx, R: PartyLocationRepositoryFactory<Tx>>(
     factory: &R,
     tx: &mut Tx,
     s: &StoredPartyLocation,
+    picked: Option<PlaceReference>,
 ) -> Result<(), PartyLocationError> {
     let binding = resolution_binding(s)?;
     let description = s.location.content().geography.as_ref();
@@ -285,6 +294,11 @@ pub(crate) async fn sync_resolution<Tx, R: PartyLocationRepositoryFactory<Tx>>(
             .with_submitted(geo::SubmittedGeography::new(description.clone()));
     let scope = ResolutionScope::new(ScopeKind::Party, Some(s.location.party_id().into_uuid()))?;
     let input = ResolutionInput::new(request, scope, RetentionPurpose::PartyLocation)?;
+    let current = factory
+        .resolution_reader(tx)
+        .inspect(binding.subject)
+        .await?;
+    let input = carry_selected_place(input, &binding, current.as_ref(), picked);
     factory.resolutions(tx).bind(&input, binding).await?;
     Ok(())
 }
@@ -453,7 +467,7 @@ where
                 .in_transaction(&mut tx)
                 .update(&old, &actor)
                 .await?;
-            sync_resolution(&self.locations, &mut tx, &retired).await?;
+            sync_resolution(&self.locations, &mut tx, &retired, None).await?;
         }
         let location =
             PartyLocation::create(PartyLocationId::new(), command.party_id, command.content);
@@ -462,7 +476,7 @@ where
             .in_transaction(&mut tx)
             .insert(&location, command.evidence.as_ref(), &actor)
             .await?;
-        sync_resolution(&self.locations, &mut tx, &result).await?;
+        sync_resolution(&self.locations, &mut tx, &result, command.place).await?;
         tx.commit().await?;
         tracing::info!(event = "party_location.created", actor = %actor, location_id = %location.id(), outcome = "success");
         Ok(result.into())
@@ -519,9 +533,11 @@ where
             position: optional(c.position, command.position),
         };
         let evidence = optional(stored.evidence.clone(), command.evidence);
+        // A newly picked place changes the resolution input even when the address text does not.
+        let input_changed = evidence != stored.evidence || command.place.is_some();
         if stored
             .location
-            .correct_same_site(content, evidence != stored.evidence)?
+            .correct_same_site(content, input_changed)?
             .changed()
         {
             stored.evidence = evidence;
@@ -530,7 +546,7 @@ where
                 .in_transaction(&mut tx)
                 .update(&stored, &actor(context))
                 .await?;
-            sync_resolution(&self.locations, &mut tx, &stored).await?;
+            sync_resolution(&self.locations, &mut tx, &stored, command.place).await?;
         }
         tx.commit().await?;
         tracing::info!(event = "party_location.corrected", actor = %actor(context), location_id = %stored.location.id(), outcome = "success");
@@ -586,7 +602,7 @@ where
                 .in_transaction(&mut tx)
                 .update(&stored, &actor(context))
                 .await?;
-            sync_resolution(&self.locations, &mut tx, &stored).await?;
+            sync_resolution(&self.locations, &mut tx, &stored, None).await?;
         }
         tx.commit().await?;
         tracing::info!(event = "party_location.lifecycle_changed", actor = %actor(context), location_id = %stored.location.id(), lifecycle = command.lifecycle.as_str(), outcome = "success");
@@ -821,6 +837,7 @@ mod tests {
             geography: PatchField::Set(geography),
             position: PatchField::Set(position),
             evidence: PatchField::Unchanged,
+            place: None,
         };
         for debug in [format!("{view:?}"), format!("{command:?}")] {
             assert!(debug.contains(&view.id.to_string()));

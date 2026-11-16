@@ -160,6 +160,7 @@ pub struct AppState {
     pub(crate) admin_source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) user_addresses: Option<UserAddressesState>,
+    pub(crate) address_suggestions: Option<AddressSuggestionsState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
     pub(crate) content_notices: Option<ContentNoticesState>,
@@ -215,6 +216,7 @@ impl AppState {
             party_location_resolutions: None,
             users: None,
             user_addresses: None,
+            address_suggestions: None,
             watchlist: None,
             partnership_applications: None,
             content_notices: None,
@@ -279,6 +281,11 @@ impl AppState {
 
     pub fn with_public_overview(mut self, public_overview: PublicOverviewState) -> Self {
         self.public_overview = Some(public_overview);
+        self
+    }
+
+    pub fn with_address_suggestions(mut self, suggestions: AddressSuggestionsState) -> Self {
+        self.address_suggestions = Some(suggestions);
         self
     }
 
@@ -1194,6 +1201,12 @@ pub struct SourceLocationDefaultsState {
 pub struct UserAddressesState {
     pub commands: Arc<dyn user_service::address_book::AddressBookCommands>,
     pub queries: Arc<dyn user_service::address_book::AddressBookQueries>,
+    pub authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+#[derive(Clone)]
+pub struct AddressSuggestionsState {
+    pub suggest: Arc<dyn geo_service::suggestions::SuggestAddressesUseCase>,
     pub authenticator: Arc<dyn TokenAuthenticator>,
 }
 

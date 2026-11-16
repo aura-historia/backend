@@ -163,8 +163,10 @@ fn result() -> GeocodingResult {
 }
 struct Provider {
     calls: AtomicUsize,
+    lookups: AtomicUsize,
     pool: PgPool,
     result: GeocodingResult,
+    knows_places: bool,
 }
 #[async_trait::async_trait]
 impl GeocodingProvider for Provider {
@@ -181,8 +183,27 @@ impl GeocodingProvider for Provider {
         .unwrap();
         Ok(self.result.clone())
     }
+    async fn look_up_place(
+        &self,
+        _: &PlaceReference,
+        _: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        self.lookups.fetch_add(1, Ordering::SeqCst);
+        Ok(if self.knows_places {
+            PlaceLookup::Found(self.result.clone())
+        } else {
+            PlaceLookup::Unknown
+        })
+    }
 }
 async fn provider(pool: &PgPool, result: GeocodingResult) -> Arc<Provider> {
+    place_provider(pool, result, true).await
+}
+async fn place_provider(
+    pool: &PgPool,
+    result: GeocodingResult,
+    knows_places: bool,
+) -> Arc<Provider> {
     let isolated = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect_with(pool.connect_options().as_ref().clone())
@@ -194,8 +215,10 @@ async fn provider(pool: &PgPool, result: GeocodingResult) -> Arc<Provider> {
         .unwrap();
     Arc::new(Provider {
         calls: AtomicUsize::new(0),
+        lookups: AtomicUsize::new(0),
         pool: isolated,
         result,
+        knows_places,
     })
 }
 const ACCEPTED: CompletionOutcome = CompletionOutcome::Recorded(ResolutionStatus::Accepted);
@@ -612,6 +635,7 @@ async fn create(pool: &PgPool, owner: PartyId, label: &str) -> PartyLocationView
             },
             evidence: None,
             relocates: None,
+            place: None,
         },
     )
     .await
@@ -632,6 +656,7 @@ fn correction(v: &PartyLocationView) -> UpdatePartyLocationCommand {
         geography: PatchField::Unchanged,
         position: PatchField::Unchanged,
         evidence: PatchField::Unchanged,
+        place: None,
     }
 }
 async fn update(pool: &PgPool, c: UpdatePartyLocationCommand) -> PartyLocationView {
