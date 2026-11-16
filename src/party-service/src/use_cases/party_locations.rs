@@ -534,7 +534,20 @@ where
         };
         let evidence = optional(stored.evidence.clone(), command.evidence);
         // A newly picked place changes the resolution input even when the address text does not.
-        let input_changed = evidence != stored.evidence || command.place.is_some();
+        // It only counts for a location located from its address text, and only when it differs
+        // from the current pick.
+        let located_from_text = content.position.is_none()
+            && content
+                .geography
+                .as_ref()
+                .is_some_and(|g| g.address_text().is_some());
+        let current = self
+            .locations
+            .resolution_reader(&mut tx)
+            .inspect(resolution_subject(stored.location.id())?)
+            .await?;
+        let picked = newly_picked(command.place, current.as_ref()).filter(|_| located_from_text);
+        let input_changed = evidence != stored.evidence || picked.is_some();
         if stored
             .location
             .correct_same_site(content, input_changed)?
@@ -546,7 +559,7 @@ where
                 .in_transaction(&mut tx)
                 .update(&stored, &actor(context))
                 .await?;
-            sync_resolution(&self.locations, &mut tx, &stored, command.place).await?;
+            sync_resolution(&self.locations, &mut tx, &stored, picked).await?;
         }
         tx.commit().await?;
         tracing::info!(event = "party_location.corrected", actor = %actor(context), location_id = %stored.location.id(), outcome = "success");

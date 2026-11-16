@@ -508,9 +508,15 @@ where
         let mut stored = self
             .current(&mut tx, owner, c.id, c.expected_version)
             .await?;
+        let current = self
+            .resolutions
+            .resolution_reader(&mut tx)
+            .inspect(subject(c.id)?)
+            .await?;
+        let picked = newly_picked(c.place, current.as_ref());
         let previous_input = stored.address.input_revision();
         let mut changed = stored.address.replace(c.label, c.geography)?;
-        if c.place.is_some() && stored.address.input_revision() == previous_input {
+        if picked.is_some() && stored.address.input_revision() == previous_input {
             stored.address.change_input()?;
             changed = true;
         }
@@ -520,7 +526,7 @@ where
                 .repository(&mut tx)
                 .update(&stored.address, c.expected_version)
                 .await?;
-            self.bind(&mut tx, &stored, c.place).await?;
+            self.bind(&mut tx, &stored, picked).await?;
         }
         let view = self.view(&mut tx, owner, c.id).await?;
         tx.commit().await?;

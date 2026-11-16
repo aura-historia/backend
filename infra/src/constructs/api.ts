@@ -299,6 +299,12 @@ export class BackendHttpApi extends Construct {
         methods: [definition.method],
         integration,
       });
+      if (`${definition.method} ${definition.path}` === ADDRESS_SUGGESTIONS_ROUTE) {
+        // The stage's route settings name this route, so it must exist before the stage update.
+        for (const httpRoute of httpRoutes) {
+          this.stage.node.addDependency(httpRoute);
+        }
+      }
       if (definition.path === "/v1/listing-sources/{listingSourceId}/product-listings") {
         const logicalId = PRODUCT_LISTING_COLLECTION_ROUTE_LOGICAL_IDS[definition.method];
         if (logicalId) {

@@ -1956,10 +1956,18 @@ async fn should_keep_a_party_location_pick_across_label_edits_and_drop_it_when_t
     let view = inspect(&pool, location_binding(&renamed)).await.unwrap();
     assert_eq!(Some(place.clone()), picked(&view));
 
-    let mut repick = correction(&renamed);
-    repick.place = Some(place);
+    let mut resend = correction(&renamed);
+    resend.place = Some(place);
+    let resent = update(&pool, resend).await;
+    assert_eq!(renamed.revision, resent.revision);
+
+    let other = PlaceReference::new("other-place").unwrap();
+    let mut repick = correction(&resent);
+    repick.place = Some(other.clone());
     let repicked = update(&pool, repick).await;
-    assert_eq!(renamed.input_revision + 1, repicked.input_revision);
+    assert_eq!(resent.input_revision + 1, repicked.input_revision);
+    let view = inspect(&pool, location_binding(&repicked)).await.unwrap();
+    assert_eq!(Some(other), picked(&view));
 
     let mut readdress = correction(&repicked);
     readdress.geography = PatchField::Set(

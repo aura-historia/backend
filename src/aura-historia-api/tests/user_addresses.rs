@@ -540,11 +540,9 @@ async fn should_resolve_a_picked_place_and_keep_it_until_the_address_text_change
         "geography":geography("Synthetic replacement street 1"),"placeId":"known-place"});
     let (status, repicked) = request(&router, "PUT", &path, Some("owner"), repicked).await;
     assert_eq!(StatusCode::OK, status);
-    assert_eq!(
-        renamed["inputRevision"].as_u64().unwrap() + 1,
-        repicked["inputRevision"].as_u64().unwrap()
-    );
-    // The same pick for the same text reuses its evidence without another provider call.
+    // Re-sending the current pick is no change at all.
+    assert_eq!(renamed["inputRevision"], repicked["inputRevision"]);
+    assert_eq!(renamed["version"], repicked["version"]);
     assert_eq!(json!("ACCEPTED"), repicked["resolution"]["status"]);
 
     let retyped = json!({"expectedVersion":repicked["version"],"label":"Renamed",

@@ -28499,8 +28499,9 @@ components:
         placeId:
           allOf:
           - $ref: '#/components/schemas/AddressSuggestionPlaceId'
-          description: A newly picked suggestion; it advances inputRevision even when the address text is unchanged.
-            Without one, an unchanged address keeps its current pick and a changed address is located from its text.
+          description: A picked suggestion. One different from the current pick advances inputRevision even when the
+            address text is unchanged; re-sending the current pick changes nothing. Without one, the pick is kept until
+            the address changes, after which the address is located from its text.
     UserAddressExpectedVersion:
       type: object
       additionalProperties: false
@@ -29009,8 +29010,10 @@ components:
         placeId:
           allOf:
           - $ref: '#/components/schemas/AddressSuggestionPlaceId'
-          description: A newly picked suggestion; it advances inputRevision even when the address is unchanged.
-            Without one, an unchanged address keeps its current pick and a changed address is located from its text.
+          description: A picked suggestion for geography.addressText. One different from the current pick advances
+            inputRevision even when the address is unchanged; re-sending the current pick changes nothing. Ignored when
+            position is set or there is no address text. Without one, the pick is kept until the address, position or
+            evidence changes, after which the address is located from its text.
       description: Same physical site correction only. Omitted members remain unchanged. Geography/position/evidence
         null clears; non-null geographic objects replace the complete partial assertion. Label and roles
         reject null. Roles [] clears the set. No-op at the current revision emits no change signal. Relocation uses

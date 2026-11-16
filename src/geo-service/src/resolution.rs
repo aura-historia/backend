@@ -424,6 +424,14 @@ pub fn carry_selected_place(
         None => input,
     }
 }
+/// `picked` when it differs from the place currently bound for the subject. Re-sending the
+/// current pick is not an input change.
+pub fn newly_picked(
+    picked: Option<PlaceReference>,
+    current: Option<&ResolutionView>,
+) -> Option<PlaceReference> {
+    picked.filter(|place| current.and_then(|view| view.selected_place.as_ref()) != Some(place))
+}
 pub enum ResolutionCompletion {
     Evidence(ResolutionEvidence),
     Failure(GeocodingFailure),
@@ -1550,5 +1558,22 @@ mod tests {
             None,
             picked(carry_selected_place(user_input(), &binding, None, None))
         );
+    }
+
+    #[test]
+    fn should_treat_only_a_different_place_as_a_new_pick() {
+        let current = view(2, Some(place()));
+        assert_eq!(None, newly_picked(Some(place()), Some(&current)));
+        let other = PlaceReference::new("other-place").unwrap();
+        assert_eq!(
+            Some(other.clone()),
+            newly_picked(Some(other), Some(&current))
+        );
+        assert_eq!(
+            Some(place()),
+            newly_picked(Some(place()), Some(&view(2, None)))
+        );
+        assert_eq!(Some(place()), newly_picked(Some(place()), None));
+        assert_eq!(None, newly_picked(None, Some(&current)));
     }
 }

@@ -390,9 +390,10 @@ at precise premises precision with a known country; a coarser pick supplies admi
 geography only. A contradicting pick stays `AMBIGUOUS`. Accepting a picked point for a
 PartyLocation grants nothing new, since location managers may already assert a point.
 
-A new pick advances the input revision even when the text is unchanged. Without one, an
-unchanged input keeps its pick through label, lifecycle and other presentation edits, and a
-changed address is resolved from its text again. Retirement detaches resolution, so a restored
+A pick different from the current one advances the input revision even when the text is
+unchanged; re-sending the current pick is no change. Without one, the pick is kept while the
+input revision is unchanged, through label, role and lifecycle edits, and a changed input
+(address, or for PartyLocations position or evidence) is resolved from its text again. Retirement detaches resolution, so a restored
 location resolves from its text. Equal picks for equal text in the same private scope reuse
 their evidence without another paid call. Agent tools keep their existing address inputs.
 

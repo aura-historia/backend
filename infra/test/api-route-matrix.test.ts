@@ -587,6 +587,9 @@ describe("HTTP API route policy matrix", () => {
   test.each(STAGES)("caps paid %s address suggestions below the stage throttle", (stage) => {
     const stages = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Stage")) as CloudFormationResource[];
     expect(stages).toHaveLength(1);
+    const suggestionRoute = Object.entries(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Route"))
+      .find(([, route]) => (route as CloudFormationResource).Properties.RouteKey === "POST /v1/address-suggestions");
+    expect((stages[0] as { DependsOn?: string[] }).DependsOn).toContain(suggestionRoute?.[0]);
     expect(stages[0].Properties.RouteSettings).toEqual({
       "POST /v1/address-suggestions": stage === "prod"
         ? { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 25 }
