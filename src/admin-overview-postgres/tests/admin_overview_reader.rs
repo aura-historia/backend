@@ -189,6 +189,77 @@ async fn seed_content_notice(pool: &sqlx::PgPool, listing_source_id: Uuid) {
     }
 }
 
+async fn execute(pool: &sqlx::PgPool, statement: &'static str) {
+    if let Err(error) = sqlx::query(statement).execute(pool).await {
+        panic!("failed to execute `{statement}`: {error}");
+    }
+}
+
+/// Seeds listings numbered `first..=last` with one discovery event each.
+async fn seed_product_listings_in_bulk(
+    pool: &sqlx::PgPool,
+    listing_source_id: Uuid,
+    (first, last): (i64, i64),
+    lifecycle: &str,
+    availability: Option<&str>,
+) {
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => panic!("failed to begin bulk product listing seed transaction: {error}"),
+    };
+    let listings_result = sqlx::query(
+            "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, lifecycle, availability, url) SELECT md5('listing-' || n)::uuid, 'bulk-listing-' || n || '-' || substr(md5(n::text), 1, 6), md5('event-' || n)::uuid, md5('event-' || n)::uuid, md5('event-' || n)::uuid, $3, 'bulk-' || n, $4, $5, 'https://example.test/listing' FROM generate_series($1::bigint, $2::bigint) n",
+        )
+        .bind(first)
+        .bind(last)
+        .bind(listing_source_id)
+        .bind(lifecycle)
+        .bind(availability)
+        .execute(&mut *transaction)
+        .await;
+    if let Err(error) = listings_result {
+        panic!("failed to bulk seed product listings: {error}");
+    }
+    let events_result = sqlx::query(
+            "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) SELECT md5('event-' || n)::uuid, md5('listing-' || n)::uuid, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}'::jsonb, now() FROM generate_series($1::bigint, $2::bigint) n",
+        )
+        .bind(first)
+        .bind(last)
+        .execute(&mut *transaction)
+        .await;
+    if let Err(error) = events_result {
+        panic!("failed to bulk seed product listing events: {error}");
+    }
+    // Report the inserts to the cumulative statistics at commit, not up to 10 s later when idle.
+    let flush_result = sqlx::query("SELECT pg_stat_force_next_flush()")
+        .execute(&mut *transaction)
+        .await;
+    if let Err(error) = flush_result {
+        panic!("failed to request a statistics flush: {error}");
+    }
+    if let Err(error) = transaction.commit().await {
+        panic!("failed to commit bulk product listing seed transaction: {error}");
+    }
+}
+
+/// Committed inserts reach the cumulative statistics asynchronously; ANALYZE must run after
+/// them, or their late report would be added on top of the live count it measured.
+async fn wait_for_reported_inserts(pool: &sqlx::PgPool, expected: i64) {
+    for _ in 0..300 {
+        let reported = sqlx::query_scalar::<_, i64>(
+            "SELECT n_tup_ins FROM pg_stat_user_tables WHERE relid = 'product_listings'::regclass",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read insert statistics: {error}"));
+        if reported >= expected {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("product listing inserts were not reported to the cumulative statistics");
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_empty_overview() {
     assert_eq!(AdminOverview::default(), read_overview().await);
@@ -259,4 +330,56 @@ async fn should_count_submitted_content_notices() {
 
     assert_eq!(3, overview.content_notices.total);
     assert_eq!(3, overview.content_notices.by_state.submitted);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_estimate_product_listing_counts_from_planner_statistics_for_large_tables() {
+    let pool = get_postgres_client().await;
+    execute(
+        &pool,
+        "ALTER TABLE product_listings SET (autovacuum_enabled = false)",
+    )
+    .await;
+    let party_id = seed_party(&pool).await;
+    let source = seed_listing_source(&pool, party_id).await;
+    seed_product_listings_in_bulk(&pool, source, (1, 66_000), "ACTIVE", Some("AVAILABLE")).await;
+    seed_product_listings_in_bulk(&pool, source, (66_001, 88_000), "ACTIVE", Some("SOLD_OUT"))
+        .await;
+    seed_product_listings_in_bulk(&pool, source, (88_001, 99_000), "ACTIVE", None).await;
+    seed_product_listings_in_bulk(&pool, source, (99_001, 110_000), "WITHDRAWN", None).await;
+    wait_for_reported_inserts(&pool, 110_000).await;
+    execute(&pool, "ANALYZE product_listings").await;
+    // Sold after the analyze: an exact count would show 55,000 available and 33,000 sold out.
+    execute(
+        &pool,
+        "UPDATE product_listings SET availability = 'SOLD_OUT' WHERE product_listing_id IN (SELECT product_listing_id FROM product_listings WHERE availability = 'AVAILABLE' LIMIT 11000)",
+    )
+    .await;
+
+    let estimated = read_overview().await.product_listings;
+    // A crash, failover or statistics reset zeroes the live counters until the next analyze.
+    execute(
+        &pool,
+        "SELECT pg_stat_reset_single_table_counters('product_listings'::regclass)",
+    )
+    .await;
+    let estimated_after_reset = read_overview().await.product_listings;
+
+    for listings in [estimated, estimated_after_reset] {
+        let within = |expected: u64, actual: u64| actual.abs_diff(expected) <= 2_000;
+        assert!(within(110_000, listings.total), "{listings:?}");
+        assert!(within(99_000, listings.by_lifecycle.active), "{listings:?}");
+        assert!(
+            within(66_000, listings.active_availability.available),
+            "{listings:?}"
+        );
+        assert!(
+            within(22_000, listings.active_availability.sold_out),
+            "{listings:?}"
+        );
+        assert!(
+            within(11_000, listings.active_without_availability),
+            "{listings:?}"
+        );
+    }
 }
