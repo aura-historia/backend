@@ -133,8 +133,8 @@ pub enum PlausibilityCheck {
     /// where a price is expected: a price rule that reads the label a sold page shows in the
     /// price's place, such as "Sold".
     AvailabilityText,
-    /// No letter in any script, such as a catalogue number, a date or punctuation where a
-    /// `title` or a `state` label is expected.
+    /// No letter in any script: a catalogue number, a date or punctuation where a `title` is
+    /// expected, or punctuation and symbols alone, without a digit either, where a `state` is.
     NoLetter,
     /// An absolute or relative URL, a file path or a `javascript:` link where a `state` label is
     /// expected: a rule that reads a cart image's `src` or a link's `href`.
@@ -504,11 +504,11 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
     .into_iter()
     .flatten()
     .collect();
-    // Price text stays report-only for a status slot that shows the amount on a live page, and
-    // what the normalization resolves is a label whatever its shape.
-    if !is_price_text(state) && !resolves_to_availability(state) {
+    // What the normalization recognises, or a schema.org availability it may not resolve, is an
+    // availability value whatever its shape.
+    if !is_availability_value(state) {
         checks.extend(
-            [no_letter_check(state), link_or_path_check(state)]
+            [symbols_only_state_check(state), link_or_path_check(state)]
                 .into_iter()
                 .flatten(),
         );
@@ -522,14 +522,35 @@ fn no_letter_check(value: &str) -> Option<PlausibilityCheck> {
     (!value.chars().any(char::is_alphabetic)).then_some(PlausibilityCheck::NoLetter)
 }
 
+/// A `state` of punctuation or symbols alone, such as `.`, `—`, `✓` or an icon-font glyph. A
+/// letterless `state` with a digit stays plausible: a status slot shows a bare amount such as
+/// `450` on a live page, and a stock count reads `0` or `1`.
+fn symbols_only_state_check(state: &str) -> Option<PlausibilityCheck> {
+    (!state.chars().any(char::is_alphanumeric)).then_some(PlausibilityCheck::NoLetter)
+}
+
+/// Whether `state` is an availability value: one the ProductListing normalization recognises,
+/// whether it resolves it or reads it as no assertion, or a schema.org availability URL in any
+/// spelling (`http://schema.org/OnlineOnly`, `https://schema.org/instock`,
+/// `https://schema.org/SoldOut/`), as a JSON-LD offer carries it.
+fn is_availability_value(state: &str) -> bool {
+    let schema_org_availability = regex!(r"(?i)^https?://(?:www\.)?schema\.org/[a-z]+/?$");
+    schema_org_availability.is_match(state.trim())
+        || matches!(
+            quick_check_availability(state),
+            Ok(ListingAvailabilityQuickCheck::Resolved(_)
+                | ListingAvailabilityQuickCheck::NoAssertion)
+        )
+}
+
 /// A `state` that is one URL, path or `javascript:` link, as a rule reads from an image's `src`
 /// or a link's `href`: `https://shop.example/img/cart.png`, `/images/add_to_order.gif` or
 /// `javascript:LoadIntoBasket()`. A label has words and no scheme, leading slash or file
-/// extension. The caller exempts what the normalization resolves, such as
-/// `https://schema.org/InStock`, and price text.
+/// extension; a scheme counts only with something after its colon, so a `Tel:` label is none.
+/// The caller exempts availability values such as `https://schema.org/InStock`.
 fn link_or_path_check(state: &str) -> Option<PlausibilityCheck> {
     let scheme_or_path_start =
-        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://|//|\.{0,2}/|(?:javascript|mailto|tel|data):)");
+        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto|tel|data):\S)");
     let file_extension =
         regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
     let value = state.trim();
@@ -758,8 +779,28 @@ mod tests {
         #[case("2 in stock")]
         #[case("https://schema.org/InStock")]
         #[case("http://schema.org/OutOfStock")]
+        #[case("https://schema.org/Discontinued")]
+        #[case("http://schema.org/OnlineOnly")]
+        #[case("https://schema.org/InStoreOnly")]
+        #[case("https://schema.org/instock")]
+        #[case("https://schema.org/SoldOut/")]
         #[case("N/A")]
+        #[case("Tel:")]
+        #[case("Tel: 0123 456")]
         fn should_accept_a_state_label_with_a_letter_that_is_no_link_or_path(#[case] state: &str) {
+            let mut raw = plausible();
+            raw.state = Some(state.to_owned());
+
+            assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
+        }
+
+        /// A status slot shows a bare amount on a live page, and a stock count is a number.
+        #[rstest::rstest]
+        #[case("450")]
+        #[case("1.200,-")]
+        #[case("0")]
+        #[case("1")]
+        fn should_accept_a_letterless_state_with_a_digit(#[case] state: &str) {
             let mut raw = plausible();
             raw.state = Some(state.to_owned());
 
@@ -889,7 +930,12 @@ mod tests {
         #[case("../basket.php", &[LinkOrPath])]
         #[case("//cdn.shop.example/add.svg", &[LinkOrPath])]
         #[case("/", &[NoLetter, LinkOrPath])]
-        #[case("42", &[NoLetter])]
+        #[case("-", &[NoLetter])]
+        #[case("—", &[NoLetter])]
+        #[case("✓", &[NoLetter])]
+        #[case("●", &[NoLetter])]
+        #[case("\u{e600}", &[NoLetter])]
+        #[case("tel:+441234567", &[LinkOrPath])]
         fn should_reject_a_state_without_a_letter_or_that_is_a_link_or_path(
             #[case] state: &str,
             #[case] checks: &[PlausibilityCheck],
