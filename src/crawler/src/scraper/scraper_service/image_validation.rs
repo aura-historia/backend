@@ -4,8 +4,10 @@ use crate::network::policy::{
     resolve_public_http_target, validate_public_http_url,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use crate::scraper::scraper_service::domain::product::count_image_probe;
-use crate::scraper::scraper_service::html_fetcher::HtmlFetcher;
+use crate::scraper::scraper_service::domain::product::{
+    count_image_probe, count_image_probe_capped,
+};
+use crate::scraper::scraper_service::html_fetcher::{HtmlFetcher, ImageProbeRobots};
 use regex::regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -20,6 +22,12 @@ const MIN_SHORTEST_SIDE: usize = 150;
 const IMAGE_PROBE_BYTES: &str = "bytes=0-32767";
 const IMAGE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 const IMAGE_PROBE_MAX_REDIRECTS: usize = 3;
+/// Above this `Crawl-delay`, a page probes at most [`MAX_PACED_PROBES_ABOVE_CAP_DELAY`] images
+/// on the shop's own host, so a slow shop's page is not held for one spacing per image.
+const PROBE_CAP_CRAWL_DELAY: std::time::Duration = std::time::Duration::from_secs(10);
+/// The own-host images a page probes on a shop whose `Crawl-delay` is above
+/// [`PROBE_CAP_CRAWL_DELAY`]: the first ones in the page's image order, its primary gallery.
+const MAX_PACED_PROBES_ABOVE_CAP_DELAY: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageValidation {
@@ -34,23 +42,69 @@ pub(crate) trait ImageValidator: Send + Sync {
     async fn validate(&self, url: &Url, admission: &ProbeAdmission<'_>) -> ImageValidation;
 }
 
-/// Which image probes may be sent, and when. A probe to the page's own host, bare or `www`, is
-/// a request to the shop like a page request: the page fetcher admits it only when robots.txt
-/// allows it and paces it at the shop's request spacing (`docs/crawler/networking.md#robotstxt`).
-/// A probe to any other host, such as an image CDN, is sent at once.
+/// Which image probes one page may send, and when (`docs/crawler/networking.md#robotstxt`). A
+/// probe to the page's own host, bare or `www`, must be allowed by robots.txt. When the shop sets
+/// a `Crawl-delay`, it waits for the shop's request spacing like a page request, and above
+/// [`PROBE_CAP_CRAWL_DELAY`] only the page's first [`MAX_PACED_PROBES_ABOVE_CAP_DELAY`] images
+/// are probed. A probe to any other host, such as an image CDN, is sent at once. One admission
+/// serves every extraction of a page, so the cap counts each image once per page.
 pub(crate) struct ProbeAdmission<'a> {
     fetcher: &'a dyn HtmlFetcher,
     page: &'a Url,
+    /// The own-host images this page probes at a `Crawl-delay` above the cap delay.
+    capped_slots: Mutex<HashSet<String>>,
+}
+
+/// Whether one probe request is sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeVerdict {
+    Send,
+    /// robots.txt refuses the probe or cannot be read.
+    Refused,
+    /// The page already probes as many own-host images as a slow shop's `Crawl-delay` allows.
+    Capped,
 }
 
 impl<'a> ProbeAdmission<'a> {
     pub(crate) fn new(fetcher: &'a dyn HtmlFetcher, page: &'a Url) -> Self {
-        Self { fetcher, page }
+        Self {
+            fetcher,
+            page,
+            capped_slots: Mutex::new(HashSet::new()),
+        }
     }
 
-    /// Whether a probe request to `url` may be sent now; waits for the shop's spacing first.
-    async fn admits(&self, url: &Url) -> bool {
-        !is_same_or_www_host(self.page, url) || self.fetcher.admit_image_probe(url).await
+    /// Whether the probe of `image` may send its request to `target`, the image or a redirect
+    /// hop of it; waits for the shop's spacing first when it may.
+    async fn admit(&self, target: &Url, image: &Url) -> ProbeVerdict {
+        if !is_same_or_www_host(self.page, target) {
+            return ProbeVerdict::Send;
+        }
+        let crawl_delay = match self.fetcher.image_probe_robots(target).await {
+            ImageProbeRobots::Refused => return ProbeVerdict::Refused,
+            ImageProbeRobots::Allowed { crawl_delay } => crawl_delay,
+        };
+        let Some(crawl_delay) = crawl_delay.filter(|delay| !delay.is_zero()) else {
+            return ProbeVerdict::Send;
+        };
+        if crawl_delay > PROBE_CAP_CRAWL_DELAY && !self.takes_capped_slot(image) {
+            return ProbeVerdict::Capped;
+        }
+        self.fetcher.pace_image_probe(target, crawl_delay).await;
+        ProbeVerdict::Send
+    }
+
+    /// Whether `image` is, or now becomes, one of the page's capped probes.
+    fn takes_capped_slot(&self, image: &Url) -> bool {
+        let mut slots = self.capped_slots.lock().expect("probe slots lock");
+        if slots.contains(image.as_str()) {
+            return true;
+        }
+        if slots.len() >= MAX_PACED_PROBES_ABOVE_CAP_DELAY {
+            return false;
+        }
+        slots.insert(image.as_str().to_owned());
+        true
     }
 }
 
@@ -128,9 +182,8 @@ pub(crate) async fn filter_valid_image_urls(
     raw_images: Vec<String>,
     base_url: &Url,
     validator: &dyn ImageValidator,
-    fetcher: &dyn HtmlFetcher,
+    admission: &ProbeAdmission<'_>,
 ) -> Vec<String> {
-    let admission = ProbeAdmission::new(fetcher, base_url);
     let mut seen = HashSet::new();
     let mut valid = Vec::new();
 
@@ -144,7 +197,7 @@ pub(crate) async fn filter_valid_image_urls(
             // Security validation always runs first. The URL hint may then
             // discard a target without replacing that result.
             let validation =
-                ImageUrlHint::of(&resolved).settle(validator.validate(&resolved, &admission).await);
+                ImageUrlHint::of(&resolved).settle(validator.validate(&resolved, admission).await);
             match validation {
                 ImageValidation::Invalid => {}
                 ImageValidation::Valid | ImageValidation::Unknown => {
@@ -281,15 +334,23 @@ fn dimensions_from_path(path: &str) -> Option<(usize, usize)> {
     Some((width, height))
 }
 
-/// A probe that robots.txt refuses, or that robots.txt cannot be read for, is not sent and
-/// leaves the size unknown, as a failed probe does.
+/// A probe that robots.txt refuses, or cannot be read for, or that a slow shop's probe cap
+/// leaves out, is not sent and leaves the size unknown, as a failed probe does.
 async fn probe_image_dimensions(url: &Url, admission: &ProbeAdmission<'_>) -> ImageValidation {
     let mut current_url = url.clone();
     let mut redirect_count = 0;
     let response = loop {
-        if !admission.admits(&current_url).await {
-            tracing::debug!("Image dimension probe not admitted by robots.txt");
-            return ImageValidation::Unknown;
+        match admission.admit(&current_url, url).await {
+            ProbeVerdict::Send => {}
+            ProbeVerdict::Refused => {
+                tracing::debug!("Image dimension probe not admitted by robots.txt");
+                return ImageValidation::Unknown;
+            }
+            ProbeVerdict::Capped => {
+                count_image_probe_capped();
+                tracing::debug!("Image dimension probe left out by the slow shop's probe cap");
+                return ImageValidation::Unknown;
+            }
         }
         if redirect_count == 0 {
             count_image_probe();
@@ -411,7 +472,10 @@ async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
     use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml};
+    use rstest::rstest;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A page fetcher with no robots.txt or pacing: it admits every probe.
     struct AdmitAll;
@@ -423,73 +487,201 @@ mod tests {
         }
     }
 
-    /// A page fetcher whose robots.txt refuses every probe, recording what it was asked.
-    #[derive(Default)]
-    struct RefuseAll {
+    /// A page fetcher whose robots.txt answers every probe with `robots`, recording the probes
+    /// it was asked about and the ones it paced.
+    struct ShopRobots {
+        robots: ImageProbeRobots,
         asked: Mutex<Vec<String>>,
+        paced: Mutex<Vec<String>>,
+    }
+
+    impl ShopRobots {
+        fn answering(robots: ImageProbeRobots) -> Self {
+            Self {
+                robots,
+                asked: Mutex::new(Vec::new()),
+                paced: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_crawl_delay(seconds: u64) -> Self {
+            Self::answering(ImageProbeRobots::Allowed {
+                crawl_delay: Some(std::time::Duration::from_secs(seconds)),
+            })
+        }
+
+        fn paced(&self) -> Vec<String> {
+            self.paced.lock().unwrap().clone()
+        }
     }
 
     #[async_trait::async_trait]
-    impl HtmlFetcher for RefuseAll {
+    impl HtmlFetcher for ShopRobots {
         async fn fetch(&self, _: &Url) -> Result<FetchedHtml, FetchError> {
             unreachable!("image validation fetches no page")
         }
 
-        async fn admit_image_probe(&self, url: &Url) -> bool {
+        async fn image_probe_robots(&self, url: &Url) -> ImageProbeRobots {
             self.asked.lock().unwrap().push(url.to_string());
-            false
+            self.robots
+        }
+
+        async fn pace_image_probe(&self, url: &Url, _: std::time::Duration) {
+            self.paced.lock().unwrap().push(url.to_string());
         }
     }
 
-    /// The page fetcher admits probes to the page's own host, bare or `www`; a probe to an
+    fn shop_page() -> Url {
+        Url::parse("https://shop.example/product/1").unwrap()
+    }
+
+    fn own_image(index: usize) -> Url {
+        Url::parse(&format!("https://shop.example/img/{index}.jpg")).unwrap()
+    }
+
+    async fn verdicts(admission: &ProbeAdmission<'_>, images: &[Url]) -> Vec<ProbeVerdict> {
+        let mut verdicts = Vec::new();
+        for image in images {
+            verdicts.push(admission.admit(image, image).await);
+        }
+        verdicts
+    }
+
+    /// robots.txt is asked about probes to the page's own host, bare or `www`; a probe to an
     /// image CDN is sent without it.
     #[tokio::test]
-    async fn should_ask_the_page_fetcher_only_for_probes_to_the_shops_own_host() {
-        let page = Url::parse("https://shop.example/product/1").unwrap();
-        let fetcher = RefuseAll::default();
+    async fn should_ask_robots_txt_only_for_probes_to_the_shops_own_host() {
+        let page = shop_page();
+        let fetcher = ShopRobots::answering(ImageProbeRobots::Refused);
         let admission = ProbeAdmission::new(&fetcher, &page);
+        let twin = Url::parse("https://www.shop.example/img/b.jpg").unwrap();
+        let cdn = Url::parse("https://cdn.example.net/c.jpg").unwrap();
 
-        let own = admission
-            .admits(&Url::parse("https://shop.example/img/a.jpg").unwrap())
-            .await;
-        let twin = admission
-            .admits(&Url::parse("https://www.shop.example/img/b.jpg").unwrap())
-            .await;
-        let cdn = admission
-            .admits(&Url::parse("https://cdn.example.net/c.jpg").unwrap())
-            .await;
+        let answers = verdicts(&admission, &[own_image(1), twin, cdn]).await;
 
-        assert!(!own && !twin && cdn);
+        assert_eq!(
+            answers,
+            [
+                ProbeVerdict::Refused,
+                ProbeVerdict::Refused,
+                ProbeVerdict::Send
+            ]
+        );
         assert_eq!(
             *fetcher.asked.lock().unwrap(),
             [
-                "https://shop.example/img/a.jpg",
+                "https://shop.example/img/1.jpg",
                 "https://www.shop.example/img/b.jpg"
             ]
         );
     }
 
-    /// A probe robots.txt refuses is not sent and leaves the size unknown, as a failed probe
-    /// does: the image is kept unless its name says thumbnail, never dropped for the refusal.
+    /// A shop without a `Crawl-delay` is probed unpaced, as before, but its robots.txt still
+    /// refuses what it disallows.
     #[tokio::test]
-    async fn should_leave_an_image_unprobed_when_robots_txt_refuses_its_probe() {
-        let page = Url::parse("https://shop.example/product/1").unwrap();
-        let fetcher = RefuseAll::default();
-        let admission = ProbeAdmission::new(&fetcher, &page);
+    async fn should_probe_a_shop_without_a_crawl_delay_unpaced() {
+        let page = shop_page();
+        for crawl_delay in [None, Some(std::time::Duration::ZERO)] {
+            let fetcher = ShopRobots::answering(ImageProbeRobots::Allowed { crawl_delay });
+            let admission = ProbeAdmission::new(&fetcher, &page);
 
-        let photo = probe_image_dimensions(
-            &Url::parse("https://shop.example/img/photo.jpg").unwrap(),
-            &admission,
-        )
-        .await;
+            let answers = verdicts(&admission, &(1..=5).map(own_image).collect::<Vec<_>>()).await;
 
-        assert_eq!(photo, ImageValidation::Unknown);
-        assert_eq!(ImageUrlHint::NoHint.settle(photo), ImageValidation::Unknown);
-        assert_eq!(fetcher.asked.lock().unwrap().len(), 1);
+            assert_eq!(answers, [ProbeVerdict::Send; 5], "{crawl_delay:?}");
+            assert!(fetcher.paced().is_empty(), "{crawl_delay:?}");
+        }
     }
-    use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
-    use rstest::rstest;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A shop's `Crawl-delay` up to the cap delay paces every own-host probe, without a cap.
+    #[tokio::test]
+    async fn should_pace_every_probe_at_a_crawl_delay_up_to_the_cap_delay() {
+        let page = shop_page();
+        for seconds in [2, 10] {
+            let fetcher = ShopRobots::with_crawl_delay(seconds);
+            let admission = ProbeAdmission::new(&fetcher, &page);
+            let images: Vec<Url> = (1..=5).map(own_image).collect();
+
+            let answers = verdicts(&admission, &images).await;
+
+            assert_eq!(answers, [ProbeVerdict::Send; 5], "{seconds}");
+            assert_eq!(fetcher.paced().len(), 5, "{seconds}");
+        }
+    }
+
+    /// Above the cap delay, a page probes its first three own-host images, paced, and leaves
+    /// the rest unprobed; an image it already probes stays admitted, such as for a later
+    /// extraction of the same page.
+    #[tokio::test]
+    async fn should_probe_only_the_first_images_of_a_page_above_the_cap_delay() {
+        let page = shop_page();
+        let fetcher = ShopRobots::with_crawl_delay(30);
+        let admission = ProbeAdmission::new(&fetcher, &page);
+        let images: Vec<Url> = (1..=5).map(own_image).collect();
+
+        let answers = verdicts(&admission, &images).await;
+        let again = admission.admit(&images[0], &images[0]).await;
+
+        assert_eq!(
+            answers,
+            [
+                ProbeVerdict::Send,
+                ProbeVerdict::Send,
+                ProbeVerdict::Send,
+                ProbeVerdict::Capped,
+                ProbeVerdict::Capped
+            ]
+        );
+        assert_eq!(again, ProbeVerdict::Send);
+        assert_eq!(
+            fetcher.paced(),
+            [
+                "https://shop.example/img/1.jpg",
+                "https://shop.example/img/2.jpg",
+                "https://shop.example/img/3.jpg",
+                "https://shop.example/img/1.jpg"
+            ]
+        );
+    }
+
+    /// A probe robots.txt refuses, or the cap leaves out, is not sent and leaves the size
+    /// unknown, as a failed probe does: the image is kept unless its name says thumbnail. A
+    /// capped probe is counted apart from the probes sent.
+    #[tokio::test]
+    async fn should_leave_a_refused_or_capped_image_unprobed() {
+        let page = shop_page();
+        let refusing = ShopRobots::answering(ImageProbeRobots::Refused);
+        let slow = ShopRobots::with_crawl_delay(30);
+        let slow_admission = ProbeAdmission::new(&slow, &page);
+        for image in (1..=3).map(own_image) {
+            assert_eq!(
+                slow_admission.admit(&image, &image).await,
+                ProbeVerdict::Send
+            );
+        }
+
+        let ((refused, capped, telemetry), _) =
+            crate::scraper::scraper_service::domain::product::with_scrape_observation(async {
+                let refused =
+                    probe_image_dimensions(&own_image(1), &ProbeAdmission::new(&refusing, &page))
+                        .await;
+                let capped = probe_image_dimensions(&own_image(4), &slow_admission).await;
+                (
+                    refused,
+                    capped,
+                    crate::scraper::scraper_service::domain::product::current_scrape_telemetry(),
+                )
+            })
+            .await;
+
+        assert_eq!(refused, ImageValidation::Unknown);
+        assert_eq!(capped, ImageValidation::Unknown);
+        assert_eq!(
+            ImageUrlHint::NoHint.settle(capped),
+            ImageValidation::Unknown
+        );
+        assert_eq!(telemetry.image_probes, 0);
+        assert_eq!(telemetry.image_probes_capped, 1);
+    }
 
     struct StaticValidator {
         validation: ImageValidation,
@@ -632,7 +824,7 @@ mod tests {
             vec!["http://127.0.0.1/image-800x600.jpg".to_string()],
             &base,
             &ReqwestImageValidator::new(),
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -646,7 +838,7 @@ mod tests {
             vec!["http://169.254.169.254/photo.jpg?width=800&height=600".to_string()],
             &base,
             &ReqwestImageValidator::new(),
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -665,7 +857,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -684,7 +876,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -708,7 +900,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -724,7 +916,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -740,7 +932,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -760,7 +952,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Valid,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -785,14 +977,14 @@ mod tests {
             )],
             &base,
             &unknown_size,
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
         let alone = filter_valid_image_urls(
             vec![THUMBNAIL_NAMED_UPLOAD.to_string()],
             &base,
             &unknown_size,
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -819,7 +1011,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Valid,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -853,7 +1045,7 @@ mod tests {
             unsafe_targets.clone(),
             &base,
             &ReqwestImageValidator::new(),
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 
@@ -914,7 +1106,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Valid,
             },
-            &AdmitAll,
+            &ProbeAdmission::new(&AdmitAll, &base),
         )
         .await;
 

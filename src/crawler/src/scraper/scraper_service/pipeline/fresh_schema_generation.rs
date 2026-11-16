@@ -5,7 +5,7 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
-use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
+use crate::scraper::scraper_service::image_validation::{ProbeAdmission, filter_valid_image_urls};
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::SelectedSchemaCandidate;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
@@ -112,7 +112,7 @@ impl ScraperServiceImpl {
             reapplied.images.clone(),
             ctx.url,
             &*self.image_validator,
-            &*self.html_fetcher,
+            &ProbeAdmission::new(&*self.html_fetcher, ctx.url),
         )
         .await;
 

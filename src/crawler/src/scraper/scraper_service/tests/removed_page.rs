@@ -6,6 +6,7 @@ use crate::scraper::css_selector::removed_page_schema::{
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::html_fetcher::FetchError;
+use crate::scraper::scraper_service::html_fetcher::ImageProbeRobots;
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
 };
@@ -44,8 +45,8 @@ fn fetcher_returning(html: String) -> MockHtmlFetcher {
     let mut fetcher = MockHtmlFetcher::new();
     // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
     fetcher
-        .expect_admit_image_probe()
-        .returning(|_| Box::pin(async { false }));
+        .expect_image_probe_robots()
+        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
@@ -521,8 +522,8 @@ async fn should_not_mark_product_removed_on_transient_fetch_failure() {
     let mut fetcher = MockHtmlFetcher::new();
     // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
     fetcher
-        .expect_admit_image_probe()
-        .returning(|_| Box::pin(async { false }));
+        .expect_image_probe_robots()
+        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher.expect_fetch().once().returning(|_| {
         Box::pin(async {
             Err(FetchError::Network {

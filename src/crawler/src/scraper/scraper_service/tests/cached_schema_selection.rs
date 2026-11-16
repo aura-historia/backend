@@ -5,6 +5,7 @@ use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, Plausib
 use crate::scraper::raw_input::capture_source_listing_id;
 use crate::scraper::scraper_service::ScrapedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::html_fetcher::ImageProbeRobots;
 use crate::scraper::scraper_service::image_validation::{ImageValidation, ImageValidator};
 
 /// A product page with elements a cached schema can mistakenly target.
@@ -49,8 +50,8 @@ fn fetcher_returning(html: String) -> MockHtmlFetcher {
     let mut fetcher = MockHtmlFetcher::new();
     // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
     fetcher
-        .expect_admit_image_probe()
-        .returning(|_| Box::pin(async { false }));
+        .expect_image_probe_robots()
+        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })

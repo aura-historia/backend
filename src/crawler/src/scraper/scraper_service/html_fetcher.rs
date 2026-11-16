@@ -57,14 +57,25 @@ pub trait HtmlFetcher: Send + Sync {
         None
     }
 
-    /// Admits a request for an image on a shop's own host the way a page request is admitted:
-    /// robots.txt of its origin allows it, and it waits for the domain's request spacing
-    /// (`Crawl-delay`, politeness group and latency throttle) before it answers `true`. `false`
-    /// when robots.txt refuses the image or cannot be read, so the image is left unprobed. A
-    /// fetcher without robots.txt or pacing admits every probe.
-    async fn admit_image_probe(&self, _url: &Url) -> bool {
-        true
+    /// What robots.txt of its origin says about an image probe to `url` on a shop's own host,
+    /// read through the cache page requests use. A fetcher without robots.txt allows every probe
+    /// unpaced.
+    async fn image_probe_robots(&self, _url: &Url) -> ImageProbeRobots {
+        ImageProbeRobots::Allowed { crawl_delay: None }
     }
+
+    /// Waits for the domain's request spacing before an image probe to `url` on a shop whose
+    /// robots.txt sets `crawl_delay`, as a page request would wait.
+    async fn pace_image_probe(&self, _url: &Url, _crawl_delay: Duration) {}
+}
+
+/// robots.txt's answer to an image probe on a shop's own host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageProbeRobots {
+    /// robots.txt refuses the probe or cannot be read: it is not sent.
+    Refused,
+    /// robots.txt allows the probe; `crawl_delay` is the shop's `Crawl-delay`, if it sets one.
+    Allowed { crawl_delay: Option<Duration> },
 }
 
 /// Lets one fetcher, with its robots.txt cache and per-domain pacing, serve
@@ -79,8 +90,12 @@ impl<T: HtmlFetcher + ?Sized> HtmlFetcher for Arc<T> {
         (**self).domain_fetch_stats(domain)
     }
 
-    async fn admit_image_probe(&self, url: &Url) -> bool {
-        (**self).admit_image_probe(url).await
+    async fn image_probe_robots(&self, url: &Url) -> ImageProbeRobots {
+        (**self).image_probe_robots(url).await
+    }
+
+    async fn pace_image_probe(&self, url: &Url, crawl_delay: Duration) {
+        (**self).pace_image_probe(url, crawl_delay).await
     }
 }
 
@@ -934,17 +949,22 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
     }
 
     /// robots.txt is read through the cache page requests share, within one attempt timeout.
-    async fn admit_image_probe(&self, url: &Url) -> bool {
+    async fn image_probe_robots(&self, url: &Url) -> ImageProbeRobots {
         let robots = match tokio::time::timeout(self.attempt_timeout, self.robots_policy(url)).await
         {
             Ok(Ok(robots)) => robots,
-            Ok(Err(_)) | Err(_) => return false,
+            Ok(Err(_)) | Err(_) => return ImageProbeRobots::Refused,
         };
         if robots.policy.check(url).is_err() {
-            return false;
+            return ImageProbeRobots::Refused;
         }
-        self.pace(url, robots.policy.crawl_delay()).await;
-        true
+        ImageProbeRobots::Allowed {
+            crawl_delay: robots.policy.crawl_delay(),
+        }
+    }
+
+    async fn pace_image_probe(&self, url: &Url, crawl_delay: Duration) {
+        self.pace(url, Some(crawl_delay)).await;
     }
 
     fn domain_fetch_stats(&self, domain: &str) -> Option<DomainFetchStats> {
@@ -1796,8 +1816,9 @@ mod tests {
             let shop = spawn_shop(robots_txt(robots), vec![], Duration::ZERO).await;
             let image = shop.url.join("/images/a.jpg").unwrap();
 
-            assert!(
-                !unthrottled_fetcher().admit_image_probe(&image).await,
+            assert_eq!(
+                unthrottled_fetcher().image_probe_robots(&image).await,
+                super::ImageProbeRobots::Refused,
                 "{robots}"
             );
             assert!(shop.page_requests().is_empty(), "{robots}");
@@ -1819,9 +1840,17 @@ mod tests {
 
         let started = Instant::now();
         fetcher.fetch(&shop.url).await.unwrap();
-        let admitted = fetcher.admit_image_probe(&image).await;
+        let robots = fetcher.image_probe_robots(&image).await;
+        fetcher
+            .pace_image_probe(&image, Duration::from_secs(1))
+            .await;
 
-        assert!(admitted);
+        assert_eq!(
+            robots,
+            super::ImageProbeRobots::Allowed {
+                crawl_delay: Some(Duration::from_secs(1))
+            }
+        );
         assert!(
             started.elapsed() >= PACING_DELAY,
             "probe admitted after {:?}",

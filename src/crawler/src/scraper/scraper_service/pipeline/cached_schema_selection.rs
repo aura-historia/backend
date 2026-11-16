@@ -6,7 +6,7 @@ use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
     AppliedSchemaCandidate, CheckedSchemaCandidate, rank_checked_candidates,
 };
-use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
+use crate::scraper::scraper_service::image_validation::{ProbeAdmission, filter_valid_image_urls};
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::hash_extractions;
 use listing_source_core::ListingSourceId;
@@ -225,6 +225,7 @@ impl ScraperServiceImpl {
         let candidates = extracted.applied_candidates();
         let applied_schema_count = candidates.len();
         let mut checked_candidates = Vec::new();
+        let probe_admission = ProbeAdmission::new(&*self.html_fetcher, effective_url);
         for candidate in candidates {
             let findings = PlausibilityFindings::of(&candidate.raw);
             if findings.rejects_candidate() {
@@ -242,7 +243,7 @@ impl ScraperServiceImpl {
                 candidate.raw.images.clone(),
                 effective_url,
                 &*self.image_validator,
-                &*self.html_fetcher,
+                &probe_admission,
             )
             .await;
             checked_candidates.push(CheckedSchemaCandidate::new(
