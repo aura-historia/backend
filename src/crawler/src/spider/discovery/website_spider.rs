@@ -1282,9 +1282,9 @@ async fn root_page_reroot(
 /// body the transport ceiling already truncated would truncate again, and a
 /// 429 limits the client, not the page, so the crawl reacts to it instead
 /// (see `RateLimitSignal`). A retry runs inside the page's task, outside
-/// Spider's delay between request starts, so it waits `backoff`, the crawl's
-/// own delay, rather than Spider's own short exponential backoff, and never re-requests a
-/// page faster than the crawl requests pages.
+/// Spider's delay between request starts, so it waits at least `backoff`, the
+/// crawl's own delay, and never re-requests a page faster than the crawl
+/// requests pages; the cap of Spider's own exponential backoff stays the floor.
 struct PageRetryStrategy {
     max_retries: u32,
     backoff: Duration,
@@ -1300,11 +1300,19 @@ impl RetryStrategy for PageRetryStrategy {
             RetryDirective::stop()
         } else {
             RetryDirective {
-                backoff: Some(self.backoff),
+                backoff: Some(self.backoff.max(spider_retry_backoff(outcome.attempt))),
                 ..RetryDirective::default()
             }
         }
     }
+}
+
+/// The cap of the backoff Spider waits before retrying a page over HTTP when no strategy sets
+/// one: one second, doubled per further attempt, up to a minute. Spider waits a random share of
+/// it (full jitter), so the cap itself is never faster than Spider would be.
+fn spider_retry_backoff(attempt: u32) -> Duration {
+    let doublings = attempt.saturating_sub(1).min(6);
+    Duration::from_secs(1u64 << doublings).min(Duration::from_secs(60))
 }
 
 /// Library-level outcome handed from the crawl task to the filter task once
@@ -5945,6 +5953,39 @@ mod tests {
 
         assert!(directive.should_retry);
         assert_eq!(directive.backoff, Some(Duration::from_secs(45)));
+    }
+
+    /// A crawl paced faster than Spider's own retry backoff keeps that backoff as the floor.
+    #[test]
+    fn should_keep_spiders_own_retry_backoff_as_the_floor() {
+        let strategy = PageRetryStrategy {
+            max_retries: 2,
+            backoff: Duration::from_millis(500),
+        };
+        let outcome = |attempt| AttemptOutcome {
+            attempt,
+            status_code: spider::reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            should_retry: true,
+            content_truncated: false,
+            waf_check: false,
+            anti_bot_tech: &AntiBotTech::None,
+            proxy_configured: false,
+            url: "https://example.com/",
+            profile_key: None,
+            html_length: 0,
+            bytes_transferred: None,
+            error_status: None,
+            final_redirect_destination: None,
+        };
+
+        assert_eq!(
+            strategy.on_retry(&outcome(1)).backoff,
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(
+            strategy.on_retry(&outcome(2)).backoff,
+            Some(Duration::from_secs(2))
+        );
     }
 
     /// A delay above the former 60 s cap reaches Spider whole: its static delay is not capped,
