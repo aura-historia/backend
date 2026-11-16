@@ -36,7 +36,7 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           "logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogGroups", "logs:PutRetentionPolicy",
           "ec2:CreateNetworkInterface", "ec2:DescribeNetworkInterfaces", "ec2:DescribeSubnets", "ec2:DeleteNetworkInterface",
           "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses", "cloudwatch:PutMetricData",
-          ...(kind === "runtime" ? ["geo-places:Geocode"] : []),
+          ...(kind === "runtime" ? ["geo-places:Geocode", "geo-places:GetPlace", "geo-places:Autocomplete"] : []),
         ], resources: ["*"] }),
         // Runtime credentials arrive in function and task configuration at deployment; only the migrator reads its secret.
         ...(kind === "migration" ? [new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],

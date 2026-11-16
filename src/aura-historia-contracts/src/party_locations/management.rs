@@ -204,6 +204,10 @@ pub struct CreateData {
     pub evidence: Option<EvidenceData>,
     #[serde(default)]
     pub relocates: Option<ExpectedData>,
+    /// `placeId` of the address suggestion picked for `geography.addressText`.
+    #[serde(default)]
+    #[schemars(schema_with = "crate::address_suggestions::place_id_schema")]
+    pub place_id: Option<String>,
 }
 impl CreateData {
     pub fn into_command(
@@ -228,6 +232,8 @@ impl CreateData {
             },
             evidence: self.evidence.map(EvidenceData::into_service).transpose()?,
             relocates: self.relocates.map(Into::into),
+            place: crate::address_suggestions::place_reference(self.place_id)
+                .map_err(|_| Invalid)?,
         })
     }
 }
@@ -251,6 +257,11 @@ pub struct UpdateData {
     pub position: PatchValue<PositionData>,
     #[serde(default)]
     pub evidence: PatchValue<EvidenceData>,
+    /// `placeId` of a newly picked address suggestion. Without one, an unchanged address keeps
+    /// its current pick and a changed address is located from its text.
+    #[serde(default)]
+    #[schemars(schema_with = "crate::address_suggestions::place_id_schema")]
+    pub place_id: Option<String>,
 }
 impl UpdateData {
     pub fn into_command(
@@ -278,6 +289,8 @@ impl UpdateData {
                 v.into_core().map_err(|_| Invalid)
             })?,
             evidence: map_patch(clearable(self.evidence), EvidenceData::into_service)?,
+            place: crate::address_suggestions::place_reference(self.place_id)
+                .map_err(|_| Invalid)?,
         })
     }
 }

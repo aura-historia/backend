@@ -1,3 +1,4 @@
+pub(crate) mod address_suggestions;
 pub(crate) mod admin_overview;
 pub mod admin_product_listings;
 pub mod agent_discovery;
@@ -182,6 +183,9 @@ use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
 };
 
+use geo_amazon_location::{AmazonLocationAddressSuggester, AmazonLocationConfig};
+use geo_postgres::SqlxSuggestionUsageRepositoryFactory;
+use geo_service::suggestions::SuggestAddressesHandler;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
@@ -885,6 +889,19 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(suggestions) = state.address_suggestions {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/v1/address-suggestions",
+                    post(address_suggestions::suggest),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(suggestions),
+        );
+    }
     if let Some(addresses) = state.user_addresses {
         routes = routes.merge(
             Router::new()
@@ -1286,6 +1303,20 @@ pub async fn lambda_app_from_config_and_runtime(
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
     let runtime = Runtime::from_env().await?;
     app_state_from_config_and_runtime(config, &runtime).await
+}
+
+/// Autocomplete gets its own bounded client: one attempt within 1.5 seconds, because the next
+/// keystroke is the retry, and only the reviewed Frankfurt endpoint.
+async fn address_suggester() -> Result<AmazonLocationAddressSuggester, ApiStateError> {
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .region(aws_config::Region::new(geo_amazon_location::REGION))
+        .load()
+        .await;
+    let bounds =
+        AmazonLocationConfig::new(Duration::from_millis(1500), Duration::from_millis(1500), 1)
+            .map_err(|e| ApiStateError::AddressSuggestions(Box::new(e)))?;
+    AmazonLocationAddressSuggester::new(aws_sdk_geoplaces::Client::new(&config), bounds)
+        .map_err(|e| ApiStateError::AddressSuggestions(Box::new(e)))
 }
 
 async fn app_state_from_config_and_runtime(
@@ -2015,6 +2046,14 @@ async fn app_state_from_config_and_runtime(
 
     let readiness = Arc::new(RuntimeReadiness::new(pool, opensearch_client.clone()));
 
+    let address_suggestions_state = state::AddressSuggestionsState {
+        suggest: Arc::new(SuggestAddressesHandler::new(
+            unit_of_work.clone(),
+            SqlxSuggestionUsageRepositoryFactory,
+            address_suggester().await?,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let user_addresses_state = state::UserAddressesState {
         commands: address_book.commands.clone(),
         queries: address_book.queries.clone(),
@@ -2056,6 +2095,7 @@ async fn app_state_from_config_and_runtime(
         .with_admin_source_location_defaults(admin_source_location_defaults_state)
         .with_users(users_state)
         .with_user_addresses(user_addresses_state)
+        .with_address_suggestions(address_suggestions_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
         .with_content_notices(ContentNoticesState::new(
@@ -2182,6 +2222,8 @@ pub enum ApiStateError {
     LoopsClient,
     #[error("invalid Loops webhook target-list configuration")]
     LoopsWebhookListConfiguration,
+    #[error("failed to configure address suggestions")]
+    AddressSuggestions(#[source] application::error::BoxError),
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {

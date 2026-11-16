@@ -146,18 +146,24 @@ structured international addresses remain deferred issues.
 ## Geocoding capability
 
 The service capability accepts validated address text plus explicit optional assertions,
-constraints, ranking hint and language. Assertions do not silently become provider filters.
-The consuming service owns authorization, purpose, acceptance and reuse scope; the provider
-adapter owns protocol, credentials, bounded I/O and mapping. No provider call occurs in an
-ordinary location/address write, listing write or search request.
+constraints, ranking hint and language, or a picked place reference from
+[address suggestions](#address-suggestions). Assertions do not silently become provider
+filters. The consuming service owns authorization, purpose, acceptance and reuse scope; the
+provider adapter owns protocol, credentials, bounded I/O and mapping. No provider call occurs
+in an ordinary location/address write, listing write or search request; suggestions are their
+own explicit request.
 
 An explicit empty response is no match. Every returned alternative counts toward ambiguity,
 including unsupported candidates; a limit-truncated single result is not proof of uniqueness.
 Scores describe matching, not probability. Unknown precision, contradictory components,
 unverified constraints and technical failures remain distinguishable.
 
-The initial adapter uses [Amazon Location Places v2 Geocode](https://docs.aws.amazon.com/location/latest/APIReference/API_geoplaces_Geocode.html)
-with SigV4 and the reviewed Frankfurt profile. AWS longitude/latitude arrays are explicitly
+The initial adapter uses [Amazon Location Places v2 Geocode](https://docs.aws.amazon.com/location/latest/APIReference/API_geoplaces_Geocode.html),
+[GetPlace](https://docs.aws.amazon.com/location/latest/APIReference/API_geoplaces_GetPlace.html) for picked
+places and [Autocomplete](https://docs.aws.amazon.com/location/latest/APIReference/API_geoplaces_Autocomplete.html)
+for suggestions, with SigV4 and the reviewed Frankfurt profile. GetPlace answers an unknown,
+stale or malformed reference with a validation error or not found; that is an ordinary lookup
+outcome, never a configuration failure. AWS longitude/latitude arrays are explicitly
 mapped; invalid coordinates fail. Point addresses map to premises; interpolated addresses
 to street; estimated/inferred addresses and POIs remain broader evidence. Provider region
 abbreviations are not ISO subdivisions. Only the reviewed Canadian `BC` → `CA-BC` mapping
@@ -168,7 +174,8 @@ invalidation. Synthetic adapter tests establish protocol behavior, not worldwide
 ### Provider terms and retention gate
 
 The reviewed profile is **Amazon Location Places v2 / default data / eu-central-1 /
-October 2026**. Geocoding with retained resolution is always on: the profile has no runtime
+October 2026**, extended in November 2026 by Autocomplete (`SingleUse`, Label pricing bucket)
+and GetPlace (`Storage`). Geocoding with retained resolution is always on: the profile has no runtime
 switch, storage flag, database-held call budget or concurrency limit; parallelism follows the
 resolution worker's deployed concurrency. Account/source terms, intended reuse, private-input
 purpose, attribution and expected cost are reviewed with the code change that introduces or
@@ -220,7 +227,8 @@ provider. Retirement detaches work; restoration explicitly reestablishes it. Inp
 fence old replies; presentation-only changes update guards without paying again.
 
 Business policy **PRECISION_FIRST_V1** automatically accepts only administrative geography
-from a unique compatible candidate. Administrator API operations can request, inspect, retry or
+from a unique compatible candidate; a picked place follows
+[SELECTED_PLACE_V1](#address-suggestions) instead. Administrator API operations can request, inspect, retry or
 select a compatible candidate using current location revision and resolution generation; a
 review queue lists unreviewed `AMBIGUOUS`, `BLOCKED` and `FAILED` locations across Parties.
 Responses expose normalized candidate geography and attribution only, never provider record
@@ -328,10 +336,10 @@ residence, billing, nationality, tax domicile or deliverability.
 Private policy **AUTOMATIC_USER_BROWSING_V1** accepts a point only from exactly one usable
 compatible premises candidate, with a requested candidate limit of at least two. Submitted
 country/subdivision/postal assertions must agree; unsupported alternatives count toward
-ambiguity. A unique coarse result can supply administrative facts only. Users correct
-uncertain results through ordinary replacement; no candidate-selection/retry API exists.
-Provider failures retry under bounded policy. Frontend autocomplete is optional and has
-independent licensing; selected text/provider IDs never establish verified backend facts.
+ambiguity. A unique coarse result can supply administrative facts only. Users avoid
+uncertain results by picking an [address suggestion](#address-suggestions) and correct them
+through ordinary replacement; no candidate-selection/retry API exists. Provider failures retry
+under bounded policy. A picked place is browsing enrichment, not a verified backend fact.
 
 Only current unsuspended owners may access addresses/preferences; delegated callers require
 the corresponding user scope. Success and errors are `no-store`. Content remains outside
@@ -351,3 +359,41 @@ users manage those separately and account erasure removes them. Future orders mu
 snapshot accepted destinations. Active-database erasure does not instantly erase retained
 backups or provider records: operators manage snapshot expiry, and restores must replay
 erasures before serving data or enabling resolution. Provider retention follows its terms.
+
+## Address suggestions
+
+`POST /v1/address-suggestions` returns at most five search-as-you-type suggestions for
+partly typed text, worldwide, in the requested language. It serves signed-in people entering
+an address themselves: delegated credentials, including MCP agents, are refused. Each suggestion
+carries the provider's place reference as an opaque `placeId`, a display label and a kind that
+tells a complete address from a street or town still missing details.
+
+Autocomplete supports only `SingleUse`: suggestions are display-only, never stored, cached or
+logged, and responses are `no-store`. Requests use the Label pricing bucket and one bounded
+attempt, since the next keystroke is the retry. Every request is billed, so each person may
+make 60 per minute and 600 per UTC day; only those two window counters are stored, and refused
+requests are not counted. A route throttle caps all callers together. Clients debounce typing,
+cancel superseded requests and stop after a complete pick; on refusal or outage they fall back
+to typing the address.
+
+Address and Party-location writes accept a picked `placeId` beside the address text, which
+stays the caller's verbatim assertion. The write makes no provider call; durable resolution
+holds the reference as part of its private input and the worker redeems it with one GetPlace
+(`Storage`) call, the same retained pricing tier as a Geocode. AWS documents passing an
+Autocomplete PlaceId to GetPlace after a typeahead pick; the reference is input until the
+`Storage` response, which is the evidence that is retained. A reference the provider no longer
+knows falls back to searching the address text under the purpose's own policy.
+
+Policy **SELECTED_PLACE_V1** applies to every purpose: the caller chose the place, so its one
+usable candidate compatible with the submitted assertions is accepted. A point is accepted only
+at precise premises precision with a known country; a coarser pick supplies administrative
+geography only. A contradicting pick stays `AMBIGUOUS`. Accepting a picked point for a
+PartyLocation grants nothing new, since location managers may already assert a point.
+
+A pick different from the current one advances the input revision even when the text is
+unchanged; re-sending the current pick is no change. Without one, the pick is kept while the
+input revision is unchanged, through label, role and lifecycle edits, and a changed input
+(address, or for PartyLocations position or evidence) is resolved from its text again. Retirement detaches resolution, so a restored
+location resolves from its text. Equal picks for equal text in the same private scope reuse
+their evidence without another paid call. Agent tools keep their existing address inputs.
+

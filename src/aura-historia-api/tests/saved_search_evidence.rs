@@ -553,6 +553,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
             CreateUserAddress {
                 label: UserAddressLabel::new("private name".into()).unwrap(),
                 geography: geography(CountryCode::DEU),
+                place: None,
             },
         )
         .await
@@ -563,6 +564,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
             CreateUserAddress {
                 label: UserAddressLabel::new("foreign".into()).unwrap(),
                 geography: geography(CountryCode::DEU),
+                place: None,
             },
         )
         .await
@@ -658,6 +660,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
             expected_version: address.version,
             label: UserAddressLabel::new("edited".into()).unwrap(),
             geography: geography(CountryCode::FRA),
+            place: None,
         },
     )
     .await

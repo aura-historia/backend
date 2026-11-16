@@ -395,6 +395,7 @@ async fn should_commit_proposed_source_approval_and_replay_without_duplicate_mem
                 },
                 evidence: None,
                 relocates: None,
+                place: None,
             },
         )
         .await

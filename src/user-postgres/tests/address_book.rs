@@ -31,6 +31,7 @@ fn create(text: &str) -> CreateUserAddress {
     CreateUserAddress {
         label: UserAddressLabel::new("Home".into()).unwrap(),
         geography: geography(text),
+        place: None,
     }
 }
 async fn fixture() -> (PgPool, Handler, OperationContext, OperationContext) {
@@ -106,7 +107,8 @@ async fn own_crud_pagination_and_private_cache_isolation() {
                 id: first,
                 expected_version: 1,
                 label: one.label.clone(),
-                geography: geography("Other")
+                geography: geography("Other"),
+                place: None,
             }
         )
         .await,
@@ -138,6 +140,7 @@ async fn own_crud_pagination_and_private_cache_isolation() {
                 expected_version: 1,
                 label: one.label.clone(),
                 geography: geography("Replacement"),
+                place: None,
             },
         )
         .await
@@ -160,7 +163,8 @@ async fn own_crud_pagination_and_private_cache_isolation() {
                 id: first,
                 expected_version: 1,
                 label: one.label,
-                geography: geography("Stale")
+                geography: geography("Stale"),
+                place: None,
             }
         )
         .await,
@@ -200,7 +204,8 @@ async fn independent_creates_allow_duplicates_and_fence_updates_and_preferences(
                 id,
                 expected_version: 1,
                 label: UserAddressLabel::new("One".into()).unwrap(),
-                geography: geography("One")
+                geography: geography("One"),
+                place: None,
             }
         ),
         h.update(
@@ -209,7 +214,8 @@ async fn independent_creates_allow_duplicates_and_fence_updates_and_preferences(
                 id,
                 expected_version: 1,
                 label: UserAddressLabel::new("Two".into()).unwrap(),
-                geography: geography("Two")
+                geography: geography("Two"),
+                place: None,
             }
         )
     );
@@ -381,6 +387,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
             expected_version: 1,
             label: UserAddressLabel::new("Home".into()).unwrap(),
             geography: geography("Synthetic Claim corrected"),
+            place: None,
         },
     )
     .await
@@ -403,6 +410,7 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
             expected_version: 2,
             label: UserAddressLabel::new("Home".into()).unwrap(),
             geography: geography("Edited"),
+            place: None,
         },
     )
     .await
@@ -556,6 +564,7 @@ async fn private_shared_input_is_retained_only_until_its_last_bookmark_is_remove
             expected_version: 1,
             label: UserAddressLabel::new("Home".into()).unwrap(),
             geography: geography("Replacement synthetic address"),
+            place: None,
         },
     )
     .await
@@ -629,6 +638,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
             expected_version: 1,
             label: UserAddressLabel::new("Home".into()).unwrap(),
             geography: geography("Synthetic replacement address"),
+            place: None,
         },
     )
     .await
@@ -776,6 +786,7 @@ async fn automatic_geocoding_snapshots_and_unrelated_preferences() {
             expected_version: 1,
             label: UserAddressLabel::new("Renamed".into()).unwrap(),
             geography: geography("Synthetic Candidate"),
+            place: None,
         },
     )
     .await
@@ -883,6 +894,7 @@ async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
                 expected_version: 1,
                 label: UserAddressLabel::new("Renamed".into()).unwrap(),
                 geography: geography("Synthetic ownership first"),
+                place: None,
             }
         )
         .await,
@@ -985,6 +997,7 @@ async fn provider_profile_rebinding_erases_the_final_old_private_input() {
             expected_version: 1,
             label: UserAddressLabel::new("Renamed".into()).unwrap(),
             geography: geography("Synthetic profile change"),
+            place: None,
         },
     )
     .await

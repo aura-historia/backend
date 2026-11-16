@@ -83,6 +83,16 @@ impl UserAddress {
         self.geography = geography;
         Ok(changed)
     }
+    /// The resolution input changed without the address text changing, for example because
+    /// the owner picked a suggested place for it. Advances the input revision.
+    pub fn change_input(&mut self) -> Result<(), InvalidUserAddress> {
+        self.input_revision = self
+            .input_revision
+            .checked_add(1)
+            .filter(|v| *v <= i64::MAX as u64)
+            .ok_or(InvalidUserAddress)?;
+        Ok(())
+    }
     pub fn id(&self) -> UserAddressId {
         self.id
     }

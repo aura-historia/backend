@@ -121,7 +121,7 @@ impl<
         match command {
             PartyLocationResolutionCommand::Request { expected, .. } => {
                 let s = load(&self.locations, &mut tx, party_id, expected).await?;
-                sync_resolution(&self.locations, &mut tx, &s).await?;
+                sync_resolution(&self.locations, &mut tx, &s, None).await?;
             }
             PartyLocationResolutionCommand::Inspect { .. } => {
                 self.locations
@@ -487,6 +487,7 @@ mod tests {
             selected_candidate: None,
             last_failure: None,
             attempts: 0,
+            selected_place: None,
         };
         for status in [
             ResolutionStatus::Pending,

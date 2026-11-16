@@ -40,6 +40,39 @@ pub struct UpdateData {
     #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
 }
+/// REST create input: [`CreateData`] plus a picked suggestion. Agents cannot request
+/// suggestions, so their tools keep [`CreateData`].
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateWithPlaceData {
+    /// Name of the address in the address book.
+    pub label: String,
+    /// Where the address is: the reference release, the address text (required) and optionally country, subdivision and postal code.
+    #[schemars(schema_with = "address_geography_schema")]
+    pub geography: GeographyData,
+    /// `placeId` of the address suggestion the owner picked for this address.
+    #[serde(default)]
+    #[schemars(schema_with = "crate::address_suggestions::place_id_schema")]
+    pub place_id: Option<String>,
+}
+/// REST replace input: [`UpdateData`] plus a newly picked suggestion.
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateWithPlaceData {
+    /// Current version from the last read; a stale version returns CONFLICT.
+    #[schemars(range(min = 1, max = i64::MAX as u64))]
+    pub expected_version: u64,
+    /// New name of the address, replacing the current one.
+    pub label: String,
+    /// New location of the address, replacing the current one entirely.
+    #[schemars(schema_with = "address_geography_schema")]
+    pub geography: GeographyData,
+    /// `placeId` of a newly picked address suggestion. Without one, an unchanged address keeps
+    /// its current pick and a changed address is located from its text.
+    #[serde(default)]
+    #[schemars(schema_with = "crate::address_suggestions::place_id_schema")]
+    pub place_id: Option<String>,
+}
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExpectedData {
@@ -143,24 +176,50 @@ pub enum InvalidAddressData {
     Label(#[source] user_core::user_address::InvalidUserAddress),
     #[error("invalid address geography")]
     Geography(#[from] crate::geography::InvalidGeographyData),
+    #[error("invalid picked place")]
+    Place(#[from] crate::address_suggestions::InvalidSuggestionData),
+}
+fn label(value: String) -> Result<user_core::user_address::UserAddressLabel, InvalidAddressData> {
+    user_core::user_address::UserAddressLabel::new(value).map_err(InvalidAddressData::Label)
 }
 impl CreateData {
     pub fn into_command(self) -> Result<CreateUserAddress, InvalidAddressData> {
+        CreateWithPlaceData {
+            label: self.label,
+            geography: self.geography,
+            place_id: None,
+        }
+        .into_command()
+    }
+}
+impl CreateWithPlaceData {
+    pub fn into_command(self) -> Result<CreateUserAddress, InvalidAddressData> {
         Ok(CreateUserAddress {
-            label: user_core::user_address::UserAddressLabel::new(self.label)
-                .map_err(InvalidAddressData::Label)?,
+            label: label(self.label)?,
             geography: self.geography.into_core()?,
+            place: crate::address_suggestions::place_reference(self.place_id)?,
         })
     }
 }
 impl UpdateData {
     pub fn into_command(self, id: UserAddressId) -> Result<UpdateUserAddress, InvalidAddressData> {
+        UpdateWithPlaceData {
+            expected_version: self.expected_version,
+            label: self.label,
+            geography: self.geography,
+            place_id: None,
+        }
+        .into_command(id)
+    }
+}
+impl UpdateWithPlaceData {
+    pub fn into_command(self, id: UserAddressId) -> Result<UpdateUserAddress, InvalidAddressData> {
         Ok(UpdateUserAddress {
             id,
             expected_version: self.expected_version,
-            label: user_core::user_address::UserAddressLabel::new(self.label)
-                .map_err(InvalidAddressData::Label)?,
+            label: label(self.label)?,
             geography: self.geography.into_core()?,
+            place: crate::address_suggestions::place_reference(self.place_id)?,
         })
     }
 }

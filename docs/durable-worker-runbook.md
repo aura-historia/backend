@@ -552,6 +552,14 @@ invocations follow ordinary operational approval when backlog requires faster re
 purging. Readers suppress ineligible evidence immediately;
 listing search accepts projection lag while removal propagates.
 
+Binaries from before [address suggestions](geography.md#address-suggestions) reject
+`SELECTED_PLACE_V1` inputs as invalid persisted state. During the deploy that introduces them,
+an older worker briefly fails those wake-ups and the hourly recovery until the new worker is
+live; both then recover on redelivery. Once picked places exist, do not roll the API or the
+resolution worker back past that release: an older recovery sweep stops for every resolution
+and older reads of an affected address fail. Fix forward, or first ship a reviewed release that
+detaches selected-place bindings.
+
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
 deadline and circuit state. Monitor resolution reuse/outcomes, oldest pending age, maintenance
 counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not

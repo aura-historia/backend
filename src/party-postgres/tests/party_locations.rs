@@ -322,6 +322,7 @@ fn command(party_id: PartyId, label: &str) -> CreatePartyLocationCommand {
             .unwrap(),
         ),
         relocates: None,
+        place: None,
     }
 }
 fn expected(v: &PartyLocationView) -> ExpectedPartyLocation {
@@ -339,6 +340,7 @@ fn correction(party_id: PartyId, v: &PartyLocationView) -> UpdatePartyLocationCo
         geography: PatchField::Unchanged,
         position: PatchField::Unchanged,
         evidence: PatchField::Unchanged,
+        place: None,
     }
 }
 async fn signals(pool: &PgPool, id: PartyLocationId) -> i64 {

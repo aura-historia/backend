@@ -50,6 +50,13 @@ impl GeocodingProvider for Provider {
             retention: ResultRetention::Storage,
         })
     }
+    async fn look_up_place(
+        &self,
+        _: &PlaceReference,
+        _: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        Ok(PlaceLookup::Unknown)
+    }
 }
 async fn setup(
     failure: Option<GeocodingFailure>,

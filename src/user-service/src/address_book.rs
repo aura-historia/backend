@@ -7,7 +7,10 @@ use application::{
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use geo::{DerivedGeography, GeographicDescription, SubmittedGeography};
-use geo_service::{geocoding::GeocodingRequest, resolution::*};
+use geo_service::{
+    geocoding::{GeocodingRequest, PlaceReference},
+    resolution::*,
+};
 use user_core::{user_address::*, user_id::UserId};
 
 #[derive(Debug, thiserror::Error)]
@@ -260,12 +263,17 @@ pub trait AddressBookFactory<Tx>: Send + Sync {
 pub struct CreateUserAddress {
     pub label: UserAddressLabel,
     pub geography: GeographicDescription,
+    /// A place the owner picked from address suggestions for this address.
+    pub place: Option<PlaceReference>,
 }
 pub struct UpdateUserAddress {
     pub id: UserAddressId,
     pub expected_version: u64,
     pub label: UserAddressLabel,
     pub geography: GeographicDescription,
+    /// A newly picked place. Without one, an unchanged address keeps its current pick and a
+    /// changed address is resolved from its text.
+    pub place: Option<PlaceReference>,
 }
 
 #[async_trait::async_trait]
@@ -429,6 +437,27 @@ where
         }
         Ok(())
     }
+    /// Binds the stored address's resolution input, keeping or replacing its picked place.
+    async fn bind(
+        &self,
+        tx: &mut U::Tx,
+        stored: &StoredUserAddress,
+        picked: Option<PlaceReference>,
+    ) -> Result<(), AddressBookError> {
+        let binding = binding(&stored.address, stored.version)?;
+        let current = self
+            .resolutions
+            .resolution_reader(tx)
+            .inspect(binding.subject)
+            .await?;
+        let input =
+            carry_selected_place(input(&stored.address)?, &binding, current.as_ref(), picked);
+        self.resolutions
+            .resolutions(tx)
+            .bind(&input, binding)
+            .await?;
+        Ok(())
+    }
     async fn current(
         &self,
         tx: &mut U::Tx,
@@ -464,13 +493,7 @@ where
         let (owner, mut tx) = self.begin(ctx, true).await?;
         let address = UserAddress::create(UserAddressId::new(), owner, c.label, c.geography)?;
         let stored = self.addresses.repository(&mut tx).insert(&address).await?;
-        self.resolutions
-            .resolutions(&mut tx)
-            .bind(
-                &input(&stored.address)?,
-                binding(&stored.address, stored.version)?,
-            )
-            .await?;
+        self.bind(&mut tx, &stored, c.place).await?;
         let id = stored.address.id();
         let view = self.view(&mut tx, owner, id).await?;
         tx.commit().await?;
@@ -485,19 +508,25 @@ where
         let mut stored = self
             .current(&mut tx, owner, c.id, c.expected_version)
             .await?;
-        if stored.address.replace(c.label, c.geography)? {
+        let current = self
+            .resolutions
+            .resolution_reader(&mut tx)
+            .inspect(subject(c.id)?)
+            .await?;
+        let picked = newly_picked(c.place, current.as_ref());
+        let previous_input = stored.address.input_revision();
+        let mut changed = stored.address.replace(c.label, c.geography)?;
+        if picked.is_some() && stored.address.input_revision() == previous_input {
+            stored.address.change_input()?;
+            changed = true;
+        }
+        if changed {
             stored = self
                 .addresses
                 .repository(&mut tx)
                 .update(&stored.address, c.expected_version)
                 .await?;
-            self.resolutions
-                .resolutions(&mut tx)
-                .bind(
-                    &input(&stored.address)?,
-                    binding(&stored.address, stored.version)?,
-                )
-                .await?;
+            self.bind(&mut tx, &stored, picked).await?;
         }
         let view = self.view(&mut tx, owner, c.id).await?;
         tx.commit().await?;

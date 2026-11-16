@@ -6,7 +6,7 @@ use geo::{
     reference::ReferenceRelease,
 };
 use geo_service::{
-    geocoding::{GeocodingRequest, GeographicConstraint},
+    geocoding::{GeocodingRequest, GeographicConstraint, PlaceReference},
     resolution::*,
 };
 use localization::Language;
@@ -44,6 +44,9 @@ pub(crate) struct InputData {
     scope: String,
     owner: Option<String>,
     purpose: String,
+    /// Absent for free-text inputs, which keeps their stored shape unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_place: Option<String>,
 }
 impl From<&ResolutionInput> for InputData {
     fn from(v: &ResolutionInput) -> Self {
@@ -66,6 +69,7 @@ impl From<&ResolutionInput> for InputData {
             scope: v.scope().kind().as_str().into(),
             owner: v.scope().owner().map(|id| id.to_string()),
             purpose: v.purpose().as_str().into(),
+            selected_place: v.selected_place().map(|p| p.as_str().into()),
         }
     }
 }
@@ -119,7 +123,13 @@ impl TryFrom<InputData> for ResolutionInput {
             ResolutionScope::new(ScopeKind::from_code(&v.scope).ok_or_else(corrupt)?, owner)
                 .map_err(invalid)?;
         let purpose = RetentionPurpose::from_code(&v.purpose).ok_or_else(corrupt)?;
-        ResolutionInput::new(r, scope, purpose).map_err(invalid)
+        let input = ResolutionInput::new(r, scope, purpose).map_err(invalid)?;
+        match v.selected_place {
+            Some(place) => {
+                Ok(input.with_selected_place(PlaceReference::new(place).map_err(invalid)?))
+            }
+            None => Ok(input),
+        }
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -275,5 +285,25 @@ mod tests {
         assert!(stored.get("retention_context").is_none());
         let decoded: ResolutionInput = decode::<InputData>(stored).unwrap().try_into().unwrap();
         assert_eq!(input.fingerprint("TEST_V1"), decoded.fingerprint("TEST_V1"));
+    }
+
+    #[test]
+    fn should_round_trip_a_selected_place_and_store_free_text_inputs_unchanged() {
+        let free_text = encode(&InputData::from(&input())).unwrap();
+        assert!(free_text.get("selected_place").is_none());
+        let selected = input().with_selected_place(PlaceReference::new("synthetic-place").unwrap());
+        let stored = encode(&InputData::from(&selected)).unwrap();
+        let decoded: ResolutionInput = decode::<InputData>(stored).unwrap().try_into().unwrap();
+        assert_eq!(
+            Some("synthetic-place"),
+            decoded.selected_place().map(PlaceReference::as_str)
+        );
+        assert_eq!(
+            selected.fingerprint("TEST_V1"),
+            decoded.fingerprint("TEST_V1")
+        );
+        let mut invalid = encode(&InputData::from(&selected)).unwrap();
+        invalid["selected_place"] = "two words".into();
+        assert!(ResolutionInput::try_from(decode::<InputData>(invalid).unwrap()).is_err());
     }
 }

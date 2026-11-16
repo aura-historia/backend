@@ -163,8 +163,10 @@ fn result() -> GeocodingResult {
 }
 struct Provider {
     calls: AtomicUsize,
+    lookups: AtomicUsize,
     pool: PgPool,
     result: GeocodingResult,
+    knows_places: bool,
 }
 #[async_trait::async_trait]
 impl GeocodingProvider for Provider {
@@ -181,8 +183,27 @@ impl GeocodingProvider for Provider {
         .unwrap();
         Ok(self.result.clone())
     }
+    async fn look_up_place(
+        &self,
+        _: &PlaceReference,
+        _: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        self.lookups.fetch_add(1, Ordering::SeqCst);
+        Ok(if self.knows_places {
+            PlaceLookup::Found(self.result.clone())
+        } else {
+            PlaceLookup::Unknown
+        })
+    }
 }
 async fn provider(pool: &PgPool, result: GeocodingResult) -> Arc<Provider> {
+    place_provider(pool, result, true).await
+}
+async fn place_provider(
+    pool: &PgPool,
+    result: GeocodingResult,
+    knows_places: bool,
+) -> Arc<Provider> {
     let isolated = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect_with(pool.connect_options().as_ref().clone())
@@ -194,8 +215,10 @@ async fn provider(pool: &PgPool, result: GeocodingResult) -> Arc<Provider> {
         .unwrap();
     Arc::new(Provider {
         calls: AtomicUsize::new(0),
+        lookups: AtomicUsize::new(0),
         pool: isolated,
         result,
+        knows_places,
     })
 }
 const ACCEPTED: CompletionOutcome = CompletionOutcome::Recorded(ResolutionStatus::Accepted);
@@ -588,6 +611,14 @@ async fn party(pool: &PgPool) -> PartyId {
     stored.party.id()
 }
 async fn create(pool: &PgPool, owner: PartyId, label: &str) -> PartyLocationView {
+    create_picked(pool, owner, label, None).await
+}
+async fn create_picked(
+    pool: &PgPool,
+    owner: PartyId,
+    label: &str,
+    place: Option<PlaceReference>,
+) -> PartyLocationView {
     CreatePartyLocationHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxPartyLocationRepositoryFactory,
@@ -612,6 +643,7 @@ async fn create(pool: &PgPool, owner: PartyId, label: &str) -> PartyLocationView
             },
             evidence: None,
             relocates: None,
+            place,
         },
     )
     .await
@@ -632,6 +664,7 @@ fn correction(v: &PartyLocationView) -> UpdatePartyLocationCommand {
         geography: PatchField::Unchanged,
         position: PatchField::Unchanged,
         evidence: PatchField::Unchanged,
+        place: None,
     }
 }
 async fn update(pool: &PgPool, c: UpdatePartyLocationCommand) -> PartyLocationView {
@@ -1859,4 +1892,97 @@ async fn repeatable_read_only_snapshot_reads_retained_evidence() {
             .is_some()
     );
     tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn should_resolve_a_selected_place_by_lookup_and_fall_back_to_search_when_it_is_unknown() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    for knows_places in [true, false] {
+        let provider = place_provider(&pool, result(), knows_places).await;
+        let handler = ResolveHandler::new(
+            SqlxUnitOfWork::new(provider.pool.clone()),
+            SqlxResolutionRepositoryFactory,
+            Arc::clone(&provider),
+            PROFILE.into(),
+        );
+        let selected = input(Uuid::now_v7(), "Synthetic picked address")
+            .with_selected_place(PlaceReference::new("synthetic-place").unwrap());
+        let b = binding();
+        let work = bind(&pool, &selected, b).await;
+        let policy: String =
+            sqlx::query_scalar("SELECT policy_version FROM geo_resolutions WHERE resolution_id=$1")
+                .bind(work.id.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(SELECTED_PLACE_POLICY_VERSION, policy);
+        assert_eq!(
+            ResolveOutcome::Complete,
+            handler.execute(&context(), work).await.unwrap()
+        );
+        assert_eq!(1, provider.lookups.load(Ordering::SeqCst));
+        assert_eq!(
+            usize::from(!knows_places),
+            provider.calls.load(Ordering::SeqCst)
+        );
+        let view = inspect(&pool, b).await.unwrap();
+        assert_eq!(ResolutionStatus::Accepted, view.status);
+        // A pick accepts its premises point for a business location; a fallback search keeps
+        // the business policy, which accepts administrative geography only.
+        assert_eq!(
+            knows_places,
+            view.accepted_geography().unwrap().position().is_some()
+        );
+    }
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn should_keep_a_party_location_pick_across_label_edits_and_drop_it_when_the_address_changes()
+{
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let owner = party(&pool).await;
+    let place = PlaceReference::new("synthetic-place").unwrap();
+    let location = create_picked(&pool, owner, "picked", Some(place.clone())).await;
+    let picked = |view: &ResolutionView| view.selected_place.clone();
+    let view = inspect(&pool, location_binding(&location)).await.unwrap();
+    assert_eq!(Some(place.clone()), picked(&view));
+
+    let mut relabel = correction(&location);
+    relabel.label = PatchField::Set(PartyLocationLabel::new("Renamed".into()).unwrap());
+    let renamed = update(&pool, relabel).await;
+    assert_eq!(location.input_revision, renamed.input_revision);
+    let view = inspect(&pool, location_binding(&renamed)).await.unwrap();
+    assert_eq!(Some(place.clone()), picked(&view));
+
+    let mut resend = correction(&renamed);
+    resend.place = Some(place);
+    let resent = update(&pool, resend).await;
+    assert_eq!(renamed.revision, resent.revision);
+
+    let other = PlaceReference::new("other-place").unwrap();
+    let mut repick = correction(&resent);
+    repick.place = Some(other.clone());
+    let repicked = update(&pool, repick).await;
+    assert_eq!(resent.input_revision + 1, repicked.input_revision);
+    let view = inspect(&pool, location_binding(&repicked)).await.unwrap();
+    assert_eq!(Some(other), picked(&view));
+
+    let mut readdress = correction(&repicked);
+    readdress.geography = PatchField::Set(
+        GeographicDescription::new(
+            Some(AddressText::new("456 Other Street").unwrap()),
+            Some(CountryCode::DEU),
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    let readdressed = update(&pool, readdress).await;
+    let view = inspect(&pool, location_binding(&readdressed))
+        .await
+        .unwrap();
+    assert_eq!(None, picked(&view));
 }

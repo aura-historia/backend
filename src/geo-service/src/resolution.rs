@@ -14,6 +14,8 @@ use uuid::Uuid;
 domain_primitives::object_id_newtype!(ResolutionId, "gres");
 pub const POLICY_VERSION: &str = "PRECISION_FIRST_V1";
 pub const USER_BROWSING_POLICY_VERSION: &str = "AUTOMATIC_USER_BROWSING_V1";
+/// The caller picked one place from address suggestions; see [`evaluate_selected_place`].
+pub const SELECTED_PLACE_POLICY_VERSION: &str = "SELECTED_PLACE_V1";
 pub const MAX_ATTEMPTS: u32 = 5;
 /// Maximum subjects in one coherent resolution read. Larger callers batch within their snapshot.
 pub const MAX_RESOLUTION_SUBJECTS: usize = 100;
@@ -102,6 +104,7 @@ pub struct ResolutionInput {
     request: GeocodingRequest,
     scope: ResolutionScope,
     purpose: RetentionPurpose,
+    selected_place: Option<PlaceReference>,
 }
 impl ResolutionInput {
     pub fn new(
@@ -120,10 +123,20 @@ impl ResolutionInput {
             request,
             scope,
             purpose,
+            selected_place: None,
         })
+    }
+    /// Resolve the place the caller picked instead of searching for the request's query. The
+    /// request stays the fallback when the provider no longer knows the reference.
+    pub fn with_selected_place(mut self, place: PlaceReference) -> Self {
+        self.selected_place = Some(place);
+        self
     }
     pub fn request(&self) -> &GeocodingRequest {
         &self.request
+    }
+    pub fn selected_place(&self) -> Option<&PlaceReference> {
+        self.selected_place.as_ref()
     }
     pub fn scope(&self) -> ResolutionScope {
         self.scope
@@ -131,9 +144,17 @@ impl ResolutionInput {
     pub fn purpose(&self) -> RetentionPurpose {
         self.purpose
     }
-    /// Browsing addresses accept eligible premises evidence without a review step.
-    /// Business-location review retains its independent, existing policy.
+    /// A selected place has one policy for every purpose. Otherwise browsing addresses accept
+    /// eligible premises evidence without a review step, and business-location review retains
+    /// its independent, existing policy.
     pub fn policy_version(&self) -> &'static str {
+        if self.selected_place.is_some() {
+            return SELECTED_PLACE_POLICY_VERSION;
+        }
+        self.free_text_policy_version()
+    }
+    /// The purpose's policy for free-text results, including a selection's fallback search.
+    pub fn free_text_policy_version(&self) -> &'static str {
         match self.purpose {
             RetentionPurpose::UserLocation => USER_BROWSING_POLICY_VERSION,
             RetentionPurpose::PartyLocation => POLICY_VERSION,
@@ -193,6 +214,11 @@ impl ResolutionInput {
                 .map(|v| v.as_str())
                 .unwrap_or_default(),
         );
+        // Appended only for selections so free-text fingerprints, and their reuse, stay stable.
+        if let Some(place) = &self.selected_place {
+            field("SELECTED_PLACE");
+            field(place.as_str());
+        }
         hash.finalize()
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -367,6 +393,8 @@ pub struct ResolutionView {
     pub selected_candidate: Option<usize>,
     pub last_failure: Option<String>,
     pub attempts: u32,
+    /// The place the subject's caller picked for this input, if any.
+    pub selected_place: Option<PlaceReference>,
 }
 impl ResolutionView {
     /// Readers expose only evidence that is still eligible for this binding. Submitted
@@ -376,6 +404,33 @@ impl ResolutionView {
         let index = self.selected_candidate.or(e.accepted_index)?;
         e.candidates.get(index).map(|c| &c.geography)
     }
+}
+/// The input to bind for a subject. A newly picked place wins; otherwise the currently bound
+/// pick is kept while the subject's input revision is unchanged, so label, lifecycle and other
+/// edits that do not touch the address keep the pick. A changed address is free text again.
+pub fn carry_selected_place(
+    input: ResolutionInput,
+    binding: &ResolutionBinding,
+    current: Option<&ResolutionView>,
+    picked: Option<PlaceReference>,
+) -> ResolutionInput {
+    let kept = || {
+        current
+            .filter(|view| view.input_revision == binding.input_revision)
+            .and_then(|view| view.selected_place.clone())
+    };
+    match picked.or_else(kept) {
+        Some(place) => input.with_selected_place(place),
+        None => input,
+    }
+}
+/// `picked` when it differs from the place currently bound for the subject. Re-sending the
+/// current pick is not an input change.
+pub fn newly_picked(
+    picked: Option<PlaceReference>,
+    current: Option<&ResolutionView>,
+) -> Option<PlaceReference> {
+    picked.filter(|place| current.and_then(|view| view.selected_place.as_ref()) != Some(place))
 }
 pub enum ResolutionCompletion {
     Evidence(ResolutionEvidence),
@@ -404,6 +459,114 @@ pub fn evaluate(
             accepted_index: None,
         });
     };
+    let (mut candidates, compatible_count) = normalize_candidates(input, &set, profile)?;
+    // Count all returned alternatives, including ones we cannot normalize.
+    if set.as_slice().len() == 1 && compatible_count == 1 {
+        if input.purpose == RetentionPurpose::UserLocation
+            && candidates[0].acceptable
+            && candidates[0].geography.position().is_some()
+            && candidates[0]
+                .geography
+                .description()
+                .and_then(|d| d.country())
+                .is_some()
+            && !set.as_slice()[0]
+                .issues()
+                .contains(&CandidateIssue::UnsupportedCountry)
+        {
+            return Ok(ResolutionEvidence {
+                status: ResolutionStatus::Accepted,
+                accepted_index: Some(0),
+                candidates,
+            });
+        }
+        if let Some(accepted) = administrative_only(&candidates[0])? {
+            candidates.push(accepted);
+            return Ok(ResolutionEvidence {
+                status: ResolutionStatus::Accepted,
+                accepted_index: Some(candidates.len() - 1),
+                candidates,
+            });
+        }
+    }
+    Ok(ResolutionEvidence {
+        status: ResolutionStatus::Ambiguous,
+        candidates,
+        accepted_index: None,
+    })
+}
+/// The caller picked this place, so one usable candidate compatible with the submitted
+/// assertions is accepted for every purpose. Its point is accepted only at precise premises
+/// precision with a known country; a coarser pick contributes administrative geography only,
+/// as an automatic coarse acceptance does. An incompatible pick stays ambiguous.
+pub fn evaluate_selected_place(
+    input: &ResolutionInput,
+    result: GeocodingResult,
+    profile: &str,
+) -> Result<ResolutionEvidence, GeocodingError> {
+    if !result.retention.permits_storage() {
+        return Err(GeocodingError {
+            kind: GeocodingFailure::StorageNotPermitted,
+            source: static_error("retained resolution requires storage permission"),
+        });
+    }
+    let GeocodingOutcome::Candidates(set) = result.outcome else {
+        return Err(GeocodingError {
+            kind: GeocodingFailure::InvalidResponse,
+            source: static_error("place lookup found no place"),
+        });
+    };
+    if set.has_multiple_candidates() {
+        return Err(GeocodingError {
+            kind: GeocodingFailure::InvalidResponse,
+            source: static_error("place lookup returned several places"),
+        });
+    }
+    let (mut candidates, compatible_count) = normalize_candidates(input, &set, profile)?;
+    if compatible_count != 1 {
+        return Ok(ResolutionEvidence {
+            status: ResolutionStatus::Ambiguous,
+            candidates,
+            accepted_index: None,
+        });
+    }
+    let picked = &candidates[0];
+    let known_country = picked
+        .geography
+        .description()
+        .and_then(GeographicDescription::country)
+        .is_some()
+        && !set.as_slice()[0]
+            .issues()
+            .contains(&CandidateIssue::UnsupportedCountry);
+    if picked.acceptable && picked.geography.position().is_some() && known_country {
+        return Ok(ResolutionEvidence {
+            status: ResolutionStatus::Accepted,
+            accepted_index: Some(0),
+            candidates,
+        });
+    }
+    let Some(accepted) = administrative_only(picked)? else {
+        return Ok(ResolutionEvidence {
+            status: ResolutionStatus::Ambiguous,
+            candidates,
+            accepted_index: None,
+        });
+    };
+    candidates.push(accepted);
+    Ok(ResolutionEvidence {
+        status: ResolutionStatus::Accepted,
+        accepted_index: Some(candidates.len() - 1),
+        candidates,
+    })
+}
+/// Permitted, normalized evidence of every returned alternative that has retainable geography,
+/// and how many of them are usable and compatible with the input's assertions.
+fn normalize_candidates(
+    input: &ResolutionInput,
+    set: &CandidateSet,
+    profile: &str,
+) -> Result<(Vec<ResolutionCandidate>, usize), GeocodingError> {
     if set.as_slice().len() > input.request.candidate_limit() {
         return Err(GeocodingError {
             kind: GeocodingFailure::InvalidResponse,
@@ -445,62 +608,39 @@ pub fn evaluate(
             attribution_url: p.attribution_url.into(),
         });
     }
-    // Count all returned alternatives, including ones we cannot normalize.
-    if set.as_slice().len() == 1 && compatible_count == 1 {
-        if input.purpose == RetentionPurpose::UserLocation
-            && candidates[0].acceptable
-            && candidates[0].geography.position().is_some()
-            && candidates[0]
-                .geography
-                .description()
-                .and_then(|d| d.country())
-                .is_some()
-            && !set.as_slice()[0]
-                .issues()
-                .contains(&CandidateIssue::UnsupportedCountry)
-        {
-            return Ok(ResolutionEvidence {
-                status: ResolutionStatus::Accepted,
-                accepted_index: Some(0),
-                candidates,
-            });
-        }
-        let description = candidates[0].geography.description();
-        let coarse = description
-            .map(|d| {
-                GeographicDescription::new_in_release(
-                    d.reference_release(),
-                    None,
-                    d.country(),
-                    d.subdivision(),
-                    None,
-                )
-            })
-            .transpose()
-            .map_err(|e| GeocodingError {
-                kind: GeocodingFailure::InvalidResponse,
-                source: Box::new(e),
-            })?
-            .flatten();
-        if let Some(geography) = DerivedGeography::new(coarse, None) {
-            // Keep the complete candidate for review; the automatically accepted item
-            // contains only administrative geography and retains its provenance.
-            let mut accepted = candidates[0].clone();
-            accepted.geography = geography;
-            accepted.acceptable = true;
-            candidates.push(accepted);
-            return Ok(ResolutionEvidence {
-                status: ResolutionStatus::Accepted,
-                accepted_index: Some(candidates.len() - 1),
-                candidates,
-            });
-        }
-    }
-    Ok(ResolutionEvidence {
-        status: ResolutionStatus::Ambiguous,
-        candidates,
-        accepted_index: None,
-    })
+    Ok((candidates, compatible_count))
+}
+/// An acceptable copy of `candidate` that keeps only its country and subdivision, or `None`
+/// when it has neither. The complete candidate stays in the evidence for review; the copy
+/// retains its provenance.
+fn administrative_only(
+    candidate: &ResolutionCandidate,
+) -> Result<Option<ResolutionCandidate>, GeocodingError> {
+    let coarse = candidate
+        .geography
+        .description()
+        .map(|d| {
+            GeographicDescription::new_in_release(
+                d.reference_release(),
+                None,
+                d.country(),
+                d.subdivision(),
+                None,
+            )
+        })
+        .transpose()
+        .map_err(|e| GeocodingError {
+            kind: GeocodingFailure::InvalidResponse,
+            source: Box::new(e),
+        })?
+        .flatten();
+    Ok(
+        DerivedGeography::new(coarse, None).map(|geography| ResolutionCandidate {
+            geography,
+            acceptable: true,
+            ..candidate.clone()
+        }),
+    )
 }
 pub fn candidate_compatible(input: &ResolutionInput, geography: &DerivedGeography) -> bool {
     let d = geography.description();
@@ -730,6 +870,43 @@ impl<U, R, P> ResolveHandler<U, R, P> {
         }
     }
 }
+/// Bounds one provider call; a timeout is a provider failure like any other.
+async fn bounded<T>(
+    call: impl std::future::Future<Output = Result<T, GeocodingError>>,
+) -> Result<T, GeocodingError> {
+    tokio::time::timeout(Duration::from_secs(10), call)
+        .await
+        .map_err(|e| GeocodingError {
+            kind: GeocodingFailure::Timeout,
+            source: Box::new(e),
+        })?
+}
+impl<U, R, P: GeocodingProvider> ResolveHandler<U, R, P> {
+    /// Evidence for a claim and the method that produced it. A selected place the provider no
+    /// longer knows falls back to searching for the input's text under the purpose's policy.
+    async fn resolve(
+        &self,
+        claim: &ResolutionClaim,
+    ) -> (&'static str, Result<ResolutionEvidence, GeocodingError>) {
+        let input = &claim.input;
+        if let Some(place) = input.selected_place() {
+            match bounded(self.provider.look_up_place(place, input.request())).await {
+                Ok(PlaceLookup::Found(result)) => {
+                    return (
+                        "SELECTED_PLACE",
+                        evaluate_selected_place(input, result, &claim.profile),
+                    );
+                }
+                Ok(PlaceLookup::Unknown) => {}
+                Err(e) => return ("SELECTED_PLACE", Err(e)),
+            }
+        }
+        let evidence = bounded(self.provider.geocode(input.request()))
+            .await
+            .and_then(|result| evaluate(input, result, &claim.profile));
+        ("GEOCODER", evidence)
+    }
+}
 fn authorize_worker(context: &OperationContext) -> Result<(), ResolutionError> {
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
@@ -760,19 +937,7 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
             ClaimOutcome::Deferred => return Ok(ResolveOutcome::Deferred),
         };
         // No database transaction or connection survives across provider I/O.
-        let result = tokio::time::timeout(
-            Duration::from_secs(10),
-            self.provider.geocode(claim.input.request()),
-        )
-        .await;
-        let evidence = match result {
-            Ok(Ok(result)) => evaluate(&claim.input, result, &claim.profile),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(GeocodingError {
-                kind: GeocodingFailure::Timeout,
-                source: Box::new(e),
-            }),
-        };
+        let (method, evidence) = self.resolve(&claim).await;
         let completion = match &evidence {
             Ok(e) => ResolutionCompletion::Evidence(e.clone()),
             Err(e) => ResolutionCompletion::Failure(e.kind),
@@ -790,7 +955,7 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
         };
         tracing::info!(
             metric = "geo_resolution_outcome",
-            method = "GEOCODER",
+            method,
             policy = claim.input.policy_version(),
             outcome = recorded.map_or("UNCOMPLETED", ResolutionStatus::as_str),
             failure = evidence.as_ref().err().map(|e| e.kind.as_str()),
@@ -1199,5 +1364,216 @@ mod tests {
             )
             .unwrap()
         );
+    }
+
+    fn place() -> PlaceReference {
+        PlaceReference::new("synthetic-place").unwrap()
+    }
+
+    fn selected_evidence(
+        input: &ResolutionInput,
+        candidate: GeocodingCandidate,
+    ) -> ResolutionEvidence {
+        evaluate_selected_place(
+            input,
+            GeocodingResult {
+                outcome: GeocodingOutcome::Candidates(
+                    CandidateSet::new(vec![candidate], 5).unwrap(),
+                ),
+                retention: ResultRetention::Storage,
+            },
+            "TEST_V1",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn should_keep_free_text_fingerprints_and_separate_selections_when_a_place_is_selected() {
+        let free_text = user_input();
+        let unchanged = ResolutionInput::new(
+            free_text.request.clone(),
+            free_text.scope,
+            free_text.purpose,
+        )
+        .unwrap();
+        assert_eq!(
+            free_text.fingerprint("TEST_V1"),
+            unchanged.fingerprint("TEST_V1")
+        );
+        let selected = free_text.clone().with_selected_place(place());
+        let other = free_text
+            .clone()
+            .with_selected_place(PlaceReference::new("other-place").unwrap());
+        assert_eq!(SELECTED_PLACE_POLICY_VERSION, selected.policy_version());
+        assert_eq!(
+            USER_BROWSING_POLICY_VERSION,
+            selected.free_text_policy_version()
+        );
+        assert_ne!(
+            free_text.fingerprint("TEST_V1"),
+            selected.fingerprint("TEST_V1")
+        );
+        assert_ne!(
+            selected.fingerprint("TEST_V1"),
+            other.fingerprint("TEST_V1")
+        );
+    }
+
+    #[test]
+    fn should_accept_a_picked_point_only_at_premises_precision_for_every_purpose() {
+        for input in [
+            user_input().with_selected_place(place()),
+            input("123 Street", Uuid::now_v7()).with_selected_place(place()),
+        ] {
+            for precision in [
+                None,
+                Some(SpatialPrecision::Premises),
+                Some(SpatialPrecision::Street),
+                Some(SpatialPrecision::Locality),
+            ] {
+                let e = selected_evidence(&input, candidate(CountryCode::DEU, precision));
+                assert_eq!(ResolutionStatus::Accepted, e.status, "{precision:?}");
+                let accepted = &e.candidates[e.accepted_index.unwrap()].geography;
+                assert_eq!(
+                    precision == Some(SpatialPrecision::Premises),
+                    accepted.position().is_some(),
+                    "{precision:?}"
+                );
+                assert_eq!(
+                    Some(CountryCode::DEU),
+                    accepted
+                        .description()
+                        .and_then(GeographicDescription::country)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn should_leave_a_pick_ambiguous_when_it_contradicts_the_submitted_country() {
+        let mut input = input("123 Street", Uuid::now_v7()).with_selected_place(place());
+        input.request = input
+            .request
+            .clone()
+            .with_submitted(SubmittedGeography::new(
+                GeographicDescription::new(None, Some(CountryCode::FRA), None, None)
+                    .unwrap()
+                    .unwrap(),
+            ));
+        let e = selected_evidence(
+            &input,
+            candidate(CountryCode::DEU, Some(SpatialPrecision::Premises)),
+        );
+        assert_eq!(ResolutionStatus::Ambiguous, e.status);
+        assert!(e.accepted_index.is_none());
+    }
+
+    #[test]
+    fn should_reject_a_lookup_that_returns_no_place_or_several_places() {
+        let input = user_input().with_selected_place(place());
+        for outcome in [
+            GeocodingOutcome::NoMatch,
+            GeocodingOutcome::Candidates(
+                CandidateSet::new(
+                    vec![
+                        candidate(CountryCode::DEU, None),
+                        candidate(CountryCode::DEU, None),
+                    ],
+                    5,
+                )
+                .unwrap(),
+            ),
+        ] {
+            let error = evaluate_selected_place(
+                &input,
+                GeocodingResult {
+                    outcome,
+                    retention: ResultRetention::Storage,
+                },
+                "TEST_V1",
+            )
+            .unwrap_err();
+            assert_eq!(GeocodingFailure::InvalidResponse, error.kind);
+        }
+    }
+
+    fn view(input_revision: u64, selected_place: Option<PlaceReference>) -> ResolutionView {
+        ResolutionView {
+            scope: ResolutionScope::new(ScopeKind::User, Some(Uuid::now_v7())).unwrap(),
+            work: ResolutionWork {
+                id: ResolutionId::new(),
+                generation: 1,
+            },
+            input_revision,
+            guard: 1,
+            status: ResolutionStatus::Pending,
+            evidence: None,
+            selected_candidate: None,
+            last_failure: None,
+            attempts: 0,
+            selected_place,
+        }
+    }
+
+    #[test]
+    fn should_keep_a_pick_only_while_the_input_revision_is_unchanged_when_rebinding() {
+        let binding = ResolutionBinding {
+            subject: ResolutionSubject::new(RetentionPurpose::UserLocation, Uuid::now_v7())
+                .unwrap(),
+            input_revision: 2,
+            guard: 3,
+        };
+        let picked = |input: ResolutionInput| input.selected_place().cloned();
+        let current = view(2, Some(place()));
+        assert_eq!(
+            Some(place()),
+            picked(carry_selected_place(
+                user_input(),
+                &binding,
+                Some(&current),
+                None
+            ))
+        );
+        let changed_address = view(1, Some(place()));
+        assert_eq!(
+            None,
+            picked(carry_selected_place(
+                user_input(),
+                &binding,
+                Some(&changed_address),
+                None
+            ))
+        );
+        let newly_picked = PlaceReference::new("new-place").unwrap();
+        assert_eq!(
+            Some(newly_picked.clone()),
+            picked(carry_selected_place(
+                user_input(),
+                &binding,
+                Some(&current),
+                Some(newly_picked)
+            ))
+        );
+        assert_eq!(
+            None,
+            picked(carry_selected_place(user_input(), &binding, None, None))
+        );
+    }
+
+    #[test]
+    fn should_treat_only_a_different_place_as_a_new_pick() {
+        let current = view(2, Some(place()));
+        assert_eq!(None, newly_picked(Some(place()), Some(&current)));
+        let other = PlaceReference::new("other-place").unwrap();
+        assert_eq!(
+            Some(other.clone()),
+            newly_picked(Some(other), Some(&current))
+        );
+        assert_eq!(
+            Some(place()),
+            newly_picked(Some(place()), Some(&view(2, None)))
+        );
+        assert_eq!(Some(place()), newly_picked(Some(place()), None));
+        assert_eq!(None, newly_picked(None, Some(&current)));
     }
 }

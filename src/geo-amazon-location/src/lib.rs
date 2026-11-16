@@ -1,22 +1,28 @@
-//! Amazon Location Places v2 Geocode adapter. Credentials/SDK clients are injected.
+//! Amazon Location Places v2 adapter: Geocode and GetPlace for durable resolution, and
+//! Autocomplete for address suggestions. Credentials/SDK clients are injected.
 mod config;
 mod mapping;
+mod suggestions;
 
 pub use config::{
     AmazonLocationConfig, ENDPOINT, InvalidAmazonLocationConfig, REGION, TERMS_PROFILE,
 };
+pub use suggestions::AmazonLocationAddressSuggester;
 
 use application::error::{box_error, static_error};
 use aws_sdk_geoplaces::{
     Client,
     error::{ProvideErrorMetadata, SdkError},
-    operation::geocode::{GeocodeError, builders::GeocodeFluentBuilder},
-    types::{GeocodeFilter, GeocodeIntendedUse},
+    operation::{
+        geocode::builders::GeocodeFluentBuilder,
+        get_place::{GetPlaceError, GetPlaceOutput},
+    },
+    types::{GeocodeFilter, GeocodeIntendedUse, GetPlaceIntendedUse},
 };
 use geo::CountryCode;
 use geo_service::geocoding::{
     GeocodingError, GeocodingFailure, GeocodingProvider, GeocodingRequest, GeocodingResult,
-    ResultRetention,
+    PlaceLookup, PlaceReference, ResultRetention,
 };
 
 pub struct AmazonLocationGeocoder {
@@ -77,6 +83,49 @@ impl AmazonLocationGeocoder {
     }
 }
 
+impl AmazonLocationGeocoder {
+    /// HERE forbids retaining Japanese data, so a retained request constrained to Japan fails
+    /// before any paid call.
+    fn refuse_unretainable(&self, request: &GeocodingRequest) -> Result<(), GeocodingError> {
+        if self.config.retention.permits_storage()
+            && request
+                .constraint()
+                .is_some_and(|constraint| constraint.associated_country() == CountryCode::JPN)
+        {
+            return Err(GeocodingError {
+                kind: GeocodingFailure::StorageNotPermitted,
+                source: static_error("Places v2 results for Japan cannot be retained"),
+            });
+        }
+        Ok(())
+    }
+
+    /// Bounds one provider call, including credential resolution, SDK backoff and response
+    /// parsing: the SDK timeout alone need not bound time spent resolving credentials outside
+    /// operation execution.
+    async fn bounded<T>(
+        &self,
+        call: impl std::future::Future<Output = Result<T, GeocodingError>>,
+    ) -> Result<T, GeocodingError> {
+        tokio::time::timeout(self.config.deadline, async {
+            let _permit = self
+                .in_flight
+                .acquire()
+                .await
+                .map_err(|source| GeocodingError {
+                    kind: GeocodingFailure::Configuration,
+                    source: box_error(source),
+                })?;
+            call.await
+        })
+        .await
+        .map_err(|source| GeocodingError {
+            kind: GeocodingFailure::Timeout,
+            source: box_error(source),
+        })?
+    }
+}
+
 #[async_trait::async_trait]
 impl GeocodingProvider for AmazonLocationGeocoder {
     async fn geocode(&self, request: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError> {
@@ -88,41 +137,67 @@ impl GeocodingProvider for AmazonLocationGeocoder {
                 ),
             });
         }
-        if self.config.retention.permits_storage()
-            && request
-                .constraint()
-                .is_some_and(|constraint| constraint.associated_country() == CountryCode::JPN)
-        {
-            return Err(GeocodingError {
-                kind: GeocodingFailure::StorageNotPermitted,
-                source: static_error("Places v2 results for Japan cannot be retained"),
-            });
-        }
-        // Includes credential resolution, SDK backoff and response parsing. The SDK timeout
-        // alone need not bound time spent resolving credentials outside operation execution.
-        let response = tokio::time::timeout(self.config.deadline, async {
-            let _permit = self
-                .in_flight
-                .acquire()
-                .await
-                .map_err(|source| GeocodingError {
-                    kind: GeocodingFailure::Configuration,
-                    source: box_error(source),
-                })?;
-            self.request(request).send().await.map_err(map_sdk_error)
-        })
-        .await
-        .map_err(|source| GeocodingError {
-            kind: GeocodingFailure::Timeout,
-            source: box_error(source),
-        })??;
+        self.refuse_unretainable(request)?;
+        let response = self
+            .bounded(async { self.request(request).send().await.map_err(map_sdk_error) })
+            .await?;
         mapping::map_response(response, request, self.config.retention)
+    }
+
+    async fn look_up_place(
+        &self,
+        place: &PlaceReference,
+        request: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        self.refuse_unretainable(request)?;
+        let mut builder = self
+            .client
+            .get_place()
+            .place_id(place.as_str())
+            .intended_use(match self.config.retention {
+                ResultRetention::Storage => GetPlaceIntendedUse::Storage,
+                ResultRetention::SingleUse => GetPlaceIntendedUse::SingleUse,
+            });
+        if let Some(language) = request.language() {
+            builder = builder.language(language.as_str());
+        }
+        let response = self
+            .bounded(async {
+                match builder.send().await {
+                    Ok(output) => Ok(Some(output)),
+                    Err(error) if is_unknown_place(&error) => Ok(None),
+                    Err(error) => Err(map_sdk_error(error)),
+                }
+            })
+            .await?;
+        response.map_or(Ok(PlaceLookup::Unknown), |output: GetPlaceOutput| {
+            mapping::map_place_response(&output, request, self.config.retention)
+                .map(PlaceLookup::Found)
+        })
+    }
+}
+
+/// GetPlace answers a reference it does not know, including a malformed or stale one, with a
+/// validation error or not found. That is a lookup outcome, not a configuration failure.
+fn is_unknown_place(error: &SdkError<GetPlaceError>) -> bool {
+    match error {
+        SdkError::ServiceError(error) => {
+            matches!(error.raw().status().as_u16(), 400 | 404)
+                && matches!(
+                    error.err().code(),
+                    Some("ValidationException" | "ResourceNotFoundException")
+                )
+        }
+        _ => false,
     }
 }
 
 // Not `platform_aws::AwsSdkFailure`: this class is persisted and decides whether a resolution is
 // blocked or retried, so it must not move when the shared vocabulary grows for other services.
-fn map_sdk_error(source: SdkError<GeocodeError>) -> GeocodingError {
+fn map_sdk_error<E>(source: SdkError<E>) -> GeocodingError
+where
+    E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+{
     let kind = match &source {
         SdkError::TimeoutError(_) => GeocodingFailure::Timeout,
         SdkError::DispatchFailure(error) if error.is_timeout() => GeocodingFailure::Timeout,
@@ -171,6 +246,7 @@ fn map_sdk_error(source: SdkError<GeocodeError>) -> GeocodingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_sdk_geoplaces::operation::geocode::GeocodeError;
     use aws_sdk_geoplaces::{
         config::{Credentials, Region, retry::RetryConfig},
         operation::geocode::GeocodeOutput,
@@ -863,7 +939,7 @@ mod tests {
             (502, GeocodingFailure::Unavailable),
             (504, GeocodingFailure::Timeout),
         ] {
-            let source = SdkError::response_error(
+            let source: SdkError<GeocodeError> = SdkError::response_error(
                 static_error("sensitive provider body"),
                 aws_sdk_geoplaces::config::http::HttpResponse::new(
                     status.try_into().unwrap(),
@@ -1004,5 +1080,146 @@ mod tests {
             .unwrap();
         assert_eq!(GeoPoint::new(0.0, 0.0).unwrap(), position.point());
         assert_eq!(SpatialPrecision::Premises, position.precision());
+    }
+
+    async fn mount_place(server: &MockServer, response: ResponseTemplate) {
+        Mock::given(method("GET"))
+            .and(path("/v2/place/synthetic-place"))
+            .respond_with(response)
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    fn place_lookup_request() -> GeocodingRequest {
+        GeocodingRequest::new(AddressText::new("Synthetic Street 1, Berlin").unwrap())
+            .with_language(localization::Language::De)
+    }
+
+    fn place() -> PlaceReference {
+        PlaceReference::new("synthetic-place").unwrap()
+    }
+
+    #[tokio::test]
+    async fn should_look_up_a_picked_place_for_storage_when_resolving_a_selection() {
+        use geo_service::resolution::{
+            ResolutionInput, ResolutionScope, ResolutionStatus, RetentionPurpose, ScopeKind,
+            evaluate_selected_place,
+        };
+        let server = MockServer::start().await;
+        let provider = provider(
+            &server,
+            AmazonLocationConfig::default().with_retention(ResultRetention::Storage),
+        );
+        mount_place(
+            &server,
+            success(
+                json!({"PlaceId": "synthetic-place", "PlaceType": "PointAddress",
+                "Title": "Synthetic Street 1", "Position": [13.4, 52.5],
+                "Address": {"Country": {"Code2": "DE", "Code3": "DEU"}, "PostalCode": "10115"}}),
+                "Stored",
+            ),
+        )
+        .await;
+        let request = place_lookup_request();
+        let PlaceLookup::Found(result) = provider.look_up_place(&place(), &request).await.unwrap()
+        else {
+            panic!("expected the looked-up place");
+        };
+        let candidate = &candidates(&result)[0];
+        assert_eq!("PLACES_V2_GET_PLACE", candidate.provenance().product);
+        assert_eq!("synthetic-place", candidate.provenance().external_reference);
+        let sent = &server.received_requests().await.unwrap()[0];
+        let query = sent.url.query().unwrap_or_default();
+        assert!(query.contains("intended-use=Storage"), "{query}");
+        assert!(query.contains("language=de"), "{query}");
+        let input = ResolutionInput::new(
+            request,
+            ResolutionScope::new(
+                ScopeKind::User,
+                Some("01900000-0000-7000-8000-000000000008".parse().unwrap()),
+            )
+            .unwrap(),
+            RetentionPurpose::UserLocation,
+        )
+        .unwrap()
+        .with_selected_place(place());
+        let evidence = evaluate_selected_place(&input, result, TERMS_PROFILE).unwrap();
+        assert_eq!(ResolutionStatus::Accepted, evidence.status);
+        assert!(
+            evidence.candidates[evidence.accepted_index.unwrap()]
+                .geography
+                .position()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_report_an_unknown_place_when_the_provider_rejects_the_reference() {
+        for (status, code) in [
+            (400, "ValidationException"),
+            (404, "ResourceNotFoundException"),
+        ] {
+            let server = MockServer::start().await;
+            let provider = provider(&server, AmazonLocationConfig::default());
+            mount_place(
+                &server,
+                ResponseTemplate::new(status)
+                    .insert_header("x-amzn-ErrorType", code)
+                    .set_body_json(json!({"message": "synthetic"})),
+            )
+            .await;
+            assert!(matches!(
+                provider
+                    .look_up_place(&place(), &place_lookup_request())
+                    .await
+                    .unwrap(),
+                PlaceLookup::Unknown
+            ));
+        }
+        let server = MockServer::start().await;
+        let provider = provider(&server, AmazonLocationConfig::default());
+        mount_place(
+            &server,
+            ResponseTemplate::new(403)
+                .insert_header("x-amzn-ErrorType", "AccessDeniedException")
+                .set_body_json(json!({"message": "synthetic"})),
+        )
+        .await;
+        assert_eq!(
+            GeocodingFailure::Authentication,
+            provider
+                .look_up_place(&place(), &place_lookup_request())
+                .await
+                .unwrap_err()
+                .kind
+        );
+    }
+
+    #[tokio::test]
+    async fn should_refuse_storage_when_the_picked_place_is_in_japan() {
+        let server = MockServer::start().await;
+        let provider = provider(
+            &server,
+            AmazonLocationConfig::default().with_retention(ResultRetention::Storage),
+        );
+        mount_place(
+            &server,
+            success(
+                json!({"PlaceId": "synthetic-place", "PlaceType": "PointAddress",
+                "Title": "Synthetic", "Position": [139.7, 35.7],
+                "Address": {"Country": {"Code2": "JP", "Code3": "JPN"}}}),
+                "Stored",
+            ),
+        )
+        .await;
+        assert_eq!(
+            GeocodingFailure::StorageNotPermitted,
+            provider
+                .look_up_place(&place(), &place_lookup_request())
+                .await
+                .unwrap_err()
+                .kind
+        );
     }
 }
