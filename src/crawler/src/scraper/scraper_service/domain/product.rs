@@ -113,8 +113,6 @@ pub struct ScrapeTelemetry {
     /// How many of the product's extracted fields the captured extraction filled.
     pub fields_present: Option<usize>,
     pub image_probes: u32,
-    /// Own-host images a slow shop's probe cap left unprobed.
-    pub image_probes_capped: u32,
     pub llm_calls: u32,
 }
 
@@ -230,10 +228,6 @@ pub(crate) fn record_captured_schema(
 
 pub(crate) fn count_image_probe() {
     update_scrape_telemetry(|telemetry| telemetry.image_probes += 1);
-}
-
-pub(crate) fn count_image_probe_capped() {
-    update_scrape_telemetry(|telemetry| telemetry.image_probes_capped += 1);
 }
 
 pub(crate) fn record_transport_observation(health: DomainFetchHealth) {

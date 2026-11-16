@@ -155,7 +155,6 @@ pub(super) fn log_url_outcome(
                 fresh_schema = telemetry.fresh_schema,
                 fields_present = telemetry.fields_present,
                 image_probes = telemetry.image_probes,
-                image_probes_capped = telemetry.image_probes_capped,
                 llm_calls = telemetry.llm_calls,
                 "Scraped URL"
             )

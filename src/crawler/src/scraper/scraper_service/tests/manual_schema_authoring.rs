@@ -12,7 +12,6 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository as _, RemovedPageSchemaRepositoryImpl,
 };
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
-use crate::scraper::scraper_service::html_fetcher::ImageProbeRobots;
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
 };
@@ -37,10 +36,6 @@ async fn insert_listing_source(pool: &PgPool) -> ListingSourceId {
 
 fn fetcher_returning_sample_page() -> MockHtmlFetcher {
     let mut fetcher = MockHtmlFetcher::new();
-    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
-    fetcher
-        .expect_image_probe_robots()
-        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher
         .expect_fetch()
         .once()
@@ -67,10 +62,6 @@ fn schema_service_without_generation(
 fn fetcher_returning_sample_page_at(url: &Url, times: usize) -> MockHtmlFetcher {
     let final_url = url.clone();
     let mut fetcher = MockHtmlFetcher::new();
-    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
-    fetcher
-        .expect_image_probe_robots()
-        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher.expect_fetch().times(times).returning(move |_| {
         let final_url = final_url.clone();
         Box::pin(async move { Ok(fetch_result_for(sample_html(), final_url)) })
@@ -695,10 +686,6 @@ async fn should_attach_failing_page_without_generation_when_authoring_is_auto() 
 
 fn fetcher_returning_once(html: String) -> MockHtmlFetcher {
     let mut fetcher = MockHtmlFetcher::new();
-    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
-    fetcher
-        .expect_image_probe_robots()
-        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
@@ -980,10 +967,6 @@ fn manual_scraper_with_removed_page_templates(
     repository: CrawlerReviewRepository,
 ) -> ScraperServiceImpl {
     let mut fetcher = MockHtmlFetcher::new();
-    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
-    fetcher
-        .expect_image_probe_robots()
-        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher
         .expect_fetch()
         .once()
@@ -1404,10 +1387,6 @@ fn seeding_manual_scraper_over(
     fetches: usize,
 ) -> ScraperServiceImpl {
     let mut fetcher = MockHtmlFetcher::new();
-    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
-    fetcher
-        .expect_image_probe_robots()
-        .returning(|_| Box::pin(async { ImageProbeRobots::Refused }));
     fetcher.expect_fetch().times(fetches).returning(|url| {
         let url = url.clone();
         Box::pin(async move { Ok(fetch_result_for(sample_html(), url)) })

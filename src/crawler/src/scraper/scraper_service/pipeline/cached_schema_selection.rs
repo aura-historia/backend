@@ -6,7 +6,7 @@ use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
     AppliedSchemaCandidate, CheckedSchemaCandidate, rank_checked_candidates,
 };
-use crate::scraper::scraper_service::image_validation::{ProbeAdmission, filter_valid_image_urls};
+use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::hash_extractions;
 use listing_source_core::ListingSourceId;
@@ -221,7 +221,6 @@ impl ScraperServiceImpl {
         &self,
         extracted: &'a ExtractedSchemaSet,
         effective_url: &Url,
-        probe_admission: &ProbeAdmission<'_>,
     ) -> CheckedCachedCandidates<'a> {
         let candidates = extracted.applied_candidates();
         let applied_schema_count = candidates.len();
@@ -243,7 +242,6 @@ impl ScraperServiceImpl {
                 candidate.raw.images.clone(),
                 effective_url,
                 &*self.image_validator,
-                probe_admission,
             )
             .await;
             checked_candidates.push(CheckedSchemaCandidate::new(
@@ -278,7 +276,7 @@ impl ScraperServiceImpl {
     /// fresh schema generation. No cached schema is ever selected as generation
     /// input.
     #[tracing::instrument(
-        skip(self, extracted, probe_admission),
+        skip(self, extracted),
         fields(
             listing_source_id = %listing_source_id,
             url = %url,
@@ -290,14 +288,11 @@ impl ScraperServiceImpl {
         listing_source_id: &ListingSourceId,
         url: &Url,
         extracted: &ExtractedSchemaSet,
-        probe_admission: &ProbeAdmission<'_>,
     ) -> ExistingSchemaSelection {
         let CheckedCachedCandidates {
             applied_schema_count,
             candidates,
-        } = self
-            .check_cached_candidates(extracted, url, probe_admission)
-            .await;
+        } = self.check_cached_candidates(extracted, url).await;
 
         let Some(selected) = candidates.into_iter().next() else {
             let reason = if applied_schema_count == 0 {

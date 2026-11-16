@@ -56,26 +56,6 @@ pub trait HtmlFetcher: Send + Sync {
     fn domain_fetch_stats(&self, _domain: &str) -> Option<DomainFetchStats> {
         None
     }
-
-    /// What robots.txt of its origin says about an image probe to `url` on a shop's own host,
-    /// read through the cache page requests use. A fetcher that cannot read robots.txt refuses
-    /// every own-host probe, so a wrapper that forgets to forward fails closed.
-    async fn image_probe_robots(&self, _url: &Url) -> ImageProbeRobots {
-        ImageProbeRobots::Refused
-    }
-
-    /// Waits for the domain's request spacing before an image probe to `url` on a shop whose
-    /// robots.txt sets `crawl_delay`, as a page request would wait.
-    async fn pace_image_probe(&self, _url: &Url, _crawl_delay: Duration) {}
-}
-
-/// robots.txt's answer to an image probe on a shop's own host.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImageProbeRobots {
-    /// robots.txt refuses the probe or cannot be read: it is not sent.
-    Refused,
-    /// robots.txt allows the probe; `crawl_delay` is the shop's `Crawl-delay`, if it sets one.
-    Allowed { crawl_delay: Option<Duration> },
 }
 
 /// Lets one fetcher, with its robots.txt cache and per-domain pacing, serve
@@ -88,14 +68,6 @@ impl<T: HtmlFetcher + ?Sized> HtmlFetcher for Arc<T> {
 
     fn domain_fetch_stats(&self, domain: &str) -> Option<DomainFetchStats> {
         (**self).domain_fetch_stats(domain)
-    }
-
-    async fn image_probe_robots(&self, url: &Url) -> ImageProbeRobots {
-        (**self).image_probe_robots(url).await
-    }
-
-    async fn pace_image_probe(&self, url: &Url, crawl_delay: Duration) {
-        (**self).pace_image_probe(url, crawl_delay).await
     }
 }
 
@@ -948,25 +920,6 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
         self.fetch_within(url, &mut deadline).await
     }
 
-    /// robots.txt is read through the cache page requests share, within one attempt timeout.
-    async fn image_probe_robots(&self, url: &Url) -> ImageProbeRobots {
-        let robots = match tokio::time::timeout(self.attempt_timeout, self.robots_policy(url)).await
-        {
-            Ok(Ok(robots)) => robots,
-            Ok(Err(_)) | Err(_) => return ImageProbeRobots::Refused,
-        };
-        if robots.policy.check(url).is_err() {
-            return ImageProbeRobots::Refused;
-        }
-        ImageProbeRobots::Allowed {
-            crawl_delay: robots.policy.crawl_delay(),
-        }
-    }
-
-    async fn pace_image_probe(&self, url: &Url, crawl_delay: Duration) {
-        self.pace(url, Some(crawl_delay)).await;
-    }
-
     fn domain_fetch_stats(&self, domain: &str) -> Option<DomainFetchStats> {
         let latency = self.auto_throttle.latency(domain)?;
         Some(DomainFetchStats {
@@ -1802,60 +1755,6 @@ mod tests {
             assert!(error.to_string().contains("Crawl-delay: 120"), "{error}");
         }
         assert!(shop.page_requests().is_empty());
-        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
-    }
-
-    /// An image probe on the shop's host is a request like a page request: robots.txt refuses it
-    /// by a `Disallow` rule or a `Crawl-delay` the crawler does not honour, before it is sent.
-    #[tokio::test]
-    async fn should_refuse_an_image_probe_robots_txt_refuses() {
-        for robots in [
-            "User-agent: *\nDisallow: /images/\n",
-            "User-agent: *\nCrawl-delay: 120\n",
-        ] {
-            let shop = spawn_shop(robots_txt(robots), vec![], Duration::ZERO).await;
-            let image = shop.url.join("/images/a.jpg").unwrap();
-
-            assert_eq!(
-                unthrottled_fetcher().image_probe_robots(&image).await,
-                super::ImageProbeRobots::Refused,
-                "{robots}"
-            );
-            assert!(shop.page_requests().is_empty(), "{robots}");
-        }
-    }
-
-    /// An admitted image probe waits for the shop's spacing after the page request, as a second
-    /// page request would.
-    #[tokio::test]
-    async fn should_space_an_image_probe_after_the_page_by_the_crawl_delay() {
-        let shop = spawn_shop(
-            robots_txt(CRAWL_DELAY_ROBOTS_TXT),
-            vec![OK_PAGE],
-            Duration::ZERO,
-        )
-        .await;
-        let fetcher = paced_fetcher(Duration::ZERO);
-        let image = shop.url.join("/images/a.jpg").unwrap();
-
-        let started = Instant::now();
-        fetcher.fetch(&shop.url).await.unwrap();
-        let robots = fetcher.image_probe_robots(&image).await;
-        fetcher
-            .pace_image_probe(&image, Duration::from_secs(1))
-            .await;
-
-        assert_eq!(
-            robots,
-            super::ImageProbeRobots::Allowed {
-                crawl_delay: Some(Duration::from_secs(1))
-            }
-        );
-        assert!(
-            started.elapsed() >= PACING_DELAY,
-            "probe admitted after {:?}",
-            started.elapsed()
-        );
         assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
     }
 

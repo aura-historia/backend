@@ -20,7 +20,6 @@ use crate::scraper::scraper_service::domain::product::{
     with_scrape_observation,
 };
 use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
-use crate::scraper::scraper_service::image_validation::ProbeAdmission;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
     ExistingSchemaSelection, ExtractedSchemaSet, SelectedSchemaCandidate,
 };
@@ -740,16 +739,9 @@ impl ScraperServiceImpl {
         page: FetchedPage<'_>,
     ) -> Result<(ExtractedSchemaSet, SelectedSchemaCandidate), ScraperError> {
         let mut reread = false;
-        // One admission for every image probe of this page, cached and fresh extractions alike.
-        let probe_admission = ProbeAdmission::new(&*self.html_fetcher, page.url);
         loop {
             let selection = self
-                .select_cached_schema(
-                    page.listing_source_id,
-                    page.url,
-                    &extracted,
-                    &probe_admission,
-                )
+                .select_cached_schema(page.listing_source_id, page.url, &extracted)
                 .await;
             let reason = match selection {
                 ExistingSchemaSelection::Selected(selection) => return Ok((extracted, *selection)),
@@ -783,9 +775,7 @@ impl ScraperServiceImpl {
                 fresh_schema_generation_reason = reason.as_str(),
                 "Cached selection exhausted; generating new schema"
             );
-            let selection = self
-                .generate_fresh_schema_for_page(ctx, &probe_admission)
-                .await?;
+            let selection = self.generate_fresh_schema_for_page(ctx).await?;
             return Ok((extracted, selection));
         }
     }

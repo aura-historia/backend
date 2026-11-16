@@ -5,7 +5,7 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
-use crate::scraper::scraper_service::image_validation::{ProbeAdmission, filter_valid_image_urls};
+use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::SelectedSchemaCandidate;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
@@ -74,7 +74,7 @@ impl ScraperServiceImpl {
     /// manual mode, otherwise generates one with the LLM. The caller has already let the page
     /// [wait](Self::wait_instead_of_authoring) where it must.
     #[tracing::instrument(
-        skip(self, ctx, probe_admission),
+        skip(self, ctx),
         fields(
             listing_source_id = %ctx.listing_source_id,
             domain = ctx.domain,
@@ -85,7 +85,6 @@ impl ScraperServiceImpl {
     pub(crate) async fn generate_fresh_schema_for_page(
         &self,
         ctx: FreshSchemaGenerationContext<'_>,
-        probe_admission: &ProbeAdmission<'_>,
     ) -> Result<SelectedSchemaCandidate, ScraperError> {
         if let Some(review_repository) = self.manual_schema_review_repository() {
             return Err(self
@@ -109,13 +108,9 @@ impl ScraperServiceImpl {
                 findings,
             });
         }
-        let validated_image_urls = filter_valid_image_urls(
-            reapplied.images.clone(),
-            ctx.url,
-            &*self.image_validator,
-            probe_admission,
-        )
-        .await;
+        let validated_image_urls =
+            filter_valid_image_urls(reapplied.images.clone(), ctx.url, &*self.image_validator)
+                .await;
 
         let mut persisted_schemas = ctx.existing_schemas.to_vec();
         persisted_schemas.push(generated_schema.clone());
