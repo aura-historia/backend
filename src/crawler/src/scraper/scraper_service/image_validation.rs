@@ -1,10 +1,11 @@
 use crate::network::policy::{
     CrawlerClientError, PublicTargetError, RequestTimeouts, classify_reqwest_error,
-    error_with_sources, public_http_client, redirect_target, resolve_public_http_target,
-    validate_public_http_url,
+    error_with_sources, is_same_or_www_host, public_http_client, redirect_target,
+    resolve_public_http_target, validate_public_http_url,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::scraper_service::domain::product::count_image_probe;
+use crate::scraper::scraper_service::html_fetcher::HtmlFetcher;
 use regex::regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -29,7 +30,28 @@ pub(crate) enum ImageValidation {
 
 #[async_trait::async_trait]
 pub(crate) trait ImageValidator: Send + Sync {
-    async fn validate(&self, url: &Url) -> ImageValidation;
+    /// Decides `url`'s quality; a probe it sends goes through `admission`.
+    async fn validate(&self, url: &Url, admission: &ProbeAdmission<'_>) -> ImageValidation;
+}
+
+/// Which image probes may be sent, and when. A probe to the page's own host, bare or `www`, is
+/// a request to the shop like a page request: the page fetcher admits it only when robots.txt
+/// allows it and paces it at the shop's request spacing (`docs/crawler/networking.md#robotstxt`).
+/// A probe to any other host, such as an image CDN, is sent at once.
+pub(crate) struct ProbeAdmission<'a> {
+    fetcher: &'a dyn HtmlFetcher,
+    page: &'a Url,
+}
+
+impl<'a> ProbeAdmission<'a> {
+    pub(crate) fn new(fetcher: &'a dyn HtmlFetcher, page: &'a Url) -> Self {
+        Self { fetcher, page }
+    }
+
+    /// Whether a probe request to `url` may be sent now; waits for the shop's spacing first.
+    async fn admits(&self, url: &Url) -> bool {
+        !is_same_or_www_host(self.page, url) || self.fetcher.admit_image_probe(url).await
+    }
 }
 
 pub(crate) struct ReqwestImageValidator {
@@ -52,14 +74,15 @@ impl Default for ReqwestImageValidator {
 
 #[async_trait::async_trait]
 impl ImageValidator for ReqwestImageValidator {
-    async fn validate(&self, url: &Url) -> ImageValidation {
+    async fn validate(&self, url: &Url, admission: &ProbeAdmission<'_>) -> ImageValidation {
         // Quality may be cached, but target safety is checked for every acceptance.
         // DNS answers can change after a prior successful image probe.
         if let Err(error) = resolve_public_http_target(url, IMAGE_PROBE_TIMEOUT).await {
             return image_validation_for_target_error(error);
         }
 
-        self.cached_quality(url, || image_quality(url)).await
+        self.cached_quality(url, || image_quality(url, admission))
+            .await
     }
 }
 
@@ -89,10 +112,12 @@ impl ReqwestImageValidator {
 }
 
 /// Decides an image's quality from the size its URL gives, or else from a probe.
-async fn image_quality(url: &Url) -> ImageValidation {
+async fn image_quality(url: &Url, admission: &ProbeAdmission<'_>) -> ImageValidation {
     match ImageUrlHint::of(url) {
         ImageUrlHint::Dimensions(validation) => validation,
-        ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => probe_image_dimensions(url).await,
+        ImageUrlHint::ThumbnailName | ImageUrlHint::NoHint => {
+            probe_image_dimensions(url, admission).await
+        }
     }
 }
 
@@ -103,7 +128,9 @@ pub(crate) async fn filter_valid_image_urls(
     raw_images: Vec<String>,
     base_url: &Url,
     validator: &dyn ImageValidator,
+    fetcher: &dyn HtmlFetcher,
 ) -> Vec<String> {
+    let admission = ProbeAdmission::new(fetcher, base_url);
     let mut seen = HashSet::new();
     let mut valid = Vec::new();
 
@@ -117,7 +144,7 @@ pub(crate) async fn filter_valid_image_urls(
             // Security validation always runs first. The URL hint may then
             // discard a target without replacing that result.
             let validation =
-                ImageUrlHint::of(&resolved).settle(validator.validate(&resolved).await);
+                ImageUrlHint::of(&resolved).settle(validator.validate(&resolved, &admission).await);
             match validation {
                 ImageValidation::Invalid => {}
                 ImageValidation::Valid | ImageValidation::Unknown => {
@@ -254,11 +281,19 @@ fn dimensions_from_path(path: &str) -> Option<(usize, usize)> {
     Some((width, height))
 }
 
-async fn probe_image_dimensions(url: &Url) -> ImageValidation {
-    count_image_probe();
+/// A probe that robots.txt refuses, or that robots.txt cannot be read for, is not sent and
+/// leaves the size unknown, as a failed probe does.
+async fn probe_image_dimensions(url: &Url, admission: &ProbeAdmission<'_>) -> ImageValidation {
     let mut current_url = url.clone();
     let mut redirect_count = 0;
     let response = loop {
+        if !admission.admits(&current_url).await {
+            tracing::debug!("Image dimension probe not admitted by robots.txt");
+            return ImageValidation::Unknown;
+        }
+        if redirect_count == 0 {
+            count_image_probe();
+        }
         let client =
             match public_http_client(&current_url, RequestTimeouts::uniform(IMAGE_PROBE_TIMEOUT))
                 .await
@@ -376,6 +411,82 @@ async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml};
+
+    /// A page fetcher with no robots.txt or pacing: it admits every probe.
+    struct AdmitAll;
+
+    #[async_trait::async_trait]
+    impl HtmlFetcher for AdmitAll {
+        async fn fetch(&self, _: &Url) -> Result<FetchedHtml, FetchError> {
+            unreachable!("image validation fetches no page")
+        }
+    }
+
+    /// A page fetcher whose robots.txt refuses every probe, recording what it was asked.
+    #[derive(Default)]
+    struct RefuseAll {
+        asked: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl HtmlFetcher for RefuseAll {
+        async fn fetch(&self, _: &Url) -> Result<FetchedHtml, FetchError> {
+            unreachable!("image validation fetches no page")
+        }
+
+        async fn admit_image_probe(&self, url: &Url) -> bool {
+            self.asked.lock().unwrap().push(url.to_string());
+            false
+        }
+    }
+
+    /// The page fetcher admits probes to the page's own host, bare or `www`; a probe to an
+    /// image CDN is sent without it.
+    #[tokio::test]
+    async fn should_ask_the_page_fetcher_only_for_probes_to_the_shops_own_host() {
+        let page = Url::parse("https://shop.example/product/1").unwrap();
+        let fetcher = RefuseAll::default();
+        let admission = ProbeAdmission::new(&fetcher, &page);
+
+        let own = admission
+            .admits(&Url::parse("https://shop.example/img/a.jpg").unwrap())
+            .await;
+        let twin = admission
+            .admits(&Url::parse("https://www.shop.example/img/b.jpg").unwrap())
+            .await;
+        let cdn = admission
+            .admits(&Url::parse("https://cdn.example.net/c.jpg").unwrap())
+            .await;
+
+        assert!(!own && !twin && cdn);
+        assert_eq!(
+            *fetcher.asked.lock().unwrap(),
+            [
+                "https://shop.example/img/a.jpg",
+                "https://www.shop.example/img/b.jpg"
+            ]
+        );
+    }
+
+    /// A probe robots.txt refuses is not sent and leaves the size unknown, as a failed probe
+    /// does: the image is kept unless its name says thumbnail, never dropped for the refusal.
+    #[tokio::test]
+    async fn should_leave_an_image_unprobed_when_robots_txt_refuses_its_probe() {
+        let page = Url::parse("https://shop.example/product/1").unwrap();
+        let fetcher = RefuseAll::default();
+        let admission = ProbeAdmission::new(&fetcher, &page);
+
+        let photo = probe_image_dimensions(
+            &Url::parse("https://shop.example/img/photo.jpg").unwrap(),
+            &admission,
+        )
+        .await;
+
+        assert_eq!(photo, ImageValidation::Unknown);
+        assert_eq!(ImageUrlHint::NoHint.settle(photo), ImageValidation::Unknown);
+        assert_eq!(fetcher.asked.lock().unwrap().len(), 1);
+    }
     use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
     use rstest::rstest;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -386,7 +497,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ImageValidator for StaticValidator {
-        async fn validate(&self, _: &Url) -> ImageValidation {
+        async fn validate(&self, _: &Url, _: &ProbeAdmission<'_>) -> ImageValidation {
             self.validation
         }
     }
@@ -521,6 +632,7 @@ mod tests {
             vec!["http://127.0.0.1/image-800x600.jpg".to_string()],
             &base,
             &ReqwestImageValidator::new(),
+            &AdmitAll,
         )
         .await;
 
@@ -534,6 +646,7 @@ mod tests {
             vec!["http://169.254.169.254/photo.jpg?width=800&height=600".to_string()],
             &base,
             &ReqwestImageValidator::new(),
+            &AdmitAll,
         )
         .await;
 
@@ -552,6 +665,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -570,6 +684,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -593,6 +708,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -608,6 +724,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -623,6 +740,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Unknown,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -642,6 +760,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Valid,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -666,12 +785,14 @@ mod tests {
             )],
             &base,
             &unknown_size,
+            &AdmitAll,
         )
         .await;
         let alone = filter_valid_image_urls(
             vec![THUMBNAIL_NAMED_UPLOAD.to_string()],
             &base,
             &unknown_size,
+            &AdmitAll,
         )
         .await;
 
@@ -698,6 +819,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Valid,
             },
+            &AdmitAll,
         )
         .await;
 
@@ -727,9 +849,13 @@ mod tests {
         .map(String::from)
         .to_vec();
 
-        let captured =
-            filter_valid_image_urls(unsafe_targets.clone(), &base, &ReqwestImageValidator::new())
-                .await;
+        let captured = filter_valid_image_urls(
+            unsafe_targets.clone(),
+            &base,
+            &ReqwestImageValidator::new(),
+            &AdmitAll,
+        )
+        .await;
 
         assert!(captured.is_empty());
         assert_eq!(filter_image_urls_offline(&unsafe_targets, &base), captured);
@@ -788,6 +914,7 @@ mod tests {
             &StaticValidator {
                 validation: ImageValidation::Valid,
             },
+            &AdmitAll,
         )
         .await;
 

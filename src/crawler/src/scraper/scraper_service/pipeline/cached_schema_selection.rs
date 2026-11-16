@@ -242,6 +242,7 @@ impl ScraperServiceImpl {
                 candidate.raw.images.clone(),
                 effective_url,
                 &*self.image_validator,
+                &*self.html_fetcher,
             )
             .await;
             checked_candidates.push(CheckedSchemaCandidate::new(

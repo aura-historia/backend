@@ -31,7 +31,11 @@ struct PrimaryImageValidator {
 
 #[async_trait::async_trait]
 impl ImageValidator for PrimaryImageValidator {
-    async fn validate(&self, url: &Url) -> ImageValidation {
+    async fn validate(
+        &self,
+        url: &Url,
+        _admission: &crate::scraper::scraper_service::image_validation::ProbeAdmission<'_>,
+    ) -> ImageValidation {
         if url.path().ends_with("/one-primary.jpg") {
             self.primary_validation
         } else {
@@ -426,6 +430,7 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
         &PrimaryImageValidator {
             primary_validation: ImageValidation::Valid,
         },
+        &crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher::new(),
     )
     .await;
     let rejected_primary = filter_valid_image_urls(
@@ -434,6 +439,7 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
         &PrimaryImageValidator {
             primary_validation: ImageValidation::Invalid,
         },
+        &crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher::new(),
     )
     .await;
 

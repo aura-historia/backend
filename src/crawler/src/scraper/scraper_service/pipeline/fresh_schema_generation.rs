@@ -108,9 +108,13 @@ impl ScraperServiceImpl {
                 findings,
             });
         }
-        let validated_image_urls =
-            filter_valid_image_urls(reapplied.images.clone(), ctx.url, &*self.image_validator)
-                .await;
+        let validated_image_urls = filter_valid_image_urls(
+            reapplied.images.clone(),
+            ctx.url,
+            &*self.image_validator,
+            &*self.html_fetcher,
+        )
+        .await;
 
         let mut persisted_schemas = ctx.existing_schemas.to_vec();
         persisted_schemas.push(generated_schema.clone());

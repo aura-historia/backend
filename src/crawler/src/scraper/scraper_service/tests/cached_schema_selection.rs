@@ -47,6 +47,10 @@ fn schema_with(edit: impl FnOnce(&mut ProductCssSelectorSchema)) -> ProductCssSe
 
 fn fetcher_returning(html: String) -> MockHtmlFetcher {
     let mut fetcher = MockHtmlFetcher::new();
+    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
+    fetcher
+        .expect_admit_image_probe()
+        .returning(|_| Box::pin(async { false }));
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
@@ -129,7 +133,11 @@ struct CountingImageValidator(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 #[async_trait::async_trait]
 impl ImageValidator for CountingImageValidator {
-    async fn validate(&self, _url: &url::Url) -> ImageValidation {
+    async fn validate(
+        &self,
+        _url: &url::Url,
+        _admission: &crate::scraper::scraper_service::image_validation::ProbeAdmission<'_>,
+    ) -> ImageValidation {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         ImageValidation::Valid
     }

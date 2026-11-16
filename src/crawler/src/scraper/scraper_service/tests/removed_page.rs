@@ -42,6 +42,10 @@ fn removed_schema_set_for(
 
 fn fetcher_returning(html: String) -> MockHtmlFetcher {
     let mut fetcher = MockHtmlFetcher::new();
+    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
+    fetcher
+        .expect_admit_image_probe()
+        .returning(|_| Box::pin(async { false }));
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
@@ -515,6 +519,10 @@ async fn should_not_mark_product_removed_on_transient_fetch_failure() {
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
+    // Image probes stay offline: a refused probe leaves the size unknown, as a failed one does.
+    fetcher
+        .expect_admit_image_probe()
+        .returning(|_| Box::pin(async { false }));
     fetcher.expect_fetch().once().returning(|_| {
         Box::pin(async {
             Err(FetchError::Network {
