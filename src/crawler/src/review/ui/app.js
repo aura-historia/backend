@@ -2558,7 +2558,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         selectedSchemaIndex = requested.schemaIndex ?? 0;
         compareSchemaIndex = 1;
         selectedField = 'title';
-        selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
+        selectedPageId = reviewPageOrDefault(pages, requested.pageId)?.review_page_id || null;
         previewUrlOverride = '';
     }
     candidateBaseline = cloneJson(detail.review.candidate_payload);
@@ -2696,6 +2696,10 @@ function pageRemovable(page) {
 
 function pageRoleLabel(role) {
     return PAGE_ROLE_LABELS[role] || displayName(role);
+}
+
+function reviewPageOrDefault(pages, reviewPageId) {
+    return pages.find(page => page.review_page_id === reviewPageId) || pages[0];
 }
 
 function reviewPageLabel(page) {
@@ -3481,7 +3485,7 @@ async function saveSampleLabels() {
 function renderSchemaWorkbench(detail, matrix) {
     const pages = detail.pages || [];
     const schemas = currentSchemas();
-    const page = pages.find(p => p.review_page_id === selectedPageId) || pages[0];
+    const page = reviewPageOrDefault(pages, selectedPageId);
     if (page && !selectedPageId) selectedPageId = page.review_page_id;
     const previewUrl = previewUrlOverride || (page ? page.url : '');
     const templates = currentRemovedPageTemplates().length;
