@@ -2699,7 +2699,13 @@ function pageRoleLabel(role) {
 }
 
 function reviewPageOrDefault(pages, reviewPageId) {
-    return pages.find(page => page.review_page_id === reviewPageId) || pages[0];
+    return pages.find(page => page.review_page_id === reviewPageId) || defaultReviewPage(pages);
+}
+
+// The schema matrix leaves pages marked no product out, so the console opens on a page the
+// review is judged on, whatever role order the server lists the pages in.
+function defaultReviewPage(pages) {
+    return pages.find(page => !page.not_product_reason) || pages[0];
 }
 
 function reviewPageLabel(page) {
