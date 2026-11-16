@@ -517,13 +517,16 @@ fn is_status_label_beside_amount(state: &str) -> bool {
     let amount_and_connectors = regex!(
         r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
     );
-    let resolves = |text: &str| {
-        quick_check_availability(text)
-            .ok()
-            .and_then(ListingAvailabilityQuickCheck::availability)
-            .is_some()
-    };
-    resolves(state) || resolves(&amount_and_connectors.replace_all(state, " "))
+    resolves_to_availability(state)
+        || resolves_to_availability(&amount_and_connectors.replace_all(state, " "))
+}
+
+/// Whether the ProductListing normalization resolves `text` to an availability.
+fn resolves_to_availability(text: &str) -> bool {
+    quick_check_availability(text)
+        .ok()
+        .and_then(ListingAvailabilityQuickCheck::availability)
+        .is_some()
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
