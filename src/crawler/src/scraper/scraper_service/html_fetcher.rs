@@ -58,10 +58,10 @@ pub trait HtmlFetcher: Send + Sync {
     }
 
     /// What robots.txt of its origin says about an image probe to `url` on a shop's own host,
-    /// read through the cache page requests use. A fetcher without robots.txt allows every probe
-    /// unpaced.
+    /// read through the cache page requests use. A fetcher that cannot read robots.txt refuses
+    /// every own-host probe, so a wrapper that forgets to forward fails closed.
     async fn image_probe_robots(&self, _url: &Url) -> ImageProbeRobots {
-        ImageProbeRobots::Allowed { crawl_delay: None }
+        ImageProbeRobots::Refused
     }
 
     /// Waits for the domain's request spacing before an image probe to `url` on a shop whose

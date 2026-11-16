@@ -1136,11 +1136,19 @@ async fn preflight_crawl_root(
     retry: RetryPolicy,
     deadline: Duration,
     max_body_bytes: usize,
+    robots: Option<&RobotsPolicy>,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     let mut chain = RootChain::new(configured_root);
     let followed = tokio::time::timeout(
         deadline,
-        follow_crawl_root(transport, &mut chain, timeout, retry, max_body_bytes),
+        follow_crawl_root(
+            transport,
+            &mut chain,
+            timeout,
+            retry,
+            max_body_bytes,
+            robots,
+        ),
     )
     .await
     .unwrap_or_else(|_| {
@@ -1197,15 +1205,27 @@ impl RootChain {
 /// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
 /// the twin would; a move counts against the redirect bound. A host the chain already left is
 /// never moved back to, and a move the twin redirects back from is not one. Answers the status
-/// the root answered and the client pinned to it.
+/// the root answered and the client pinned to it. `robots`, the policy of the configured root's
+/// origin read before the preflight, refuses a hop on that origin it disallows before the hop is
+/// requested.
 async fn follow_crawl_root(
     transport: &dyn SpiderTransport,
     chain: &mut RootChain,
     timeout: Duration,
     retry: RetryPolicy,
     max_body_bytes: usize,
+    robots: Option<&RobotsPolicy>,
 ) -> Result<(u16, spider::reqwest::Client), SpiderDiscoveryError> {
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
+        if let Some(policy) = robots
+            && chain.current.origin() == chain.configured.origin()
+            && policy.check(&chain.current).is_err()
+        {
+            return Err(SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RobotsBlocked,
+                "robots.txt disallows where the crawl root redirects",
+            ));
+        }
         let RootFetch { response, client } =
             fetch_crawl_root(transport, &chain.current, chain.arrival, timeout, retry).await?;
         chain
@@ -1756,6 +1776,7 @@ impl SpiderImpl {
                 .preflight_deadline
                 .saturating_sub(preflight_started.elapsed()),
             max_body_bytes,
+            robots_read_first.as_ref(),
         )
         .await?;
         let CrawlRules {
@@ -5764,6 +5785,38 @@ mod tests {
             assert_eq!(site.requests_for("/category/1").await, 0);
             site.finish().await;
         }
+    }
+
+    /// A crawl root that redirects on its own origin to a path robots.txt disallows is refused
+    /// before that path is requested.
+    #[tokio::test]
+    async fn should_refuse_a_root_redirect_robots_txt_disallows_without_requesting_it() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/robots.txt" => {
+                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /de/\n".to_string())
+            }
+            "/" => SiteResponse::Redirect("/de/"),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                SpiderDiscoveryError::Preflight {
+                    kind: CrawlFailureKind::RobotsBlocked,
+                    reason: "robots.txt disallows where the crawl root redirects",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert_eq!(site.requests_for("/de/").await, 0);
+        assert_eq!(site.requests_for("/").await, 1);
+        site.finish().await;
     }
 
     /// robots.txt that admits the crawl is read once, before the crawl root, and its policy

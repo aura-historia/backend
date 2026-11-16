@@ -74,7 +74,7 @@ impl ScraperServiceImpl {
     /// manual mode, otherwise generates one with the LLM. The caller has already let the page
     /// [wait](Self::wait_instead_of_authoring) where it must.
     #[tracing::instrument(
-        skip(self, ctx),
+        skip(self, ctx, probe_admission),
         fields(
             listing_source_id = %ctx.listing_source_id,
             domain = ctx.domain,
@@ -85,6 +85,7 @@ impl ScraperServiceImpl {
     pub(crate) async fn generate_fresh_schema_for_page(
         &self,
         ctx: FreshSchemaGenerationContext<'_>,
+        probe_admission: &ProbeAdmission<'_>,
     ) -> Result<SelectedSchemaCandidate, ScraperError> {
         if let Some(review_repository) = self.manual_schema_review_repository() {
             return Err(self
@@ -112,7 +113,7 @@ impl ScraperServiceImpl {
             reapplied.images.clone(),
             ctx.url,
             &*self.image_validator,
-            &ProbeAdmission::new(&*self.html_fetcher, ctx.url),
+            probe_admission,
         )
         .await;
 

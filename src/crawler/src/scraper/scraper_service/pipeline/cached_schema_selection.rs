@@ -221,11 +221,11 @@ impl ScraperServiceImpl {
         &self,
         extracted: &'a ExtractedSchemaSet,
         effective_url: &Url,
+        probe_admission: &ProbeAdmission<'_>,
     ) -> CheckedCachedCandidates<'a> {
         let candidates = extracted.applied_candidates();
         let applied_schema_count = candidates.len();
         let mut checked_candidates = Vec::new();
-        let probe_admission = ProbeAdmission::new(&*self.html_fetcher, effective_url);
         for candidate in candidates {
             let findings = PlausibilityFindings::of(&candidate.raw);
             if findings.rejects_candidate() {
@@ -243,7 +243,7 @@ impl ScraperServiceImpl {
                 candidate.raw.images.clone(),
                 effective_url,
                 &*self.image_validator,
-                &probe_admission,
+                probe_admission,
             )
             .await;
             checked_candidates.push(CheckedSchemaCandidate::new(
@@ -278,7 +278,7 @@ impl ScraperServiceImpl {
     /// fresh schema generation. No cached schema is ever selected as generation
     /// input.
     #[tracing::instrument(
-        skip(self, extracted),
+        skip(self, extracted, probe_admission),
         fields(
             listing_source_id = %listing_source_id,
             url = %url,
@@ -290,11 +290,14 @@ impl ScraperServiceImpl {
         listing_source_id: &ListingSourceId,
         url: &Url,
         extracted: &ExtractedSchemaSet,
+        probe_admission: &ProbeAdmission<'_>,
     ) -> ExistingSchemaSelection {
         let CheckedCachedCandidates {
             applied_schema_count,
             candidates,
-        } = self.check_cached_candidates(extracted, url).await;
+        } = self
+            .check_cached_candidates(extracted, url, probe_admission)
+            .await;
 
         let Some(selected) = candidates.into_iter().next() else {
             let reason = if applied_schema_count == 0 {
