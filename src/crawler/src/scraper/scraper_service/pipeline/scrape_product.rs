@@ -1,6 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::logging::warn_in_source;
+use crate::review::product_markup::describes_one_product;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -205,8 +206,8 @@ impl ScraperServiceImpl {
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
-        page_hash: &str,
-        schema_fingerprint: &str,
+        stored: &PageFingerprints,
+        describes_one_product: bool,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) {
         match self
@@ -214,8 +215,9 @@ impl ScraperServiceImpl {
             .touch_scraped(
                 listing_source_id,
                 url,
-                page_hash,
-                schema_fingerprint,
+                &stored.page_hash,
+                &stored.schema_fingerprint,
+                describes_one_product,
                 expected_last_captured_raw_input_sha256,
             )
             .await
@@ -535,6 +537,7 @@ fn capture_selection(
         hash,
         schema_fingerprint,
         raw_input_sha256,
+        describes_one_product: describes_one_product(&page.html),
     })
 }
 
@@ -659,8 +662,8 @@ impl ScraperServiceImpl {
             self.touch_unchanged_page(
                 listing_source_id,
                 url,
-                &stored.page_hash,
-                &stored.schema_fingerprint,
+                &stored,
+                describes_one_product(&page.html),
                 expected_last_captured_raw_input_sha256,
             )
             .await;

@@ -62,6 +62,11 @@ pub enum ScraperError {
     #[error("Redirect destination lookup failed: {0}")]
     RedirectDestinationLookup(#[source] sqlx::Error),
 
+    /// The Product markup verdicts of the ListingSource's product pages could not be read, so a
+    /// failing page could not be pre-checked before it opened a product-schema review.
+    #[error("Product markup evidence lookup failed: {0}")]
+    ProductMarkupEvidenceLookup(#[source] sqlx::Error),
+
     /// The product URL redirects outside its product URL pattern and no cached schema can show
     /// whether the target is a product page, so it is neither removed nor taken as a schema
     /// review's page.

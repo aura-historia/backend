@@ -59,11 +59,11 @@ async fn should_skip_a_page_that_differs_only_in_per_request_tokens() {
     cand_svc
         .expect_touch_scraped()
         .once()
-        .withf(move |_, _, _, _, actual_raw_input_sha256| {
+        .withf(move |_, _, _, _, _, actual_raw_input_sha256| {
             actual_raw_input_sha256.as_deref()
                 == Some(expected_raw_input_sha256_for_mock.as_slice())
         })
-        .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        .returning(|_, _, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -214,7 +214,7 @@ async fn scrape_page(
     cand_svc
         .expect_touch_scraped()
         .times(fast_path_touches)
-        .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        .returning(|_, _, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

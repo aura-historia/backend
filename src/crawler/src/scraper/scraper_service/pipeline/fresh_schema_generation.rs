@@ -71,8 +71,9 @@ impl ScraperServiceImpl {
     }
 
     /// Authors a fresh schema for a page that failed every cached schema: opens a manual review in
-    /// manual mode, otherwise generates one with the LLM. The caller has already let the page
-    /// [wait](Self::wait_instead_of_authoring) where it must.
+    /// manual mode, unless the [product markup pre-check](Self::classify_by_product_markup)
+    /// classifies the page as no product page, otherwise generates one with the LLM. The caller
+    /// has already let the page [wait](Self::wait_instead_of_authoring) where it must.
     #[tracing::instrument(
         skip(self, ctx),
         fields(
@@ -87,6 +88,7 @@ impl ScraperServiceImpl {
         ctx: FreshSchemaGenerationContext<'_>,
     ) -> Result<SelectedSchemaCandidate, ScraperError> {
         if let Some(review_repository) = self.manual_schema_review_repository() {
+            self.classify_by_product_markup(&ctx).await?;
             return Err(self
                 .open_manual_schema_review(
                     review_repository,

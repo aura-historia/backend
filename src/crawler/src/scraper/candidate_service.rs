@@ -17,6 +17,7 @@ use crate::network::policy::{DomainFailureKind, is_page_error_status};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::share_stored_removed_page_schemas;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
+use crate::scraper::scraper_service::domain::product_markup_evidence::ProductMarkupEvidence;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
@@ -201,6 +202,9 @@ pub struct RedirectUrlMove {
     pub title: Option<String>,
     pub disposition: CrawlerDisposition,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+    /// Whether the captured page described exactly one schema.org `Product`, recorded as the
+    /// moved URL's markup verdict.
+    pub describes_one_product: bool,
 }
 
 /// What the crawler stores at the page a product URL redirected to, in either trailing-slash
@@ -237,6 +241,9 @@ pub struct ScrapeCompletion {
     pub title: Option<String>,
     pub disposition: CrawlerDisposition,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+    /// Whether the captured page described exactly one schema.org `Product`, recorded as the
+    /// URL's markup verdict.
+    pub describes_one_product: bool,
 }
 
 /// A schema-seed URL together with the raw-input fence observed when it was
@@ -414,15 +421,24 @@ pub trait ScraperCandidateService: Send + Sync {
         removed_by_templates: &[RemovedPageSchema],
         removed_by_redirect_target: Option<&Url>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// Touch a page/schema fast-path scrape without changing the raw input or disposition.
+    /// Touch a page/schema fast-path scrape without changing the raw input or disposition. The
+    /// page's markup verdict `describes_one_product` is recorded, since the page was fetched.
     async fn touch_scraped(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
         hash: &str,
         schema_fingerprint: &str,
+        describes_one_product: bool,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+    /// The Product markup verdicts recorded on the ListingSource's live product URLs (class
+    /// `product`, not retired), counted in one read
+    /// (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
+    async fn product_markup_evidence(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<ProductMarkupEvidence, sqlx::Error>;
     async fn set_disposition(
         &self,
         listing_source_id: &ListingSourceId,
@@ -1260,6 +1276,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
+            describes_one_product,
         } = completion;
         let listing_source_id_uuid: uuid::Uuid = listing_source_id.into();
         let url_str = url.to_string();
@@ -1272,6 +1289,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
                  last_captured_title = COALESCE($9, last_captured_title),
+                 last_scraped_describes_one_product = $10,
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
                  crawler_disposition = $7,
@@ -1301,6 +1319,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
+        .bind(describes_one_product)
         .execute(&self.pool)
         .await?;
 
@@ -1361,6 +1380,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
+            describes_one_product,
         } = redirect_move;
         if original_url == effective_url {
             return Err(sqlx::Error::Protocol(
@@ -1416,6 +1436,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET url = $3,
                  last_source_listing_id = $4,
                  last_captured_title = COALESCE($10, last_captured_title),
+                 last_scraped_describes_one_product = $11,
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
                  last_scraped = NOW(),
@@ -1446,6 +1467,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
+        .bind(describes_one_product)
         .execute(&mut *transaction)
         .await?;
         if moved.rows_affected() != 1 {
@@ -1468,6 +1490,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = NULL,
                  last_captured_title = NULL,
+                 last_scraped_describes_one_product = NULL,
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
                  updated = NOW()
@@ -1525,6 +1548,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
                  last_captured_title = NULL,
+                 last_scraped_describes_one_product = NULL,
                  removed_by_templates = $5,
                  removed_by_redirect_target = $7,
                  crawler_disposition = 'ACTIVE',
@@ -1567,6 +1591,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         url: &Url,
         hash: &str,
         schema_fingerprint: &str,
+        describes_one_product: bool,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
@@ -1577,6 +1602,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET last_scraped = NOW(),
                  last_scraped_hash = $3,
                  last_scraped_schema_fingerprint = $4,
+                 last_scraped_describes_one_product = $6,
                  failure_count = 0,
                  page_error_streak = 0,
                  page_directive_refusal_streak = 0,
@@ -1597,6 +1623,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(hash)
         .bind(schema_fingerprint)
         .bind(expected_last_captured_raw_input_sha256)
+        .bind(describes_one_product)
         .execute(&self.pool)
         .await?;
 
@@ -1604,6 +1631,29 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             CrawlerUrlWriteOutcome::Applied
         } else {
             CrawlerUrlWriteOutcome::NoopStale
+        })
+    }
+
+    async fn product_markup_evidence(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<ProductMarkupEvidence, sqlx::Error> {
+        let (pages_with_verdict, pages_describing_one_product): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(last_scraped_describes_one_product),
+                    COUNT(*) FILTER (WHERE last_scraped_describes_one_product)
+             FROM listing_source_urls
+             WHERE listing_source_id = $1
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_one(&self.pool)
+        .await?;
+        let count =
+            |value: i64| u64::try_from(value).map_err(|error| sqlx::Error::Decode(Box::new(error)));
+        Ok(ProductMarkupEvidence {
+            pages_with_verdict: count(pages_with_verdict)?,
+            pages_describing_one_product: count(pages_describing_one_product)?,
         })
     }
 

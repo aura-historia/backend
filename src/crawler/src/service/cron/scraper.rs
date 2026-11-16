@@ -108,6 +108,7 @@ struct CandidateMeta {
     source_listing_id: String,
     title: Option<String>,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+    describes_one_product: bool,
 }
 
 struct RawCaptureRequest {
@@ -449,6 +450,7 @@ async fn flush_batch(
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
                                 .clone(),
+                            describes_one_product: meta.describes_one_product,
                         })
                         .await
                 } else {
@@ -466,6 +468,7 @@ async fn flush_batch(
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
                                 .clone(),
+                            describes_one_product: meta.describes_one_product,
                         })
                         .await
                 };
@@ -1288,6 +1291,7 @@ async fn handle_successful_scrape(
         source_listing_id: scraped.source_listing_id,
         title: scraped.title,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+        describes_one_product: scraped.describes_one_product,
     };
 
     if !url_moved
@@ -1308,6 +1312,7 @@ async fn handle_successful_scrape(
                 expected_last_captured_raw_input_sha256: meta
                     .expected_last_captured_raw_input_sha256
                     .clone(),
+                describes_one_product: meta.describes_one_product,
             })
             .await
         {
@@ -2040,6 +2045,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::RedirectDestinationUnsettled { .. } => "RedirectDestinationUnsettled",
         ScraperError::RedirectTargetUnverified { .. } => "RedirectTargetUnverified",
         ScraperError::RedirectDestinationLookup(_) => "RedirectDestinationLookup",
+        ScraperError::ProductMarkupEvidenceLookup(_) => "ProductMarkupEvidenceLookup",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
         error if is_schema_generation_validation_failure(error) => {
@@ -3008,6 +3014,7 @@ mod tests {
             source_listing_id: "source-id".to_owned(),
             title: Some("Chair".to_owned()),
             expected_last_captured_raw_input_sha256: None,
+            describes_one_product: true,
         }
     }
 
@@ -3687,6 +3694,7 @@ mod tests {
                         effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
                         title: Some("Chair".to_owned()),
+                        describes_one_product: true,
                     })))
                 })
             });
@@ -4155,6 +4163,7 @@ mod tests {
                         effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
                         title: Some("Chair".to_owned()),
+                        describes_one_product: true,
                     })))
                 })
             });
@@ -4205,6 +4214,7 @@ mod tests {
                 hash: "redirect-hash".to_owned(),
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![9; 32],
+                describes_one_product: true,
             },
         )
         .await;
@@ -4710,6 +4720,7 @@ mod tests {
                             effective_url: url,
                             source_listing_id: "SKU-1".to_owned(),
                             title: Some("Chair".to_owned()),
+                            describes_one_product: true,
                         })))
                     })
                 });
@@ -5414,6 +5425,7 @@ mod tests {
                             effective_url: url.clone(),
                             source_listing_id: "ListingSource".to_owned(),
                             title: Some("Chair".to_owned()),
+                            describes_one_product: true,
                         })))
                     }
                 })
@@ -7657,6 +7669,7 @@ mod tests {
                 effective_url: url,
                 source_listing_id: IDENTITY.to_owned(),
                 title: Some("Chair".to_owned()),
+                describes_one_product: true,
             }
         }
 
@@ -7776,6 +7789,7 @@ mod tests {
                 effective_url: url,
                 source_listing_id: "source-listing".to_owned(),
                 title: Some("Chair".to_owned()),
+                describes_one_product: true,
             }
         }
 

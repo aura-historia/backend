@@ -29,6 +29,9 @@ pub struct ScrapedProduct {
     pub schema_fingerprint: String,
     /// Shared provider-neutral raw-input hash used for local change detection.
     pub raw_input_sha256: Vec<u8>,
+    /// Whether the page describes exactly one schema.org `Product` in its structured data, the
+    /// URL's markup verdict ([`describes_one_product`](crate::review::product_markup::describes_one_product)).
+    pub describes_one_product: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,6 +360,7 @@ pub(crate) fn scrape_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::NotProductPage { .. }
         | ScraperError::RedirectToKnownProduct { .. }
         | ScraperError::RedirectDestinationLookup(_)
+        | ScraperError::ProductMarkupEvidenceLookup(_)
         | ScraperError::RedirectDestinationUnsettled { .. }
         | ScraperError::RedirectTargetUnverified { .. }
         | ScraperError::SchemaClassificationRejected { .. }

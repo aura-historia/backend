@@ -63,6 +63,7 @@ where
         title: Some("Captured title".to_owned()),
         disposition,
         expected_last_captured_raw_input_sha256,
+        describes_one_product: true,
     }
 }
 
@@ -2108,6 +2109,101 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     assert_eq!(row, (None, None, None));
 }
 
+/// Each scrape that fetched a product page records whether it described one schema.org Product,
+/// a captured removal forgets it, and the evidence counts only the source's live product URLs
+/// (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_product_markup_evidence_should_count_the_verdicts_of_live_product_urls() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let host = "scraper-markup-evidence.example.com";
+    insert_listing_source(&pool, listing_source_id, host).await;
+    let url = |path: &str| url::Url::parse(&format!("https://{host}/p/{path}")).unwrap();
+    let (marked_up, unmarked, unscraped, reclassified) = (
+        url("marked-up"),
+        url("unmarked"),
+        url("unscraped"),
+        url("reclassified"),
+    );
+    for product in [&marked_up, &unmarked, &unscraped, &reclassified] {
+        insert_product_url(&pool, listing_source_id, product.as_str()).await;
+    }
+    let capture = raw_input_hash();
+    for product in [&marked_up, &reclassified] {
+        service
+            .mark_as_scraped(scrape_completion(
+                listing_source_id,
+                product.clone(),
+                (
+                    "p".repeat(64),
+                    "schema-fingerprint",
+                    capture.clone(),
+                    product.path(),
+                    CrawlerDisposition::Active,
+                    None,
+                ),
+            ))
+            .await
+            .unwrap();
+    }
+    service
+        .touch_scraped(
+            &listing_source_id,
+            &unmarked,
+            "page-hash",
+            "schema-fingerprint",
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+    service
+        .set_class(
+            &listing_source_id,
+            &reclassified,
+            UrlClass::Other,
+            Some(&capture),
+        )
+        .await
+        .unwrap();
+
+    let evidence = service
+        .product_markup_evidence(&listing_source_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            evidence.pages_with_verdict,
+            evidence.pages_describing_one_product
+        ),
+        (2, 1)
+    );
+
+    service
+        .mark_removed(
+            &listing_source_id,
+            &marked_up,
+            &[9; 32],
+            Some(&capture),
+            &[],
+            None,
+        )
+        .await
+        .unwrap();
+    let evidence = service
+        .product_markup_evidence(&listing_source_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            evidence.pages_with_verdict,
+            evidence.pages_describing_one_product
+        ),
+        (1, 0)
+    );
+}
+
 /// A template removal records the templates that captured it, and the next product capture of
 /// the page forgets them, so only a page a template still holds removed is re-armed when it is
 /// retired.
@@ -3347,6 +3443,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
+                describes_one_product: true,
             })
             .await
             .unwrap(),
@@ -3403,6 +3500,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
+            describes_one_product: true,
         })
         .await
         .expect_err("known destination must be deferred to reconciliation");
@@ -3587,6 +3685,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
+                describes_one_product: true,
             })
             .await
             .expect_err("a destination known under its other spelling must be deferred");
@@ -3655,6 +3754,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
+            describes_one_product: true,
         })
         .await
         .expect_err("identity changes must be rejected");
@@ -3673,6 +3773,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
+                describes_one_product: true,
             })
             .await
             .unwrap(),
@@ -3804,6 +3905,7 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
                 &url,
                 "delayed-page-hash",
                 "delayed-schema-fingerprint",
+                true,
                 observed_raw_input_sha256,
             )
             .await
