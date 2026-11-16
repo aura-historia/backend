@@ -49,12 +49,16 @@ pub(super) async fn admit_crawl(
     root_client: &spider::reqwest::Client,
     timeout: Duration,
 ) -> Result<CrawlRobots, SpiderDiscoveryError> {
-    let policy = match fetch_robots_policy(transport, root, root_client, timeout).await? {
-        FetchedRobots::Policy(policy) => policy,
+    match fetch_robots_policy(transport, root, root_client, timeout).await? {
+        FetchedRobots::Policy(policy) => admit_policy(root, policy),
         FetchedRobots::Unreachable(unreachable) => {
-            return Err(robots_unreachable_error(Some(Box::new(unreachable))));
+            Err(robots_unreachable_error(Some(Box::new(unreachable))))
         }
-    };
+    }
+}
+
+/// Admits the crawl of `root` under the robots.txt `policy` it read.
+fn admit_policy(root: &Url, policy: RobotsPolicy) -> Result<CrawlRobots, SpiderDiscoveryError> {
     let label = policy.label();
     match policy {
         RobotsPolicy::Unreachable => Err(robots_unreachable_error(None)),
