@@ -1962,3 +1962,51 @@ async fn should_open_a_review_without_reading_markup_evidence_when_a_redirect_mo
         other => panic!("expected the moved page to wait on a review, got {other:?}"),
     }
 }
+
+/// The removed-page templates judge a fetched page before anything else: a soft 404 a stored
+/// template matches is a removal, also when its markup shows a listing the pre-check would
+/// classify on a source that marks its products up, so the pre-check never reads its evidence.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_soft_404_a_removed_page_template_matches_as_removed_before_the_markup_pre_check()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let notice_with_a_listing: &'static str = Box::leak(
+        REMOVAL_NOTICE_HTML
+            .replace(
+                "<body>",
+                r#"<head><script type="application/ld+json">{"@type":"ItemList","itemListElement":[{"@type":"ListItem","url":"https://example.com/a/"},{"@type":"ListItem","url":"https://example.com/b/"}]}</script></head><body>"#,
+            )
+            .into_boxed_str(),
+    );
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        Box::pin(async move { Ok(fetch_result(notice_with_a_listing.to_owned())) })
+    });
+    let mut candidates = MockScraperCandidateService::new();
+    candidates.expect_product_markup_evidence().never();
+    candidates.expect_set_class().never();
+    let template_pool: &'static PgPool = Box::leak(Box::new(pool.clone()));
+    let service = scraper_with_review_gate(
+        fetcher,
+        schema_service_without_generation(Some(cached_schemas(id, vec![minimal_schema()]))),
+        repository,
+        candidates,
+        CrawlerAuthoringMode::Manual,
+    )
+    .with_removed_page_schema_repository(Box::new(RemovedPageSchemaRepositoryImpl::new(
+        template_pool,
+    )));
+
+    let result = service
+        .scrape(primary_only_request(&id, &product_url()))
+        .await
+        .result;
+
+    assert!(
+        matches!(result, Err(ScraperError::ProductListingRemoved(_))),
+        "a matched removed-page template must win over the markup pre-check, got {result:?}"
+    );
+}
