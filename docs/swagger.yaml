@@ -27250,7 +27250,6 @@ components:
         - additionalUrls
         - submitter
         - goodFaithStatement
-        - receipt
       properties:
         contentNoticeId:
           type: string
@@ -27300,9 +27299,8 @@ components:
             - GOOD_FAITH_V1
         receipt:
           description: >-
-            The delivery of the receipt email to the submitter. `null` only when no receipt was enqueued,
+            The delivery of the receipt email to the submitter. Omitted only when no receipt was enqueued,
             which is always the case for a notice without an email address.
-          nullable: true
           allOf:
             - $ref: "#/components/schemas/AdminContentNoticeReceiptData"
     AdminContentNoticeReceiptData:

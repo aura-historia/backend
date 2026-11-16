@@ -205,5 +205,8 @@ async fn should_accept_an_anonymous_report_of_illegal_content_without_a_receipt(
     let (status, body, _) = admin_get(&admin, &format!("/{id}")).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(json!({"language": "de"}), body["submitter"]);
-    assert_eq!(json!(null), body["receipt"], "no receipt was enqueued");
+    assert!(
+        body.get("receipt").is_none(),
+        "no receipt was enqueued: {body}"
+    );
 }

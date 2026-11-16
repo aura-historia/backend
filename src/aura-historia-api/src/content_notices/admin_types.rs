@@ -111,7 +111,8 @@ pub(super) struct AdminContentNoticeDetailsData {
     additional_urls: Vec<String>,
     submitter: SubmitterData,
     good_faith_statement: &'static str,
-    /// `null` only when no receipt was enqueued.
+    /// Omitted only when no receipt was enqueued, as for a notice without an email address.
+    #[serde(skip_serializing_if = "Option::is_none")]
     receipt: Option<ReceiptData>,
 }
 
@@ -550,7 +551,6 @@ mod tests {
                         "language": "de",
                     },
                     "goodFaithStatement": "GOOD_FAITH_V1",
-                    "receipt": null,
                 }),
                 serialize(details)
             );

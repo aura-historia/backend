@@ -208,8 +208,8 @@ needs to handle it: the submitted content, the snapshot, and the target as it is
   (same rule as at submission), and for a listing target whether the listing exists and its
   lifecycle. A target that no longer exists is reported as such; the notice is still returned.
 - The [receipt](#receipt-email) delivery is read in the same query, found by its origin. It is
-  `null` when no receipt was enqueued, which is always the case for a notice without an email
-  address.
+  omitted only when no receipt was enqueued, which is always the case for a notice without an
+  email address.
 - A stored notice that breaks an invariant, or an unknown stored value, fails the read instead of
   being defaulted.
 - Responses are never cached.
