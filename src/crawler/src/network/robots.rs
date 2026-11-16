@@ -12,8 +12,12 @@ use url::Url;
 mod deny_list;
 pub use deny_list::DenyList;
 
-/// Upper bound for an honoured `Crawl-delay`; the Spider library caps the
-/// delay it reads from robots.txt at the same value.
+/// The longest `Crawl-delay` the crawler honours. A robots.txt asking for a longer one refuses
+/// its origin ([`RobotsRefusal::CrawlDelayTooLong`]) rather than being crawled faster than it
+/// asked. The bound is a policy, not a hard limit: at one page a minute a scraper pass still
+/// covers a shop within its batch budget and a spider crawl a useful share of a catalogue; a
+/// somewhat longer delay would still fit a crawl's longest budget, but leave the catalogue to go
+/// stale (`docs/crawler/networking.md#robotstxt`).
 pub const MAX_CRAWL_DELAY: Duration = Duration::from_secs(60);
 
 /// RFC 9309 requires parsing at least the first 500 KiB of a robots.txt file;
@@ -78,6 +82,9 @@ pub enum RobotsPolicy {
 pub enum RobotsRefusal {
     Disallowed,
     Unreachable,
+    /// robots.txt asks for a `Crawl-delay` above [`MAX_CRAWL_DELAY`], which the crawler does not
+    /// honour, so it requests nothing from the origin.
+    CrawlDelayTooLong,
 }
 
 impl RobotsPolicy {
@@ -121,6 +128,7 @@ impl RobotsPolicy {
     /// allows `url`.
     pub fn refusal_details(&self, url: &Url) -> Option<String> {
         match self {
+            Self::Rules(rules) if rules.crawl_delay_too_long() => rules.crawl_delay_rule(),
             Self::Rules(rules) => rules.refusing_rule(url),
             Self::Unavailable => None,
             Self::Unreachable => Some("robots.txt is unreachable".to_owned()),
@@ -129,6 +137,9 @@ impl RobotsPolicy {
 
     pub fn check(&self, url: &Url) -> Result<(), RobotsRefusal> {
         match self {
+            Self::Rules(rules) if rules.crawl_delay_too_long() => {
+                Err(RobotsRefusal::CrawlDelayTooLong)
+            }
             Self::Rules(rules) if !rules.allows(url) => Err(RobotsRefusal::Disallowed),
             Self::Rules(_) | Self::Unavailable => Ok(()),
             Self::Unreachable => Err(RobotsRefusal::Unreachable),
@@ -206,8 +217,39 @@ impl RobotsRules {
         }
     }
 
+    /// The `Crawl-delay` as robots.txt states it, also one above [`MAX_CRAWL_DELAY`].
     pub fn crawl_delay(&self) -> Option<Duration> {
         self.crawl_delay
+    }
+
+    /// Whether the `Crawl-delay` is longer than the crawler honours.
+    pub fn crawl_delay_too_long(&self) -> bool {
+        self.crawl_delay
+            .is_some_and(|delay| delay > MAX_CRAWL_DELAY)
+    }
+
+    /// The `Crawl-delay` as robots.txt states it with the group it belongs to, such as
+    /// `User-agent: *; Crawl-delay: 120`; one too long to represent reads `inf`.
+    pub fn crawl_delay_rule(&self) -> Option<String> {
+        let delay = self.crawl_delay?;
+        let seconds = if delay == Duration::MAX {
+            "inf".to_owned()
+        } else {
+            delay.as_secs_f64().to_string()
+        };
+        Some(format!(
+            "User-agent: {}; Crawl-delay: {seconds}",
+            self.agent()
+        ))
+    }
+
+    /// The `User-agent` of the groups that apply, as robots.txt names it.
+    fn agent(&self) -> &'static str {
+        if self.names_crawler {
+            "AuraHistoriaBot"
+        } else {
+            "*"
+        }
     }
 
     /// The longest matching rule decides; `Allow` wins a tie and a URL no
@@ -221,12 +263,11 @@ impl RobotsRules {
     /// rules allow `url`.
     pub fn refusing_rule(&self, url: &Url) -> Option<String> {
         let rule = self.deciding_rule(url).filter(|rule| !rule.allow)?;
-        let agent = if self.names_crawler {
-            "AuraHistoriaBot"
-        } else {
-            "*"
-        };
-        Some(format!("User-agent: {agent}; Disallow: {}", rule.pattern))
+        Some(format!(
+            "User-agent: {}; Disallow: {}",
+            self.agent(),
+            rule.pattern
+        ))
     }
 
     fn deciding_rule(&self, url: &Url) -> Option<&Rule> {
@@ -295,7 +336,7 @@ fn parse_groups(body: &str) -> Vec<Group> {
             }),
             "crawl-delay" => {
                 if let Some(delay) = parse_crawl_delay(value) {
-                    group.crawl_delay = Some(delay);
+                    group.crawl_delay = group.crawl_delay.max(Some(delay));
                 }
             }
             _ => {}
@@ -314,10 +355,18 @@ pub(crate) fn product_token(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// The seconds a `Crawl-delay` value asks for. A number followed by a unit-like suffix, such as
+/// `10s`, counts by its number. A delay too long to represent, `inf` included, is kept as the
+/// longest one, so it refuses the origin instead of being ignored. A value without a leading
+/// non-negative number is no delay.
 fn parse_crawl_delay(value: &str) -> Option<Duration> {
-    let seconds = value.parse::<f64>().ok()?;
-    (seconds.is_finite() && seconds >= 0.0)
-        .then(|| Duration::from_secs_f64(seconds.min(MAX_CRAWL_DELAY.as_secs_f64())))
+    let seconds = value.parse::<f64>().ok().or_else(|| {
+        let number_end = value
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(value.len());
+        value[..number_end].parse::<f64>().ok()
+    })?;
+    (seconds >= 0.0).then(|| Duration::try_from_secs_f64(seconds).unwrap_or(Duration::MAX))
 }
 
 /// Brings patterns and request paths into one form: non-ASCII characters
@@ -528,10 +577,78 @@ mod tests {
     }
 
     #[test]
-    fn should_cap_the_crawl_delay() {
-        let rules = RobotsRules::parse("User-agent: *\nCrawl-delay: 3600\n");
+    fn should_honour_a_crawl_delay_up_to_the_cap() {
+        let policy = RobotsPolicy::from_body(b"User-agent: *\nCrawl-delay: 60\n");
 
-        assert_eq!(rules.crawl_delay, Some(MAX_CRAWL_DELAY));
+        assert_eq!(policy.crawl_delay(), Some(MAX_CRAWL_DELAY));
+        assert_eq!(policy.check(&url("/a")), Ok(()));
+    }
+
+    #[test]
+    fn should_refuse_the_origin_when_the_crawl_delay_exceeds_the_cap() {
+        for (delay, shown) in [
+            ("60.5", "60.5"),
+            ("3600", "3600"),
+            ("120s", "120"),
+            ("1e300", "inf"),
+            ("inf", "inf"),
+        ] {
+            let policy = RobotsPolicy::from_body(
+                format!("User-agent: *\nAllow: /\nCrawl-delay: {delay}\n").as_bytes(),
+            );
+
+            assert_eq!(
+                policy.check(&url("/a")),
+                Err(RobotsRefusal::CrawlDelayTooLong),
+                "{delay}"
+            );
+            assert_eq!(
+                policy.refusal_details(&url("/a")),
+                Some(format!("User-agent: *; Crawl-delay: {shown}")),
+                "{delay}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_name_the_crawler_group_whose_crawl_delay_refuses() {
+        let policy = RobotsPolicy::from_body(
+            b"User-agent: *\nCrawl-delay: 1\n\nUser-agent: AuraHistoriaBot\nCrawl-delay: 90\n",
+        );
+
+        assert_eq!(
+            policy.refusal_details(&url("/a")),
+            Some("User-agent: AuraHistoriaBot; Crawl-delay: 90".to_owned())
+        );
+    }
+
+    #[test]
+    fn should_keep_the_longest_crawl_delay_of_a_group() {
+        let rules = RobotsRules::parse("User-agent: *\nCrawl-delay: 120\nCrawl-delay: 5\n");
+
+        assert_eq!(rules.crawl_delay, Some(Duration::from_secs(120)));
+    }
+
+    #[test]
+    fn should_honour_the_number_of_a_crawl_delay_with_a_unit_suffix() {
+        for (delay, seconds) in [("10s", 10.0), ("2.5 seconds", 2.5)] {
+            let rules = RobotsRules::parse(&format!("User-agent: *\nCrawl-delay: {delay}\n"));
+
+            assert_eq!(
+                rules.crawl_delay,
+                Some(Duration::from_secs_f64(seconds)),
+                "{delay}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_ignore_a_crawl_delay_that_is_no_delay() {
+        for delay in ["-5", "-5s", "NaN", "soon", "s10"] {
+            let rules = RobotsRules::parse(&format!("User-agent: *\nCrawl-delay: {delay}\n"));
+
+            assert_eq!(rules.crawl_delay, None, "{delay}");
+        }
     }
 
     #[test]

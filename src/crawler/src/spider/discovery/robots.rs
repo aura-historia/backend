@@ -12,8 +12,8 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error,
 };
 use crate::network::robots::{
-    DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy,
-    RobotsRules, robots_txt_url,
+    DenyList, MAX_CRAWL_DELAY, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep,
+    RobotsPolicy, RobotsRules, robots_txt_url,
 };
 use crate::spider::utils::url::CrawledUrl;
 use std::time::Duration;
@@ -49,12 +49,16 @@ pub(super) async fn admit_crawl(
     root_client: &spider::reqwest::Client,
     timeout: Duration,
 ) -> Result<CrawlRobots, SpiderDiscoveryError> {
-    let policy = match fetch_robots_policy(transport, root, root_client, timeout).await? {
-        FetchedRobots::Policy(policy) => policy,
+    match fetch_robots_policy(transport, root, root_client, timeout).await? {
+        FetchedRobots::Policy(policy) => admit_policy(root, policy),
         FetchedRobots::Unreachable(unreachable) => {
-            return Err(robots_unreachable_error(Some(Box::new(unreachable))));
+            Err(robots_unreachable_error(Some(Box::new(unreachable))))
         }
-    };
+    }
+}
+
+/// Admits the crawl of `root` under the robots.txt `policy` it read.
+fn admit_policy(root: &Url, policy: RobotsPolicy) -> Result<CrawlRobots, SpiderDiscoveryError> {
     let label = policy.label();
     match policy {
         RobotsPolicy::Unreachable => Err(robots_unreachable_error(None)),
@@ -64,6 +68,23 @@ pub(super) async fn admit_crawl(
             rules: None,
             policy: label,
         }),
+        RobotsPolicy::Rules(rules) if rules.crawl_delay_too_long() => {
+            info!(
+                event = "crawler.spider.robots_crawl_delay_too_long",
+                crawl_root = %root,
+                crawl_delay_secs = rules.crawl_delay().map(|delay| delay.as_secs_f64()),
+                max_crawl_delay_secs = MAX_CRAWL_DELAY.as_secs(),
+                "robots.txt asks for a longer Crawl-delay than the crawler honours; refusing the crawl"
+            );
+            Err(SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::RobotsBlocked,
+                reason: "robots.txt asks for a Crawl-delay above the 60 s the crawler honours",
+                source: Some(Box::new(CrawlDelayTooLong {
+                    rule: rules.crawl_delay_rule().unwrap_or_default(),
+                })),
+                root_reroot: None,
+            })
+        }
         RobotsPolicy::Rules(rules) if !rules.allows(root) => Err(SpiderDiscoveryError::preflight(
             CrawlFailureKind::RobotsBlocked,
             "robots.txt disallows the crawl root",
@@ -88,6 +109,13 @@ fn crawl_robots(root: &Url, rules: &RobotsRules, policy: &'static str) -> CrawlR
         rules: Some(rules.clone()),
         policy,
     }
+}
+
+/// The `Crawl-delay` rule that refused a crawl, with its group, for the failure log.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("robots.txt states {rule}")]
+struct CrawlDelayTooLong {
+    rule: String,
 }
 
 /// Why robots.txt could not be reached: the HTTP status it answered, or the kind of the
@@ -313,5 +341,41 @@ mod tests {
 
         assert_eq!(unreachable.status(), None);
         assert_eq!(unreachable.transport_error(), Some("TIMEOUT"));
+    }
+
+    fn root() -> Url {
+        Url::parse("https://example.com/").unwrap()
+    }
+
+    #[test]
+    fn should_pace_the_crawl_at_a_crawl_delay_up_to_the_cap() {
+        let policy = RobotsPolicy::from_body(b"User-agent: *\nCrawl-delay: 60\n");
+
+        let robots = admit_policy(&root(), policy).unwrap();
+
+        assert_eq!(robots.crawl_delay, Some(MAX_CRAWL_DELAY));
+    }
+
+    #[test]
+    fn should_refuse_the_crawl_when_the_crawl_delay_exceeds_the_cap() {
+        let policy = RobotsPolicy::from_body(b"User-agent: *\nAllow: /\nCrawl-delay: 120\n");
+
+        let error = admit_policy(&root(), policy).unwrap_err();
+
+        let SpiderDiscoveryError::Preflight {
+            kind,
+            reason,
+            source: Some(source),
+            ..
+        } = error
+        else {
+            panic!("expected a preflight failure with its rule: {error:?}");
+        };
+        assert_eq!(kind, CrawlFailureKind::RobotsBlocked);
+        assert!(reason.contains("Crawl-delay"), "{reason}");
+        assert_eq!(
+            source.to_string(),
+            "robots.txt states User-agent: *; Crawl-delay: 120"
+        );
     }
 }

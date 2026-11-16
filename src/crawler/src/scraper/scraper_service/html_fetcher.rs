@@ -644,6 +644,7 @@ pub(crate) fn robots_refusal_kind(refusal: RobotsRefusal) -> NetworkErrorKind {
     match refusal {
         RobotsRefusal::Disallowed => NetworkErrorKind::RobotsDisallowed,
         RobotsRefusal::Unreachable => NetworkErrorKind::RobotsUnreachable,
+        RobotsRefusal::CrawlDelayTooLong => NetworkErrorKind::RobotsCrawlDelayTooLong,
     }
 }
 
@@ -663,6 +664,10 @@ fn robots_refusal_error(
         RobotsRefusal::Unreachable => {
             format!("robots.txt is unreachable, which disallows {url}")
         }
+        RobotsRefusal::CrawlDelayTooLong => format!(
+            "robots.txt asks for a longer delay than the crawler honours ({}), which refuses {url}",
+            rule.as_deref().unwrap_or("Crawl-delay")
+        ),
     };
     FetchAttemptError {
         error: FetchError::RobotsRefused {
@@ -1727,6 +1732,29 @@ mod tests {
         fetcher.fetch(&shop.url).await.unwrap();
 
         assert_paced_apart(&shop, started);
+        assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
+    }
+
+    /// A `Crawl-delay` above the 60 s the crawler honours refuses the origin rather than pacing
+    /// it faster than it asked; the refusal sends nothing to the shop, a second fetch included.
+    #[tokio::test]
+    async fn should_refuse_the_origin_without_requesting_it_when_the_crawl_delay_exceeds_the_cap() {
+        let shop = spawn_shop(
+            robots_txt("User-agent: *\nAllow: /\nCrawl-delay: 120\n"),
+            vec![OK_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = paced_fetcher(Duration::ZERO);
+
+        let first = fetcher.fetch(&shop.url).await.unwrap_err();
+        let second = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        for error in [&first, &second] {
+            assert_eq!(error.kind(), NetworkErrorKind::RobotsCrawlDelayTooLong);
+            assert!(error.to_string().contains("Crawl-delay: 120"), "{error}");
+        }
+        assert!(shop.page_requests().is_empty());
         assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
     }
 

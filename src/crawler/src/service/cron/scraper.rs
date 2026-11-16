@@ -248,6 +248,8 @@ enum DeferralReason {
     RobotsUnreachable,
     /// The shop's host closed the connection of its robots.txt without an answer.
     RobotsConnectionDropped,
+    /// robots.txt of the batch's origin asks for a longer `Crawl-delay` than the crawler honours.
+    RobotsCrawlDelayTooLong,
     /// The URL's process-local lock was held.
     UrlLock,
     /// The ListingSource's scraper lock was held.
@@ -262,6 +264,7 @@ impl DeferralReason {
             Self::SchemaReviewPending => "schema_review_pending",
             Self::RobotsUnreachable => "robots_unreachable",
             Self::RobotsConnectionDropped => "robots_connection_dropped",
+            Self::RobotsCrawlDelayTooLong => "robots_crawl_delay_too_long",
             Self::UrlLock => "url_lock",
             Self::SourceLock => "source_lock",
         }
@@ -273,6 +276,9 @@ impl DeferralReason {
         match self {
             Self::RobotsConnectionDropped => {
                 "crawler.scraper.robots_connection_dropped_batch_stopped"
+            }
+            Self::RobotsCrawlDelayTooLong => {
+                "crawler.scraper.robots_crawl_delay_too_long_batch_stopped"
             }
             _ => "crawler.scraper.robots_unreachable_batch_stopped",
         }
@@ -2078,6 +2084,7 @@ fn origin_deferral(error: &ScraperError) -> Option<DeferralReason> {
     match error.network_error_kind()? {
         NetworkErrorKind::RobotsUnreachable => Some(DeferralReason::RobotsUnreachable),
         NetworkErrorKind::RobotsConnectionDropped => Some(DeferralReason::RobotsConnectionDropped),
+        NetworkErrorKind::RobotsCrawlDelayTooLong => Some(DeferralReason::RobotsCrawlDelayTooLong),
         _ => None,
     }
 }
@@ -2273,7 +2280,7 @@ async fn scrape_batch_candidates(
                     event = reason.batch_stopped_event(),
                     reason = reason.as_str(),
                     deferred_urls = remaining,
-                    "Deferring remaining scraper URLs while robots.txt cannot be read"
+                    "Deferring remaining scraper URLs while robots.txt refuses their origin"
                 );
             }
             outcome.record_deferred(reason, remaining);
@@ -5869,6 +5876,51 @@ mod tests {
 
         assert_eq!(outcome.failed, 1);
         assert_eq!(outcome.deferred_urls, 2);
+    }
+
+    /// A `Crawl-delay` the crawler does not honour refuses every URL of the origin: one URL
+    /// records the refusal and its 24 h cooldown, the rest of the batch waits for a later pass.
+    #[tokio::test]
+    async fn should_defer_the_rest_of_the_batch_after_robots_txt_asks_for_too_long_a_crawl_delay() {
+        let (candidates, listing_source_id) = source_batch("slow.example.com", 3);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(|_, _, error_kind, _, _, _, _| error_kind == "RobotsCrawlDelayTooLong")
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::RobotsCrawlDelayTooLong,
+                    details: "robots.txt asks for a longer delay than the crawler honours"
+                        .to_owned(),
+                }))
+            })
+        });
+
+        let outcome = scrape_batch_candidates(
+            candidates,
+            batch_context_of(
+                scraper_candidates,
+                scraper_service,
+                listing_source_id,
+                CrawlerCronConfig::default().scraper_batch_time_budget,
+            ),
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(outcome.deferred_urls, 2);
+        assert_eq!(
+            outcome.deferred_reasons.get("robots_crawl_delay_too_long"),
+            Some(&2)
+        );
     }
 
     fn dropped_connection_outcome(url: url::Url, kind: NetworkErrorKind) -> ScrapeOutcome {
