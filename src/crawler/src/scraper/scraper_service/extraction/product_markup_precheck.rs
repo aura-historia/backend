@@ -3,6 +3,7 @@
 //! `Product` markup, a page without exactly one such Product is classified as no product page
 //! instead (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
 
+use crate::logging::SourceLogContext;
 use crate::review::product_markup::describes_one_product;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
@@ -43,9 +44,12 @@ impl ScraperServiceImpl {
         }
         self.mark_url_other_best_effort(ctx.listing_source_id, ctx.requested_url, None)
             .await;
+        let source = SourceLogContext::current();
         info!(
             event = CLASSIFIED_BY_PRODUCT_MARKUP_EVENT,
             listing_source_id = %ctx.listing_source_id,
+            listing_source_name = source.as_ref().map(|source| source.listing_source_name.as_str()),
+            domain = ctx.domain,
             url = %ctx.requested_url,
             pages_with_verdict = evidence.pages_with_verdict,
             "Classified a page without one schema.org Product as no product page instead of opening a product-schema review"
