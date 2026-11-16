@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-16 — Estimated ProductListing counts in the admin overview
+
+- **Behavior change:** `GET /v1/admin/overview` estimates `productListings` from PostgreSQL planner statistics once the catalogue holds an estimated 100,000 ProductListings or more, instead of counting every listing on each request. `total` follows inserts and deletes within about a minute; `byLifecycle`, `activeAvailability` and `activeWithoutAvailability` reflect the latest table analysis, can trail recent changes and differ by a few percent. An availability that is rare in the analyzed sample can read `0`, and its listings are then counted in `activeWithoutAvailability`. The parts still add up to `total` and `byLifecycle.active`. While a large catalogue has no statistics yet, for example right after a database upgrade, the overview returns `503 ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE` until the table is analyzed. Smaller catalogues and every other counter stay exact. The response shape is unchanged and `schemaVersion` stays `1`.
+
 ## 2026-11-15 — Ultimate saved searches are capped at 20 active (#2981)
 
 - **Behavior change:** the `ULTIMATE` tier allows up to 20 active saved searches instead of an unlimited number, counted across all active filters whether or not they use an enhanced description. As for `FREE` and `PRO`, creating a search filter or reactivating one (`PATCH` with `state` `ACTIVE`) while the account already has 20 active returns `422 SEARCH_FILTER_QUOTA_EXCEEDED`. Inactive filters do not count. Request and response shapes are unchanged.

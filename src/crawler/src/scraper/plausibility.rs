@@ -133,12 +133,18 @@ pub enum PlausibilityCheck {
     /// where a price is expected: a price rule that reads the label a sold page shows in the
     /// price's place, such as "Sold".
     AvailabilityText,
+    /// No letter in any script: a catalogue number, a date or punctuation where a `title` is
+    /// expected, or punctuation and symbols alone, without a digit either, where a `state` is.
+    NoLetter,
+    /// An absolute or relative URL, a file path or a `javascript:` link where a `state` label is
+    /// expected: a rule that reads a cart image's `src` or a link's `href`.
+    LinkOrPath,
 }
 
 impl PlausibilityCheck {
     /// Every check, so tests can pin how the review console names each code.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::Blank,
         Self::TooLong,
         Self::AllZeroDigits,
@@ -148,6 +154,8 @@ impl PlausibilityCheck {
         Self::WordList,
         Self::PriceText,
         Self::AvailabilityText,
+        Self::NoLetter,
+        Self::LinkOrPath,
     ];
 
     /// How the reason of a rejection and the review console describe the check.
@@ -162,6 +170,8 @@ impl PlausibilityCheck {
             Self::WordList => "is a list of words, not an identifier",
             Self::PriceText => "is a price, not an availability label",
             Self::AvailabilityText => "is an availability label, not a price",
+            Self::NoLetter => "has no letter",
+            Self::LinkOrPath => "is a link or file path, not a label",
         }
     }
 }
@@ -414,7 +424,10 @@ fn title_checks(title: &str) -> Vec<PlausibilityCheck> {
     if title.trim().is_empty() {
         return vec![PlausibilityCheck::Blank];
     }
-    markup_check(title).into_iter().collect()
+    [markup_check(title), no_letter_check(title)]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 fn description_checks(fragments: &[String]) -> Vec<PlausibilityCheck> {
@@ -483,14 +496,67 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
     if state.trim().is_empty() {
         return vec![PlausibilityCheck::Blank];
     }
-    [
+    let mut checks: Vec<PlausibilityCheck> = [
         length_check(state),
         markup_check(state),
         price_text_check(state),
     ]
     .into_iter()
     .flatten()
-    .collect()
+    .collect();
+    // What the normalization recognises, or a schema.org availability it may not resolve, is an
+    // availability value whatever its shape.
+    if !is_availability_value(state) {
+        checks.extend(
+            [symbols_only_state_check(state), link_or_path_check(state)]
+                .into_iter()
+                .flatten(),
+        );
+    }
+    checks
+}
+
+/// A value without a letter in any script, so CJK, Cyrillic or Greek text passes while `!`,
+/// `10-7820`, `2023/11` or `.` do not.
+fn no_letter_check(value: &str) -> Option<PlausibilityCheck> {
+    (!value.chars().any(char::is_alphabetic)).then_some(PlausibilityCheck::NoLetter)
+}
+
+/// A `state` of punctuation or symbols alone, such as `.`, `—`, `✓` or an icon-font glyph. A
+/// letterless `state` with a digit stays plausible: a status slot shows a bare amount such as
+/// `450` on a live page, and a stock count reads `0` or `1`.
+fn symbols_only_state_check(state: &str) -> Option<PlausibilityCheck> {
+    (!state.chars().any(char::is_alphanumeric)).then_some(PlausibilityCheck::NoLetter)
+}
+
+/// Whether `state` is an availability value: one the ProductListing normalization recognises,
+/// whether it resolves it or reads it as no assertion, or a schema.org availability URL in any
+/// spelling (`http://schema.org/OnlineOnly`, `https://schema.org/instock`,
+/// `https://schema.org/SoldOut/`), as a JSON-LD offer carries it.
+fn is_availability_value(state: &str) -> bool {
+    let schema_org_availability = regex!(r"(?i)^https?://(?:www\.)?schema\.org/[a-z]+/?$");
+    schema_org_availability.is_match(state.trim())
+        || matches!(
+            quick_check_availability(state),
+            Ok(ListingAvailabilityQuickCheck::Resolved(_)
+                | ListingAvailabilityQuickCheck::NoAssertion)
+        )
+}
+
+/// A `state` that is one URL, path or `javascript:` link, as a rule reads from an image's `src`
+/// or a link's `href`: `https://shop.example/img/cart.png`, `/images/add_to_order.gif` or
+/// `javascript:LoadIntoBasket()`. A label has words and no scheme, leading slash or file
+/// extension; a scheme counts only with something after its colon, so a `Tel:` label is none.
+/// The caller exempts availability values such as `https://schema.org/InStock`.
+fn link_or_path_check(state: &str) -> Option<PlausibilityCheck> {
+    let scheme_or_path_start =
+        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto|tel|data):\S)");
+    let file_extension =
+        regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
+    let value = state.trim();
+    let is_link_or_path = !value.contains(char::is_whitespace)
+        && (scheme_or_path_start.is_match(value) || file_extension.is_match(value));
+    is_link_or_path.then_some(PlausibilityCheck::LinkOrPath)
 }
 
 /// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
@@ -517,13 +583,16 @@ fn is_status_label_beside_amount(state: &str) -> bool {
     let amount_and_connectors = regex!(
         r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
     );
-    let resolves = |text: &str| {
-        quick_check_availability(text)
-            .ok()
-            .and_then(ListingAvailabilityQuickCheck::availability)
-            .is_some()
-    };
-    resolves(state) || resolves(&amount_and_connectors.replace_all(state, " "))
+    resolves_to_availability(state)
+        || resolves_to_availability(&amount_and_connectors.replace_all(state, " "))
+}
+
+/// Whether the ProductListing normalization resolves `text` to an availability.
+fn resolves_to_availability(text: &str) -> bool {
+    quick_check_availability(text)
+        .ok()
+        .and_then(ListingAvailabilityQuickCheck::availability)
+        .is_some()
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
@@ -655,8 +724,8 @@ fn skip_identifier(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::PlausibilityCheck::{
-        AllZeroDigits, AvailabilityText, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens,
-        PriceText, TooLong, WordList,
+        AllZeroDigits, AvailabilityText, Blank, DuplicateValues, InvalidIdentifier, LinkOrPath,
+        MarkupTokens, NoLetter, PriceText, TooLong, WordList,
     };
     use super::PlausibilityField::{
         Description, Images, Price, PriceEstimateMax, RawAttribute, SourceListingId, State, Title,
@@ -685,6 +754,58 @@ mod tests {
 
     mod plausible_extraction {
         use super::*;
+
+        #[rstest::rstest]
+        #[case("Pair of George III candlesticks, 1793")]
+        #[case("Lot 57-8150: Bronze figure")]
+        #[case("Kaiserreich 10 Mark 1873 A")]
+        #[case("伊万里 色絵 大皿")]
+        #[case("Икона Казанской Богоматери")]
+        #[case("Πήλινο αγγείο")]
+        #[case("1 Kreuzer")]
+        fn should_accept_a_title_with_a_letter_in_any_script(#[case] title: &str) {
+            let mut raw = plausible();
+            raw.title = Some(title.to_owned());
+
+            assert!(PlausibilityFindings::of(&raw).is_empty(), "{title}");
+        }
+
+        #[rstest::rstest]
+        #[case("Sold")]
+        #[case("Verkauft")]
+        #[case("売り切れ")]
+        #[case("Нет в наличии")]
+        #[case("In den Warenkorb")]
+        #[case("2 in stock")]
+        #[case("https://schema.org/InStock")]
+        #[case("http://schema.org/OutOfStock")]
+        #[case("https://schema.org/Discontinued")]
+        #[case("http://schema.org/OnlineOnly")]
+        #[case("https://schema.org/InStoreOnly")]
+        #[case("https://schema.org/instock")]
+        #[case("https://schema.org/SoldOut/")]
+        #[case("N/A")]
+        #[case("Tel:")]
+        #[case("Tel: 0123 456")]
+        fn should_accept_a_state_label_with_a_letter_that_is_no_link_or_path(#[case] state: &str) {
+            let mut raw = plausible();
+            raw.state = Some(state.to_owned());
+
+            assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
+        }
+
+        /// A status slot shows a bare amount on a live page, and a stock count is a number.
+        #[rstest::rstest]
+        #[case("450")]
+        #[case("1.200,-")]
+        #[case("0")]
+        #[case("1")]
+        fn should_accept_a_letterless_state_with_a_digit(#[case] state: &str) {
+            let mut raw = plausible();
+            raw.state = Some(state.to_owned());
+
+            assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
+        }
 
         #[test]
         fn should_report_nothing_when_every_field_is_plausible() {
@@ -777,6 +898,58 @@ mod tests {
 
     mod rejecting_findings {
         use super::*;
+
+        /// Titles captured in production for #2880 from galerie3.com, felixjud.com and
+        /// castle-close-antiques.com.
+        #[rstest::rstest]
+        #[case("!")]
+        #[case("10-7820")]
+        #[case("1.3.12.10.25")]
+        #[case("2023/11")]
+        #[case("2024_2")]
+        #[case("24.12.2025")]
+        #[case("3202/2950")]
+        fn should_reject_a_title_without_a_letter(#[case] title: &str) {
+            let mut raw = plausible();
+            raw.title = Some(title.to_owned());
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(Title, NoLetter)], "{title}");
+            assert!(findings.rejects_candidate(), "{title}");
+        }
+
+        /// States captured in production for #2876 from isis-books.nl, ca-collecting.com,
+        /// coiny-joe.at and bryandouglas.co.uk.
+        #[rstest::rstest]
+        #[case("https://www.isis-books.nl/img/winkelwagen.png", &[LinkOrPath])]
+        #[case(".", &[NoLetter])]
+        #[case("javascript:LoadIntoBasket()", &[LinkOrPath])]
+        #[case("/images/add_to_order.gif", &[LinkOrPath])]
+        #[case("img/cart.png?v=2", &[LinkOrPath])]
+        #[case("../basket.php", &[LinkOrPath])]
+        #[case("//cdn.shop.example/add.svg", &[LinkOrPath])]
+        #[case("/", &[NoLetter, LinkOrPath])]
+        #[case("-", &[NoLetter])]
+        #[case("—", &[NoLetter])]
+        #[case("✓", &[NoLetter])]
+        #[case("●", &[NoLetter])]
+        #[case("\u{e600}", &[NoLetter])]
+        #[case("tel:+441234567", &[LinkOrPath])]
+        fn should_reject_a_state_without_a_letter_or_that_is_a_link_or_path(
+            #[case] state: &str,
+            #[case] checks: &[PlausibilityCheck],
+        ) {
+            let mut raw = plausible();
+            raw.state = Some(state.to_owned());
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            let expected: Vec<_> = checks.iter().map(|check| finding(State, *check)).collect();
+            assert_eq!(findings.as_slice(), expected, "{state}");
+            assert!(findings.rejects_candidate(), "{state}");
+            assert!(findings.blocks_approval(), "{state}");
+        }
 
         #[test]
         fn should_reject_a_state_longer_than_a_label() {

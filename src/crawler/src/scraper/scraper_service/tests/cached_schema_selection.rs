@@ -368,10 +368,14 @@ async fn should_capture_a_page_with_an_empty_title_element_and_leave_the_title_u
 async fn should_prefer_a_titled_extraction_over_an_untitled_one() {
     let id = listing_source_id();
     let url = product_url();
-    let titled = schema_with(|schema| schema.title = Some(text_rule("#product-id")));
+    let titled = schema_with(|schema| schema.title = Some(text_rule("#item-name")));
     let schema_svc = schema_service_with_cached(id, vec![item_title_schema(), titled]);
+    let page_with_a_named_item = untitled_html().replace(
+        "</main>",
+        r#"<span id="item-name">Bronze chandelier</span></main>"#,
+    );
     let service = service(
-        fetcher_returning(untitled_html()),
+        fetcher_returning(page_with_a_named_item),
         schema_svc,
         MockScraperCandidateService::new(),
     );
@@ -381,7 +385,7 @@ async fn should_prefer_a_titled_extraction_over_an_untitled_one() {
         .unwrap()
         .unwrap_or_else(|| panic!("the titled extraction must be captured"));
 
-    assert_eq!(scraped.title.as_deref(), Some("1208922"));
+    assert_eq!(scraped.title.as_deref(), Some("Bronze chandelier"));
 }
 
 #[tokio::test]

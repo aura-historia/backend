@@ -1,16 +1,18 @@
+mod product_listing_counts;
+
 use admin_overview_service::{
     ports::{AdminOverviewReadError, AdminOverviewReader, AdminOverviewReaderFactory},
     use_cases::get_admin_overview::{
-        AdminOverview, AdminOverviewActiveListingAvailabilityCounts,
-        AdminOverviewContentNoticeStateCounts, AdminOverviewContentNotices,
+        AdminOverview, AdminOverviewContentNoticeStateCounts, AdminOverviewContentNotices,
         AdminOverviewListingSourceMethodAssignmentCounts, AdminOverviewListingSources,
         AdminOverviewPartnershipApplicationStateCounts, AdminOverviewPartnershipApplications,
-        AdminOverviewProductListingLifecycleCounts, AdminOverviewProductListings,
-        AdminOverviewUserRoleCounts, AdminOverviewUserTierCounts, AdminOverviewUsers,
+        AdminOverviewProductListings, AdminOverviewUserRoleCounts, AdminOverviewUserTierCounts,
+        AdminOverviewUsers,
     },
 };
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
+use product_listing_counts::read_product_listing_counts;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxAdminOverviewReaderFactory;
@@ -43,21 +45,6 @@ struct AdminOverviewRow {
     listing_source_woocommerce_assignments: i64,
     listing_source_partner_api_assignments: i64,
     partnerships_total: i64,
-    product_listings_total: i64,
-    product_listings_active: i64,
-    product_listings_withdrawn: i64,
-    active_available: i64,
-    active_in_stock: i64,
-    active_limited_availability: i64,
-    active_back_order: i64,
-    active_made_to_order: i64,
-    active_pre_order: i64,
-    active_pre_sale: i64,
-    active_unavailable: i64,
-    active_reserved: i64,
-    active_out_of_stock: i64,
-    active_sold_out: i64,
-    active_without_availability: i64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +55,15 @@ enum AdminOverviewRowMappingError {
         #[source]
         source: std::num::TryFromIntError,
     },
+    #[error("invalid {column} planner statistics: {reason}")]
+    Statistics {
+        column: &'static str,
+        reason: &'static str,
+    },
+}
+
+fn count(field: &'static str, value: i64) -> Result<u64, AdminOverviewRowMappingError> {
+    u64::try_from(value).map_err(|source| AdminOverviewRowMappingError::Count { field, source })
 }
 
 impl SqlxAdminOverviewReaderFactory {
@@ -142,25 +138,6 @@ listing_source_method_counts AS (
 partnership_counts AS (
     SELECT COUNT(*)::bigint AS partnerships_total
     FROM partnerships
-),
-product_listing_counts AS (
-    SELECT
-        COUNT(*)::bigint AS product_listings_total,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE')::bigint AS product_listings_active,
-        COUNT(*) FILTER (WHERE lifecycle = 'WITHDRAWN')::bigint AS product_listings_withdrawn,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'AVAILABLE')::bigint AS active_available,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'IN_STOCK')::bigint AS active_in_stock,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'LIMITED_AVAILABILITY')::bigint AS active_limited_availability,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'BACK_ORDER')::bigint AS active_back_order,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'MADE_TO_ORDER')::bigint AS active_made_to_order,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'PRE_ORDER')::bigint AS active_pre_order,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'PRE_SALE')::bigint AS active_pre_sale,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'UNAVAILABLE')::bigint AS active_unavailable,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'RESERVED')::bigint AS active_reserved,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'OUT_OF_STOCK')::bigint AS active_out_of_stock,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability = 'SOLD_OUT')::bigint AS active_sold_out,
-        COUNT(*) FILTER (WHERE lifecycle = 'ACTIVE' AND availability IS NULL)::bigint AS active_without_availability
-    FROM product_listings
 )
 SELECT *
 FROM user_counts
@@ -170,7 +147,6 @@ CROSS JOIN party_counts
 CROSS JOIN listing_source_counts
 CROSS JOIN listing_source_method_counts
 CROSS JOIN partnership_counts
-CROSS JOIN product_listing_counts
 "#;
 
 #[async_trait::async_trait]
@@ -183,122 +159,96 @@ impl AdminOverviewReader for SqlxAdminOverviewReader<'_> {
                 source: box_error(source),
             })?;
 
-        AdminOverview::try_from(row).map_err(|source| AdminOverviewReadError::InvalidReadModel {
-            source: box_error(source),
+        let product_listings = read_product_listing_counts(self.connection).await?;
+
+        row.into_overview(product_listings).map_err(|source| {
+            AdminOverviewReadError::InvalidReadModel {
+                source: box_error(source),
+            }
         })
     }
 }
 
-impl TryFrom<AdminOverviewRow> for AdminOverview {
-    type Error = AdminOverviewRowMappingError;
-
-    fn try_from(row: AdminOverviewRow) -> Result<Self, Self::Error> {
-        let count = |field, value| {
-            u64::try_from(value)
-                .map_err(|source| AdminOverviewRowMappingError::Count { field, source })
-        };
-
-        Ok(Self {
+impl AdminOverviewRow {
+    fn into_overview(
+        self,
+        product_listings: AdminOverviewProductListings,
+    ) -> Result<AdminOverview, AdminOverviewRowMappingError> {
+        Ok(AdminOverview {
             users: AdminOverviewUsers {
-                total: count("users_total", row.users_total)?,
+                total: count("users_total", self.users_total)?,
                 by_tier: AdminOverviewUserTierCounts {
-                    free: count("users_free", row.users_free)?,
-                    pro: count("users_pro", row.users_pro)?,
-                    ultimate: count("users_ultimate", row.users_ultimate)?,
+                    free: count("users_free", self.users_free)?,
+                    pro: count("users_pro", self.users_pro)?,
+                    ultimate: count("users_ultimate", self.users_ultimate)?,
                 },
                 by_role: AdminOverviewUserRoleCounts {
-                    user: count("users_user", row.users_user)?,
-                    admin: count("users_admin", row.users_admin)?,
+                    user: count("users_user", self.users_user)?,
+                    admin: count("users_admin", self.users_admin)?,
                 },
             },
             partnership_applications: AdminOverviewPartnershipApplications {
                 total: count(
                     "partnership_applications_total",
-                    row.partnership_applications_total,
+                    self.partnership_applications_total,
                 )?,
                 by_state: AdminOverviewPartnershipApplicationStateCounts {
                     submitted: count(
                         "partnership_applications_submitted",
-                        row.partnership_applications_submitted,
+                        self.partnership_applications_submitted,
                     )?,
                     in_review: count(
                         "partnership_applications_in_review",
-                        row.partnership_applications_in_review,
+                        self.partnership_applications_in_review,
                     )?,
                     approved: count(
                         "partnership_applications_approved",
-                        row.partnership_applications_approved,
+                        self.partnership_applications_approved,
                     )?,
                     rejected: count(
                         "partnership_applications_rejected",
-                        row.partnership_applications_rejected,
+                        self.partnership_applications_rejected,
                     )?,
                     withdrawn: count(
                         "partnership_applications_withdrawn",
-                        row.partnership_applications_withdrawn,
+                        self.partnership_applications_withdrawn,
                     )?,
                 },
             },
             content_notices: AdminOverviewContentNotices {
-                total: count("content_notices_total", row.content_notices_total)?,
+                total: count("content_notices_total", self.content_notices_total)?,
                 by_state: AdminOverviewContentNoticeStateCounts {
-                    submitted: count("content_notices_submitted", row.content_notices_submitted)?,
+                    submitted: count("content_notices_submitted", self.content_notices_submitted)?,
                 },
             },
-            parties_total: count("parties_total", row.parties_total)?,
+            parties_total: count("parties_total", self.parties_total)?,
             listing_sources: AdminOverviewListingSources {
-                total: count("listing_sources_total", row.listing_sources_total)?,
+                total: count("listing_sources_total", self.listing_sources_total)?,
                 without_ingestion_method: count(
                     "listing_sources_without_ingestion_method",
-                    row.listing_sources_without_ingestion_method,
+                    self.listing_sources_without_ingestion_method,
                 )?,
                 method_assignments: AdminOverviewListingSourceMethodAssignmentCounts {
                     web_crawl: count(
                         "listing_source_web_crawl_assignments",
-                        row.listing_source_web_crawl_assignments,
+                        self.listing_source_web_crawl_assignments,
                     )?,
                     shopify: count(
                         "listing_source_shopify_assignments",
-                        row.listing_source_shopify_assignments,
+                        self.listing_source_shopify_assignments,
                     )?,
                     woocommerce: count(
                         "listing_source_woocommerce_assignments",
-                        row.listing_source_woocommerce_assignments,
+                        self.listing_source_woocommerce_assignments,
                     )?,
                     partner_api: count(
                         "listing_source_partner_api_assignments",
-                        row.listing_source_partner_api_assignments,
+                        self.listing_source_partner_api_assignments,
                     )?,
                 },
             },
-            partnerships_total: count("partnerships_total", row.partnerships_total)?,
-            product_listings: AdminOverviewProductListings {
-                total: count("product_listings_total", row.product_listings_total)?,
-                by_lifecycle: AdminOverviewProductListingLifecycleCounts {
-                    active: count("product_listings_active", row.product_listings_active)?,
-                    withdrawn: count("product_listings_withdrawn", row.product_listings_withdrawn)?,
-                },
-                active_availability: AdminOverviewActiveListingAvailabilityCounts {
-                    available: count("active_available", row.active_available)?,
-                    in_stock: count("active_in_stock", row.active_in_stock)?,
-                    limited_availability: count(
-                        "active_limited_availability",
-                        row.active_limited_availability,
-                    )?,
-                    back_order: count("active_back_order", row.active_back_order)?,
-                    made_to_order: count("active_made_to_order", row.active_made_to_order)?,
-                    pre_order: count("active_pre_order", row.active_pre_order)?,
-                    pre_sale: count("active_pre_sale", row.active_pre_sale)?,
-                    unavailable: count("active_unavailable", row.active_unavailable)?,
-                    reserved: count("active_reserved", row.active_reserved)?,
-                    out_of_stock: count("active_out_of_stock", row.active_out_of_stock)?,
-                    sold_out: count("active_sold_out", row.active_sold_out)?,
-                },
-                active_without_availability: count(
-                    "active_without_availability",
-                    row.active_without_availability,
-                )?,
-            },
+            partnerships_total: count("partnerships_total", self.partnerships_total)?,
+            product_listings,
         })
     }
 }
@@ -331,30 +281,16 @@ mod tests {
             listing_source_woocommerce_assignments: 0,
             listing_source_partner_api_assignments: 0,
             partnerships_total: 0,
-            product_listings_total: 0,
-            product_listings_active: 0,
-            product_listings_withdrawn: 0,
-            active_available: 0,
-            active_in_stock: 0,
-            active_limited_availability: 0,
-            active_back_order: 0,
-            active_made_to_order: 0,
-            active_pre_order: 0,
-            active_pre_sale: 0,
-            active_unavailable: 0,
-            active_reserved: 0,
-            active_out_of_stock: 0,
-            active_sold_out: 0,
-            active_without_availability: 0,
         }
     }
 
     #[test]
     fn should_reject_negative_persisted_count() {
-        let result = AdminOverview::try_from(AdminOverviewRow {
+        let result = AdminOverviewRow {
             users_total: -1,
             ..zero_row()
-        });
+        }
+        .into_overview(AdminOverviewProductListings::default());
 
         assert!(matches!(
             result,
@@ -364,10 +300,11 @@ mod tests {
 
     #[test]
     fn should_reject_negative_persisted_content_notice_count() {
-        let result = AdminOverview::try_from(AdminOverviewRow {
+        let result = AdminOverviewRow {
             content_notices_submitted: -1,
             ..zero_row()
-        });
+        }
+        .into_overview(AdminOverviewProductListings::default());
 
         assert!(matches!(
             result,
@@ -380,11 +317,12 @@ mod tests {
 
     #[test]
     fn should_map_content_notice_counts() {
-        let result = AdminOverview::try_from(AdminOverviewRow {
+        let result = AdminOverviewRow {
             content_notices_total: 3,
             content_notices_submitted: 2,
             ..zero_row()
-        });
+        }
+        .into_overview(AdminOverviewProductListings::default());
 
         let overview = match result {
             Ok(overview) => overview,

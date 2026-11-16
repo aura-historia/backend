@@ -2559,7 +2559,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         selectedSchemaIndex = requested.schemaIndex ?? 0;
         compareSchemaIndex = 1;
         selectedField = 'title';
-        selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
+        selectedPageId = reviewPageOrDefault(pages, requested.pageId)?.review_page_id || null;
         previewUrlOverride = '';
     }
     candidateBaseline = cloneJson(detail.review.candidate_payload);
@@ -2697,6 +2697,16 @@ function pageRemovable(page) {
 
 function pageRoleLabel(role) {
     return PAGE_ROLE_LABELS[role] || displayName(role);
+}
+
+function reviewPageOrDefault(pages, reviewPageId) {
+    return pages.find(page => page.review_page_id === reviewPageId) || defaultReviewPage(pages);
+}
+
+// The schema matrix leaves pages marked no product out, so the console opens on a page the
+// review is judged on, whatever role order the server lists the pages in.
+function defaultReviewPage(pages) {
+    return pages.find(page => !page.not_product_reason) || pages[0];
 }
 
 function reviewPageLabel(page) {
@@ -3482,8 +3492,10 @@ async function saveSampleLabels() {
 function renderSchemaWorkbench(detail, matrix) {
     const pages = detail.pages || [];
     const schemas = currentSchemas();
-    const page = pages.find(p => p.review_page_id === selectedPageId) || pages[0];
-    if (page && !selectedPageId) selectedPageId = page.review_page_id;
+    const page = reviewPageOrDefault(pages, selectedPageId);
+    // A page removed since it was selected falls back to the default, so the dropdown, the
+    // preview and the link must all move to that page, not keep the removed page's id.
+    if (page && page.review_page_id !== selectedPageId) selectedPageId = page.review_page_id;
     const previewUrl = previewUrlOverride || (page ? page.url : '');
     const templates = currentRemovedPageTemplates().length;
     const dataIssues = groupFindingsByDescription(selectedCandidate(matrix)).size;
@@ -4177,6 +4189,8 @@ const plausibilityCheckDescriptions = {
     WORD_LIST: 'is a list of words, not an identifier',
     PRICE_TEXT: 'is a price, not an availability label',
     AVAILABILITY_TEXT: 'is an availability label, not a price',
+    NO_LETTER: 'has no letter',
+    LINK_OR_PATH: 'is a link or file path, not a label',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
@@ -4212,6 +4226,8 @@ const CHECK_LABELS = {
     WORD_LIST: 'Word list',
     PRICE_TEXT: 'Price text',
     AVAILABILITY_TEXT: 'Availability text',
+    NO_LETTER: 'No letter',
+    LINK_OR_PATH: 'Link or path',
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
@@ -4432,7 +4448,14 @@ function selectedMatrixPage(candidate) {
     const pages = candidate.pages || [];
     const selected = pages.find(page => pageReferenceKey(page.page_reference) === `persisted:${selectedPageId}`);
     if (selected) return selected;
-    return isLiveMatrixCandidate(candidate) ? null : pages[0] || null;
+    if (isLiveMatrixCandidate(candidate)) return null;
+    // A generated matrix names its pages by input position, so it is matched to the selected
+    // review page by URL; the preview and the extracted data then show the same page, and a
+    // selected page the matrix did not evaluate shows no extraction, as in a live matrix.
+    const selectedUrl = (selectedDetail?.pages || [])
+        .find(page => page.review_page_id === selectedPageId)?.url;
+    if (selectedUrl) return pages.find(page => page.url === selectedUrl) || null;
+    return pages[0] || null;
 }
 
 function isLiveMatrixCandidate(candidate) {

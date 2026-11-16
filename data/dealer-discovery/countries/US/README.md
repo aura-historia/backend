@@ -491,3 +491,5 @@ Run ids `2026-11-14-us-par-<shard>` (ne, nynjpa, midatl, southeast, southcentral
 
 Enrichment 2026-11-15 (`2026-11-15-us-enrich-<shard>`): the 63 dealers above were re-reviewed from first-party pages and updated through the API with live readback. Of the 63 sources: 54 have a location (was 43), 46 an original logo (was 15), 55 a platform (was 42) and 29 a delivery profile (was 0). Two locations were corrected in place (`correction: SAME_SITE`) instead of adding a second one, which would have ended the single-location inventory policy. Rejected logos carry `assetReview` rechecks. New contact emails found on pages are listed in the ledger omissions; Party contact cannot be changed by this flow. The inventory reconciler dry run reported nothing pending. Paid-data spend: **$0**.
 
+
+Run `2026-11-16-us-antiquehaus`: added Antique Haus (theantiquehaus.com, Shopify) on the user's request with logo and a US/Canada delivery profile. No postal address, phone or legal entity is published, so no location was recorded and US home is inferred from shipping scope, USD and CST live sales. Ingestion empty, spend $0.
