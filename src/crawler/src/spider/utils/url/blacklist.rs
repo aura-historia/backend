@@ -115,10 +115,30 @@ const ACTION_PARAMETERS: &[&str] = &[
     "print",
 ];
 
-/// Parameters whose value is a route of path-like segments, with the [`ACTION_SEGMENTS`] and
-/// PrestaShop's checkout controllers as actions.
-const ROUTE_PARAMETERS: &[&str] = &["route", "controller"];
-const ROUTE_ONLY_ACTIONS: &[&str] = &["order", "order-opc"];
+/// Parameters whose value is a route of path-like segments or an action name, with the
+/// [`ACTION_SEGMENTS`] and [`ROUTE_ONLY_ACTIONS`] as actions: PrestaShop's `controller`, OpenCart's
+/// `route` and the `action` parameter older shop systems take, also in Dutch
+/// (`?aktie=toevoegen&Product=…` on De Franse Lelie).
+const ROUTE_PARAMETERS: &[&str] = &["route", "controller", "action", "aktie", "actie"];
+/// Actions that are no page only as a route value: PrestaShop's checkout controllers and adding a
+/// product to or removing it from the basket (`toevoegen` is Dutch for add). As path segments
+/// they name pages (`/order/how-to-order`, `/products/add-ons`).
+const ROUTE_ONLY_ACTIONS: &[&str] = &[
+    "order",
+    "order-opc",
+    "add",
+    "add_to_cart",
+    "remove",
+    "toevoegen",
+];
+
+/// Path segments of contact and enquiry forms. The plain form is how shops link it and stays
+/// crawlable; with a query the shop pre-fills it per product (Denim Antique Furniture's
+/// `/contact/?icode=…&iname=…`), one useless fetch per product, so the last path segment is
+/// refused only when a query follows it.
+const ENQUIRY_SEGMENTS: &[&str] = &[
+    "contact", "kontakt", "enquiry", "enquire", "inquiry", "anfrage", "contatto", "contacto",
+];
 
 /// Extensions of files that are not HTML pages, matched on the last path segment.
 const FILE_EXTENSIONS: &[&str] = &[
@@ -158,6 +178,11 @@ pub(super) fn patterns() -> Vec<CompactString> {
             r"{PARAMETER_START}(?i:{})=(?:[^&#]*(?:/|%2[Ff]))?(?i:{segments}|{})(?:[/&#]|%2[Ff]|$)",
             alternation(ROUTE_PARAMETERS),
             alternation(ROUTE_ONLY_ACTIONS),
+        )
+        .into(),
+        format!(
+            r"{ORIGIN}/(?:[^?#]*/)?(?i:{})(?:\.[A-Za-z0-9]+)?/?\?[^#]",
+            alternation(ENQUIRY_SEGMENTS)
         )
         .into(),
         format!(
@@ -227,6 +252,49 @@ mod tests {
     }
 
     #[test]
+    fn should_refuse_basket_actions_named_by_an_action_parameter_value() {
+        for action in [
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=toevoegen&Product=ProductEntity:114501&count=1,00",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&amp;aktie=toevoegen&amp;Product=ProductEntity:114501",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=winkelwagen",
+            "https://example.com/shop.php?actie=toevoegen&id=12",
+            "https://example.com/index.php?action=add&product_id=12",
+            "https://example.com/index.php?action=ADD_TO_CART&id=12",
+            "https://example.com/basket.asp?id=12&action=remove",
+        ] {
+            assert!(is_blacklisted(action), "{action} should be refused");
+        }
+    }
+
+    #[test]
+    fn should_refuse_enquiry_forms_only_when_a_query_prefills_them() {
+        for enquiry in [
+            "https://www.denimantiquefurniture.com/contact/?icode=27715&iname=Victorian%20Oak%20Desk",
+            "https://example.com/contact?icode=27715",
+            "https://example.com/de/kontakt?artikel=4711",
+            "https://example.com/enquiry.php?id=12",
+            "https://example.com/products/oak-desk/enquire/?ref=12",
+            "https://example.com/Inquiry/?item=12",
+            "https://example.com/anfrage?produkt=12",
+            "https://example.com/it/contatto?prodotto=12",
+            "https://example.com/es/contacto/?producto=12",
+        ] {
+            assert!(is_blacklisted(enquiry), "{enquiry} should be refused");
+        }
+        for page in [
+            "https://www.denimantiquefurniture.com/contact/",
+            "https://example.com/contact",
+            "https://example.com/kontakt",
+            "https://example.com/de/kontakt/",
+            "https://example.com/enquiry.html",
+            "https://example.com/contact?",
+            "https://example.com/contact/#form",
+        ] {
+            assert!(!is_blacklisted(page), "{page} should be followed");
+        }
+    }
+
+    #[test]
     fn should_refuse_downloads_and_files() {
         for file in [
             "https://www.decorativecollective.com/product/downloadproductimages/581341",
@@ -284,6 +352,16 @@ mod tests {
             "https://example.com/products/comparison-of-hallmarks",
             "https://example.com/products/printers-tray-1900",
             "https://example.com/products/logo-plate?view=print-room",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=product&Product=ProductEntity:114501",
+            "https://example.com/products/contact-lens-case-1920",
+            "https://example.com/products/brass-contact-thermometer?variant=12",
+            "https://example.com/contact-us/opening-hours?lang=en",
+            "https://example.com/products/action-man-1964-boxed",
+            "https://example.com/products/1?action=view",
+            "https://example.com/index.php?action=product&id=12",
+            "https://example.com/products/addison-mahogany-desk?ref=add",
+            "https://example.com/products/add-on-shelf",
+            "https://example.com/shop?actie=sale&page=2",
         ] {
             assert!(!is_blacklisted(page), "{page} should be followed");
         }
