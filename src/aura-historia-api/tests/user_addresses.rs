@@ -67,34 +67,37 @@ impl TokenAuthenticator for Auth {
     }
 }
 struct SyntheticGeocoder(Arc<AtomicUsize>);
+fn synthetic_candidate() -> GeocodingCandidate {
+    GeocodingCandidate::new(
+        DerivedGeography::new(
+            GeographicDescription::new(None, Some(CountryCode::GBR), None, None).unwrap(),
+            Some(
+                SpatialPosition::new(
+                    GeoPoint::new(51.5, -0.1).unwrap(),
+                    SpatialPrecision::Premises,
+                    None,
+                )
+                .unwrap(),
+            ),
+        ),
+        vec![],
+        None,
+        GeocodingProvenance {
+            provider: "TEST",
+            product: "TEST",
+            data_source: "TEST",
+            region: "TEST".into(),
+            interpretation_profile: "PRIVATE_API_TEST",
+            external_reference: "synthetic".into(),
+            attribution_url: "https://example.test/attribution",
+        },
+    )
+}
 #[async_trait::async_trait]
 impl GeocodingProvider for SyntheticGeocoder {
     async fn geocode(&self, request: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        let candidate = GeocodingCandidate::new(
-            DerivedGeography::new(
-                GeographicDescription::new(None, Some(CountryCode::GBR), None, None).unwrap(),
-                Some(
-                    SpatialPosition::new(
-                        GeoPoint::new(51.5, -0.1).unwrap(),
-                        SpatialPrecision::Premises,
-                        None,
-                    )
-                    .unwrap(),
-                ),
-            ),
-            vec![],
-            None,
-            GeocodingProvenance {
-                provider: "TEST",
-                product: "TEST",
-                data_source: "TEST",
-                region: "TEST".into(),
-                interpretation_profile: "PRIVATE_API_TEST",
-                external_reference: "synthetic".into(),
-                attribution_url: "https://example.test/attribution",
-            },
-        );
+        let candidate = synthetic_candidate();
         let candidates = if request.query().as_str().contains("replacement") {
             vec![candidate.clone(), candidate]
         } else {
@@ -105,12 +108,21 @@ impl GeocodingProvider for SyntheticGeocoder {
             retention: ResultRetention::Storage,
         })
     }
+    /// Knows only `known-place`; searches for an ambiguous "replacement" text find two places.
     async fn look_up_place(
         &self,
-        _: &PlaceReference,
+        place: &PlaceReference,
         _: &GeocodingRequest,
     ) -> Result<PlaceLookup, GeocodingError> {
-        Ok(PlaceLookup::Unknown)
+        if place.as_str() != "known-place" {
+            return Ok(PlaceLookup::Unknown);
+        }
+        Ok(PlaceLookup::Found(GeocodingResult {
+            outcome: GeocodingOutcome::Candidates(
+                CandidateSet::new(vec![synthetic_candidate()], 5).unwrap(),
+            ),
+            retention: ResultRetention::Storage,
+        }))
     }
 }
 async fn resolve(pool: &sqlx::PgPool, id: UserAddressId, calls: Arc<AtomicUsize>) {
@@ -468,4 +480,88 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
             .all(|v| v["addressId"] != json!(id))
     );
     assert_eq!(2, calls.load(Ordering::SeqCst));
+}
+
+async fn router_for_owner(pool: &sqlx::PgPool, owner: UserId) -> axum::Router {
+    sqlx::query("INSERT INTO users(user_id,email,tier,role) VALUES($1,$2,'FREE','USER')")
+        .bind(owner.into_uuid())
+        .bind(format!("{owner}@example.test"))
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('PRIVATE_API_TEST',true)").execute(pool).await.unwrap();
+    let handler = Arc::new(AddressBookHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxAddressBookFactory,
+        SqlxResolutionRepositoryFactory,
+    ));
+    app(AppState::new().with_user_addresses(UserAddressesState {
+        commands: handler.clone(),
+        queries: handler,
+        authenticator: Arc::new(Auth {
+            owner,
+            foreign: UserId::new(),
+        }),
+    }))
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn should_resolve_a_picked_place_and_keep_it_until_the_address_text_changes() {
+    let pool = get_postgres_client().await;
+    let owner = UserId::new();
+    let router = router_for_owner(&pool, owner).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let geography = |text: &str| json!({"referenceRelease":"iso-codes-4.20.1","addressText":text});
+    let base = "/v1/me/addresses";
+    // Free-text search would find two places for this text; the pick resolves exactly one.
+    let picked = json!({"label":"Home","geography":geography("Synthetic replacement street 1"),"placeId":"known-place"});
+    let (status, saved) = request(&router, "POST", base, Some("owner"), picked).await;
+    assert_eq!(StatusCode::CREATED, status);
+    let id = UserAddressId::try_from(saved["addressId"].as_str().unwrap()).unwrap();
+    let path = format!("{base}/{id}");
+    resolve(&pool, id, Arc::clone(&calls)).await;
+    assert_eq!(0, calls.load(Ordering::SeqCst));
+    let (_, read) = request(&router, "GET", &path, Some("owner"), json!({})).await;
+    assert_eq!(json!("ACCEPTED"), read["resolution"]["status"]);
+    assert!(read["resolution"]["derived"]["position"].is_object());
+
+    let relabelled = json!({"expectedVersion":read["version"],"label":"Renamed",
+        "geography":geography("Synthetic replacement street 1")});
+    let (status, renamed) = request(&router, "PUT", &path, Some("owner"), relabelled).await;
+    assert_eq!(StatusCode::OK, status);
+    assert_eq!(read["inputRevision"], renamed["inputRevision"]);
+    assert_eq!(json!("ACCEPTED"), renamed["resolution"]["status"]);
+
+    let repicked = json!({"expectedVersion":renamed["version"],"label":"Renamed",
+        "geography":geography("Synthetic replacement street 1"),"placeId":"known-place"});
+    let (status, repicked) = request(&router, "PUT", &path, Some("owner"), repicked).await;
+    assert_eq!(StatusCode::OK, status);
+    assert_eq!(
+        renamed["inputRevision"].as_u64().unwrap() + 1,
+        repicked["inputRevision"].as_u64().unwrap()
+    );
+    // The same pick for the same text reuses its evidence without another provider call.
+    assert_eq!(json!("ACCEPTED"), repicked["resolution"]["status"]);
+
+    let retyped = json!({"expectedVersion":repicked["version"],"label":"Renamed",
+        "geography":geography("Synthetic replacement street 2")});
+    let (status, _) = request(&router, "PUT", &path, Some("owner"), retyped).await;
+    assert_eq!(StatusCode::OK, status);
+    resolve(&pool, id, Arc::clone(&calls)).await;
+    assert_eq!(1, calls.load(Ordering::SeqCst));
+    let (_, read) = request(&router, "GET", &path, Some("owner"), json!({})).await;
+    assert_eq!(json!("AMBIGUOUS"), read["resolution"]["status"]);
+
+    let invalid =
+        json!({"label":"Home","geography":geography("Synthetic street"),"placeId":"two words"});
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        request(&router, "POST", base, Some("owner"), invalid)
+            .await
+            .0
+    );
 }
