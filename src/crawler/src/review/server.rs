@@ -59,6 +59,7 @@ mod mass_removal_confirmation;
 mod pending_reviews;
 mod query_params;
 mod review_list;
+mod sample_redirects;
 mod schema_matrix;
 mod selector_probe;
 mod source_label;
@@ -387,6 +388,7 @@ impl ReviewServer {
             else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
+            self.probe_sample_redirects(review_id).await;
             return match self.repository.approval_failures(review_id).await {
                 Ok(failed_checks) => {
                     HttpResponse::json(200, &json!({ "failed_checks": failed_checks }))
@@ -530,6 +532,9 @@ impl ReviewServer {
                     Ok(verdict) => verdict,
                     Err(response) => return response,
                 };
+            if actor.is_agent() {
+                self.probe_sample_redirects(review_id).await;
+            }
             return verdict_answer(
                 self.repository
                     .approve_review(review_id, actor, payload.approval())
@@ -4476,7 +4481,7 @@ Origin: http://127.0.0.1:7878/x
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::UrlPatternDecision;
         use crate::review::repository::CrawlerReviewRepository;
-        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use crate::scraper::scraper_service::html_fetcher::HtmlFetcher;
         use listing_source_core::ListingSourceId;
         use serde_json::{Value, json};
         use sqlx::PgPool;
@@ -4499,10 +4504,12 @@ Origin: http://127.0.0.1:7878/x
             )
         }
 
-        /// A review server taking the agents' guarded decisions, and the ListingSource and the
-        /// pending, undecided URL-pattern review of the shop crawled on [`SHOP`].
-        async fn url_pattern_review_server(
+        /// A review server taking the agents' guarded decisions, fetching the shop through
+        /// `html_fetcher`, and the ListingSource and the pending, undecided URL-pattern review of
+        /// the shop crawled on [`SHOP`].
+        pub(super) async fn url_pattern_review_server(
             pool: &PgPool,
+            html_fetcher: Arc<dyn HtmlFetcher>,
         ) -> (ReviewServer, ListingSourceId, CrawlerReviewId) {
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -4528,7 +4535,6 @@ Origin: http://127.0.0.1:7878/x
                 )
                 .await
                 .unwrap_or_else(|error| panic!("create URL-pattern review: {error}"));
-            // The fetcher expects no call: labels and approvals fetch nothing.
             let server = ReviewServer::new(
                 repository,
                 ReviewServerConfig {
@@ -4538,7 +4544,7 @@ Origin: http://127.0.0.1:7878/x
                     local_mutations_without_token: false,
                     max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
-                Arc::new(MockHtmlFetcher::new()),
+                html_fetcher,
             );
             (server, listing_source_id, review_id)
         }
@@ -4546,7 +4552,8 @@ Origin: http://127.0.0.1:7878/x
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_take_the_reviewer_approval_of_a_pattern_that_takes_some_sample_urls() {
             let pool = test_api::get_postgres_client().await;
-            let (server, listing_source_id, review_id) = url_pattern_review_server(&pool).await;
+            let (server, listing_source_id, review_id) =
+                url_pattern_review_server(&pool, Arc::new(super::StaticHtmlFetcher)).await;
             let sample_labels = format!("POST /api/reviews/{review_id}/sample-labels");
             let candidate = format!("POST /api/reviews/{review_id}/candidate");
             let approve = format!("POST /api/reviews/{review_id}/approve");
@@ -4666,7 +4673,8 @@ Origin: http://127.0.0.1:7878/x
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_refuse_a_label_off_the_crawl_host() {
             let pool = test_api::get_postgres_client().await;
-            let (server, _, review_id) = url_pattern_review_server(&pool).await;
+            let (server, _, review_id) =
+                url_pattern_review_server(&pool, Arc::new(super::StaticHtmlFetcher)).await;
             let off_host = "https://antique-shop.de/item/oak-chair";
             let mut off_host_labels = labels(&PRODUCTS, &NOT_PRODUCTS);
             off_host_labels[0]["url"] = json!(off_host);
@@ -4695,6 +4703,97 @@ Origin: http://127.0.0.1:7878/x
                 "{detail}"
             );
             assert_eq!(detail["events"], json!([]), "{detail}");
+        }
+    }
+
+    mod sample_redirects {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
+        use super::sample_labels::url_pattern_review_server;
+        use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
+        use serde_json::json;
+        use std::sync::Arc;
+        use test_api::IntegrationTestService as _;
+        use url::Url;
+
+        /// A site-builder shop whose product links redirect to the category page that shows the
+        /// product, at the anchor of its block (#2986).
+        struct ProductLinksToCategoryPage;
+
+        #[async_trait::async_trait]
+        impl HtmlFetcher for ProductLinksToCategoryPage {
+            async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+                let final_url = if url.path().starts_with("/item/") {
+                    url.join("/shop/chairs/#cc-m-product-12101782174")
+                        .unwrap_or_else(|error| panic!("category URL: {error}"))
+                } else {
+                    url.clone()
+                };
+                Ok(FetchedHtml::new(
+                    "<html></html>".to_owned(),
+                    final_url,
+                    reqwest::StatusCode::OK,
+                ))
+            }
+        }
+
+        /// The console fetches the sample URLs the pattern takes before the guard reads its
+        /// checks, records where they led, and the reviewer agent's approval of a pattern whose
+        /// URLs all redirect to a listing page is refused, naming the redirect targets.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_a_pattern_whose_sample_urls_redirect_to_a_listing_page() {
+            let pool = test_api::get_postgres_client().await;
+            let (server, _, review_id) =
+                url_pattern_review_server(&pool, Arc::new(ProductLinksToCategoryPage)).await;
+            let (status, decided) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/candidate"),
+                &json!({
+                    "expected_candidate_version": 1,
+                    "decision": { "type": "PATTERN", "value": "/item/[^/]+$" },
+                    "current_pattern": null,
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {decided}");
+
+            let (status, checks) = send_as(
+                &server,
+                TOKEN,
+                &format!("GET /api/reviews/{review_id}/approval-checks"),
+                "",
+            )
+            .await;
+            let (approve_status, refused) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &format!("POST /api/reviews/{review_id}/approve"),
+                &json!({ "expected_candidate_version": decided["candidate_version"] }).to_string(),
+            )
+            .await;
+
+            let finding = json!([{
+                "check": "SAMPLE_URLS_REDIRECT_TO_NON_PRODUCT_PAGES",
+                "fetched": 2,
+                "redirects": [
+                    {
+                        "url": "https://antique-shop.example/item/oak-chair",
+                        "redirect_target": "https://antique-shop.example/shop/chairs/#cc-m-product-12101782174",
+                    },
+                    {
+                        "url": "https://antique-shop.example/item/pine-table",
+                        "redirect_target": "https://antique-shop.example/shop/chairs/#cc-m-product-12101782174",
+                    },
+                ],
+            }]);
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {checks}");
+            assert_eq!(checks["failed_checks"], finding);
+            assert!(
+                approve_status.starts_with("HTTP/1.1 409"),
+                "{approve_status} {refused}"
+            );
+            assert_eq!(refused["failed_checks"], finding);
         }
     }
 

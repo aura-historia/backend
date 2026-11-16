@@ -47,6 +47,7 @@ mod review_source;
 mod reviewer_page_url;
 mod revocation;
 mod sample_labels;
+mod sample_redirects;
 mod schema_payload;
 mod source_label;
 mod source_qualification;

@@ -1,7 +1,8 @@
 //! The deterministic checks an approval by a review agent must pass in `agent` authoring mode. A
 //! check reads only what the server itself evaluated and stored, a product-schema review's live
-//! matrix or a URL-pattern review's stored sample of crawled URLs, never a matrix or a verdict a client sends
-//! with the approval; the contract is in `docs/crawler/extraction-and-review.md` (approval guard).
+//! matrix or a URL-pattern review's stored sample of crawled URLs and where the console found them
+//! to redirect, never a matrix or a verdict a client sends with the approval; the contract is in
+//! `docs/crawler/extraction-and-review.md` (approval guard).
 
 use crate::CrawlerReviewPageId;
 use crate::network::policy::url_on_crawl_host;
@@ -20,6 +21,10 @@ use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
     ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
 };
+use crate::scraper::scraper_service::pipeline::scrape_product::{
+    RedirectTarget, is_same_logical_host,
+};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 use serde::Serialize;
 use std::fmt;
@@ -105,6 +110,19 @@ pub enum FailedApprovalCheck {
     PatternTakesProbePaths {
         paths: Vec<&'static str>,
     },
+    /// Most of the sample URLs the pattern takes that the console fetched redirect to a page that
+    /// is no product page under it: outside the pattern, the homepage, another host, or a page the
+    /// crawler stores as no product URL of the ListingSource, such as a site builder's `goto` link
+    /// that lands on a category page at the product's anchor. No scrape extracts such a URL.
+    SampleUrlsRedirectToNonProductPages {
+        fetched: usize,
+        redirects: Vec<SampleRedirectFinding>,
+    },
+    /// The console has fetched none of the sample URLs the pattern takes whose redirects the guard
+    /// reads: where they lead is not known yet, so the guard does not pass the pattern.
+    SampleRedirectsNotFetched {
+        probe_urls: usize,
+    },
     /// A `NO_PATTERN` decision, which an agent never approves: nothing in a review shows that a
     /// shop has no product URLs, so a human decides it.
     NoPatternNeedsHuman,
@@ -164,6 +182,13 @@ fn describe_states(states: &[SeenState]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// A sample URL the pattern takes and the page it redirected to, as a check names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SampleRedirectFinding {
+    pub url: String,
+    pub redirect_target: String,
 }
 
 /// A sampled captured URL a `CAPTURED_IDENTITY_DIFFERS` refusal names, as
@@ -278,6 +303,20 @@ impl fmt::Display for FailedApprovalCheck {
                 formatter,
                 "the pattern takes made-up paths no product URL has ({}): it describes the shop's URLs in general, not its product URLs; anchor it on what only the product URLs share, such as a path prefix, an id or a file extension",
                 paths.join(", ")
+            ),
+            Self::SampleUrlsRedirectToNonProductPages { fetched, redirects } => write!(
+                formatter,
+                "{} of the {fetched} sample URL(s) the pattern takes that the console fetched redirect to no product page under it ({}): they link to a listing or other page, not to product pages, and no scrape extracts them; write the pattern for the shop's product pages, such as the pages they redirect to when each shows one product, or label the source URL_PATTERN_APPROACH_NOT_APPLICABLE when the shop has no product pages of their own",
+                redirects.len(),
+                redirects
+                    .iter()
+                    .map(|redirect| format!("{} → {}", redirect.url, redirect.redirect_target))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::SampleRedirectsNotFetched { probe_urls } => write!(
+                formatter,
+                "the console has not yet fetched any of the {probe_urls} sample URL(s) the pattern takes to see where they redirect; it fetches them at the shop's crawl delay, so check again in a few minutes"
             ),
             Self::NoPatternNeedsHuman => write!(
                 formatter,
@@ -439,17 +478,21 @@ fn outdated_reason(
 }
 
 /// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead.
-/// Induction is label-blind, so the checks are the local ones and read no label and no page: the
-/// candidate is decided, its pattern compiles (decoding the candidate guarantees it), and it takes
-/// at least one URL of the review's `sample` of crawled URLs and, on a sample of at least two, not
-/// every one. Only sample URLs on `domain`, the crawl host of the review's ListingSource and the
-/// one host the decision applies to, count. They show the pattern is a usable rule, not that it is right: no URL is classified
-/// by keywords or by its page's markup here, Claude decides what a product page is. A
-/// `NO_PATTERN` decision is a human's to approve.
+/// Induction is label-blind, so the checks read no label and no page markup: the candidate is
+/// decided, its pattern compiles (decoding the candidate guarantees it), and it takes at least one
+/// URL of the review's `sample` of crawled URLs and, on a sample of at least two, not every one.
+/// Only sample URLs on `domain`, the crawl host of the review's ListingSource and the one host the
+/// decision applies to, count. The one fetched evidence is where the [redirect probe
+/// URLs](redirect_probe_urls) led, as `redirects` records them: most of those the console fetched
+/// must not redirect to a page that is no product page under the pattern, and at least one must
+/// have been fetched. A probe URL without a recorded fetch is no evidence either way. The checks show the pattern is a usable rule, not
+/// that it is right: no URL is classified by keywords here, Claude decides what a product page is.
+/// A `NO_PATTERN` decision is a human's to approve.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
     domain: &str,
     sample: &[String],
+    redirects: &[SampleRedirect],
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
@@ -464,7 +507,101 @@ pub(crate) fn url_pattern_approval_checks(
     sample_share_check(&takes, domain, sample)
         .into_iter()
         .chain(probe_path_check(&takes, domain))
+        .chain(sample_redirect_check(
+            &pattern,
+            &probe_urls_taken(&takes, domain, sample),
+            redirects,
+        ))
         .collect()
+}
+
+/// The most sample URLs the console fetches to see where a URL-pattern candidate's URLs redirect.
+const MAX_REDIRECT_PROBES: usize = 5;
+
+/// Where the console found a sample URL to lead when it fetched it: `final_url` is the URL itself
+/// when it did not redirect. `final_url_stored_as_non_product` says whether the crawler stores the
+/// redirect target as no product URL of the review's ListingSource, as the scraper's redirect
+/// settlement reads it (`docs/crawler/networking.md#duplicate-targets`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SampleRedirect {
+    pub url: Url,
+    pub final_url: Url,
+    pub final_url_stored_as_non_product: bool,
+}
+
+/// The sample URLs whose redirects the guard reads for the URL-pattern `candidate`: the first
+/// [`MAX_REDIRECT_PROBES`] on the crawl host `domain` that its pattern takes, in sample order.
+/// None for a candidate without a usable pattern.
+pub(crate) fn redirect_probe_urls(
+    candidate: &UrlPatternReviewCandidate,
+    domain: &str,
+    sample: &[String],
+) -> Vec<Url> {
+    let Ok(Some(pattern)) = candidate.decision.candidate_pattern() else {
+        return Vec::new();
+    };
+    probe_urls_taken(
+        &|url: &Url| CrawledUrl::new(url.clone()).matches_pattern(&pattern),
+        domain,
+        sample,
+    )
+}
+
+fn probe_urls_taken(takes: &impl Fn(&Url) -> bool, domain: &str, sample: &[String]) -> Vec<Url> {
+    sample
+        .iter()
+        .filter_map(|url| Url::parse(url).ok())
+        .filter(|url| url_on_crawl_host(url, domain) && takes(url))
+        .take(MAX_REDIRECT_PROBES)
+        .collect()
+}
+
+/// The refusal of a pattern most of whose fetched `probe_urls` redirect to no product page under
+/// `pattern`, the way the scraper reads a product URL's redirect
+/// (`docs/crawler/networking.md#redirect-removal-evidence`): a redirect that names the same page
+/// is none, one to another page the pattern takes is a product page, and any other, or one to a
+/// page stored as no product URL of the ListingSource, is not. A shop that redirects a few removed
+/// products to a category page passes; a pattern whose URLs are such links does not. While none
+/// of the probe URLs has a recorded fetch, the check fails closed.
+fn sample_redirect_check(
+    pattern: &ProductUrlPattern,
+    probe_urls: &[Url],
+    redirects: &[SampleRedirect],
+) -> Option<FailedApprovalCheck> {
+    let fetched: Vec<&SampleRedirect> = probe_urls
+        .iter()
+        .filter_map(|url| redirects.iter().find(|redirect| redirect.url == *url))
+        .collect();
+    let redirects: Vec<SampleRedirectFinding> = fetched
+        .iter()
+        .filter(|redirect| leads_to_non_product_page(pattern, redirect))
+        .map(|redirect| SampleRedirectFinding {
+            url: redirect.url.to_string(),
+            redirect_target: redirect.final_url.to_string(),
+        })
+        .collect();
+    if fetched.is_empty() && !probe_urls.is_empty() {
+        return Some(FailedApprovalCheck::SampleRedirectsNotFetched {
+            probe_urls: probe_urls.len(),
+        });
+    }
+    (redirects.len() * 2 > fetched.len()).then_some(
+        FailedApprovalCheck::SampleUrlsRedirectToNonProductPages {
+            fetched: fetched.len(),
+            redirects,
+        },
+    )
+}
+
+fn leads_to_non_product_page(pattern: &ProductUrlPattern, redirect: &SampleRedirect) -> bool {
+    match RedirectTarget::of(&redirect.url, &redirect.final_url, Some(pattern)) {
+        RedirectTarget::SamePage => false,
+        target => {
+            !is_same_logical_host(&redirect.url, &redirect.final_url)
+                || !target.is_product_page()
+                || redirect.final_url_stored_as_non_product
+        }
+    }
 }
 
 /// The refusal of a decision that takes none, or on a sample of two or more every one, of the
@@ -1519,13 +1656,196 @@ mod tests {
         "https://antique-shop.example/impressum",
     ];
 
+    /// The checks of `decision` on `sample`, every sample URL fetched without a redirect.
     fn sample_checks(decision: UrlPatternDecision, sample: &[&str]) -> Vec<FailedApprovalCheck> {
+        let redirects: Vec<SampleRedirect> = sample
+            .iter()
+            .filter(|url| Url::parse(url).is_ok())
+            .map(|url| fetched(url, url))
+            .collect();
+        redirect_checks(decision, sample, &redirects)
+    }
+
+    /// A sample of a site-builder shop whose only product links are `goto` links (#2986): each
+    /// redirects to the category page that shows the product, at the anchor of its block.
+    const GOTO_SAMPLE: [&str; 4] = [
+        "https://antique-shop.example//app/module/webproduct/goto/m/mffce6a9906fdb201",
+        "https://antique-shop.example//app/module/webproduct/goto/m/m0a1b2c3d4e5f6a7b",
+        "https://antique-shop.example/vasen/satsuma/",
+        "https://antique-shop.example/impressum/",
+    ];
+
+    fn goto_pattern() -> UrlPatternDecision {
+        UrlPatternDecision::Pattern {
+            value: "/{1,2}app/module/webproduct/goto/m/[^/?#]+/?".to_owned(),
+            exclude: None,
+            matching: UrlPatternMatching::PathAndQueryFullMatch,
+        }
+    }
+
+    fn fetched(url: &str, final_url: &str) -> SampleRedirect {
+        SampleRedirect {
+            url: Url::parse(url).expect("sample URL"),
+            final_url: Url::parse(final_url).expect("final URL"),
+            final_url_stored_as_non_product: false,
+        }
+    }
+
+    fn redirect_checks(
+        decision: UrlPatternDecision,
+        sample: &[&str],
+        redirects: &[SampleRedirect],
+    ) -> Vec<FailedApprovalCheck> {
         let sample: Vec<String> = sample.iter().map(|url| (*url).to_owned()).collect();
         url_pattern_approval_checks(
             &UrlPatternReviewCandidate::new(decision, None),
             "antique-shop.example",
             &sample,
+            redirects,
         )
+    }
+
+    #[test]
+    fn should_refuse_a_pattern_whose_urls_redirect_to_a_listing_page_with_a_product_fragment() {
+        let redirects = [
+            fetched(
+                GOTO_SAMPLE[0],
+                "https://antique-shop.example/vasen/satsuma/#cc-m-product-12101782174",
+            ),
+            fetched(
+                GOTO_SAMPLE[1],
+                "https://antique-shop.example/vasen/imari/#cc-m-product-12101782175",
+            ),
+        ];
+
+        let checks = redirect_checks(goto_pattern(), &GOTO_SAMPLE, &redirects);
+
+        assert_eq!(
+            checks,
+            vec![FailedApprovalCheck::SampleUrlsRedirectToNonProductPages {
+                fetched: 2,
+                redirects: vec![
+                    SampleRedirectFinding {
+                        url: GOTO_SAMPLE[0].to_owned(),
+                        redirect_target:
+                            "https://antique-shop.example/vasen/satsuma/#cc-m-product-12101782174"
+                                .to_owned(),
+                    },
+                    SampleRedirectFinding {
+                        url: GOTO_SAMPLE[1].to_owned(),
+                        redirect_target:
+                            "https://antique-shop.example/vasen/imari/#cc-m-product-12101782175"
+                                .to_owned(),
+                    },
+                ],
+            }]
+        );
+        assert!(
+            checks[0]
+                .to_string()
+                .contains("/vasen/satsuma/#cc-m-product-12101782174"),
+            "the finding names the redirect targets: {}",
+            checks[0]
+        );
+    }
+
+    #[test]
+    fn should_refuse_a_pattern_whose_urls_redirect_to_a_page_stored_as_no_product_url() {
+        let stored_non_product = SampleRedirect {
+            final_url_stored_as_non_product: true,
+            ..fetched(
+                "https://antique-shop.example/item/oak-chair",
+                "https://antique-shop.example/item/sold-out",
+            )
+        };
+
+        let checks = redirect_checks(pattern("/item/"), &SAMPLE, &[stored_non_product]);
+
+        assert!(
+            matches!(
+                checks.as_slice(),
+                [FailedApprovalCheck::SampleUrlsRedirectToNonProductPages { fetched: 1, redirects }]
+                    if redirects[0].redirect_target == "https://antique-shop.example/item/sold-out"
+            ),
+            "{checks:?}"
+        );
+    }
+
+    /// A shop that sends a removed product to its category page, product URLs that redirect to
+    /// another product URL or only add the trailing slash, and probe URLs the console has not
+    /// fetched, show no pattern of links that never reach a product page.
+    #[test]
+    fn should_pass_product_urls_that_mostly_reach_a_product_page() {
+        let redirects = [
+            fetched(
+                SAMPLE[0],
+                "https://antique-shop.example/item-category/chairs",
+            ),
+            fetched(SAMPLE[1], "https://antique-shop.example/item/brass-lamp"),
+            fetched(
+                "https://antique-shop.example/item/clock",
+                "https://antique-shop.example/item/wall-clock",
+            ),
+        ];
+        let sample = [
+            SAMPLE[0],
+            SAMPLE[1],
+            "https://antique-shop.example/item/clock",
+            SAMPLE[2],
+        ];
+
+        assert_eq!(
+            redirect_checks(pattern("/item/"), &sample, &redirects),
+            vec![]
+        );
+        assert_eq!(
+            redirect_checks(goto_pattern(), &GOTO_SAMPLE, &redirects[..1]),
+            vec![FailedApprovalCheck::SampleRedirectsNotFetched { probe_urls: 2 }],
+            "a recorded fetch of a URL the pattern does not take is no evidence of its URLs"
+        );
+    }
+
+    /// Where the pattern's URLs lead is unknown until the console fetched one of them, as on a
+    /// shop whose crawl delay keeps the fetches queued past the approval request.
+    #[test]
+    fn should_refuse_a_pattern_none_of_whose_probe_urls_was_fetched() {
+        assert_eq!(
+            redirect_checks(goto_pattern(), &GOTO_SAMPLE, &[]),
+            vec![FailedApprovalCheck::SampleRedirectsNotFetched { probe_urls: 2 }]
+        );
+        assert_eq!(
+            redirect_checks(pattern("/produkt/"), &SAMPLE, &[]),
+            vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 5 }],
+            "a pattern that takes no sample URL has nothing to fetch"
+        );
+    }
+
+    #[test]
+    fn should_probe_the_first_sample_urls_on_the_crawl_host_the_pattern_takes() {
+        let sample: Vec<String> = std::iter::once("https://elsewhere.example/item/0".to_owned())
+            .chain((1..=7).map(|index| format!("https://antique-shop.example/item/{index}")))
+            .chain(std::iter::once(
+                "https://antique-shop.example/shop/".to_owned(),
+            ))
+            .collect();
+        let candidate = UrlPatternReviewCandidate::new(pattern("/item/"), None);
+
+        let probes = redirect_probe_urls(&candidate, "antique-shop.example", &sample);
+
+        assert_eq!(
+            probes.iter().map(Url::as_str).collect::<Vec<_>>(),
+            (1..=MAX_REDIRECT_PROBES)
+                .map(|index| format!("https://antique-shop.example/item/{index}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            redirect_probe_urls(
+                &UrlPatternReviewCandidate::new(UrlPatternDecision::NoPattern, None),
+                "antique-shop.example",
+                &sample,
+            )
+            .is_empty()
+        );
     }
 
     /// A pattern that takes some of the sample's URLs and leaves others passes without a single
