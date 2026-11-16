@@ -3492,7 +3492,9 @@ function renderSchemaWorkbench(detail, matrix) {
     const pages = detail.pages || [];
     const schemas = currentSchemas();
     const page = reviewPageOrDefault(pages, selectedPageId);
-    if (page && !selectedPageId) selectedPageId = page.review_page_id;
+    // A page removed since it was selected falls back to the default, so the dropdown, the
+    // preview and the link must all move to that page, not keep the removed page's id.
+    if (page && page.review_page_id !== selectedPageId) selectedPageId = page.review_page_id;
     const previewUrl = previewUrlOverride || (page ? page.url : '');
     const templates = currentRemovedPageTemplates().length;
     const dataIssues = groupFindingsByDescription(selectedCandidate(matrix)).size;
