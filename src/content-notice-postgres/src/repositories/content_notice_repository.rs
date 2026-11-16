@@ -73,8 +73,8 @@ impl ContentNoticeRepository for Repository<'_> {
                 .map(|url| url.as_str())
                 .collect::<Vec<_>>(),
         )
-        .bind(submitter.name.as_str())
-        .bind(submitter.email.as_str())
+        .bind(submitter.name.as_ref().map(|name| name.as_str()))
+        .bind(submitter.email.as_ref().map(|email| email.as_str()))
         .bind(submitter.language.as_str())
         .bind(notice.good_faith_statement_version().as_str())
         .bind(fingerprint.as_bytes().as_slice())

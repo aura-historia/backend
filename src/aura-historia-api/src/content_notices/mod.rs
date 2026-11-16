@@ -95,8 +95,10 @@ mod tests {
                         listing_source_partner: true,
                         submitter_role: SubmitterRole::Provider,
                         reason_category: ReasonCategory::ProviderOptOut,
-                        submitter_name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-                        submitter_email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+                        submitter_name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+                        submitter_email: Some(
+                            SubmitterEmail::try_from("erika@antik.example").unwrap(),
+                        ),
                     }],
                     cursor: Cursor {
                         size: 1,

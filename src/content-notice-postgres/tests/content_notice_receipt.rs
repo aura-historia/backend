@@ -87,8 +87,8 @@ fn command(target: ContentNoticeTargetReference) -> SubmitContentNoticeCommand {
         ])
         .unwrap(),
         submitter: Submitter {
-            name: SubmitterName::try_from("MarkerName").unwrap(),
-            email: SubmitterEmail::try_from("Erika@Example.com").unwrap(),
+            name: Some(SubmitterName::try_from("MarkerName").unwrap()),
+            email: Some(SubmitterEmail::try_from("Erika@Example.com").unwrap()),
             language: Language::Fr,
         },
         good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,

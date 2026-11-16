@@ -33,8 +33,10 @@ pub(super) struct SubmitContentNoticeData {
     explanation: Option<String>,
     #[serde(default)]
     additional_urls: Vec<String>,
-    name: String,
-    email: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
     #[serde(with = "crate::wire::language")]
     language: Language,
     /// Optional on the wire so that a missing confirmation is a field error, like `false`.
@@ -60,6 +62,7 @@ enum SubmitterRoleData {
     Provider,
     RightsHolder,
     IllegalContentReporter,
+    Other,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -85,10 +88,16 @@ impl TryFrom<SubmitContentNoticeData> for SubmitContentNoticeCommand {
             .transpose()
             .map_err(|error| invalid_field("/explanation", error))?;
         let additional_urls = additional_urls(data.additional_urls)?;
-        let name =
-            SubmitterName::try_from(data.name).map_err(|error| invalid_field("/name", error))?;
-        let email =
-            SubmitterEmail::try_from(data.email).map_err(|error| invalid_field("/email", error))?;
+        let name = data
+            .name
+            .map(SubmitterName::try_from)
+            .transpose()
+            .map_err(|error| invalid_field("/name", error))?;
+        let email = data
+            .email
+            .map(SubmitterEmail::try_from)
+            .transpose()
+            .map_err(|error| invalid_field("/email", error))?;
         if data.good_faith_confirmed != Some(true) {
             return Err(
                 ApiError::bad_request(CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED)
@@ -164,6 +173,7 @@ impl From<SubmitterRoleData> for SubmitterRole {
             SubmitterRoleData::Provider => Self::Provider,
             SubmitterRoleData::RightsHolder => Self::RightsHolder,
             SubmitterRoleData::IllegalContentReporter => Self::IllegalContentReporter,
+            SubmitterRoleData::Other => Self::Other,
         }
     }
 }

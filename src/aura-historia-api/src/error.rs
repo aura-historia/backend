@@ -187,6 +187,8 @@ pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
     ApiErrorCode("BAD_QUERY_PARAMETER_VALUE");
 pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
 pub(crate) const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
+pub(crate) const CONTENT_NOTICE_CONTACT_REQUIRED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_CONTACT_REQUIRED");
 pub(crate) const CONTENT_NOTICE_EXPLANATION_REQUIRED: ApiErrorCode =
     ApiErrorCode("CONTENT_NOTICE_EXPLANATION_REQUIRED");
 pub(crate) const CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED: ApiErrorCode =
@@ -2797,6 +2799,20 @@ impl From<SubmitContentNoticeError> for ApiError {
             ) => ApiError::bad_request(CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER)
                 .with_body_field("/reasonCategory")
                 .with_detail("Only submitter role PROVIDER may choose PROVIDER_OPT_OUT."),
+            SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::SubmitterNameRequired { .. },
+            ) => ApiError::bad_request(CONTENT_NOTICE_CONTACT_REQUIRED)
+                .with_body_field("/name")
+                .with_detail(
+                    "A name is required unless the submitter role is ILLEGAL_CONTENT_REPORTER.",
+                ),
+            SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::SubmitterEmailRequired { .. },
+            ) => ApiError::bad_request(CONTENT_NOTICE_CONTACT_REQUIRED)
+                .with_body_field("/email")
+                .with_detail(
+                    "An email address is required unless the submitter role is ILLEGAL_CONTENT_REPORTER.",
+                ),
             SubmitContentNoticeError::TargetNotFound => {
                 ApiError::not_found(CONTENT_NOTICE_TARGET_NOT_FOUND)
                     .with_detail("The product listing or listing source was not found.")
@@ -2806,7 +2822,7 @@ impl From<SubmitContentNoticeError> for ApiError {
                 retry_after.seconds(),
             )
             .with_detail(
-                "Too many content notices were submitted from this email address. Try again later.",
+                "Too many content notices were submitted from this email address, or anonymously about this target. Try again later.",
             ),
             SubmitContentNoticeError::TemporarilyUnavailable { source }
             | SubmitContentNoticeError::BeginTransactionFailed(source)

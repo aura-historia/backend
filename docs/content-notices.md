@@ -5,11 +5,15 @@ without an account:
 
 - a **provider**, the operator of a listed shop, for example to opt out of being listed;
 - a **rights holder**, for example a photographer whose image a listing uses;
-- anyone **reporting illegal content**.
+- anyone **reporting illegal content**, who may stay anonymous;
+- anyone **else**, for example a visitor reporting incorrect information.
 
 Notices are the notice-and-action channel in the sense of DSA Art. 16: fully electronic,
 with a reasoned explanation, the exact location, the notifier's name and email, and a
-good-faith statement. A human always decides; a notice never removes anything by itself.
+good-faith statement. The mechanism allows but does not require identification (Recital 50),
+and Art. 16(2)(c) exempts reports of child sexual abuse offences from naming the notifier, so
+a report of illegal content may leave out the name and email. A human always decides; a
+notice never removes anything by itself.
 
 The `content-notice-core`, `content-notice-service` and `content-notice-postgres` crates own
 this bounded context. PostgreSQL is authoritative; there is no projection.
@@ -18,11 +22,11 @@ this bounded context. PostgreSQL is authoritative; there is no projection.
 
 | Field | Rule |
 | --- | --- |
-| Submitter role | `PROVIDER`, `RIGHTS_HOLDER` or `ILLEGAL_CONTENT_REPORTER`. |
+| Submitter role | `PROVIDER`, `RIGHTS_HOLDER`, `ILLEGAL_CONTENT_REPORTER` or `OTHER`. |
 | Reason category | `PROVIDER_OPT_OUT`, `RIGHTS_INFRINGEMENT`, `ILLEGAL_CONTENT`, `INCORRECT_INFORMATION` or `OTHER`. Only a `PROVIDER` may choose `PROVIDER_OPT_OUT`. |
 | Explanation | Required, except for `PROVIDER_OPT_OUT` where it is optional. |
 | Additional URLs | Up to ten absolute `http`/`https` URLs without credentials, none repeated. |
-| Name, email, language | The notifier's contact. The email is a bare ASCII address without display text, as the email provider requires: an international domain is kept in its punycode form and a non-ASCII local part is rejected. The language selects the notifier's correspondence. |
+| Name, email, language | The notifier's contact. Name and email are required, except that an `ILLEGAL_CONTENT_REPORTER` may leave out either or both; a notice without both is anonymous. The email is a bare ASCII address without display text, as the email provider requires: an international domain is kept in its punycode form and a non-ASCII local part is rejected. The language selects the notifier's correspondence and is always given. |
 | Good-faith statement | Always confirmed. The notice records which wording was confirmed (`GOOD_FAITH_V1`); a changed wording gets a new version and never rewrites old notices. |
 
 Text is trimmed, bounded and free of control characters (an explanation may keep line breaks
@@ -64,43 +68,52 @@ whether the caller was signed in.
 ## Submission limits
 
 The anonymous endpoint has cheap abuse protection that needs no UI change. The values were
-approved by the product owner and are named constants in
+approved by the product owner for addresses, anonymous notices reuse them, and they are named
+constants in
 [`submission_policy`](../src/content-notice-service/src/submission_policy.rs); there is no
-environment configuration.
+environment configuration. The limits apply per **group**:
 
-- **Address:** submissions are grouped by the lowercased email address, the stored
+- **Address:** a notice with an email address is grouped by the lowercased address, the stored
   `submitter_email_key`. PostgreSQL computes it for the lock, the read and the stored row alike.
   The fingerprint lowercases in Rust; addresses are ASCII, so both agree.
+- **Target without address:** a notice without an email address is grouped with the other
+  notices without one about the same target (the listing source, or the listing). Notices
+  store no IP address, so the target is the only key an anonymous notice offers. It keeps one
+  target from being flooded without letting anyone block anonymous notices about other
+  targets; notices with an address about the same target are not counted.
 - **Window:** rolling, the 24 hours before the submission's `now`, read from a clock port once
-  the address is locked. A stored notice is dated with the same `now`: unlike other entities,
+  the group is locked. A stored notice is dated with the same `now`: unlike other entities,
   its `created` and initial `updated` come from that clock rather than from the database, so
   the window it was checked against and the time it records agree.
-- **Identical resubmission:** the same submission fingerprint from the same address within the
+- **Identical resubmission:** the same submission fingerprint in the same group within the
   window stores nothing, commits, and gets the same `202` as a new notice, so client retries and
   double clicks are safe. It does not count against the budget.
-- **Budget:** when 10 notices from the address were stored within the window, a further notice
+- **Budget:** when 10 notices of the group were stored within the window, a further notice
   is rejected with `429 CONTENT_NOTICE_RATE_LIMITED` and `Retry-After` (exposed to browsers
   through CORS): the whole seconds until enough of them leave the window, normally the oldest.
   The webapp then offers its `mailto:` fallback.
 - **No races:** after resolving the target, the submission transaction takes a
-  transaction-scoped advisory lock on the address key, then checks for a duplicate, then the
+  transaction-scoped advisory lock on the group, then checks for a duplicate, then the
   budget, then inserts. Concurrent identical submissions store one notice, and concurrent
-  distinct submissions cannot push an address past its budget.
+  distinct submissions cannot push a group past its budget.
 - **Logging:** the outcomes `duplicate` (INFO) and `rate_limited` (WARN) are logged with the
   request and correlation IDs, never with the email, its key or a hash of either. A
-  rate-limited request does not log its target either, because it can indicate who complained
-  about what.
+  rate-limited request logs only the kind of group, not its target, because the target can
+  indicate who complained about what.
 
 The address is unverified, so the budget throttles volume, not people: anyone can use up
 another address's budget for a day, and address variants such as plus-addressing get separate
-budgets. A human reviews every notice, so this is accepted for phase 1. There is no per-IP
-limit: handlers have no trustworthy client IP and notices store none, and the web ACL has no
+budgets. Likewise anyone can use up a target's anonymous budget for a day; reporters can still give an
+email address, which has its own budget. A human reviews every notice, so this is accepted for
+phase 1. There is no per-IP limit: handlers have no trustworthy client IP and notices store none, and the web ACL has no
 rate rule ([front door](http-api-front-door.md)).
 
 ## Receipt email
 
-Every stored notice gets exactly one receipt email to the address the notifier gave, the
-confirmation of receipt that DSA Art. 16(5) expects. An identical resubmission and a
+Every stored notice with an email address gets exactly one receipt email to that address, the
+confirmation of receipt that DSA Art. 16(4) expects where the notice contains electronic contact
+information. A notice without an email address stores no receipt intent: the notifier cannot be
+sent a receipt or, later, the decision (Art. 16(5)). An identical resubmission and a
 rate-limited submission store nothing, so they send nothing. There is no separate receipt cap:
 the per-address budget already bounds receipts, and every accepted notice is acknowledged.
 
@@ -140,7 +153,8 @@ workflow; until then, admins communicate decisions outside the system.
 
 ## Personal data
 
-A notice holds the notifier's name and email, and free text and URLs they typed.
+A notice holds the notifier's name and email when they gave them, and free text and URLs they
+typed.
 
 - No IP address or other request metadata is stored.
 - Name, email, explanation and additional URLs never appear in logs, metrics, URLs, error
@@ -153,7 +167,8 @@ workflow, which has to define what an erased notice still proves. The receipt me
 the notifier's address too; that retention rule must erase it by the notice's origin as well.
 
 The table also stores two support values for the submission rules: the lowercased email
-address and a SHA-256 fingerprint of the submission, which the submission use case defines.
+address (absent without an address) and a SHA-256 fingerprint of the submission, which the
+submission use case defines.
 
 ## Access
 
@@ -168,8 +183,9 @@ not notice reads: they follow the overview's own access rule (`admin-overview:re
 the counts of the admin overview (`GET /v1/admin/overview`); there is no alert yet.
 
 - Each item is a summary: target, the listing source name, listing title and partner flag from
-  the snapshot, role, category, and the submitter's name and email. The explanation and URLs are
-  left to the detail read.
+  the snapshot, role, category, and the submitter's name and email, each omitted when the
+  notifier gave none. A notice without both is shown as anonymous; one without an email cannot
+  be answered. The explanation and URLs are left to the detail read.
 - Filters cover the target kind, a listing source (notices about the source and about its
   listings), a listing, the category, the role and the creation time. There is no filter on
   personal data and none on the state, which is always `SUBMITTED` until decisions exist.
@@ -191,7 +207,8 @@ needs to handle it: the submitted content, the snapshot, and the target as it is
   (same rule as at submission), and for a listing target whether the listing exists and its
   lifecycle. A target that no longer exists is reported as such; the notice is still returned.
 - The [receipt](#receipt-email) delivery is read in the same query, found by its origin. It is
-  `null` only when no receipt was enqueued.
+  `null` when no receipt was enqueued, which is always the case for a notice without an email
+  address.
 - A stored notice that breaks an invariant, or an unknown stored value, fails the read instead of
   being defaulted.
 - Responses are never cached.

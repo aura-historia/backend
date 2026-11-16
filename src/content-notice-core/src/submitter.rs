@@ -114,11 +114,15 @@ impl std::fmt::Debug for SubmitterEmail {
 }
 
 /// The notifier's identity and contact as given in the notice. It is personal data; `Debug`
-/// output only shows the language.
+/// output only shows the language and which values are present.
+///
+/// Name and email are optional here; the notice's submitter role decides whether they are
+/// required (`SubmitterRole::requires_identification`). Without an email address the notifier
+/// gets no correspondence, so the language then only records the form's language.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Submitter {
-    pub name: SubmitterName,
-    pub email: SubmitterEmail,
+    pub name: Option<SubmitterName>,
+    pub email: Option<SubmitterEmail>,
     pub language: Language,
 }
 
@@ -163,8 +167,8 @@ mod tests {
     #[test]
     fn should_not_reveal_personal_data_in_debug_output() {
         let submitter = Submitter {
-            name: SubmitterName::try_from("Jane Doe").unwrap(),
-            email: SubmitterEmail::try_from("jane@example.com").unwrap(),
+            name: Some(SubmitterName::try_from("Jane Doe").unwrap()),
+            email: Some(SubmitterEmail::try_from("jane@example.com").unwrap()),
             language: Language::De,
         };
 

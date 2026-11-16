@@ -279,7 +279,10 @@ mod tests {
                         .map(|url| url.as_str())
                         .collect::<Vec<_>>()
                 );
-                assert_eq!("erika@example.com", command.submitter.email.as_str());
+                assert_eq!(
+                    Some("erika@example.com"),
+                    command.submitter.email.as_ref().map(|email| email.as_str())
+                );
             }
         }
     }
@@ -303,6 +306,58 @@ mod tests {
         let calls = use_case.calls();
         assert_eq!(None, calls[0].1.explanation);
         assert!(calls[0].1.additional_urls.is_empty());
+    }
+
+    /// Whether a role must name the notifier is the use case's rule; the transport passes an
+    /// omitted or `null` name or email on as absent.
+    #[tokio::test]
+    async fn should_pass_an_omitted_or_null_name_and_email_on_as_absent() {
+        let report = with(
+            with(
+                listing_source_body(ListingSourceId::new()),
+                "submitterRole",
+                json!("ILLEGAL_CONTENT_REPORTER"),
+            ),
+            "reasonCategory",
+            json!("ILLEGAL_CONTENT"),
+        );
+        let omitted = without(without(report.clone(), "name"), "email");
+        let null = with(with(report, "name", Value::Null), "email", Value::Null);
+
+        for body in [omitted, null] {
+            let use_case = RecordingUseCase::returning(stored);
+
+            let response = post_json(&use_case, &body).await;
+
+            assert_eq!(StatusCode::ACCEPTED, response.status());
+            let calls = use_case.calls();
+            let command = &calls[0].1;
+            assert_eq!(
+                SubmitterRole::IllegalContentReporter,
+                command.submitter_role
+            );
+            assert_eq!(None, command.submitter.name);
+            assert_eq!(None, command.submitter.email);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_accept_the_submitter_role_other() {
+        let use_case = RecordingUseCase::returning(stored);
+        let body = with(
+            with(
+                listing_source_body(ListingSourceId::new()),
+                "submitterRole",
+                json!("OTHER"),
+            ),
+            "reasonCategory",
+            json!("INCORRECT_INFORMATION"),
+        );
+
+        let response = post_json(&use_case, &body).await;
+
+        assert_eq!(StatusCode::ACCEPTED, response.status());
+        assert_eq!(SubmitterRole::Other, use_case.calls()[0].1.submitter_role);
     }
 
     #[tokio::test]
@@ -335,7 +390,6 @@ mod tests {
 
         for body in [
             "not-json".to_owned(),
-            without(valid.clone(), "name").to_string(),
             with(valid.clone(), "submitterRole", json!("OPERATOR")).to_string(),
             with(valid.clone(), "ipAddress", json!("192.0.2.1")).to_string(),
             unknown_target_field.to_string(),
@@ -369,8 +423,13 @@ mod tests {
 
         assert_eq!(StatusCode::ACCEPTED, response.status());
         assert_eq!(
-            "Erika Mustermann",
-            use_case.calls()[0].1.submitter.name.as_str()
+            Some("Erika Mustermann"),
+            use_case.calls()[0]
+                .1
+                .submitter
+                .name
+                .as_ref()
+                .map(|name| name.as_str())
         );
     }
 
@@ -470,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_use_case_outcomes_to_problems() {
-        let cases: [(UseCaseOutcome, StatusCode, &str, Option<&str>); 6] = [
+        let cases: [(UseCaseOutcome, StatusCode, &str, Option<&str>); 8] = [
             (
                 || {
                     Err(SubmitContentNoticeError::InvalidNotice(
@@ -494,6 +553,30 @@ mod tests {
                 StatusCode::BAD_REQUEST,
                 "CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER",
                 Some("/reasonCategory"),
+            ),
+            (
+                || {
+                    Err(SubmitContentNoticeError::InvalidNotice(
+                        ContentNoticeInvariantError::SubmitterNameRequired {
+                            submitter_role: SubmitterRole::Provider,
+                        },
+                    ))
+                },
+                StatusCode::BAD_REQUEST,
+                "CONTENT_NOTICE_CONTACT_REQUIRED",
+                Some("/name"),
+            ),
+            (
+                || {
+                    Err(SubmitContentNoticeError::InvalidNotice(
+                        ContentNoticeInvariantError::SubmitterEmailRequired {
+                            submitter_role: SubmitterRole::RightsHolder,
+                        },
+                    ))
+                },
+                StatusCode::BAD_REQUEST,
+                "CONTENT_NOTICE_CONTACT_REQUIRED",
+                Some("/email"),
             ),
             (
                 || Err(SubmitContentNoticeError::TargetNotFound),
@@ -580,7 +663,7 @@ mod tests {
                 "status": 429,
                 "title": "Too Many Requests",
                 "error": "CONTENT_NOTICE_RATE_LIMITED",
-                "detail": "Too many content notices were submitted from this email address. Try again later."
+                "detail": "Too many content notices were submitted from this email address, or anonymously about this target. Try again later."
             }),
             problem
         );

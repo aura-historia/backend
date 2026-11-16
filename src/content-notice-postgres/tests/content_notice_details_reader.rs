@@ -83,8 +83,8 @@ async fn submit(
             ])
             .unwrap(),
             submitter: Submitter {
-                name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-                email: SubmitterEmail::try_from("erika@example.com").unwrap(),
+                name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+                email: Some(SubmitterEmail::try_from("erika@example.com").unwrap()),
                 language: Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
@@ -193,7 +193,10 @@ async fn should_read_listing_source_notice_with_snapshot_and_current_source() {
     assert_eq!(ReasonCategory::ProviderOptOut, notice.reason_category);
     assert_eq!(None, notice.explanation);
     assert_eq!(1, notice.additional_urls.len());
-    assert_eq!("erika@example.com", notice.submitter.email.as_str());
+    assert_eq!(
+        "erika@example.com",
+        notice.submitter.email.as_ref().unwrap().as_str()
+    );
     assert_eq!(1, details.version.into_inner());
     assert_eq!(details.created, details.updated);
     assert_eq!(

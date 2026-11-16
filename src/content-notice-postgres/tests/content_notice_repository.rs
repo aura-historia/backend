@@ -42,8 +42,8 @@ fn listing_source_snapshot() -> ListingSourceSnapshot {
 
 fn submitter() -> Submitter {
     Submitter {
-        name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-        email: SubmitterEmail::try_from("Erika@Antik.example").unwrap(),
+        name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+        email: Some(SubmitterEmail::try_from("Erika@Antik.example").unwrap()),
         language: Language::De,
     }
 }
@@ -253,6 +253,102 @@ async fn should_reject_rows_whose_target_columns_disagree_with_target_type() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_insert_and_read_back_an_anonymous_report_of_illegal_content() {
+    let pool = get_postgres_client().await;
+    let notice = ContentNotice::submit(NewContentNotice {
+        id: ContentNoticeId::new(),
+        target: ContentNoticeTarget::ListingSource {
+            listing_source_id: ListingSourceId::new(),
+        },
+        target_snapshot: TargetSnapshot {
+            listing_source: listing_source_snapshot(),
+            product_listing: None,
+        },
+        submitter_role: SubmitterRole::IllegalContentReporter,
+        reason_category: ReasonCategory::IllegalContent,
+        explanation: Some(NoticeExplanation::try_from("Verbotenes Symbol.").unwrap()),
+        additional_urls: AdditionalUrls::default(),
+        submitter: Submitter {
+            name: None,
+            email: None,
+            language: Language::De,
+        },
+        good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
+    })
+    .unwrap();
+
+    insert_and_find(&pool, &notice).await;
+
+    let email_key: Option<String> = sqlx::query_scalar(
+        "SELECT submitter_email_key FROM content_notices WHERE content_notice_id = $1",
+    )
+    .bind(notice.id().into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(None, email_key);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_insert_and_read_back_a_notice_from_the_submitter_role_other() {
+    let pool = get_postgres_client().await;
+    let notice = rights_infringement_for_product_listing();
+    let notice = ContentNotice::submit(NewContentNotice {
+        id: notice.id(),
+        target: notice.target(),
+        target_snapshot: notice.target_snapshot().clone(),
+        submitter_role: SubmitterRole::Other,
+        reason_category: ReasonCategory::IncorrectInformation,
+        explanation: notice.explanation().cloned(),
+        additional_urls: notice.additional_urls().clone(),
+        submitter: notice.submitter().clone(),
+        good_faith_statement_version: notice.good_faith_statement_version(),
+    })
+    .unwrap();
+
+    insert_and_find(&pool, &notice).await;
+}
+
+/// Only a report of illegal content may leave out the notifier's name or email.
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reject_rows_without_identification_from_roles_that_require_it() {
+    let pool = get_postgres_client().await;
+
+    for (submitter_role, reason_category, name, email) in [
+        (
+            "PROVIDER",
+            "PROVIDER_OPT_OUT",
+            None,
+            Some("erika@antik.example"),
+        ),
+        ("RIGHTS_HOLDER", "OTHER", Some("Erika"), None),
+        ("OTHER", "OTHER", None, None),
+    ] {
+        let error = sqlx::query(
+            "INSERT INTO content_notices(content_notice_id, target_type, listing_source_id, listing_source_name, listing_source_partner, submitter_role, reason_category, explanation, submitter_name, submitter_email, submitter_language, good_faith_statement_version, submission_fingerprint, business_state) VALUES($1, 'LISTING_SOURCE', $2, 'Antik', false, $3, $4, 'Grund.', $5, $6, 'de', 'GOOD_FAITH_V1', $7, 'SUBMITTED')",
+        )
+        .bind(ContentNoticeId::new().into_uuid())
+        .bind(ListingSourceId::new().into_uuid())
+        .bind(submitter_role)
+        .bind(reason_category)
+        .bind(name)
+        .bind(email)
+        .bind(FINGERPRINT.as_bytes().as_slice())
+        .execute(&pool)
+        .await
+        .expect_err("notice without identification");
+
+        assert_eq!(
+            Some("content_notices_submitter_identification_check"),
+            error
+                .as_database_error()
+                .and_then(|error| error.constraint()),
+            "{submitter_role}"
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_store_values_at_the_upper_bounds_of_the_domain_types() {
     let pool = get_postgres_client().await;
     let url_prefix = "https://antik.example/";
@@ -297,8 +393,8 @@ async fn should_store_values_at_the_upper_bounds_of_the_domain_types() {
         )
         .unwrap(),
         submitter: Submitter {
-            name: SubmitterName::try_from("ß".repeat(SubmitterName::MAX_CHARS)).unwrap(),
-            email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+            name: Some(SubmitterName::try_from("ß".repeat(SubmitterName::MAX_CHARS)).unwrap()),
+            email: Some(SubmitterEmail::try_from("erika@antik.example").unwrap()),
             language: Language::Hi,
         },
         good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,

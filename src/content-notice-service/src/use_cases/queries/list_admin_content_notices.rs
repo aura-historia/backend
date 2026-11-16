@@ -136,8 +136,10 @@ pub struct ContentNoticeSummary {
     pub listing_source_partner: bool,
     pub submitter_role: SubmitterRole,
     pub reason_category: ReasonCategory,
-    pub submitter_name: SubmitterName,
-    pub submitter_email: SubmitterEmail,
+    /// `None` when the notifier gave none; only a report of illegal content may omit it.
+    pub submitter_name: Option<SubmitterName>,
+    /// `None` when the notifier gave none; only a report of illegal content may omit it.
+    pub submitter_email: Option<SubmitterEmail>,
 }
 
 pub type ListAdminContentNoticesResult = CursoredResult<ContentNoticeSummary, ContentNoticeCursor>;

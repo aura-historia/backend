@@ -5,8 +5,10 @@ pub enum SubmitterRole {
     Provider,
     /// The holder of rights in the listed content, such as a photographer.
     RightsHolder,
-    /// Anyone reporting content they consider illegal.
+    /// Anyone reporting content they consider illegal. They may stay anonymous.
     IllegalContentReporter,
+    /// Anyone else, for example a visitor reporting incorrect information.
+    Other,
 }
 
 impl SubmitterRole {
@@ -15,7 +17,15 @@ impl SubmitterRole {
             Self::Provider => "PROVIDER",
             Self::RightsHolder => "RIGHTS_HOLDER",
             Self::IllegalContentReporter => "ILLEGAL_CONTENT_REPORTER",
+            Self::Other => "OTHER",
         }
+    }
+
+    /// Whether a notice from this role must name the notifier and their email address. A
+    /// report of illegal content may be anonymous: DSA Recital 50 allows but does not require
+    /// identification, and Art. 16(2)(c) exempts reports of child sexual abuse offences.
+    pub fn requires_identification(self) -> bool {
+        !matches!(self, Self::IllegalContentReporter)
     }
 
     pub fn from_code(value: &str) -> Option<Self> {
@@ -39,11 +49,22 @@ mod tests {
             "ILLEGAL_CONTENT_REPORTER",
             SubmitterRole::IllegalContentReporter.as_str()
         );
+        assert_eq!("OTHER", SubmitterRole::Other.as_str());
     }
 
     #[test]
     fn should_reject_unknown_or_noncanonical_code() {
         assert_eq!(None, SubmitterRole::from_code("provider"));
         assert_eq!(None, SubmitterRole::from_code("OPERATOR"));
+    }
+
+    #[test]
+    fn should_require_identification_from_every_role_except_illegal_content_reporters() {
+        for role in SubmitterRole::iter() {
+            assert_eq!(
+                role != SubmitterRole::IllegalContentReporter,
+                role.requires_identification()
+            );
+        }
     }
 }

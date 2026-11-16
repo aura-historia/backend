@@ -525,8 +525,8 @@ mod tests {
                 "https://marker-url.example/photo",
             )?])?,
             submitter: Submitter {
-                name: SubmitterName::try_from("MarkerName")?,
-                email: SubmitterEmail::try_from("marker-email@submitter.example")?,
+                name: Some(SubmitterName::try_from("MarkerName")?),
+                email: Some(SubmitterEmail::try_from("marker-email@submitter.example")?),
                 language: localization::Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
@@ -679,7 +679,14 @@ mod tests {
         let source = ExternalEmailDeliverySource {
             notification_delivery_id: NotificationDeliveryId::new(),
             external_email_message_id: ExternalEmailMessageId::new(),
-            recipient: ExternalEmailRecipient::try_from(notice.submitter().email.as_str())?,
+            recipient: ExternalEmailRecipient::try_from(
+                notice
+                    .submitter()
+                    .email
+                    .as_ref()
+                    .expect("fixture email")
+                    .as_str(),
+            )?,
             language,
             content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt::for_notice(
                 notice,

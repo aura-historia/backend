@@ -176,3 +176,34 @@ async fn should_store_a_resubmission_once_and_rate_limit_an_address_over_its_bud
         "CONTENT_NOTICE_RATE_LIMITED",
     );
 }
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_accept_an_anonymous_report_of_illegal_content_without_a_receipt() {
+    let listing_source_id = ListingSourceId::try_from(seed_listing_source().await).unwrap();
+    let response = reqwest::Client::new()
+        .post(format!("{}/v1/content-notices", AURA_API.base_url()))
+        .json(&json!({
+            "target": {"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()},
+            "submitterRole": "ILLEGAL_CONTENT_REPORTER",
+            "reasonCategory": "ILLEGAL_CONTENT",
+            "explanation": "Verbotenes Symbol.",
+            "language": "de",
+            "goodFaithConfirmed": true
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to submit content notice: {error}"));
+    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+    let admin = token("ADMIN", HashSet::from([Scope::ContentNoticesRead])).await;
+
+    let (_, page, _) = list(&admin).await;
+    let summary = &page["items"][0];
+    assert_eq!(json!("ILLEGAL_CONTENT_REPORTER"), summary["submitterRole"]);
+    assert!(summary.get("submitterName").is_none(), "{summary}");
+    assert!(summary.get("submitterEmail").is_none(), "{summary}");
+    let id = summary["contentNoticeId"].as_str().unwrap();
+    let (status, body, _) = admin_get(&admin, &format!("/{id}")).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!({"language": "de"}), body["submitter"]);
+    assert_eq!(json!(null), body["receipt"], "no receipt was enqueued");
+}
