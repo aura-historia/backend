@@ -204,7 +204,7 @@ pub struct RedirectUrlMove {
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
     /// Whether the captured page described exactly one schema.org `Product`, recorded as the
     /// moved URL's markup verdict.
-    pub describes_one_product: bool,
+    pub describes_one_product: Option<bool>,
 }
 
 /// What the crawler stores at the page a product URL redirected to, in either trailing-slash
@@ -243,7 +243,7 @@ pub struct ScrapeCompletion {
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
     /// Whether the captured page described exactly one schema.org `Product`, recorded as the
     /// URL's markup verdict.
-    pub describes_one_product: bool,
+    pub describes_one_product: Option<bool>,
 }
 
 /// A schema-seed URL together with the raw-input fence observed when it was
@@ -422,18 +422,20 @@ pub trait ScraperCandidateService: Send + Sync {
         removed_by_redirect_target: Option<&Url>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Touch a page/schema fast-path scrape without changing the raw input or disposition. The
-    /// page's markup verdict `describes_one_product` is recorded, since the page was fetched.
+    /// page's markup verdict `describes_one_product` is recorded, since the page was fetched;
+    /// `None` clears it where the scrape records no markup evidence.
     async fn touch_scraped(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
         hash: &str,
         schema_fingerprint: &str,
-        describes_one_product: bool,
+        describes_one_product: Option<bool>,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// The Product markup verdicts recorded on the ListingSource's live product URLs (class
-    /// `product`, not retired), counted in one read of their partial index
+    /// The product markup verdicts recorded on the ListingSource's live, unsold product URLs
+    /// (class `product`, disposition `ACTIVE`): a sold page often drops its product markup, which
+    /// says nothing about the shop's live pages. Counted in one read of their partial index
     /// (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
     async fn product_markup_evidence(
         &self,
@@ -1591,7 +1593,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         url: &Url,
         hash: &str,
         schema_fingerprint: &str,
-        describes_one_product: bool,
+        describes_one_product: Option<bool>,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
@@ -1644,7 +1646,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              FROM listing_source_urls
              WHERE listing_source_id = $1
                AND url_class = 'product'
-               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND crawler_disposition = 'ACTIVE'
                AND last_scraped_describes_one_product IS NOT NULL",
         )
         .bind(uuid::Uuid::from(*listing_source_id))

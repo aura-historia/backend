@@ -47,11 +47,11 @@ pub enum ScraperError {
     NotProductPage { url: Url, details: String },
 
     /// The product markup pre-check classified the never-captured page as no product page: its
-    /// structured data names no product or several, while the ListingSource's product pages
+    /// structured data shows a listing of products, while the ListingSource's product pages
     /// reliably name one each (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
     /// Its own kind, so passes count it apart from an operator's or an LLM's verdict.
     #[error(
-        "URL is not a product page by its markup while scraping '{url}': its structured data names no product or several, while all {pages_with_verdict} product pages of its ListingSource with a recorded verdict name one"
+        "URL is not a product page by its markup while scraping '{url}': its structured data shows a listing of products, while all {pages_with_verdict} product pages of its ListingSource with a recorded verdict name one"
     )]
     NotProductPageByMarkup { url: Url, pages_with_verdict: u64 },
 
@@ -70,11 +70,6 @@ pub enum ScraperError {
     /// The rows stored at a redirect target could not be read.
     #[error("Redirect destination lookup failed: {0}")]
     RedirectDestinationLookup(#[source] sqlx::Error),
-
-    /// The Product markup verdicts of the ListingSource's product pages could not be read, so a
-    /// failing page could not be pre-checked before it opened a product-schema review.
-    #[error("Product markup evidence lookup failed: {0}")]
-    ProductMarkupEvidenceLookup(#[source] sqlx::Error),
 
     /// The product URL redirects outside its product URL pattern and no cached schema can show
     /// whether the target is a product page, so it is neither removed nor taken as a schema

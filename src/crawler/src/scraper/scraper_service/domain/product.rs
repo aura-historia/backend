@@ -31,8 +31,9 @@ pub struct ScrapedProduct {
     pub raw_input_sha256: Vec<u8>,
     /// Whether the page's structured data makes exactly one product, of schema.org's `Product` or
     /// a subtype, the page's own: the URL's markup verdict
-    /// ([`ProductMarkup`](crate::scraper::product_markup::ProductMarkup)).
-    pub describes_one_product: bool,
+    /// ([`ProductMarkup`](crate::scraper::product_markup::ProductMarkup)). `None` where the
+    /// scrape records no markup evidence, outside the authoring modes the pre-check runs in.
+    pub describes_one_product: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,7 +363,6 @@ pub(crate) fn scrape_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::NotProductPageByMarkup { .. }
         | ScraperError::RedirectToKnownProduct { .. }
         | ScraperError::RedirectDestinationLookup(_)
-        | ScraperError::ProductMarkupEvidenceLookup(_)
         | ScraperError::RedirectDestinationUnsettled { .. }
         | ScraperError::RedirectTargetUnverified { .. }
         | ScraperError::SchemaClassificationRejected { .. }

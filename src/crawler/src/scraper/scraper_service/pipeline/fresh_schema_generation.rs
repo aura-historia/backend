@@ -8,6 +8,7 @@ use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSc
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::SelectedSchemaCandidate;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use listing_source_core::ListingSourceId;
 use serde_json::json;
 use tracing::debug;
@@ -26,6 +27,8 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
     /// The listing id the requested URL's last product capture recorded; `Some` for a URL that
     /// captured a product at any time, also after a removal reset its capture hash.
     pub(crate) last_source_listing_id: Option<&'a str>,
+    /// The ListingSource's live product URL pattern, when one is decided.
+    pub(crate) product_url_pattern: Option<&'a ProductUrlPattern>,
 }
 
 impl ScraperServiceImpl {

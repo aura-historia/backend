@@ -59,11 +59,11 @@ const MIN_LISTED_ITEMS: usize = 2;
 pub(crate) enum ProductMarkup {
     /// Exactly one product is the page's own: a product page.
     OneProduct,
-    /// No product of any schema.org product type anywhere and no list of items, with every
+    /// No product of any schema.org product type anywhere and no list of products, with every
     /// JSON-LD script read: the markup says nothing about the page.
     NoProduct,
     /// A listing: several products are the page's own, as on a category grid marking each card, or
-    /// the page's own `ItemList` or `OfferCatalog` names several items, as a category page lists
+    /// the page's own `ItemList` or `OfferCatalog` names several products, as a category page lists
     /// its products' URLs.
     Listing,
     /// Anything else: a JSON-LD script that does not parse, a single product the markup nests
@@ -72,14 +72,26 @@ pub(crate) enum ProductMarkup {
 }
 
 impl ProductMarkup {
-    /// Reads `html`'s JSON-LD and microdata.
-    pub(crate) fn of_page(html: &str) -> Self {
-        let document = Html::parse_document(html);
-        let json_ld = match json_ld_products(&document) {
+    /// Reads `html`'s JSON-LD and microdata; [`Self::of_document`] says how.
+    pub(crate) fn of_page(html: &str, is_product_url: &dyn Fn(&str) -> bool) -> Self {
+        Self::of_document(&Html::parse_document(html), is_product_url)
+    }
+
+    /// Reads a parsed page's JSON-LD and microdata. A list entry that names a URL counts as a
+    /// product only when `is_product_url` accepts it, as the ListingSource's product URL pattern
+    /// takes its products' pages.
+    pub(crate) fn of_document(document: &Html, is_product_url: &dyn Fn(&str) -> bool) -> Self {
+        let json_ld = match json_ld_products(document, is_product_url) {
             Some(products) => products.verdict(),
             None => return Self::Unclear,
         };
-        Self::combine(json_ld, microdata_products(&document).verdict())
+        Self::combine(json_ld, microdata_products(document).verdict())
+    }
+
+    /// Whether a parsed page makes exactly one product its own: the markup verdict a product
+    /// page's scrape records as evidence. Lists play no part in it.
+    pub(crate) fn names_one_product(document: &Html) -> bool {
+        Self::of_document(document, &|_| false) == Self::OneProduct
     }
 
     /// Whether the markup shows that the page is no product page: it is a listing. A page without
@@ -139,7 +151,10 @@ enum Position {
 
 /// The products of the page's JSON-LD; `None` when a script does not parse, since the products it
 /// may describe are then unknown.
-fn json_ld_products(document: &Html) -> Option<ProductCount> {
+fn json_ld_products(
+    document: &Html,
+    is_product_url: &dyn Fn(&str) -> bool,
+) -> Option<ProductCount> {
     let documents = json_ld_scripts(document)
         .map(|script| serde_json::from_str::<Value>(script.trim()).ok())
         .collect::<Option<Vec<_>>>()?;
@@ -149,6 +164,7 @@ fn json_ld_products(document: &Html) -> Option<ProductCount> {
             value,
             &JsonLdContext::initial(),
             Position::TopLevel,
+            is_product_url,
             &mut found,
         );
     }
@@ -188,12 +204,13 @@ fn walk_json_ld<'a>(
     value: &'a Value,
     context: &JsonLdContext,
     position: Position,
+    is_product_url: &dyn Fn(&str) -> bool,
     found: &mut JsonLdProducts<'a>,
 ) {
     match value {
         Value::Array(members) => {
             for member in members {
-                walk_json_ld(member, context, position, found);
+                walk_json_ld(member, context, position, is_product_url, found);
             }
         }
         Value::Object(node) => {
@@ -211,7 +228,9 @@ fn walk_json_ld<'a>(
                 return;
             }
             if position != Position::Nested && is(LIST_TYPES) {
-                found.listed = found.listed.max(listed_items(node, &context));
+                found.listed = found
+                    .listed
+                    .max(listed_items(node, &context, is_product_url));
             }
             let page = is(PAGE_TYPES);
             for (key, child) in node.iter().filter(|(key, _)| *key != "@context") {
@@ -220,7 +239,7 @@ fn walk_json_ld<'a>(
                     (Position::TopLevel, "mainEntity") if page => Position::PageContent,
                     _ => Position::Nested,
                 };
-                walk_json_ld(child, &context, child_position, found);
+                walk_json_ld(child, &context, child_position, is_product_url, found);
             }
         }
         _ => {}
@@ -231,33 +250,54 @@ fn walk_json_ld<'a>(
 /// `ItemList`, is the page's place in the shop, not a listing, and is a type of its own here.
 const LIST_TYPES: &[&str] = &["ItemList", "OfferCatalog"];
 
-/// How many entries of a list node's `itemListElement` name an item: a URL, a node of a product
-/// type, or a `ListItem` (or any other node) whose `item` or `url` names one, as a category page
-/// lists its products.
-fn listed_items(list: &Map<String, Value>, context: &JsonLdContext) -> usize {
-    let names_item = |entry: &Value| match entry {
-        Value::String(url) => !url.trim().is_empty(),
+/// Entries of a list that are the shop's navigation, never its products, whatever URL they name.
+const NAVIGATION_TYPES: &[&str] = &["SiteNavigationElement", "BreadcrumbList"];
+
+/// How many entries of a list node's `itemListElement` name a product: a node of a product type,
+/// a `ListItem` whose `item` is one, or a URL `is_product_url` accepts, as a URL string, an
+/// entry's `item` or `url`, or the `url` or `@id` of its `item`. Navigation entries name none, so
+/// a site-wide menu or footer list of links is no listing.
+fn listed_items(
+    list: &Map<String, Value>,
+    context: &JsonLdContext,
+    is_product_url: &dyn Fn(&str) -> bool,
+) -> usize {
+    let types_of = |node: &Map<String, Value>| {
+        node.get("@type")
+            .map(|types| context.of_node(node).schema_org_types(types))
+            .unwrap_or_default()
+    };
+    let has_type = |node: &Map<String, Value>, kinds: &[&str]| {
+        types_of(node)
+            .iter()
+            .any(|term| kinds.contains(&term.as_str()))
+    };
+    let names_product_url = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .is_some_and(|url| is_product_url(url.trim()))
+    };
+    let names_product = |entry: &Value| match entry {
+        Value::String(url) => is_product_url(url.trim()),
+        Value::Object(entry) if has_type(entry, NAVIGATION_TYPES) => false,
         Value::Object(entry) => {
-            let types = entry
-                .get("@type")
-                .map(|types| context.of_node(entry).schema_org_types(types))
-                .unwrap_or_default();
-            types
-                .iter()
-                .any(|term| PRODUCT_TYPES.contains(&term.as_str()))
-                || ["item", "url"].into_iter().any(|key| {
-                    entry.get(key).is_some_and(|item| match item {
-                        Value::String(url) => !url.trim().is_empty(),
-                        Value::Object(_) => true,
-                        _ => false,
-                    })
-                })
+            has_type(entry, PRODUCT_TYPES)
+                || names_product_url(entry.get("url"))
+                || match entry.get("item") {
+                    Some(Value::Object(item)) => {
+                        !has_type(item, NAVIGATION_TYPES)
+                            && (has_type(item, PRODUCT_TYPES)
+                                || names_product_url(item.get("url"))
+                                || names_product_url(item.get("@id")))
+                    }
+                    item => names_product_url(item),
+                }
         }
         _ => false,
     };
     match list.get("itemListElement") {
-        Some(Value::Array(entries)) => entries.iter().filter(|entry| names_item(entry)).count(),
-        Some(entry) => usize::from(names_item(entry)),
+        Some(Value::Array(entries)) => entries.iter().filter(|entry| names_product(entry)).count(),
+        Some(entry) => usize::from(names_product(entry)),
         None => 0,
     }
 }
@@ -312,6 +352,11 @@ mod tests {
         page(&scripts, "<h1>Chair</h1>")
     }
 
+    /// The verdict on `html` for a shop whose product URL pattern takes `/products/` pages.
+    fn verdict(html: &str) -> ProductMarkup {
+        ProductMarkup::of_page(html, &|url| url.contains("/products/"))
+    }
+
     #[rstest::rstest]
     #[case::product(r#"{"@context": "https://schema.org", "@type": "Product", "name": "Chair"}"#)]
     #[case::product_group(r#"{"@context": "https://schema.org", "@type": "ProductGroup", "hasVariant": [{"@type": "Product", "name": "52"}, {"@type": "Product", "name": "54"}]}"#)]
@@ -320,11 +365,11 @@ mod tests {
     #[case::vehicle(r#"{"@type": "Car", "name": "1934 Bugatti"}"#)]
     #[case::in_graph(r#"{"@context": "https://schema.org", "@graph": [{"@type": "WebSite"}, {"@type": "ProductGroup", "name": "Ring"}]}"#)]
     #[case::main_entity_of_a_web_page(r#"{"@context": "https://schema.org", "@type": "ItemPage", "mainEntity": {"@type": "Product", "name": "Chair"}}"#)]
-    #[case::with_related_products(r#"[{"@type": "Product", "url": "https://shop.example/chair"}, {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "item": {"@type": "Product"}}, {"@type": "ListItem", "item": {"@type": "Product"}}]}]"#)]
-    #[case::same_product_twice(r#"[{"@type": "Product", "url": "https://shop.example/chair"}, {"@type": "Product", "url": "https://shop.example/chair"}]"#)]
+    #[case::with_related_products(r#"[{"@type": "Product", "url": "https://shop.example/products/chair"}, {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "item": {"@type": "Product"}}, {"@type": "ListItem", "item": {"@type": "Product"}}]}]"#)]
+    #[case::same_product_twice(r#"[{"@type": "Product", "url": "https://shop.example/products/chair"}, {"@type": "Product", "url": "https://shop.example/products/chair"}]"#)]
     fn should_find_one_product(#[case] json: &str) {
         assert_eq!(
-            ProductMarkup::of_page(&json_ld(&[json])),
+            verdict(&json_ld(&[json])),
             ProductMarkup::OneProduct,
             "{json}"
         );
@@ -332,28 +377,33 @@ mod tests {
 
     #[rstest::rstest]
     #[case::no_markup(page("", "<h1>Rings</h1>"))]
-    #[case::other_types(json_ld(&[r#"{"@context": "https://schema.org", "@graph": [{"@type": "Organization"}, {"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "item": "https://shop.example/rings/"}]}]}"#]))]
-    #[case::breadcrumbs(json_ld(&[r#"{"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "item": "https://shop.example/"}, {"@type": "ListItem", "item": "https://shop.example/rings/"}]}"#]))]
-    #[case::list_of_one_item(json_ld(&[r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "url": "https://shop.example/a/"}]}"#]))]
+    #[case::other_types(json_ld(&[r#"{"@context": "https://schema.org", "@graph": [{"@type": "Organization"}, {"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "item": "https://shop.example/"}, {"@type": "ListItem", "item": "https://shop.example/products/"}]}]}"#]))]
+    #[case::list_of_one_product_url(json_ld(&[r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "url": "https://shop.example/products/a"}]}"#]))]
     #[case::removal_notice(page("", "<h1>This item is no longer available</h1>"))]
+    #[case::removal_notice_with_a_navigation_list(page(
+        r#"<script type="application/ld+json">{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "name": "Rings", "url": "https://shop.example/rings/"}, {"@type": "ListItem", "name": "About", "url": "https://shop.example/pages/about"}]}</script>"#,
+        "<h1>This item is no longer available</h1>"
+    ))]
+    #[case::site_navigation_elements(json_ld(&[r#"{"@type": "ItemList", "itemListElement": [{"@type": "SiteNavigationElement", "url": "https://shop.example/products/a"}, {"@type": "SiteNavigationElement", "url": "https://shop.example/products/b"}]}"#]))]
+    #[case::list_items_naming_navigation(json_ld(&[r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "item": {"@type": "SiteNavigationElement", "url": "https://shop.example/products/a"}}, {"@type": "ListItem", "item": {"@type": "SiteNavigationElement", "url": "https://shop.example/products/b"}}]}"#]))]
+    #[case::list_of_urls_outside_the_pattern(json_ld(&[r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "url": "https://shop.example/rings/"}, {"@type": "ListItem", "url": "https://shop.example/brooches/"}]}"#]))]
     #[case::product_of_another_vocabulary(json_ld(&[r#"{"@context": "https://example.com/vocab", "@type": "Product"}"#]))]
     fn should_find_no_product(#[case] html: String) {
-        assert_eq!(ProductMarkup::of_page(&html), ProductMarkup::NoProduct);
+        assert_eq!(verdict(&html), ProductMarkup::NoProduct);
     }
 
     #[rstest::rstest]
-    #[case::top_level_cards(r#"[{"@type": "Product", "url": "https://shop.example/a"}, {"@type": "Product", "url": "https://shop.example/b"}]"#)]
+    #[case::top_level_cards(r#"[{"@type": "Product", "url": "https://shop.example/products/a"}, {"@type": "Product", "url": "https://shop.example/products/b"}]"#)]
     #[case::item_list_of_products(r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "item": {"@type": "Product", "url": "https://shop.example/a"}}, {"@type": "ListItem", "item": {"@type": "ProductGroup", "url": "https://shop.example/b"}}]}"#)]
     #[case::collection_page_listing_products(r#"{"@type": "CollectionPage", "mainEntity": {"@type": "ItemList", "itemListElement": [{"@type": "Product"}, {"@type": "Product"}]}}"#)]
-    #[case::item_list_of_product_urls(r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "url": "https://shop.example/a/"}, {"@type": "ListItem", "url": "https://shop.example/b/"}]}"#)]
-    #[case::category_page_graph(r#"{"@context": "https://schema.org", "@graph": [{"@type": "Organization"}, {"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "item": "https://shop.example/"}, {"@type": "ListItem", "item": "https://shop.example/rings/"}]}, {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Ring", "url": "https://shop.example/ring/"}, {"@type": "ListItem", "position": 2, "name": "Brooch", "url": "https://shop.example/brooch/"}]}]}"#)]
-    #[case::offer_catalog_of_url_strings(r#"{"@type": "OfferCatalog", "itemListElement": ["https://shop.example/a/", "https://shop.example/b/"]}"#)]
+    #[case::item_list_of_product_urls(r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "url": "https://shop.example/products/a"}, {"@type": "ListItem", "url": "https://shop.example/products/b"}]}"#)]
+    #[case::category_page_graph(r#"{"@context": "https://schema.org", "@graph": [{"@type": "Organization"}, {"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "item": "https://shop.example/"}, {"@type": "ListItem", "item": "https://shop.example/rings/"}]}, {"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Ring", "url": "https://shop.example/products/ring"}, {"@type": "ListItem", "position": 2, "name": "Brooch", "url": "https://shop.example/products/brooch"}]}]}"#)]
+    #[case::offer_catalog_of_url_strings(
+        r#"{"@type": "OfferCatalog", "itemListElement": ["/products/a", "/products/b"]}"#
+    )]
+    #[case::list_items_naming_product_pages(r#"{"@type": "ItemList", "itemListElement": [{"@type": "ListItem", "item": {"@id": "https://shop.example/products/a"}}, {"@type": "ListItem", "item": "https://shop.example/products/b"}]}"#)]
     fn should_find_a_listing(#[case] json: &str) {
-        assert_eq!(
-            ProductMarkup::of_page(&json_ld(&[json])),
-            ProductMarkup::Listing,
-            "{json}"
-        );
+        assert_eq!(verdict(&json_ld(&[json])), ProductMarkup::Listing, "{json}");
     }
 
     #[rstest::rstest]
@@ -365,7 +415,7 @@ mod tests {
         r#"<div itemscope itemtype="https://schema.org/Product"></div><div itemscope itemtype="https://schema.org/Product"></div>"#
     ))]
     fn should_find_the_markup_unclear(#[case] html: String) {
-        assert_eq!(ProductMarkup::of_page(&html), ProductMarkup::Unclear);
+        assert_eq!(verdict(&html), ProductMarkup::Unclear);
     }
 
     #[rstest::rstest]
@@ -375,7 +425,7 @@ mod tests {
     #[case::with_a_nested_offer_and_variant(r#"<div itemscope itemtype="https://schema.org/ProductGroup"><div itemprop="hasVariant" itemscope itemtype="https://schema.org/Product"></div><div itemprop="offers" itemscope itemtype="https://schema.org/Offer"></div></div>"#)]
     fn should_find_one_product_in_microdata(#[case] body: &str) {
         assert_eq!(
-            ProductMarkup::of_page(&page("", body)),
+            verdict(&page("", body)),
             ProductMarkup::OneProduct,
             "{body}"
         );
@@ -388,7 +438,21 @@ mod tests {
             "",
             &format!(r#"<ul itemscope itemtype="https://schema.org/ItemList">{card}{card}</ul>"#),
         );
-        assert_eq!(ProductMarkup::of_page(&html), ProductMarkup::Listing);
+        assert_eq!(verdict(&html), ProductMarkup::Listing);
+    }
+
+    #[test]
+    fn should_record_one_product_as_evidence_whatever_the_page_lists() {
+        let product = json_ld(&[r#"{"@type": "ProductGroup", "name": "Ring"}"#]);
+        let listing = json_ld(&[
+            r#"{"@type": "ItemList", "itemListElement": ["/products/a", "/products/b"]}"#,
+        ]);
+        assert!(ProductMarkup::names_one_product(&Html::parse_document(
+            &product
+        )));
+        assert!(!ProductMarkup::names_one_product(&Html::parse_document(
+            &listing
+        )));
     }
 
     #[test]

@@ -1,7 +1,9 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::logging::warn_in_source;
+use crate::review::page_content_checks::StateReading;
 use crate::scraper::candidate_service::RedirectDestination;
+use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
@@ -207,7 +209,7 @@ impl ScraperServiceImpl {
         listing_source_id: &ListingSourceId,
         url: &Url,
         stored: &PageFingerprints,
-        describes_one_product: bool,
+        describes_one_product: Option<bool>,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) {
         match self
@@ -271,6 +273,8 @@ pub(crate) struct FetchedPage<'a> {
     /// The listing id the requested URL's last product capture recorded, which no removal clears:
     /// `Some` for a URL that captured a product at any time.
     pub(crate) last_source_listing_id: Option<&'a str>,
+    /// The ListingSource's live product URL pattern, when one is decided.
+    pub(crate) product_url_pattern: Option<&'a ProductUrlPattern>,
 }
 
 impl<'a> FetchedPage<'a> {
@@ -290,6 +294,7 @@ impl<'a> FetchedPage<'a> {
             existing_schemas,
             expected_last_captured_raw_input_sha256: self.expected_last_captured_raw_input_sha256,
             last_source_listing_id: self.last_source_listing_id,
+            product_url_pattern: self.product_url_pattern,
         }
     }
 }
@@ -303,15 +308,52 @@ fn parse_fetched_page(
     html: &str,
     removed_page_schemas: Vec<RemovedPageSchema>,
     cached_product_schemas: Option<ListingSourceProductSchema>,
-) -> (Vec<RemovedPageMatch>, Option<ExtractedSchemaSet>) {
+    markup_evidence: MarkupEvidence,
+) -> ParsedFetchedPage {
     if removed_page_schemas.is_empty() && cached_product_schemas.is_none() {
-        return (Vec::new(), None);
+        return ParsedFetchedPage::default();
     }
     let parsed = scraper::Html::parse_document(html);
-    (
-        match_removed_page(removed_page_schemas, &parsed),
-        cached_product_schemas.map(|schemas| ExtractedSchemaSet::extract(schemas, &parsed)),
-    )
+    ParsedFetchedPage {
+        removed_page_matches: match_removed_page(removed_page_schemas, &parsed),
+        cached_extraction: cached_product_schemas
+            .map(|schemas| ExtractedSchemaSet::extract(schemas, &parsed)),
+        names_one_product: (markup_evidence == MarkupEvidence::Record)
+            .then(|| ProductMarkup::names_one_product(&parsed)),
+    }
+}
+
+/// Whether a scrape records its page's markup verdict, the evidence of the product markup
+/// pre-check: only where that check can run, so other authoring modes spend no work on it
+/// (`docs/crawler/extraction-and-review.md#product-markup-pre-check`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MarkupEvidence {
+    Record,
+    Skip,
+}
+
+/// The markup verdict a scrape records for its page: `names_one_product`, except for a page whose
+/// extracted state shows its item sold or unavailable, which records none, since sold pages often
+/// drop their product markup and say nothing about the shop's live pages.
+fn unsold_markup_verdict<'a>(
+    names_one_product: Option<bool>,
+    states: impl IntoIterator<Item = Option<&'a str>>,
+) -> Option<bool> {
+    let sold = states
+        .into_iter()
+        .flatten()
+        .any(|state| StateReading::of(state).shows_sold_or_unavailable());
+    names_one_product.filter(|_| !sold)
+}
+
+/// What [`parse_fetched_page`] read from one parse of a page.
+#[derive(Default)]
+struct ParsedFetchedPage {
+    removed_page_matches: Vec<RemovedPageMatch>,
+    cached_extraction: Option<ExtractedSchemaSet>,
+    /// Whether the page makes exactly one product its own; `None` when the scrape records no
+    /// markup evidence or did not parse the page here.
+    names_one_product: Option<bool>,
 }
 
 #[async_trait::async_trait]
@@ -495,6 +537,7 @@ fn capture_selection(
     page: FetchedProductPage,
     extracted: ExtractedSchemaSet,
     selection: SelectedSchemaCandidate,
+    names_one_product: Option<bool>,
 ) -> Result<ScrapedProduct, ScraperError> {
     // A fresh schema's raw values are its extraction of this page, so the set with it appended
     // hashes without another parse.
@@ -541,7 +584,7 @@ fn capture_selection(
         hash,
         schema_fingerprint,
         raw_input_sha256,
-        describes_one_product: ProductMarkup::of_page(&page.html) == ProductMarkup::OneProduct,
+        describes_one_product: unsold_markup_verdict(names_one_product, [selection.raw.state()]),
     })
 }
 
@@ -596,8 +639,21 @@ impl ScraperServiceImpl {
             .schema_service
             .find_product_schema(listing_source_id)
             .await?;
-        let (removed_page_matches, cached_extraction) =
-            parse_fetched_page(&page.html, removed_page_schemas, cached_product_schemas);
+        let markup_evidence = if self.manual_schema_review_repository().is_some() {
+            MarkupEvidence::Record
+        } else {
+            MarkupEvidence::Skip
+        };
+        let ParsedFetchedPage {
+            removed_page_matches,
+            cached_extraction,
+            names_one_product,
+        } = parse_fetched_page(
+            &page.html,
+            removed_page_schemas,
+            cached_product_schemas,
+            markup_evidence,
+        );
         withdraw_removed_page(
             request,
             &page,
@@ -644,6 +700,7 @@ impl ScraperServiceImpl {
             html: &page.html,
             expected_last_captured_raw_input_sha256,
             last_source_listing_id: request.last_source_listing_id.as_deref(),
+            product_url_pattern: request.product_url_pattern.as_ref(),
         };
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.
@@ -668,7 +725,10 @@ impl ScraperServiceImpl {
                 listing_source_id,
                 url,
                 &stored,
-                ProductMarkup::of_page(&page.html) == ProductMarkup::OneProduct,
+                unsold_markup_verdict(
+                    names_one_product,
+                    extracted.raw_extractions().map(RawExtractedProduct::state),
+                ),
                 expected_last_captured_raw_input_sha256,
             )
             .await;
@@ -676,7 +736,7 @@ impl ScraperServiceImpl {
         }
 
         let (extracted, selection) = self.select_schema_for_page(extracted, fetched_page).await?;
-        let scraped = capture_selection(request, page, extracted, selection)?;
+        let scraped = capture_selection(request, page, extracted, selection, names_one_product)?;
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
         debug!(domain, "Scraping complete");

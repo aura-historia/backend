@@ -63,7 +63,7 @@ where
         title: Some("Captured title".to_owned()),
         disposition,
         expected_last_captured_raw_input_sha256,
-        describes_one_product: true,
+        describes_one_product: Some(true),
     }
 }
 
@@ -2153,7 +2153,7 @@ async fn scraper_product_markup_evidence_should_count_the_verdicts_of_live_produ
             &unmarked,
             "page-hash",
             "schema-fingerprint",
-            false,
+            Some(false),
             None,
         )
         .await
@@ -2239,7 +2239,7 @@ async fn scraper_move_redirected_url_should_record_the_product_markup_verdict() 
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
-                describes_one_product: true,
+                describes_one_product: Some(true),
             })
             .await
             .unwrap(),
@@ -2269,7 +2269,7 @@ async fn product_markup_verdict_should_be_forgotten_when_the_url_class_changes()
             &url,
             "page-hash",
             "fingerprint",
-            true,
+            Some(true),
             None,
         )
         .await
@@ -3527,7 +3527,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
-                describes_one_product: true,
+                describes_one_product: Some(true),
             })
             .await
             .unwrap(),
@@ -3584,7 +3584,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
-            describes_one_product: true,
+            describes_one_product: Some(true),
         })
         .await
         .expect_err("known destination must be deferred to reconciliation");
@@ -3769,7 +3769,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
-                describes_one_product: true,
+                describes_one_product: Some(true),
             })
             .await
             .expect_err("a destination known under its other spelling must be deferred");
@@ -3838,7 +3838,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
-            describes_one_product: true,
+            describes_one_product: Some(true),
         })
         .await
         .expect_err("identity changes must be rejected");
@@ -3857,7 +3857,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
-                describes_one_product: true,
+                describes_one_product: Some(true),
             })
             .await
             .unwrap(),
@@ -3989,7 +3989,7 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
                 &url,
                 "delayed-page-hash",
                 "delayed-schema-fingerprint",
-                true,
+                Some(true),
                 observed_raw_input_sha256,
             )
             .await
