@@ -973,7 +973,8 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "pending_total": 3,
                 "pending_by_artifact": { "PRODUCT_SCHEMA": 2, "URL_PATTERN": 1 },
                 "pending_disabled_sources": 2,
-                "waiting_for_human": 1
+                "waiting_for_human": 1,
+                "held_for_non_product_loop": 0
             },
             "agent_mode": true
         })

@@ -10,9 +10,9 @@ use crate::review::model::{
     ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceReviewEntry,
 };
 use crate::review::repository::{
-    CrawlerReviewRepository, after_last_human_event, agent_handed_review_to_human,
-    agent_round_binds, agent_rounds_of_review, crawler_review_id_from_uuid,
-    listing_source_id_from_uuid, row_to_repair_request,
+    CrawlerReviewRepository, after_last_human_event, agent_round_binds, agent_rounds_of_review,
+    crawler_review_id_from_uuid, handed_review_to_human, listing_source_id_from_uuid,
+    row_to_repair_request,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
@@ -282,7 +282,7 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
          LEFT JOIN (SELECT * FROM ranked WHERE position > $11 AND position <= $11 + $12) p ON TRUE
          ORDER BY p.position",
         rounds = agent_rounds_of_review!(),
-        handed = agent_handed_review_to_human!(),
+        handed = handed_review_to_human!(),
     )
 }
 

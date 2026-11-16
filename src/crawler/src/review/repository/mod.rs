@@ -12,6 +12,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
+use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
@@ -35,6 +36,7 @@ mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
 mod no_sold_page;
+mod non_product_loop;
 mod not_product_pages;
 mod pending_reviews;
 mod rearm;
@@ -57,6 +59,7 @@ mod verdicts;
 pub use crawl_resumption::CrawlResumption;
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use mass_removal_confirmation::MassRemovalConfirmation;
+pub(crate) use non_product_loop::{held_for_non_product_loop, non_product_loop_hold_event};
 pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
@@ -65,6 +68,7 @@ pub use schema_payload::ProductSchemaCandidateFailure;
 pub(crate) use source_qualification::AGENT_RETRY_DUE;
 pub use verdicts::Approval;
 
+use non_product_loop::NonProductLoop;
 use review_events::{
     ReviewMutation, commit_with_event, fetch_review_events, fetch_review_events_since,
 };
@@ -75,8 +79,8 @@ use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_UR
 use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
 use repair_rounds::refuse_agent_while_human_required;
 pub(crate) use repair_rounds::{
-    after_last_human_event, agent_handed_review_to_human, agent_repair_rounds, agent_round_binds,
-    agent_rounds_of_review,
+    after_last_human_event, agent_repair_rounds, agent_round_binds, agent_rounds_of_review,
+    handed_review_to_human,
 };
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
@@ -299,8 +303,8 @@ pub enum ReviewRepositoryError {
     HumanRequired {
         review_id: CrawlerReviewId,
         agent_rounds: u32,
-        /// Whether a review agent handed the review to a human, which it waits for whatever its
-        /// rounds.
+        /// Whether a review agent or the crawler's non-product page loop guard handed the review to
+        /// a human, which it waits for whatever its rounds.
         handed_to_human: bool,
         max_repair_rounds: u32,
     },
@@ -345,7 +349,8 @@ fn human_required_cause(
     max_repair_rounds: u32,
 ) -> String {
     if handed_to_human {
-        "a review agent handed it to a human since a human last changed or judged it".to_owned()
+        "a review agent or the crawler handed it to a human since a human last changed or judged it"
+            .to_owned()
     } else {
         format!(
             "the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}"
@@ -849,72 +854,51 @@ impl CrawlerReviewRepository {
         let removed_page_schemas_base = serde_json::to_value(&stored_removed_page_schemas)?;
         let candidate_payload =
             ProductSchemaReviewCandidate::new(schemas, stored_removed_page_schemas).to_payload()?;
-        let requested_review_id = CrawlerReviewId::new();
         let mut transaction = self.pool.begin().await?;
-        let inserted = if status == STATUS_PENDING_REVIEW {
-            sqlx::query_scalar::<_, uuid::Uuid>(
-                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
-                 VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
-                 ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'PRODUCT_SCHEMA' \
-                 DO NOTHING RETURNING review_id",
-            )
-            .bind(requested_review_id.as_uuid())
-            .bind(uuid::Uuid::from(*listing_source_id))
-            .bind(reason)
-            .bind(candidate_payload)
-            .bind(validation_summary)
-            .bind(removed_page_schemas_base)
-            .fetch_optional(&mut *transaction)
-            .await?
-        } else {
-            Some(
-                sqlx::query_scalar::<_, uuid::Uuid>(
-                    "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
-                     VALUES ($1, $2, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
-                     RETURNING review_id",
-                )
-                .bind(requested_review_id.as_uuid())
-                .bind(uuid::Uuid::from(*listing_source_id))
-                .bind(status)
-                .bind(reason)
-                .bind(candidate_payload)
-                .bind(validation_summary)
-                .bind(notes)
-                .bind(removed_page_schemas_base)
-                .fetch_one(&mut *transaction)
-                .await?,
-            )
-        };
-        let (review_id, is_new) = match inserted {
-            Some(review_id) => (crawler_review_id_from_uuid(review_id)?, true),
-            None => {
-                let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
-                    "SELECT review_id FROM crawler_reviews \
-                     WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
-                     ORDER BY created DESC LIMIT 1 FOR UPDATE",
-                )
-                .bind(uuid::Uuid::from(*listing_source_id))
-                .fetch_one(&mut *transaction)
-                .await?;
-                (crawler_review_id_from_uuid(review_id)?, false)
+        let placement = place_schema_review(
+            &mut transaction,
+            NewSchemaReviewRow {
+                listing_source_id,
+                reason,
+                candidate_payload,
+                validation_summary,
+                status,
+                notes,
+                removed_page_schemas_base,
+            },
+        )
+        .await?;
+        match placement {
+            ReviewPlacement::Joined(review_id) => {
+                attach_waiting_pages(&mut transaction, review_id, &pages).await?;
             }
-        };
-        if !is_new {
-            attach_waiting_pages(&mut transaction, review_id, &pages).await?;
-        } else {
-            for page in &pages {
-                insert_review_page(
-                    &mut transaction,
-                    review_id,
-                    &page.url,
-                    &page.role,
-                    &page.raw_html,
-                )
-                .await?;
+            ReviewPlacement::Opened(review_id) => {
+                for page in &pages {
+                    insert_review_page(
+                        &mut transaction,
+                        review_id,
+                        &page.url,
+                        &page.role,
+                        &page.raw_html,
+                    )
+                    .await?;
+                }
             }
         }
-        transaction.commit().await?;
-        if is_new {
+        if matches!(placement, ReviewPlacement::Opened(_))
+            && status == STATUS_PENDING_REVIEW
+            && reason == MANUAL_SCHEMA_REASON
+        {
+            commit_holding_a_non_product_loop(
+                transaction,
+                placement.review_id(),
+                listing_source_id,
+            )
+            .await?;
+        } else {
+            transaction.commit().await?;
+        }
+        if let ReviewPlacement::Opened(review_id) = placement {
             // A review created already decided is not opened: its decision is its only event.
             let entries = if status == STATUS_PENDING_REVIEW {
                 vec![ReviewLogEntry::opened(reason)]
@@ -923,11 +907,7 @@ impl CrawlerReviewRepository {
             };
             log_committed_review(&self.pool, review_id, entries).await;
         }
-        Ok(if is_new {
-            ReviewPlacement::Opened(review_id)
-        } else {
-            ReviewPlacement::Joined(review_id)
-        })
+        Ok(placement)
     }
 
     /// Attaches a page that failed every cached schema to the ListingSource's pending
@@ -1597,6 +1577,103 @@ async fn persist_approved_schema_edit(
 /// collected under: once per page under the reviewer-page identity, up to [`MAX_WAITING_PAGES`].
 /// Drops the cached schema matrix when a page was attached, so the next refresh covers it. The
 /// caller holds the review row lock.
+/// Commits the transaction that opened the pending `manual_schema_required` review `review_id`,
+/// handing the review to a human in it when `listing_source_id`'s latest such reviews show the
+/// [non-product page loop](non_product_loop), so no agent ever works it.
+async fn commit_holding_a_non_product_loop(
+    mut transaction: sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+) -> Result<(), ReviewRepositoryError> {
+    let Some(non_product_loop) =
+        NonProductLoop::detect(&mut *transaction, listing_source_id).await?
+    else {
+        transaction.commit().await?;
+        return Ok(());
+    };
+    commit_with_event(
+        transaction,
+        review_id,
+        NonProductLoop::ACTOR,
+        ReviewMutation::HandedToHumanByCrawler {
+            note: &non_product_loop.note(),
+            reason: NonProductLoop::REASON,
+        },
+    )
+    .await
+}
+
+/// The row of a product-schema review [`place_schema_review`] inserts.
+struct NewSchemaReviewRow<'a> {
+    listing_source_id: &'a ListingSourceId,
+    reason: &'a str,
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+    status: &'a str,
+    notes: Option<&'a str>,
+    removed_page_schemas_base: serde_json::Value,
+}
+
+/// Inserts `row` as a new review, or joins the ListingSource's pending product-schema review when
+/// `row` is pending and one is already open; the joined review stays locked for the transaction.
+/// A review born decided is always inserted.
+async fn place_schema_review(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    row: NewSchemaReviewRow<'_>,
+) -> Result<ReviewPlacement, ReviewRepositoryError> {
+    let requested_review_id = CrawlerReviewId::new();
+    let inserted = if row.status == STATUS_PENDING_REVIEW {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+             VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
+             ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'PRODUCT_SCHEMA' \
+             DO NOTHING RETURNING review_id",
+        )
+        .bind(requested_review_id.as_uuid())
+        .bind(uuid::Uuid::from(*row.listing_source_id))
+        .bind(row.reason)
+        .bind(row.candidate_payload)
+        .bind(row.validation_summary)
+        .bind(row.removed_page_schemas_base)
+        .fetch_optional(&mut **transaction)
+        .await?
+    } else {
+        Some(
+            sqlx::query_scalar::<_, uuid::Uuid>(
+                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+                 VALUES ($1, $2, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
+                 RETURNING review_id",
+            )
+            .bind(requested_review_id.as_uuid())
+            .bind(uuid::Uuid::from(*row.listing_source_id))
+            .bind(row.status)
+            .bind(row.reason)
+            .bind(row.candidate_payload)
+            .bind(row.validation_summary)
+            .bind(row.notes)
+            .bind(row.removed_page_schemas_base)
+            .fetch_one(&mut **transaction)
+            .await?,
+        )
+    };
+    if let Some(review_id) = inserted {
+        return Ok(ReviewPlacement::Opened(crawler_review_id_from_uuid(
+            review_id,
+        )?));
+    }
+    let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT review_id FROM crawler_reviews \
+         WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
+         ORDER BY created DESC LIMIT 1 FOR UPDATE",
+    )
+    .bind(uuid::Uuid::from(*row.listing_source_id))
+    .fetch_one(&mut **transaction)
+    .await?;
+    Ok(ReviewPlacement::Joined(crawler_review_id_from_uuid(
+        review_id,
+    )?))
+}
+
 async fn attach_waiting_pages(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -2045,7 +2122,7 @@ mod tests {
 
         let handed = refusal(1, true);
         assert!(
-            handed.contains("waits for a human: a review agent handed it to a human since a human last changed or judged it; leave it"),
+            handed.contains("waits for a human: a review agent or the crawler handed it to a human since a human last changed or judged it; leave it"),
             "{handed}"
         );
         assert!(!handed.contains("needs-repair"), "{handed}");

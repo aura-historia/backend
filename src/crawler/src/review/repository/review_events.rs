@@ -6,7 +6,7 @@ use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
     CrawlerReviewEvent, HandoverCause, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
-    ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection,
+    ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection, SystemHandoverReason,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -83,6 +83,13 @@ pub(super) enum ReviewMutation<'a> {
         note: &'a str,
         #[serde(flatten)]
         cause: HandoverCause,
+    },
+    /// The crawler handed a review it opened to a human: the event's note says why, its details'
+    /// `reason` is the cause.
+    HandedToHumanByCrawler {
+        #[serde(skip)]
+        note: &'a str,
+        reason: SystemHandoverReason,
     },
     ProductSchemasApproved {
         #[serde(skip)]
@@ -232,7 +239,9 @@ impl ReviewMutation<'_> {
             Self::PageNotProductCleared { .. } => ReviewEventAction::PageNotProductCleared,
             Self::NoSoldPageRecorded { .. } => ReviewEventAction::NoSoldPageRecorded,
             Self::RepairRequested { .. } => ReviewEventAction::RepairRequested,
-            Self::HandedToHuman { .. } => ReviewEventAction::HandedToHuman,
+            Self::HandedToHuman { .. } | Self::HandedToHumanByCrawler { .. } => {
+                ReviewEventAction::HandedToHuman
+            }
             Self::ProductSchemasApproved { .. } | Self::UrlPatternApproved { .. } => {
                 ReviewEventAction::Approved
             }
@@ -246,7 +255,9 @@ impl ReviewMutation<'_> {
 
     fn notes(&self) -> Option<&str> {
         match self {
-            Self::RepairRequested { note } | Self::HandedToHuman { note, .. } => Some(note),
+            Self::RepairRequested { note }
+            | Self::HandedToHuman { note, .. }
+            | Self::HandedToHumanByCrawler { note, .. } => Some(note),
             Self::NoSoldPageRecorded { notes, .. } => Some(notes),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }

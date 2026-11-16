@@ -603,6 +603,7 @@ function overviewTilesHtml() {
       ${needing}
       ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews ? pending : undefined, 'Pending reviews', {sub: pendingSub, delta: 'pending'})}
       ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'the agents stopped on these', delta: 'waiting_for_human'}) : ''}
+      ${reviews?.held_for_non_product_loop ? tile('bad', '#reviews&status=PENDING_REVIEW&artifact=PRODUCT_SCHEMA', reviews.held_for_non_product_loop, 'URL pattern loops', {sub: 'held for a human: non-product pages keep opening reviews'}) : ''}
     </div>`;
 }
 
@@ -1433,10 +1434,24 @@ function sourcePageHtml() {
         <div class="page-title"><h1>${escapeHtml(listingSourceName(detail))}</h1>${statusKeyBadge(status)}${activityBadges(detail)}</div>
         <div class="page-meta">${meta.map(part => `<span>${part}</span>`).join('<span>·</span>')}</div>
       </div></div>
+      ${renderNonProductLoopHold(detail)}
       <div class="source-grid">
         <div class="stack">${renderSourceHealth(detail)}${renderSourceReviewsCard()}</div>
         <div class="stack">${renderSourceUrlPattern(detail)}${renderSourceSchemas(detail)}${renderSourceRemovedTemplates(detail)}</div>
       </div>`;
+}
+
+// The pending product-schema review the crawler held for a human because the source's URL pattern
+// likely takes non-product pages (docs/crawler/extraction-and-review.md, non-product page loop).
+function renderNonProductLoopHold(source) {
+    const hold = source.non_product_loop_hold;
+    if (!hold || !REVIEW_ID_PATTERN.test(hold.review_id || '')) return '';
+    const why = hold.note
+        ? `“${escapeHtml(hold.note)}”`
+        : 'The URL pattern likely takes non-product pages, so the crawler stopped opening agent reviews for them.';
+    return notice('bad', 'Held for a human',
+        `<a href="${reviewHash(hold.review_id)}">The pending product-schema review</a> waits for a human since ${timeBadge(hold.held_since, 'Held since', true)}. ${why}`,
+        {role: 'status'});
 }
 
 function conditionLine(condition, {text = escapeHtml(condition.more), trail = ''} = {}) {

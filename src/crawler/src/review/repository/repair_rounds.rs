@@ -47,21 +47,25 @@ macro_rules! agent_rounds_of_review {
 }
 pub(crate) use agent_rounds_of_review;
 
-/// Whether an agent handed the review aliased `r` to a human since a human last acted on it: it
-/// waits for a human whatever its rounds, until the hand-over leaves the round window. Binds `$1`,
-/// `$3` and `$4` as [`agent_rounds_of_review`].
-macro_rules! agent_handed_review_to_human {
+/// Whether the review aliased `r` was handed to a human since a human last acted on it: by an
+/// agent, until the hand-over leaves the round window, or by the crawler's non-product loop guard
+/// ([`held_for_non_product_loop`](super::held_for_non_product_loop)), which does
+/// not lapse. It then waits for a human whatever its rounds. Binds `$1`, `$3` and `$4` as
+/// [`agent_rounds_of_review`].
+macro_rules! handed_review_to_human {
     () => {
         concat!(
-            "EXISTS (SELECT 1 FROM crawler_review_events e \
+            "(EXISTS (SELECT 1 FROM crawler_review_events e \
               WHERE e.review_id = r.review_id AND e.actor = ANY($1) \
                 AND e.action = 'HANDED_TO_HUMAN' AND ",
             after_last_human_event!(),
+            ") OR ",
+            $crate::review::repository::held_for_non_product_loop!(),
             ")"
         )
     };
 }
-pub(crate) use agent_handed_review_to_human;
+pub(crate) use handed_review_to_human;
 
 /// The values of `$1` to `$4` of [`agent_rounds_of_review`] under `agent_decisions`: the agent
 /// actors, the needs-repair action, the human actor and the round window in days.
@@ -77,7 +81,7 @@ pub(crate) fn agent_round_binds(
 }
 
 /// What the agents did on each of `review_ids` since a human last acted on it and within the round
-/// window of `agent_decisions`, as [`agent_rounds_of_review`] and [`agent_handed_review_to_human`]
+/// window of `agent_decisions`, as [`agent_rounds_of_review`] and [`handed_review_to_human`]
 /// read the trail.
 pub(crate) async fn agent_repair_rounds<'e>(
     executor: impl sqlx::PgExecutor<'e>,
@@ -90,7 +94,7 @@ pub(crate) async fn agent_repair_rounds<'e>(
         "SELECT r.review_id, ",
         agent_rounds_of_review!(),
         ", ",
-        agent_handed_review_to_human!(),
+        handed_review_to_human!(),
         " FROM crawler_reviews r WHERE r.review_id = ANY($5)"
     ))
     .bind(agents)

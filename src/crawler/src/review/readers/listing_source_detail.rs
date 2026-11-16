@@ -5,10 +5,10 @@
 use super::ListingSourceOverviewReader;
 use crate::review::model::{
     FAILING_URL_EXAMPLES, FAILING_URL_MESSAGE_CHARS, FailingUrl, ListingSourceDetail,
-    Qualification, QualificationEvent, ReviewActor, SourceLabel, SourceLabelEvent,
-    SourceLabelEventKind, UrlPatternOverview,
+    NonProductLoopHold, Qualification, QualificationEvent, ReviewActor, SourceLabel,
+    SourceLabelEvent, SourceLabelEventKind, UrlPatternOverview,
 };
-use crate::review::repository::crawler_review_id_from_uuid;
+use crate::review::repository::{crawler_review_id_from_uuid, non_product_loop_hold_event};
 use crate::scraper::css_selector::product_schema::decode_stored_product_schemas;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
@@ -76,6 +76,20 @@ const FAILING_URLS: &str = "
     ORDER BY failure_count DESC, updated DESC, url
     LIMIT $3";
 
+/// The latest non-product page loop hold of a ListingSource's pending product-schema review that
+/// no human answered yet. Binds `$1`, the ListingSource.
+const NON_PRODUCT_LOOP_HOLD: &str = concat!(
+    "SELECT r.review_id, e.created AS held_since, e.notes
+     FROM crawler_reviews r
+     JOIN crawler_review_events e ON e.review_id = r.review_id
+     WHERE r.listing_source_id = $1
+       AND r.artifact_type = 'PRODUCT_SCHEMA' AND r.status = 'PENDING_REVIEW'
+       AND ",
+    non_product_loop_hold_event!(),
+    " ORDER BY e.created DESC, e.event_id DESC
+     LIMIT 1"
+);
+
 /// The label history of a ListingSource, oldest first. Binds `$1`, the ListingSource.
 const LABEL_HISTORY: &str = "
     SELECT event_kind, source_label, source_label_note, actor, occurred_at
@@ -140,6 +154,13 @@ impl ListingSourceDetailReader {
             .iter()
             .map(qualification_event_of_row)
             .collect::<Result<Vec<_>, _>>()?;
+        let non_product_loop_hold = sqlx::query(NON_PRODUCT_LOOP_HOLD)
+            .bind(listing_source_id.as_uuid())
+            .fetch_optional(&self.pool)
+            .await?
+            .as_ref()
+            .map(non_product_loop_hold_of_row)
+            .transpose()?;
         Ok(Some(detail_of_row(
             overview,
             &row,
@@ -148,6 +169,7 @@ impl ListingSourceDetailReader {
                 labels: label_history,
                 qualifications: qualification_history,
             },
+            non_product_loop_hold,
         )?))
     }
 }
@@ -207,6 +229,14 @@ fn label_event_of_row(row: &PgRow) -> Result<SourceLabelEvent, sqlx::Error> {
     })
 }
 
+fn non_product_loop_hold_of_row(row: &PgRow) -> Result<NonProductLoopHold, sqlx::Error> {
+    Ok(NonProductLoopHold {
+        review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
+        held_since: row.try_get("held_since")?,
+        note: row.try_get("notes")?,
+    })
+}
+
 fn failing_url_of_row(row: &PgRow) -> Result<FailingUrl, sqlx::Error> {
     Ok(FailingUrl {
         url: row.try_get("url")?,
@@ -223,6 +253,7 @@ fn detail_of_row(
     row: &PgRow,
     failing_urls: Vec<FailingUrl>,
     histories: SourceHistories,
+    non_product_loop_hold: Option<NonProductLoopHold>,
 ) -> Result<ListingSourceDetail, sqlx::Error> {
     let decode = |source: serde_json::Error| sqlx::Error::Decode(Box::new(source));
     let url_pattern = row
@@ -277,5 +308,6 @@ fn detail_of_row(
         failing_urls,
         label_history: histories.labels,
         qualification_history: histories.qualifications,
+        non_product_loop_hold,
     })
 }

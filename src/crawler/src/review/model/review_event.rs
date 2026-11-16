@@ -226,6 +226,27 @@ impl HandoverReason {
     }
 }
 
+/// Why the crawler itself, not an agent, handed a review it opened to a human. The
+/// `HANDED_TO_HUMAN` event keeps it as its details' `reason`, beside the agents' [`HandoverReason`]
+/// values, which no agent may send for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SystemHandoverReason {
+    /// The ListingSource's latest product-schema reviews kept closing with their pages ruled no
+    /// product pages, so its URL pattern likely takes non-product pages
+    /// (`docs/crawler/extraction-and-review.md`, non-product page loop).
+    NonProductPageLoop,
+}
+
+impl SystemHandoverReason {
+    /// The name the logs carry, as [`HandoverReason::log_name`].
+    pub const fn log_name(self) -> &'static str {
+        match self {
+            Self::NonProductPageLoop => "non_product_page_loop",
+        }
+    }
+}
+
 /// What the author agent names as the obstacle a human must take over, as its report's
 /// `handover_category` says. It is the agent's own account, so the reasons that are the runner's
 /// decision stay in [`HandoverReason`].
@@ -401,6 +422,16 @@ mod tests {
             );
         }
         assert!(serde_json::from_value::<HandoverReason>("needs_human".into()).is_err());
+    }
+
+    /// An agent's hand-over payload names a [`HandoverReason`], so it cannot claim the crawler's.
+    #[test]
+    fn should_persist_the_crawler_s_hand_over_reason_apart_from_the_agents_reasons() {
+        assert_eq!(
+            serde_json::to_value(SystemHandoverReason::NonProductPageLoop).ok(),
+            Some(serde_json::Value::from("NON_PRODUCT_PAGE_LOOP"))
+        );
+        assert!(serde_json::from_value::<HandoverReason>("NON_PRODUCT_PAGE_LOOP".into()).is_err());
     }
 
     #[test]

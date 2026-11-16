@@ -258,6 +258,10 @@ impl ReviewLogEntry {
                 handover_category: Some(cause.category.log_name()),
                 ..decided("handed_to_human", "Review agent handed a review to a human")
             }],
+            ReviewMutation::HandedToHumanByCrawler { reason, .. } => vec![Self {
+                reason: Some(reason.log_name().to_owned()),
+                ..decided("handed_to_human", "Crawler handed a review to a human")
+            }],
             ReviewMutation::CandidateEdited { .. } => {
                 vec![changed("candidate_edited", "Candidate of a review edited")]
             }

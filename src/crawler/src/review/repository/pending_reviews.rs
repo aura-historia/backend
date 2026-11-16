@@ -8,7 +8,7 @@
 //! service).
 
 use super::repair_rounds::{
-    after_last_human_event, agent_handed_review_to_human, agent_round_binds, agent_rounds_of_review,
+    after_last_human_event, agent_round_binds, agent_rounds_of_review, handed_review_to_human,
 };
 use super::{
     ReviewRepositoryError, crawler_review_id_from_uuid, listing_source_id_from_uuid,
@@ -64,7 +64,7 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
                      WHERE h.review_id = r.review_id AND h.actor = $3) AS handed_back, ",
     agent_rounds_of_review!(),
     " AS agent_rounds, ",
-    agent_handed_review_to_human!(),
+    handed_review_to_human!(),
     " AS handed_to_human \
              FROM crawler_reviews r \
              JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
