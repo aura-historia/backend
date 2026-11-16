@@ -230,6 +230,13 @@ async fn seed_product_listings_in_bulk(
     if let Err(error) = events_result {
         panic!("failed to bulk seed product listing events: {error}");
     }
+    // Report the inserts to the cumulative statistics at commit, not up to 10 s later when idle.
+    let flush_result = sqlx::query("SELECT pg_stat_force_next_flush()")
+        .execute(&mut *transaction)
+        .await;
+    if let Err(error) = flush_result {
+        panic!("failed to request a statistics flush: {error}");
+    }
     if let Err(error) = transaction.commit().await {
         panic!("failed to commit bulk product listing seed transaction: {error}");
     }
@@ -238,7 +245,7 @@ async fn seed_product_listings_in_bulk(
 /// Committed inserts reach the cumulative statistics asynchronously; ANALYZE must run after
 /// them, or their late report would be added on top of the live count it measured.
 async fn wait_for_reported_inserts(pool: &sqlx::PgPool, expected: i64) {
-    for _ in 0..100 {
+    for _ in 0..300 {
         let reported = sqlx::query_scalar::<_, i64>(
             "SELECT n_tup_ins FROM pg_stat_user_tables WHERE relid = 'product_listings'::regclass",
         )
@@ -335,55 +342,44 @@ async fn should_estimate_product_listing_counts_from_planner_statistics_for_larg
     .await;
     let party_id = seed_party(&pool).await;
     let source = seed_listing_source(&pool, party_id).await;
-    seed_product_listings_in_bulk(&pool, source, (1, 60_000), "ACTIVE", Some("AVAILABLE")).await;
-    seed_product_listings_in_bulk(&pool, source, (60_001, 80_000), "ACTIVE", Some("SOLD_OUT"))
+    seed_product_listings_in_bulk(&pool, source, (1, 66_000), "ACTIVE", Some("AVAILABLE")).await;
+    seed_product_listings_in_bulk(&pool, source, (66_001, 88_000), "ACTIVE", Some("SOLD_OUT"))
         .await;
-    seed_product_listings_in_bulk(&pool, source, (80_001, 90_000), "ACTIVE", None).await;
-    seed_product_listings_in_bulk(&pool, source, (90_001, 100_000), "WITHDRAWN", None).await;
-    wait_for_reported_inserts(&pool, 100_000).await;
+    seed_product_listings_in_bulk(&pool, source, (88_001, 99_000), "ACTIVE", None).await;
+    seed_product_listings_in_bulk(&pool, source, (99_001, 110_000), "WITHDRAWN", None).await;
+    wait_for_reported_inserts(&pool, 110_000).await;
     execute(&pool, "ANALYZE product_listings").await;
-    // Sold after the analyze: an exact count would show 50,000 available and 30,000 sold out.
+    // Sold after the analyze: an exact count would show 55,000 available and 33,000 sold out.
     execute(
         &pool,
-        "UPDATE product_listings SET availability = 'SOLD_OUT' WHERE product_listing_id IN (SELECT product_listing_id FROM product_listings WHERE availability = 'AVAILABLE' LIMIT 10000)",
+        "UPDATE product_listings SET availability = 'SOLD_OUT' WHERE product_listing_id IN (SELECT product_listing_id FROM product_listings WHERE availability = 'AVAILABLE' LIMIT 11000)",
     )
     .await;
 
-    let listings = read_overview().await.product_listings;
+    let estimated = read_overview().await.product_listings;
+    // A crash, failover or statistics reset zeroes the live counters until the next analyze.
+    execute(
+        &pool,
+        "SELECT pg_stat_reset_single_table_counters('product_listings'::regclass)",
+    )
+    .await;
+    let estimated_after_reset = read_overview().await.product_listings;
 
-    let within = |expected: u64, actual: u64| actual.abs_diff(expected) <= 2_000;
-    assert!(within(100_000, listings.total), "{listings:?}");
-    assert!(within(90_000, listings.by_lifecycle.active), "{listings:?}");
-    assert!(
-        within(60_000, listings.active_availability.available),
-        "{listings:?}"
-    );
-    assert!(
-        within(20_000, listings.active_availability.sold_out),
-        "{listings:?}"
-    );
-    assert!(
-        within(10_000, listings.active_without_availability),
-        "{listings:?}"
-    );
-    let availability = &listings.active_availability;
-    assert_eq!(
-        listings.total,
-        listings.by_lifecycle.active + listings.by_lifecycle.withdrawn
-    );
-    assert_eq!(
-        listings.by_lifecycle.active,
-        availability.available
-            + availability.in_stock
-            + availability.limited_availability
-            + availability.back_order
-            + availability.made_to_order
-            + availability.pre_order
-            + availability.pre_sale
-            + availability.unavailable
-            + availability.reserved
-            + availability.out_of_stock
-            + availability.sold_out
-            + listings.active_without_availability
-    );
+    for listings in [estimated, estimated_after_reset] {
+        let within = |expected: u64, actual: u64| actual.abs_diff(expected) <= 2_000;
+        assert!(within(110_000, listings.total), "{listings:?}");
+        assert!(within(99_000, listings.by_lifecycle.active), "{listings:?}");
+        assert!(
+            within(66_000, listings.active_availability.available),
+            "{listings:?}"
+        );
+        assert!(
+            within(22_000, listings.active_availability.sold_out),
+            "{listings:?}"
+        );
+        assert!(
+            within(11_000, listings.active_without_availability),
+            "{listings:?}"
+        );
+    }
 }

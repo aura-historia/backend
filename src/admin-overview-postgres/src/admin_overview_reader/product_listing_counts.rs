@@ -1,10 +1,12 @@
 //! ProductListing counts for the admin overview.
 //!
-//! Counting every listing reads the whole table, so above [`EXACT_COUNT_LISTING_LIMIT`] the
-//! counts are estimated from PostgreSQL planner statistics instead: the live tuple counter for
-//! the total and the most-common-value frequencies that (auto)analyze samples for the breakdown.
-//! The estimate reads catalog rows only and takes no lock on `product_listings`. Smaller or
-//! never-analyzed tables are still counted exactly, which is cheap at that size.
+//! Counting every listing reads the whole table, so from [`EXACT_COUNT_LISTING_LIMIT`] estimated
+//! listings on the counts come from PostgreSQL planner statistics instead: the live tuple counter
+//! for the total and the most-common-value frequencies that (auto)analyze samples for the
+//! breakdown. The estimate reads catalog rows only and takes no lock on `product_listings`.
+//! Below the limit, or before the table was ever vacuumed or analyzed, listings are counted
+//! exactly. A large table without column statistics (for example right after a major-version
+//! upgrade) is reported as temporarily unavailable instead of being scanned.
 
 use super::{AdminOverviewRowMappingError, count};
 use admin_overview_service::{
@@ -16,7 +18,7 @@ use admin_overview_service::{
 };
 use application::error::box_error;
 
-/// Exact counts read at most this many listings; larger tables are estimated.
+/// Tables with fewer estimated listings are counted exactly.
 const EXACT_COUNT_LISTING_LIMIT: u64 = 100_000;
 
 const LIFECYCLE_VALUES: [&str; 2] = ["ACTIVE", "WITHDRAWN"];
@@ -124,12 +126,25 @@ struct ProductListingStatisticsRow {
     availability_frequencies: Option<Vec<f64>>,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "product_listings has no planner statistics for its {column} column; run ANALYZE product_listings"
+)]
+struct MissingColumnStatistics {
+    column: &'static str,
+}
+
+#[derive(Debug)]
+enum CountMethod {
+    Exact,
+    Estimate(ProductListingStatistics),
+}
+
 /// Validated planner statistics for `product_listings`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 struct ProductListingStatistics {
     estimated_total: u64,
-    /// Indexed like [`LIFECYCLE_VALUES`].
-    lifecycle_frequencies: [f64; 2],
+    active_frequency: f64,
     /// Indexed like [`AVAILABILITY_VALUES`].
     availability_frequencies: [f64; 11],
 }
@@ -144,9 +159,8 @@ pub(super) async fn read_product_listing_counts(
             .map_err(|source| AdminOverviewReadError::TemporarilyUnavailable {
                 source: box_error(source),
             })?;
-    let statistics = ProductListingStatistics::from_row(statistics).map_err(invalid_read_model)?;
-    if let Some(estimate) = statistics.and_then(|statistics| statistics.estimate()) {
-        return Ok(estimate);
+    if let CountMethod::Estimate(statistics) = statistics.count_method()? {
+        return Ok(statistics.estimate());
     }
 
     let counts = sqlx::query_as::<_, ProductListingCountsRow>(PRODUCT_LISTING_COUNTS_SQL)
@@ -164,49 +178,62 @@ fn invalid_read_model(source: AdminOverviewRowMappingError) -> AdminOverviewRead
     }
 }
 
-impl ProductListingStatistics {
-    /// `None` when the table has not been vacuumed or analyzed yet, so no estimate exists.
-    fn from_row(
-        row: ProductListingStatisticsRow,
-    ) -> Result<Option<Self>, AdminOverviewRowMappingError> {
-        let Some(estimated_total) = row.estimated_total else {
-            return Ok(None);
+impl ProductListingStatisticsRow {
+    /// Statistics are validated only when they are used, so they cannot fail an exact count.
+    fn count_method(self) -> Result<CountMethod, AdminOverviewReadError> {
+        let Some(estimated_total) = self.estimated_total else {
+            return Ok(CountMethod::Exact);
         };
-        if !row.lifecycle_analyzed || !row.availability_analyzed {
-            return Ok(None);
+        let estimated_total = count("estimated_product_listings_total", estimated_total)
+            .map_err(invalid_read_model)?;
+        if estimated_total < EXACT_COUNT_LISTING_LIMIT {
+            return Ok(CountMethod::Exact);
         }
-        Ok(Some(Self {
-            estimated_total: count("estimated_product_listings_total", estimated_total)?,
-            lifecycle_frequencies: frequencies(
-                "lifecycle",
-                &LIFECYCLE_VALUES,
-                row.lifecycle_values,
-                row.lifecycle_frequencies,
-            )?,
-            availability_frequencies: frequencies(
-                "availability",
-                &AVAILABILITY_VALUES,
-                row.availability_values,
-                row.availability_frequencies,
-            )?,
+        for (column, analyzed) in [
+            ("lifecycle", self.lifecycle_analyzed),
+            ("availability", self.availability_analyzed),
+        ] {
+            if !analyzed {
+                return Err(AdminOverviewReadError::TemporarilyUnavailable {
+                    source: box_error(MissingColumnStatistics { column }),
+                });
+            }
+        }
+        let [active_frequency, _withdrawn_frequency] = frequencies(
+            "lifecycle",
+            &LIFECYCLE_VALUES,
+            self.lifecycle_values,
+            self.lifecycle_frequencies,
+        )
+        .map_err(invalid_read_model)?;
+        let availability_frequencies = frequencies(
+            "availability",
+            &AVAILABILITY_VALUES,
+            self.availability_values,
+            self.availability_frequencies,
+        )
+        .map_err(invalid_read_model)?;
+        Ok(CountMethod::Estimate(ProductListingStatistics {
+            estimated_total,
+            active_frequency,
+            availability_frequencies,
         }))
     }
+}
 
-    /// `None` below [`EXACT_COUNT_LISTING_LIMIT`], where counting exactly is cheap.
-    ///
+impl ProductListingStatistics {
     /// Withdrawn listings never carry an availability (`product_listings` CHECK constraint), so
     /// every listing with an availability is active and the per-column frequencies are enough.
-    /// Each group is derived so that its parts add up exactly to the estimated whole.
-    fn estimate(&self) -> Option<AdminOverviewProductListings> {
+    /// Each group is derived so that its parts add up exactly to the estimated whole; active
+    /// listings whose availability is missing from the sampled most common values count as
+    /// without availability.
+    fn estimate(&self) -> AdminOverviewProductListings {
         let total = self.estimated_total;
-        if total < EXACT_COUNT_LISTING_LIMIT {
-            return None;
-        }
         let availability = shares(total, self.availability_frequencies);
         let with_availability: u64 = availability.iter().sum();
-        let active = share(total, self.lifecycle_frequencies[0]).clamp(with_availability, total);
+        let active = share(total, self.active_frequency).clamp(with_availability, total);
 
-        Some(AdminOverviewProductListings {
+        AdminOverviewProductListings {
             total,
             by_lifecycle: AdminOverviewProductListingLifecycleCounts {
                 active,
@@ -214,7 +241,7 @@ impl ProductListingStatistics {
             },
             active_availability: availability_counts(availability),
             active_without_availability: active - with_availability,
-        })
+        }
     }
 }
 
@@ -380,16 +407,20 @@ mod tests {
     }
 
     fn statistics(row: ProductListingStatisticsRow) -> ProductListingStatistics {
-        match ProductListingStatistics::from_row(row) {
-            Ok(Some(statistics)) => statistics,
-            other => panic!("expected valid statistics, got {other:?}"),
+        match row.count_method() {
+            Ok(CountMethod::Estimate(statistics)) => statistics,
+            other => panic!("expected an estimate, got {other:?}"),
         }
     }
 
     fn assert_statistics_error(row: ProductListingStatisticsRow, expected_reason: &str) {
-        match ProductListingStatistics::from_row(row) {
-            Err(AdminOverviewRowMappingError::Statistics { reason, .. }) => {
-                assert_eq!(expected_reason, reason)
+        let source = match row.count_method() {
+            Err(AdminOverviewReadError::InvalidReadModel { source }) => source,
+            other => panic!("expected invalid statistics, got {other:?}"),
+        };
+        match source.downcast_ref::<AdminOverviewRowMappingError>() {
+            Some(AdminOverviewRowMappingError::Statistics { reason, .. }) => {
+                assert_eq!(expected_reason, *reason)
             }
             other => panic!("expected statistics error, got {other:?}"),
         }
@@ -416,7 +447,7 @@ mod tests {
         let estimate = statistics(analyzed_row(1_000_000)).estimate();
 
         assert_eq!(
-            Some(AdminOverviewProductListings {
+            AdminOverviewProductListings {
                 total: 1_000_000,
                 by_lifecycle: AdminOverviewProductListingLifecycleCounts {
                     active: 875_000,
@@ -429,39 +460,46 @@ mod tests {
                     ..Default::default()
                 },
                 active_without_availability: 117_188,
-            }),
+            },
             estimate
         );
     }
 
     #[test]
-    fn should_count_exactly_when_table_is_below_limit() {
-        let statistics = statistics(analyzed_row(99_999));
+    fn should_count_exactly_when_table_is_below_limit_even_with_invalid_statistics() {
+        let row = ProductListingStatisticsRow {
+            availability_values: Some(vec!["DISCONTINUED".to_owned()]),
+            availability_frequencies: Some(vec![0.1]),
+            ..analyzed_row(99_999)
+        };
 
-        assert_eq!(None, statistics.estimate());
+        assert!(matches!(row.count_method(), Ok(CountMethod::Exact)));
     }
 
     #[test]
-    fn should_count_exactly_when_table_was_never_analyzed() {
-        let never_processed = ProductListingStatisticsRow {
+    fn should_count_exactly_when_table_was_never_vacuumed_or_analyzed() {
+        let row = ProductListingStatisticsRow {
             estimated_total: None,
             ..analyzed_row(1_000_000)
         };
-        let columns_never_analyzed = ProductListingStatisticsRow {
+
+        assert!(matches!(row.count_method(), Ok(CountMethod::Exact)));
+    }
+
+    #[test]
+    fn should_be_temporarily_unavailable_when_large_table_lacks_column_statistics() {
+        let row = ProductListingStatisticsRow {
             availability_analyzed: false,
             availability_values: None,
             availability_frequencies: None,
             ..analyzed_row(1_000_000)
         };
 
-        assert!(matches!(
-            ProductListingStatistics::from_row(never_processed),
-            Ok(None)
-        ));
-        assert!(matches!(
-            ProductListingStatistics::from_row(columns_never_analyzed),
-            Ok(None)
-        ));
+        let source = match row.count_method() {
+            Err(AdminOverviewReadError::TemporarilyUnavailable { source }) => source,
+            other => panic!("expected temporarily unavailable, got {other:?}"),
+        };
+        assert!(source.downcast_ref::<MissingColumnStatistics>().is_some());
     }
 
     #[test]
@@ -473,9 +511,6 @@ mod tests {
         })
         .estimate();
 
-        let Some(estimate) = estimate else {
-            panic!("expected an estimate");
-        };
         assert_eq!(175_000, estimate.by_lifecycle.active);
         assert_eq!(175_000, estimate.active_without_availability);
         assert_eq!(
@@ -494,9 +529,6 @@ mod tests {
         })
         .estimate();
 
-        let Some(estimate) = estimate else {
-            panic!("expected an estimate");
-        };
         let availability = &estimate.active_availability;
         let with_availability = availability.available + availability.in_stock;
         assert_eq!(
@@ -549,9 +581,14 @@ mod tests {
 
     #[test]
     fn should_reject_negative_estimated_total() {
+        let source = match analyzed_row(-1).count_method() {
+            Err(AdminOverviewReadError::InvalidReadModel { source }) => source,
+            other => panic!("expected invalid statistics, got {other:?}"),
+        };
+
         assert!(matches!(
-            ProductListingStatistics::from_row(analyzed_row(-1)),
-            Err(AdminOverviewRowMappingError::Count {
+            source.downcast_ref::<AdminOverviewRowMappingError>(),
+            Some(AdminOverviewRowMappingError::Count {
                 field: "estimated_product_listings_total",
                 ..
             })
