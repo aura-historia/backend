@@ -1,8 +1,9 @@
 //! URLs the spider never follows or stores: shop actions, back office, downloads and files.
 //!
-//! The rules match whole path segments, whole tokens of a segment and parameter names, never
-//! substrings, so a product slug such as `cartier-watch` or `cartel-clock` stays crawlable while
-//! `/cart` does not.
+//! The rules match whole path segments, whole tokens of a segment, parameter names and whole
+//! parameter values, never substrings, so a product slug such as `cartier-watch` or
+//! `cartel-clock` stays crawlable while `/cart` does not. Contact and enquiry forms are refused
+//! only when their last path segment carries a query.
 
 use regex::RegexSet;
 use spider::compact_str::CompactString;
@@ -11,7 +12,7 @@ use std::sync::LazyLock;
 /// Path segments of actions and non-page resources, matched ASCII case-insensitively and with
 /// or without a file extension (`/cart`, `/cart.php`, `/account/login/`). PrestaShop's
 /// `controller` and OpenCart's `route` parameters name the same actions
-/// (`?controller=my-account`, `?route=checkout/cart`).
+/// ([`ROUTE_PARAMETERS`]: `?controller=my-account`, `?route=checkout/cart`).
 const ACTION_SEGMENTS: &[&str] = &[
     // cart and checkout
     "cart",
@@ -120,6 +121,48 @@ const ACTION_PARAMETERS: &[&str] = &[
 const ROUTE_PARAMETERS: &[&str] = &["route", "controller"];
 const ROUTE_ONLY_ACTIONS: &[&str] = &["order", "order-opc"];
 
+/// The generic action parameter of older shop systems, also in Dutch
+/// (`?aktie=toevoegen&Product=…` on De Franse Lelie). Older shops serve listings through it as
+/// well (`products.asp?action=search&cat=5`), so only a whole value of [`BASKET_ACTIONS`] is
+/// refused.
+const ACTION_VALUE_PARAMETERS: &[&str] = &["action", "aktie", "actie"];
+/// Values of [`ACTION_VALUE_PARAMETERS`] that put a product into the basket, take it out or show
+/// the basket: osCommerce's and Zen Cart's `buy_now` and `add_product`, Dutch `toevoegen` (add),
+/// `verwijderen` (remove) and `winkelwagen` (basket).
+const BASKET_ACTIONS: &[&str] = &[
+    "add",
+    "add_to_cart",
+    "add-to-cart",
+    "addtocart",
+    "buy_now",
+    "add_product",
+    "remove",
+    "remove_from_cart",
+    "removefromcart",
+    "cart",
+    "basket",
+    "toevoegen",
+    "verwijderen",
+    "winkelwagen",
+];
+
+/// Path segments of contact and enquiry forms. The plain form is how shops link it and stays
+/// crawlable; with a query the shop pre-fills it per product (Denim Antique Furniture's
+/// `/contact/?icode=…&iname=…`), one useless fetch per product, so the last path segment is
+/// refused only when a query follows it.
+const ENQUIRY_SEGMENTS: &[&str] = &[
+    "contact",
+    "contact-us",
+    "kontakt",
+    "enquiry",
+    "enquire",
+    "inquiry",
+    "anfrage",
+    "contatto",
+    "contatti",
+    "contacto",
+];
+
 /// Extensions of files that are not HTML pages, matched on the last path segment.
 const FILE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "gif", "svg", "ico", "pdf", "zip", "csv", "xml", "json",
@@ -158,6 +201,17 @@ pub(super) fn patterns() -> Vec<CompactString> {
             r"{PARAMETER_START}(?i:{})=(?:[^&#]*(?:/|%2[Ff]))?(?i:{segments}|{})(?:[/&#]|%2[Ff]|$)",
             alternation(ROUTE_PARAMETERS),
             alternation(ROUTE_ONLY_ACTIONS),
+        )
+        .into(),
+        format!(
+            r"{PARAMETER_START}(?i:{})=(?i:{})(?:[&#]|$)",
+            alternation(ACTION_VALUE_PARAMETERS),
+            alternation(BASKET_ACTIONS),
+        )
+        .into(),
+        format!(
+            r"{ORIGIN}/(?:[^?#]*/)?(?i:{})(?:\.[A-Za-z0-9]+)?/?\?[^#]",
+            alternation(ENQUIRY_SEGMENTS)
         )
         .into(),
         format!(
@@ -227,6 +281,60 @@ mod tests {
     }
 
     #[test]
+    fn should_refuse_basket_actions_named_by_an_action_parameter_value() {
+        for action in [
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=toevoegen&Product=ProductEntity:114501&count=1,00",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&amp;aktie=toevoegen&amp;Product=ProductEntity:114501",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=winkelwagen",
+            "https://example.com/shop.php?actie=toevoegen&id=12",
+            "https://example.com/index.php?action=add&product_id=12",
+            "https://example.com/index.php?action=ADD_TO_CART&id=12",
+            "https://example.com/basket.asp?id=12&action=remove",
+            "https://example.com/product_info.php?products_id=12&action=buy_now",
+            "https://example.com/index.php?main_page=product_info&products_id=12&action=add_product",
+            "https://example.com/shop.php?action=addtocart&id=12",
+            "https://example.com/shop.php?action=add-to-cart&id=12",
+            "https://example.com/shop.php?action=remove_from_cart&id=12",
+            "https://example.com/shop.php?action=RemoveFromCart&id=12",
+            "https://example.com/winkel.php?aktie=verwijderen&id=12",
+        ] {
+            assert!(is_blacklisted(action), "{action} should be refused");
+        }
+    }
+
+    #[test]
+    fn should_refuse_enquiry_forms_only_when_a_query_prefills_them() {
+        for enquiry in [
+            "https://www.denimantiquefurniture.com/contact/?icode=27715&iname=Victorian%20Oak%20Desk",
+            "https://example.com/contact?icode=27715",
+            "https://example.com/de/kontakt?artikel=4711",
+            "https://example.com/enquiry.php?id=12",
+            "https://example.com/products/oak-desk/enquire/?ref=12",
+            "https://example.com/Inquiry/?item=12",
+            "https://example.com/anfrage?produkt=12",
+            "https://example.com/it/contatto?prodotto=12",
+            "https://example.com/es/contacto/?producto=12",
+            "https://example.com/contact-us/?product=oak-desk",
+            "https://example.com/it/contatti?prodotto=12",
+        ] {
+            assert!(is_blacklisted(enquiry), "{enquiry} should be refused");
+        }
+        for page in [
+            "https://www.denimantiquefurniture.com/contact/",
+            "https://example.com/contact",
+            "https://example.com/kontakt",
+            "https://example.com/de/kontakt/",
+            "https://example.com/enquiry.html",
+            "https://example.com/contact?",
+            "https://example.com/contact/#form",
+            "https://example.com/contact-us",
+            "https://example.com/contact/opening-hours?lang=en",
+        ] {
+            assert!(!is_blacklisted(page), "{page} should be followed");
+        }
+    }
+
+    #[test]
     fn should_refuse_downloads_and_files() {
         for file in [
             "https://www.decorativecollective.com/product/downloadproductimages/581341",
@@ -284,6 +392,24 @@ mod tests {
             "https://example.com/products/comparison-of-hallmarks",
             "https://example.com/products/printers-tray-1900",
             "https://example.com/products/logo-plate?view=print-room",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=product&Product=ProductEntity:114501",
+            "https://example.com/products/contact-lens-case-1920",
+            "https://example.com/products/brass-contact-thermometer?variant=12",
+            "https://example.com/contact-us/opening-hours?lang=en",
+            "https://example.com/products/action-man-1964-boxed",
+            "https://example.com/products/1?action=view",
+            "https://example.com/index.php?action=product&id=12",
+            "https://example.com/products/addison-mahogany-desk?ref=add",
+            "https://example.com/products/add-on-shelf",
+            "https://example.com/shop?actie=sale&page=2",
+            "https://example.com/products.asp?action=search&cat=5",
+            "https://example.com/stock.php?action=search&amp;category=furniture",
+            "https://example.com/item.php?id=12&action=print",
+            "https://example.com/item.php?id=12&action=view",
+            "https://example.com/item.php?id=12&action=detail",
+            "https://example.com/shop.php?action=order&id=12",
+            "https://example.com/shop.php?action=addons",
+            "https://www.defranselelie.com/webshop.wxp?menuid=11647&aktie=zoeken",
         ] {
             assert!(!is_blacklisted(page), "{page} should be followed");
         }
