@@ -4446,10 +4446,12 @@ function selectedMatrixPage(candidate) {
     if (selected) return selected;
     if (isLiveMatrixCandidate(candidate)) return null;
     // A generated matrix names its pages by input position, so it is matched to the selected
-    // review page by URL; the preview and the extracted data then show the same page.
+    // review page by URL; the preview and the extracted data then show the same page, and a
+    // selected page the matrix did not evaluate shows no extraction, as in a live matrix.
     const selectedUrl = (selectedDetail?.pages || [])
         .find(page => page.review_page_id === selectedPageId)?.url;
-    return (selectedUrl && pages.find(page => page.url === selectedUrl)) || pages[0] || null;
+    if (selectedUrl) return pages.find(page => page.url === selectedUrl) || null;
+    return pages[0] || null;
 }
 
 function isLiveMatrixCandidate(candidate) {
