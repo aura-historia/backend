@@ -77,6 +77,9 @@ const apiRoutes = (
   methods: readonly (keyof typeof apigwv2.HttpMethod)[],
 ): RouteDefinition[] => methods.map((method) => route(method, path, "auraHistoriaApi", auth));
 
+/** Gateway route key of address suggestions, throttled on its own. */
+export const ADDRESS_SUGGESTIONS_ROUTE = "POST /v1/address-suggestions";
+
 /**
  * Closed HTTP API policy matrix. It is kept in lockstep with Axum and OpenAPI by
  * `test/api-route-matrix.test.ts`; adding an Axum or OpenAPI operation without an
@@ -150,6 +153,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/retry", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me", ["DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/account", ["GET", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/address-suggestions", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses/{address_id}", ["GET", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/browsing-destination", ["GET", "PUT"]),
@@ -255,6 +259,15 @@ export class BackendHttpApi extends Construct {
       throttle: props.config.enableProductionObservability
         ? { burstLimit: 5000, rateLimit: 2000 }
         : { burstLimit: 50, rateLimit: 20 },
+    });
+
+    // Every address suggestion is a paid provider call. Per-user quotas live in the API; this
+    // caps the route as a whole below the stage throttle.
+    const cfnStageSettings = this.stage.node.defaultChild as apigwv2.CfnStage;
+    cfnStageSettings.addPropertyOverride("RouteSettings", {
+      [ADDRESS_SUGGESTIONS_ROUTE]: props.config.enableProductionObservability
+        ? { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 25 }
+        : { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
     });
 
     // No access log: nothing consumes it, and CloudWatch bills its ingestion. The Lambda logs carry

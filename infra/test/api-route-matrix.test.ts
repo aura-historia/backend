@@ -144,7 +144,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(179);
+      expect(routes).toHaveLength(180);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every(isCanonicalRouteKey)).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -584,6 +584,16 @@ describe("HTTP API route policy matrix", () => {
     );
   });
 
+  test.each(STAGES)("caps paid %s address suggestions below the stage throttle", (stage) => {
+    const stages = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Stage")) as CloudFormationResource[];
+    expect(stages).toHaveLength(1);
+    expect(stages[0].Properties.RouteSettings).toEqual({
+      "POST /v1/address-suggestions": stage === "prod"
+        ? { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 25 }
+        : { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
+    });
+  });
+
   test.each(STAGES)("synthesizes the complete %s route matrix to one live API alias", (stage) => {
     const template = apiTemplate(stage);
     const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route")) as CloudFormationResource[];
@@ -597,7 +607,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(179);
+    expect(routes).toHaveLength(180);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; exact discovery and site-document routes add one route
     // per method each.

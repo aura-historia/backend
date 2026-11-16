@@ -541,8 +541,15 @@ export function withPostgresEnvironment(
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
+  // Geocode resolves typed addresses and GetPlace resolves picked suggestions, both for storage.
   functions.geoResolution.addToRolePolicy(new iam.PolicyStatement({
-    actions: ["geo-places:Geocode"],
+    actions: ["geo-places:Geocode", "geo-places:GetPlace"],
+    resources: ["*"],
+    conditions: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } },
+  }));
+  // Address suggestions: display-only Autocomplete for search-as-you-type address entry.
+  functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["geo-places:Autocomplete"],
     resources: ["*"],
     conditions: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } },
   }));

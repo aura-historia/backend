@@ -32,7 +32,11 @@ describe.each(STAGES)("%s durable geographic resolution", (stage) => {
     });
     const policies = Object.values(compute.findResources("AWS::IAM::Policy"));
     const policy = policies.find((p) => JSON.stringify(p.Properties.Roles).includes("GeoResolutionLambdaServiceRole"));
-    expect(policy?.Properties.PolicyDocument.Statement).toContainEqual({ Action: "geo-places:Geocode", Effect: "Allow", Resource: "*", Condition: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } } });
+    expect(policy?.Properties.PolicyDocument.Statement).toContainEqual({ Action: ["geo-places:Geocode", "geo-places:GetPlace"], Effect: "Allow", Resource: "*", Condition: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } } });
+    expect(JSON.stringify(policy?.Properties)).not.toContain("geo-places:Autocomplete");
+    const apiPolicy = policies.find((p) => JSON.stringify(p.Properties.Roles).includes("AuraHistoriaApiLambdaServiceRole"));
+    expect(apiPolicy?.Properties.PolicyDocument.Statement).toContainEqual({ Action: "geo-places:Autocomplete", Effect: "Allow", Resource: "*", Condition: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } } });
+    expect(JSON.stringify(apiPolicy?.Properties)).not.toMatch(/geo-places:(Geocode|GetPlace|\*)/);
     expect(JSON.stringify(policy?.Properties)).not.toMatch(/geo-places:\*|sqs:SendMessage|es:ESHttp|ses:SendEmail/);
     const cleanupPolicy = policies.find((p) => JSON.stringify(p.Properties.Roles).includes("BackendCleanupLambdaServiceRole"));
     expect(JSON.stringify(cleanupPolicy?.Properties ?? {})).not.toMatch(/geo-places:|sqs:SendMessage/);

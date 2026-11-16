@@ -84,7 +84,9 @@ explicit origin allowlist.
 - Retain CloudFront-scoped AWS IP reputation, common-rule-set and known-bad-input
   rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
   additional WAF rate rule. Gateway stage throttles shape requests, not database or
-  Lambda concurrency/capacity.
+  Lambda concurrency/capacity. Routes that make a paid provider call per request, such as
+  [address suggestions](geography.md#address-suggestions), carry their own lower route
+  throttle as a ceiling across all callers; per-user quotas stay in the application.
 - Contract-valid loopback redirect URIs can match the common rule set's EC2 metadata
   SSRF body/query rules (`localhost`, such as the Shopify CLI `--use-localhost` callback
   `https://localhost:3458/oauth/callback`, or a native agent's `http://localhost:…/callback`)
