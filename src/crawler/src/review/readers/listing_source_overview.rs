@@ -138,6 +138,7 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         u.held_since,
         COALESCE(u.identity_conflict_urls, 0) AS identity_conflict_urls,
         u.identity_conflict_since,
+        COALESCE(u.page_identity_changed_urls, 0) AS page_identity_changed_urls,
         CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_until END
             AS mass_removal_confirmed_until,
         CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_by END
@@ -164,7 +165,11 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
                    AS identity_conflict_urls,
                MIN(identity_conflict_since) FILTER (
                    WHERE url_class = 'product'
-                     AND last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since
+                     AND last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since,
+               COUNT(*) FILTER (
+                   WHERE url_class = 'product'
+                     AND page_identity_changed_at > NOW() - INTERVAL '7 days')
+                   AS page_identity_changed_urls
         FROM listing_source_urls
         WHERE crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
         GROUP BY listing_source_id
@@ -584,6 +589,7 @@ fn overview_of_row(
         held_since: row.try_get("held_since")?,
         identity_conflict_urls: row.try_get("identity_conflict_urls")?,
         identity_conflict_since: row.try_get("identity_conflict_since")?,
+        page_identity_changed_urls: row.try_get("page_identity_changed_urls")?,
         mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
         mass_removal_confirmed_by: persisted_actor(
             "mass_removal_confirmed_by",

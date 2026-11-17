@@ -298,7 +298,7 @@ const TONES = {
     PENDING_REVIEW: 'warn', APPROVED: 'ok', REJECTED: 'bad', SUPERSEDED: 'neutral',
     human_required: 'bad', waiting_for_repair: 'warn', live: 'ok', rejection_revoked: 'neutral', source_disabled: 'neutral',
     rejected_by_model: 'bad',
-    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn', identity_conflict: 'bad',
+    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn', identity_conflict: 'bad', page_identity_changed: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
     awaiting_qualification: 'warn', qualification_needs_human: 'bad',
     QUALIFIED: 'ok', DISQUALIFIED: 'bad', NEEDS_HUMAN: 'bad',
@@ -1072,6 +1072,14 @@ function sourceConditions(source) {
             more: `${formatCount(conflicted)} of ${formatCount(Number(source.product_urls) || 0)} URLs not captured`,
             since: source.identity_conflict_since, sinceLabel: 'In conflict since',
             title: 'These URLs redirect to a page that derives another identity than the one their listings were captured under, so the redirected page is not captured; check where they redirect'
+        });
+    }
+    const pageIdentityChanged = Number(source.page_identity_changed_urls) || 0;
+    if (pageIdentityChanged > 0) {
+        conditions.push({
+            key: 'page_identity_changed', text: 'Another product at a URL?',
+            more: `${formatCount(pageIdentityChanged)} URL${pageIdentityChanged === 1 ? '' : 's'} in the last 7 days`,
+            title: 'These pages showed another product identity than at their previous capture while the schemas stayed the same, so the shop may have put another product at the URL. They are still captured under their captured identity; check the pages (crawler.product_url_page_identity_changed in the log names them).'
         });
     }
     const held = Number(source.held_removal_urls) || 0;

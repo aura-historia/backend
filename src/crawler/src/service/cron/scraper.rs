@@ -132,6 +132,7 @@ struct CandidateMeta {
     raw_input_sha256: Vec<u8>,
     source_listing_id: String,
     extracted_source_listing_id: Option<String>,
+    page_identity_changed: bool,
     title: Option<String>,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
@@ -477,6 +478,7 @@ async fn flush_batch(
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
                             extracted_source_listing_id: meta.extracted_source_listing_id.clone(),
+                            page_identity_changed: meta.page_identity_changed,
                             title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
@@ -1113,9 +1115,9 @@ async fn retire_duplicate_of_known_identity(
 /// operator check the page. A schema change, or a page that extracts no identity, such as a sold
 /// page without it, shows nothing about the product
 /// (`docs/crawler/scheduling-and-retries.md#captured-identity`).
-fn report_page_identity_change(candidate: &ScraperCandidate, scraped: &ScrapedProduct) {
+fn report_page_identity_change(candidate: &ScraperCandidate, scraped: &ScrapedProduct) -> bool {
     let Some((previous, current)) = changed_page_identity(candidate, scraped) else {
-        return;
+        return false;
     };
     warn!(
         event = "crawler.product_url_page_identity_changed",
@@ -1128,6 +1130,7 @@ fn report_page_identity_change(candidate: &ScraperCandidate, scraped: &ScrapedPr
         page_identity = current,
         "A product page shows another identity under unchanged schemas; capturing it under its captured identity"
     );
+    true
 }
 
 /// The identity the URL's page showed at its last capture and the one it shows now, when they
@@ -1361,7 +1364,7 @@ async fn handle_successful_scrape(
     {
         return outcome;
     }
-    report_page_identity_change(candidate, &scraped);
+    let page_identity_changed = report_page_identity_change(candidate, &scraped);
     let provenance = match crawler_provenance(
         Some(scraped.hash.as_str()),
         Some(scraped.schema_fingerprint.as_str()),
@@ -1381,6 +1384,7 @@ async fn handle_successful_scrape(
         raw_input_sha256: scraped.raw_input_sha256,
         source_listing_id: scraped.source_listing_id,
         extracted_source_listing_id: scraped.extracted_source_listing_id,
+        page_identity_changed,
         title: scraped.title,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
     };
@@ -1399,6 +1403,7 @@ async fn handle_successful_scrape(
                 raw_input_sha256: meta.raw_input_sha256.clone(),
                 source_listing_id: meta.source_listing_id.clone(),
                 extracted_source_listing_id: meta.extracted_source_listing_id.clone(),
+                page_identity_changed: meta.page_identity_changed,
                 title: meta.title.clone(),
                 disposition: SCRAPED_URL_DISPOSITION,
                 expected_last_captured_raw_input_sha256: meta
@@ -3105,6 +3110,7 @@ mod tests {
             raw_input_sha256: vec![3; 32],
             source_listing_id: "source-id".to_owned(),
             extracted_source_listing_id: None,
+            page_identity_changed: false,
             title: Some("Chair".to_owned()),
             expected_last_captured_raw_input_sha256: None,
         }

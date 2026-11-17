@@ -61,6 +61,7 @@ where
         raw_input_sha256: raw_input_sha256.into(),
         source_listing_id: source_listing_id.into(),
         extracted_source_listing_id: None,
+        page_identity_changed: false,
         title: Some("Captured title".to_owned()),
         disposition,
         expected_last_captured_raw_input_sha256,
@@ -5476,4 +5477,58 @@ async fn scraper_should_find_a_url_by_the_identity_its_page_showed_at_its_last_c
             "{identity}"
         );
     }
+}
+
+/// A capture whose page showed another identity under unchanged schemas records when, and the
+/// source overview counts the URL for an operator; a later ordinary capture keeps the record.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_record_a_page_identity_change_and_count_it_in_the_source_overview() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "replaced.example.com").await;
+    let url = url::Url::parse("https://replaced.example.com/products/chair").unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    let mut changed = scrape_completion(
+        listing_source_id,
+        url.clone(),
+        (
+            "hash",
+            "schemas",
+            vec![1_u8; 32],
+            "SKU-1",
+            CrawlerDisposition::Active,
+            None,
+        ),
+    );
+    changed.extracted_source_listing_id = Some("SKU-2".to_owned());
+    changed.page_identity_changed = true;
+    assert_eq!(
+        service.mark_as_scraped(changed).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    let unchanged = scrape_completion(
+        listing_source_id,
+        url.clone(),
+        (
+            "hash-2",
+            "schemas",
+            vec![2_u8; 32],
+            "SKU-1",
+            CrawlerDisposition::Active,
+            Some(vec![1_u8; 32]),
+        ),
+    );
+    assert_eq!(
+        service.mark_as_scraped(unchanged).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let overview = crawler::review::readers::ListingSourceOverviewReader::new(pool.clone())
+        .find_listing_source(listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(overview.page_identity_changed_urls, 1);
 }

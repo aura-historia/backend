@@ -240,6 +240,9 @@ pub struct ScrapeCompletion {
     pub source_listing_id: String,
     /// The identity the selected schema extracted, `None` when it extracted none.
     pub extracted_source_listing_id: Option<String>,
+    /// The page showed another identity than at its previous capture under unchanged schemas,
+    /// which records when (`page_identity_changed_at`).
+    pub page_identity_changed: bool,
     /// The title the capture recorded; `None` keeps the one recorded before, as the capture
     /// leaves the listing's title unchanged.
     pub title: Option<String>,
@@ -1269,6 +1272,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             raw_input_sha256,
             source_listing_id,
             extracted_source_listing_id,
+            page_identity_changed,
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
@@ -1284,6 +1288,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
                  last_extracted_source_listing_id = $10,
+                 page_identity_changed_at = CASE WHEN $11 THEN NOW()
+                                                 ELSE page_identity_changed_at END,
                  last_captured_title = COALESCE($9, last_captured_title),
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
@@ -1315,6 +1321,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
         .bind(&extracted_source_listing_id)
+        .bind(page_identity_changed)
         .execute(&self.pool)
         .await?;
 
