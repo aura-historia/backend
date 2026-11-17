@@ -66,7 +66,9 @@ pub use sample_labels::{
 };
 pub use schema_candidate_evaluation::SchemaCandidateEvaluation;
 pub use schema_matrix::{LiveMatrixEvaluation, ReviewSchemaMatrix, SchemaMatrix};
-pub use schema_page_evaluation::{PriceTextOnState, SchemaPageEvaluation, SchemaPageReference};
+pub use schema_page_evaluation::{
+    ApprovalExemptions, LinkIdentity, PriceTextOnState, SchemaPageEvaluation, SchemaPageReference,
+};
 pub use schema_review_page_input::SchemaReviewPageInput;
 pub use search_term::{MAX_SEARCH_TERM_CHARS, SearchTerm};
 pub use selector_field_evaluation::SelectorFieldEvaluation;

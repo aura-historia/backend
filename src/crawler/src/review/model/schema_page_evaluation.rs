@@ -46,27 +46,55 @@ pub enum PriceTextOnState {
     Accepted,
 }
 
+/// Whether an identity that is a URL or path keeps a candidate out of approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkIdentity {
+    Blocks,
+    /// The ListingSource's listings were captured under URL identities that the candidate keeps
+    /// deriving: replacing them would leave every captured URL in an identity conflict.
+    Captured,
+}
+
+/// The findings an approval accepts that would otherwise keep a candidate out of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApprovalExemptions {
+    pub price_text: PriceTextOnState,
+    pub link_identity: LinkIdentity,
+}
+
+impl ApprovalExemptions {
+    /// Every finding that blocks approval blocks it, as deterministic approval decides.
+    pub const NONE: Self = Self {
+        price_text: PriceTextOnState::Blocks,
+        link_identity: LinkIdentity::Blocks,
+    };
+}
+
 impl SchemaPageEvaluation {
     /// Whether a failed per-page, cross-page or identity agreement check keeps the schema out
     /// of approval. A repeated image alone does not
     /// ([`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)),
-    /// and price text in `state` does not where `price_text` accepts it.
-    pub fn blocks_approval(&self, price_text: PriceTextOnState) -> bool {
-        !self.blocking_plausibility_findings(price_text).is_empty()
+    /// nor does a finding `exemptions` accepts.
+    pub fn blocks_approval(&self, exemptions: ApprovalExemptions) -> bool {
+        !self.blocking_plausibility_findings(exemptions).is_empty()
             || !self.cross_page_findings.is_empty()
             || !self.identity_agreement_findings.is_empty()
     }
 
-    /// The per-page findings that block approval where `price_text` applies: every finding
+    /// The per-page findings that block approval under `exemptions`: every finding
     /// [`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)
-    /// keeps, except price text in `state` where `price_text` accepts it.
+    /// keeps, except price text in `state` and an identity that is a URL or path where
+    /// `exemptions` accepts them.
     pub fn blocking_plausibility_findings(
         &self,
-        price_text: PriceTextOnState,
+        exemptions: ApprovalExemptions,
     ) -> PlausibilityFindings {
         self.plausibility_findings.retaining(|finding| {
             finding.blocks_approval()
-                && !(price_text == PriceTextOnState::Accepted && finding.is_price_text_on_state())
+                && !(exemptions.price_text == PriceTextOnState::Accepted
+                    && finding.is_price_text_on_state())
+                && !(exemptions.link_identity == LinkIdentity::Captured
+                    && finding.is_link_or_path_identity())
         })
     }
 }

@@ -7,7 +7,9 @@
 //! contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, SchemaExtraction};
-use crate::scraper::plausibility::{PlausibilityFindings, capturable_identity};
+use crate::scraper::plausibility::{
+    PlausibilityFindings, capturable_identity, is_link_or_path_identity,
+};
 use scraper::Html;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -101,6 +103,17 @@ impl CapturedIdentitySample {
                 .pages
                 .iter()
                 .all(|page| page.outcome == CapturedIdentityOutcome::NotFetched)
+    }
+
+    /// Whether the candidate keeps URL identities the ListingSource's listings were captured
+    /// under: a sampled page captured under a URL or path from which the schemas derive the same.
+    /// Only then may an approval keep an identity that is a URL: the listings cannot move to
+    /// another identity, while a source without such listings must not start using one.
+    pub(crate) fn keeps_captured_link_identities(&self) -> bool {
+        self.pages.iter().any(|page| {
+            page.outcome == CapturedIdentityOutcome::Agrees
+                && is_link_or_path_identity(&page.captured_identity)
+        })
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::CrawlerReviewId;
 use crate::authoring::CrawlerAuthoringMode;
 use crate::logging::SourceLogContext;
-use crate::review::model::SchemaMatrix;
+use crate::review::model::{LinkIdentity, SchemaMatrix};
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
@@ -223,7 +223,7 @@ fn with_schema_matrix_summary(
         "optional_rules_missing_on_every_page": optional_rules_missing_on_every_page(matrix),
         // Every failed per-page or cross-page plausibility check blocks deterministic
         // approval, also on a page another candidate covers.
-        "implausible_pages": implausible_pages(matrix),
+        "implausible_pages": implausible_pages(matrix, LinkIdentity::Blocks),
     });
 
     if let Some(object) = validation_summary.as_object_mut() {

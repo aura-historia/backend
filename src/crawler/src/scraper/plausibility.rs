@@ -237,6 +237,18 @@ impl PlausibilityFinding {
         )
     }
 
+    /// Whether the finding is an identity that is a URL or path, which a review agent's approval
+    /// accepts where the listings were captured under such identities (see `LinkIdentity`).
+    pub fn is_link_or_path_identity(&self) -> bool {
+        matches!(
+            (&self.field, self.check),
+            (
+                PlausibilityField::SourceListingId,
+                PlausibilityCheck::LinkOrPath
+            )
+        )
+    }
+
     /// Whether the finding keeps a schema out of approval, deterministic and a review agent's.
     /// A repeated image does not: capture keeps each image URL once, so a gallery that repeats
     /// its featured photo loses nothing, and no selector can tell that repeat from a gallery
@@ -400,6 +412,12 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
     } else {
         link_or_path_check(source_listing_id).into_iter().collect()
     }
+}
+
+/// Whether a captured identity is a URL or path, as one a rule on the page URL derived before
+/// the identity plausibility checks reported it.
+pub(crate) fn is_link_or_path_identity(identity: &str) -> bool {
+    link_or_path_check(identity).is_some()
 }
 
 /// Whether `value` is a list of names rather than one identifier: at least
