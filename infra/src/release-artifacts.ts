@@ -44,8 +44,3 @@ export function releaseLambdaCode(scope: Construct, bucket: s3.IBucket, binary: 
   const artifact = lambdaArtifactParameters(scope, binary);
   return lambda.Code.fromBucket(bucket, artifact.key, artifact.versionId);
 }
-
-export function routineStackNames(stage: "dev" | "prod"): readonly string[] {
-  return ["migrate", "compute", "api", ...(stage === "prod" ? ["observability"] : [])]
-    .map((boundary) => `application-${stage}-${boundary}`);
-}

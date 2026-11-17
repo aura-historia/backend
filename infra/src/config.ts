@@ -1,21 +1,14 @@
 import * as cdk from "aws-cdk-lib";
-import { WORKER_QUEUE_SETTINGS, type WorkerQueueSettings } from "./worker-queue-config";
 
-export const STAGES = ["prod", "dev"] as const;
+/** Production is the only stage: the host runs prod alone, and there is no AWS staging copy. */
+export const STAGES = ["prod"] as const;
 export type StageName = (typeof STAGES)[number];
 
-export const LEGACY_ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
+/** Completed release objects that the Cognito trigger code versions are pinned to. */
 export const ARTIFACT_BUCKET_NAME = "aura-historia-release-bundles-eu-central-1";
-export const MAIL_TEMPLATE_BUCKET_NAME = "aura-historia-mail-templates-eu-central-1";
 export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
 export const WORKLOAD_REGION = "eu-central-1";
-export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID = "InitialCdcStartPosition";
-export const DMS_CDC_INITIAL_START_POSITION_PARAMETER_LOGICAL_ID = "DmsCdcInitialCdcStartPosition";
-export const DMS_CDC_INITIAL_START_POSITION_PATTERN = "^$|^[0-9A-F]{1,8}/[0-9A-F]{1,8}$";
-export const DMS_CDC_INITIAL_START_POSITION_CONSTRAINT = "must be empty or an uppercase PostgreSQL LSN in X/Y hexadecimal format";
 
-const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
-const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";
 const PROD_FRONTEND_URL = "https://aura-historia.com/";
 
 export interface CognitoEmailConfig {
@@ -57,147 +50,58 @@ export type CognitoIdentityProviderConfig =
   | CognitoGoogleIdentityProviderConfig
   | CognitoFacebookIdentityProviderConfig;
 
-export interface NotificationEmailConfig {
+/** The SES identity and managed configuration set that every sender selects explicitly. */
+export interface EmailSendingConfig {
   readonly configurationSet: string;
-  readonly from: string;
   readonly identityDomain: string;
-  readonly replyTo: string;
 }
-
-export interface NetworkConfig {
-  readonly cidr: string;
-  readonly region: typeof WORKLOAD_REGION;
-  readonly stageOpenSearchEgressCidrs: readonly string[];
-}
-
-export interface RdsConfig {
-  readonly databaseName: string;
-  readonly engineVersion: "16.13";
-  readonly instanceType: string;
-  readonly allocatedStorageGiB: number;
-  readonly maxAllocatedStorageGiB: number;
-  readonly backupRetentionDays: number;
-}
-
-export interface DmsConfig {
-  readonly engineVersion: "3.6.1";
-  readonly replicationInstanceClass: "dms.t3.small";
-  readonly initialCdcStartPositionParameterId: typeof DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID;
-
-  readonly lobMaxSizeKiB: 512;
-  readonly kinesisRetentionDays: 7;
-}
-
-export interface SearchFilterClassifierConfig {
-  readonly provider: "cloudflare";
-  readonly model: "clef-flash" | "clef";
-  readonly shouldShowThresholdBps: number;
-}
-
-const SEARCH_FILTER_CLASSIFIER_CONFIG: Record<StageName, SearchFilterClassifierConfig> = {
-  prod: { provider: "cloudflare", model: "clef", shouldShowThresholdBps: 5_000 },
-  dev: { provider: "cloudflare", model: "clef", shouldShowThresholdBps: 5_000 },
-};
 
 export interface McpConfig {
   readonly domainName: string;
-  readonly gatewayCertificateArn: string;
   readonly cloudFrontCertificateArn: string;
-  readonly allowedOrigins: string[];
-  readonly reservedConcurrency: number;
-  /**
-   * Domain verification token that OpenAI's app submission portal issues for the MCP host. It is
-   * public by design: the host serves it at /.well-known/openai-apps-challenge. Undefined serves 404.
-   */
-  readonly openAiAppsChallenge: string | undefined;
-  /**
-   * Domain verification token that the Muse connector portal issues per submission and expires. It
-   * is public by design: the host serves `muse-challenge=<token>` at the exact path
-   * /.well-known/muse-challenge/<token>. Undefined exposes no such path.
-   */
-  readonly museChallenge: string | undefined;
 }
 
-const MUSE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+/**
+ * The self-hosted origin behind both CloudFront distributions. The DNS name is unproxied and
+ * deliberately unpublished, so it is an operator-owned SSM parameter rather than source.
+ */
+export interface HostOriginConfig {
+  readonly domainName: string;
+  /**
+   * Header CloudFront adds to every origin request, overwriting any viewer value; the host's
+   * reverse proxy rejects requests without it. Its value is the `originVerify` credential.
+   */
+  readonly verifyHeaderName: string;
+}
 
-/** The Muse token, rejected at synthesis unless the MCP server would accept it at startup. */
-export function validatedMuseChallenge(mcp: McpConfig): string | undefined {
-  const token = mcp.museChallenge;
-  if (token !== undefined && !MUSE_CHALLENGE_PATTERN.test(token)) {
-    throw new Error("mcp.museChallenge must be one token of at most 128 ASCII letters, digits, '-' or '_'.");
-  }
-  return token;
+/** What the host's IAM user may reach: backups, email, places, Cognito and its logs and metrics. */
+export interface HostAccessConfig {
+  readonly userName: string;
+  readonly backupBucketName: string;
+  /** Days a replaced or deleted backup object stays recoverable after the host overwrites it. */
+  readonly backupNoncurrentVersionRetentionDays: number;
+  /** Prefix of the container log groups the host ships to. */
+  readonly containerLogGroupPrefix: string;
+  /** The only CloudWatch namespace the host may publish metrics to. */
+  readonly metricNamespace: string;
 }
 
 export interface StageConfig {
   readonly stage: StageName;
-  readonly isProd: boolean;
-  readonly network: NetworkConfig | undefined;
-  readonly rds: RdsConfig | undefined;
-  readonly dms: DmsConfig | undefined;
-  readonly searchFilterClassifier: SearchFilterClassifierConfig;
   readonly removalPolicy: cdk.RemovalPolicy;
-  readonly workerQueues: WorkerQueueSettings;
-  readonly apiEndpointUrl: string | undefined;
-  readonly oauthIssuerUrl: string;
-  readonly apiDomainName: string | undefined;
-  readonly apiGatewayCertificateArn: string | undefined;
-  readonly apiCloudFrontCertificateArn: string | undefined;
+  readonly apiDomainName: string;
+  readonly apiCloudFrontCertificateArn: string;
   readonly apiCloudFrontAliases: string[];
-  readonly apiCorsAllowOrigins: string[];
   readonly mcp: McpConfig;
-  readonly oauthMetadataDocumentClients: OAuthMetadataDocumentClientsConfig;
+  readonly hostOrigin: HostOriginConfig;
+  readonly host: HostAccessConfig;
   readonly cognitoCustomDomain: CognitoCustomDomainConfig | undefined;
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
   readonly cognitoIdentityProviders: readonly CognitoIdentityProviderConfig[];
   readonly cognitoEmail: CognitoEmailConfig | undefined;
-  readonly notificationEmail: NotificationEmailConfig;
-  readonly opensearchDomainName: string;
-  readonly opensearchEndpointUrl: string;
-  readonly enableProductionObservability: boolean;
-  readonly stripeCheckoutCancelUrl: string;
-  readonly stripeCheckoutSuccessUrl: string;
-  readonly stripePortalReturnUrl: string;
-  readonly stripeEventBusName: string;
-  readonly shopifyEventBusName: string;
-  readonly stripeProProductId: string;
-  readonly stripeUltimateProductId: string;
-  readonly stripeProMonthlyPriceId: string;
-  readonly stripeProYearlyPriceId: string;
-  readonly stripeUltimateMonthlyPriceId: string;
-  readonly stripeUltimateYearlyPriceId: string;
-  /**
-   * IAM principal of the crawler host in its own AWS account. Only this principal may send to the
-   * product-listing ingestion queue from outside the backend account; undefined grants nothing.
-   */
-  readonly crawlerIngestionPrincipalArn: string | undefined;
+  readonly emailSending: EmailSendingConfig;
 }
-
-/**
- * Public OAuth clients that sign in with a Client ID Metadata Document instead of a registration.
- * They hold short-lived access tokens and rotating refresh tokens; see docs/oauth.md.
- */
-export interface OAuthMetadataDocumentClientsConfig {
-  readonly enabled: boolean;
-  /** Domains, including their subdomains, whose documents are refused. */
-  readonly deniedHosts: readonly string[];
-  readonly accessTokenTtlSeconds: number;
-  /** A refresh-token family ends when unused this long... */
-  readonly refreshTokenIdleTtlSeconds: number;
-  /** ...and at the latest this long after the sign-in that started it. */
-  readonly refreshTokenAbsoluteTtlSeconds: number;
-}
-
-const DAY_SECONDS = 24 * 60 * 60;
-
-const OAUTH_METADATA_DOCUMENT_CLIENTS: OAuthMetadataDocumentClientsConfig = {
-  enabled: true,
-  deniedHosts: [],
-  accessTokenTtlSeconds: 60 * 60,
-  refreshTokenIdleTtlSeconds: 30 * DAY_SECONDS,
-  refreshTokenAbsoluteTtlSeconds: 90 * DAY_SECONDS,
-};
 
 export function isStageName(value: string): value is StageName {
   return (STAGES as readonly string[]).includes(value);
@@ -205,64 +109,36 @@ export function isStageName(value: string): value is StageName {
 
 export function stageConfig(stage: StageName): StageConfig {
   if (!isStageName(stage)) throw new Error(`Unsupported CDK stage '${stage}'.`);
-  const isProd = stage === "prod";
   const emailConfigurationSetName = `aura-historia-${stage}-email`;
-
-  const apiDomainName = isProd ? "api.aura-historia.com" : "api.stage.aura-historia.com";
-  const apiCloudFrontAliases = [apiDomainName];
+  const apiDomainName = "api.aura-historia.com";
 
   return {
     stage,
-    isProd,
-    network: {
-      cidr: isProd ? "10.64.0.0/16" : "10.65.0.0/16",
-      region: WORKLOAD_REGION,
-      // Reviewed stage host A record; confirm ownership and DNS before deploying changes.
-      stageOpenSearchEgressCidrs: stage === "dev" ? ["148.251.91.20/32"] : [],
-    },
-    rds: {
-      databaseName: "aura_historia",
-      engineVersion: "16.13",
-      instanceType: isProd ? "t4g.medium" : "t4g.small",
-      allocatedStorageGiB: isProd ? 50 : 30,
-      maxAllocatedStorageGiB: isProd ? 100 : 60,
-      backupRetentionDays: isProd ? 14 : 7,
-    },
-    dms: {
-      engineVersion: "3.6.1",
-      replicationInstanceClass: "dms.t3.small",
-      initialCdcStartPositionParameterId: DMS_CDC_INITIAL_START_POSITION_PARAMETER_ID,
-      lobMaxSizeKiB: 512,
-      kinesisRetentionDays: 7,
-    },
-    searchFilterClassifier: SEARCH_FILTER_CLASSIFIER_CONFIG[stage],
-    removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    workerQueues: WORKER_QUEUE_SETTINGS,
-    apiEndpointUrl: `https://${apiDomainName}`,
-    oauthIssuerUrl: `https://${apiDomainName}`,
+    removalPolicy: cdk.RemovalPolicy.RETAIN,
     apiDomainName,
-    apiGatewayCertificateArn: ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
     apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
-    apiCloudFrontAliases,
-    apiCorsAllowOrigins: ["*"],
-    oauthMetadataDocumentClients: OAUTH_METADATA_DOCUMENT_CLIENTS,
+    apiCloudFrontAliases: [apiDomainName],
     mcp: {
-      domainName: isProd ? "mcp.aura-historia.com" : "mcp.stage.aura-historia.com",
-      gatewayCertificateArn: ssmValue(`/certificates/${stage}/mcp-regional-certificate-arn`),
+      domainName: "mcp.aura-historia.com",
       cloudFrontCertificateArn: ssmValue(`/certificates/${stage}/mcp-cloudfront-certificate-arn`),
-      allowedOrigins: isProd
-        ? ["https://aura-historia.com"]
-        : ["https://stage.aura-historia.com", LOCALHOST_CALLBACK_URL],
-      reservedConcurrency: isProd ? 5 : 2,
-      openAiAppsChallenge: isProd ? "_d_8VglwY-g1mC_cJRoTQ7yS04s4x8say68ByQT8R0E" : undefined,
-      museChallenge: isProd ? "a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11" : undefined,
     },
-    cognitoCustomDomain: isProd ? {
+    hostOrigin: {
+      domainName: ssmValue(`/origin/${stage}/host-domain-name`),
+      verifyHeaderName: "X-Origin-Verify",
+    },
+    host: {
+      userName: `aura-historia-${stage}-host`,
+      backupBucketName: `aura-historia-${stage}-backups-eu-central-1`,
+      backupNoncurrentVersionRetentionDays: 30,
+      containerLogGroupPrefix: `/aura-historia/${stage}/host/`,
+      metricNamespace: "AuraHistoria/Host",
+    },
+    cognitoCustomDomain: {
       domainName: "auth.aura-historia.com",
       certificateArn: ssmValue(`/certificates/${stage}/cognito-cloudfront-certificate-arn`),
-    } : undefined,
-    cognitoCallbackUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
-    cognitoLogoutUrls: isProd ? [PROD_FRONTEND_URL] : [LOCALHOST_CALLBACK_URL, STAGE_FRONTEND_URL],
+    },
+    cognitoCallbackUrls: [PROD_FRONTEND_URL],
+    cognitoLogoutUrls: [PROD_FRONTEND_URL],
     cognitoIdentityProviders: [
       {
         kind: "google",
@@ -289,33 +165,22 @@ export function stageConfig(stage: StageName): StageConfig {
       identityDomain: "notify.aura-historia.com",
       replyTo: "contact@aura-historia.com",
     },
-    notificationEmail: {
+    emailSending: {
       configurationSet: emailConfigurationSetName,
-      from: ssmValue(`/notifications/${stage}/email-from`),
       identityDomain: "notify.aura-historia.com",
-      replyTo: ssmValue(`/notifications/${stage}/email-reply-to`),
     },
-    opensearchDomainName: `aura-historia-${stage}`,
-    opensearchEndpointUrl: ssmValue(`/opensearch/${stage}/endpoint-url`),
-    enableProductionObservability: isProd,
-    stripeCheckoutCancelUrl: isProd ? "https://aura-historia.com" : "https://stage.aura-historia.com",
-    stripeCheckoutSuccessUrl: isProd
-      ? "https://aura-historia.com/me/account"
-      : "https://stage.aura-historia.com/me/account",
-    stripePortalReturnUrl: isProd
-      ? "https://aura-historia.com/me/account"
-      : "https://stage.aura-historia.com/me/account",
-    stripeEventBusName: ssmValue(`/eventbridge/${stage}/stripe-event-bus-name`),
-    shopifyEventBusName: ssmValue(`/eventbridge/${stage}/shopify-event-bus-name`),
-    stripeProProductId: ssmValue(`/stripe/${stage}/pro-product-id`),
-    stripeUltimateProductId: ssmValue(`/stripe/${stage}/ultimate-product-id`),
-    stripeProMonthlyPriceId: ssmValue(`/stripe/${stage}/pro-monthly-price-id`),
-    stripeProYearlyPriceId: ssmValue(`/stripe/${stage}/pro-yearly-price-id`),
-    stripeUltimateMonthlyPriceId: ssmValue(`/stripe/${stage}/ultimate-monthly-price-id`),
-    stripeUltimateYearlyPriceId: ssmValue(`/stripe/${stage}/ultimate-yearly-price-id`),
-    // Only the production crawler submits raw captures across accounts.
-    crawlerIngestionPrincipalArn: isProd ? ssmValue(`/crawler/${stage}/principal-arn`) : undefined,
   };
+}
+
+/**
+ * The consent-evidence log groups. They were created with the retired Lambdas, are retained
+ * forever and outlive the stacks that created them; the host writes new evidence to them.
+ */
+export function consentEvidenceLogGroupNames(stage: StageName): readonly [string, string] {
+  return [
+    `/aws/lambda/aura-historia-api-${stage}`,
+    `/aws/lambda/cognito-post-confirmation-${stage}`,
+  ];
 }
 
 export function ssmValue(path: string): string {

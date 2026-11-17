@@ -1,44 +1,14 @@
 import * as cdk from "aws-cdk-lib";
-import * as s3 from "aws-cdk-lib/aws-s3";
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as cognito from "aws-cdk-lib/aws-cognito";
-import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as ses from "aws-cdk-lib/aws-ses";
-import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
-import {
-  ARTIFACT_BUCKET_NAME,
-  CLOUDFORMATION_STAGING_BUCKET_NAME,
-  type StageName,
-} from "./config";
+import { CLOUDFORMATION_STAGING_BUCKET_NAME, stageConfig, type StageConfig, type StageName } from "./config";
 import { constrainRoutineRoles } from "./routine-role-boundary";
-import { stageConfig } from "./config";
-import { applicationParameters } from "./parameters";
-import { BackendHttpApi } from "./constructs/api";
-import { McpHttpApi } from "./constructs/mcp";
+import { ApiCloudFront } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
-import { DmsCdc } from "./constructs/dms-cdc";
-import { Eventing, importMaintenanceSchedulerDeadLetterQueue } from "./constructs/eventing";
-import { Network } from "./constructs/network";
-import {
-  addUserPoolEnvironment,
-  grantCognitoAdminAccess,
-  grantCognitoFederatedLinkingAccess,
-  importLambdaCatalog,
-  Lambdas,
-} from "./constructs/lambdas";
-import { InitializationLambdas, RoutineDatabaseOperations } from "./constructs/database-operations";
-import { addCdcAlarms, Observability } from "./constructs/observability";
-import { PeriodicMatcher } from "./constructs/periodic-matcher";
-import { PERIODIC_MATCHER_IMAGE, periodicMatcherNames } from "./periodic-matcher-config";
-import { scheduledEcsClusterName } from "./scheduled-ecs-config";
-import * as sqs from "aws-cdk-lib/aws-sqs";
-import { ReleaseRollout } from "./constructs/release-rollout";
-import { Search } from "./constructs/opensearch";
-import { importQueueCatalog, Queues } from "./constructs/queues";
-import { WorkloadStorage } from "./constructs/workload-storage";
-import { Storage } from "./constructs/storage";
-import { importWorkerQueueCatalog, WorkerQueues } from "./constructs/worker-queues";
+import { CognitoTriggers } from "./constructs/cognito-triggers";
+import { HostAccess } from "./constructs/host-access";
+import { McpCloudFront } from "./constructs/mcp";
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
@@ -49,230 +19,57 @@ export interface ApplicationStageProps extends cdk.StackProps {
   readonly stackNamePrefix?: string;
 }
 
+/** The resources that stay on AWS while the application runs on the self-hosted host. */
 export interface ApplicationStageStacks {
-  readonly network: ApplicationNetworkStack;
-  readonly data: ApplicationDataStack;
-  readonly initialization: ApplicationInitializationStack;
-  readonly migration: ApplicationMigrationStack;
+  readonly host: ApplicationHostStack;
   readonly identity: ApplicationIdentityStack;
-  readonly compute: ApplicationComputeStack;
   readonly api: ApplicationApiStack;
-  readonly observability?: ApplicationObservabilityStack;
 }
 
 export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
   const stackNamePrefix = props.stackNamePrefix ?? `application-${props.stage}`;
   const baseProps = stackBaseProps(props);
-  const network = new ApplicationNetworkStack(scope, `${stackNamePrefix}-network`, {
-    ...baseProps,
-    stage: props.stage,
-    stackName: `${stackNamePrefix}-network`,
-  });
+  const stack = (suffix: string) => ({ ...baseProps, stage: props.stage, stackName: `${stackNamePrefix}-${suffix}` });
 
-  const data = new ApplicationDataStack(scope, `${stackNamePrefix}-data`, {
-    ...baseProps,
-    stage: props.stage,
-    stackName: `${stackNamePrefix}-data`,
-    network: network.network,
-  });
-  data.addDependency(network);
+  const host = new ApplicationHostStack(scope, `${stackNamePrefix}-host`, stack("host"));
+  // Both name host resources rather than importing them: the host user and the origin secret.
+  const identity = new ApplicationIdentityStack(scope, `${stackNamePrefix}-identity`, stack("identity"));
+  identity.addStackDependency(host);
+  const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, stack("api"));
+  api.addStackDependency(host);
 
-  const initialization = new ApplicationInitializationStack(scope, `${stackNamePrefix}-initialize`, {
-    ...baseProps,
-    stage: props.stage,
-    stackName: `${stackNamePrefix}-initialize`,
-    storage: data.storage,
-    network: network.network,
-  });
-  initialization.addDependency(data);
-  initialization.addDependency(network);
-
-  const migration = new ApplicationMigrationStack(scope, `${stackNamePrefix}-migrate`, {
-    ...baseProps, stage: props.stage, stackName: `${stackNamePrefix}-migrate`,
-    storage: data.storage, network: network.network,
-  });
-  const identity = new ApplicationIdentityStack(scope, `${stackNamePrefix}-identity`, {
-    ...baseProps, stage: props.stage, stackName: `${stackNamePrefix}-identity`,
-  });
-
-  const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
-    ...baseProps,
-    stage: props.stage,
-    stackName: `${stackNamePrefix}-compute`,
-    storage: data.storage,
-    identity: identity.identity,
-    emailConfigurationSet: identity.emailConfigurationSet,
-    queues: data.queues,
-    workloadStorage: data.workloadStorage,
-    search: data.search,
-    dmsCdc: data.dmsCdc,
-    network: network.network,
-  });
-  compute.addDependency(data);
-  compute.addDependency(network);
-  // FX is addressed by its stable name, so no cross-stack reference enforces this deployment order.
-  compute.addDependency(migration);
-
-  const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
-    ...baseProps,
-    stage: props.stage,
-    stackName: `${stackNamePrefix}-api`,
-    identity: identity.identity,
-  });
-  api.addDependency(compute);
-
-  const observability = props.stage === "prod"
-    ? new ApplicationObservabilityStack(scope, `${stackNamePrefix}-observability`, {
-        ...baseProps,
-        stage: props.stage,
-        stackName: `${stackNamePrefix}-observability`,
-        api: api.api,
-        dmsTaskArn: data.dmsCdc.task.ref,
-      })
-    : undefined;
-  observability?.addDependency(api);
-  observability?.addDependency(data);
-  observability?.addDependency(compute);
-
-  return {
-    network,
-    data,
-    initialization,
-    migration,
-    identity,
-    compute,
-    api,
-    observability,
-  };
+  return { host, identity, api };
 }
 
-export class ApplicationNetworkStack extends cdk.Stack {
-  readonly network: Network;
+/** Backups, the host's IAM user and the origin secret; deployable before the host serves traffic. */
+export class ApplicationHostStack extends cdk.Stack {
+  readonly access: HostAccess;
 
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, stackProps(props));
+    this.templateOptions.description = "Aura Historia host access stack";
+    this.access = new HostAccess(this, "HostAccess", { config: stageConfig(props.stage) });
 
-    const config = stageConfig(props.stage);
-    this.templateOptions.description = "Aura Historia private workload network stack";
-    this.network = new Network(this, "Network", { config });
-
-    networkOutputs(this, this.network);
-  }
-}
-
-export interface ApplicationDataStackProps extends ApplicationStackProps {
-  readonly network?: Network;
-}
-
-export class ApplicationDataStack extends cdk.Stack {
-  readonly storage: Storage;
-  readonly queues: Queues;
-  readonly workerQueues: WorkerQueues;
-  readonly workloadStorage: WorkloadStorage;
-  readonly search: Search;
-  readonly dmsCdc: DmsCdc;
-
-  constructor(scope: Construct, id: string, props: ApplicationDataStackProps) {
-    super(scope, id, stackProps(props));
-
-    const config = stageConfig(props.stage);
-    const stageName = config.stage;
-
-    this.templateOptions.description = "Aura Historia data stack";
-
-    this.storage = new Storage(this, "Storage", {
-      config,
-      network: props.network,
-    });
-
-    this.queues = new Queues(this, "Queues", {
-      config,
-      stageName,
-    });
-    this.workloadStorage = new WorkloadStorage(this, "WorkloadStorage", config);
-    this.workerQueues = new WorkerQueues(this, "WorkerQueues", { config });
-
-    this.search = new Search(this, "Search", {
-      config,
-    });
-    this.dmsCdc = new DmsCdc(this, "DmsCdc", {
-      config,
-      network: props.network,
-      storage: this.storage,
-    });
-
-    if (config.stage === "dev") {
-      const alarmTopic = new sns.Topic(this, "CdcAlarmNotificationTopic", {
-        topicName: `cloudwatch-alarms-${stageName}`,
-        displayName: `CloudWatch CDC alarms for Aura Historia ${stageName}`,
-      });
-      addCdcAlarms(this, stageName, this.dmsCdc.task.ref, alarmTopic);
-      new cdk.CfnOutput(this, "CdcAlarmNotificationTopicArn", { value: alarmTopic.topicArn });
-    }
-
-    dataOutputs(this, {
-      storage: this.storage,
-      queues: this.queues,
-      workerQueues: this.workerQueues,
-      search: this.search,
-    });
-  }
-}
-
-export interface ApplicationInitializationStackProps extends ApplicationStackProps {
-  readonly storage: Storage;
-  readonly network?: Network;
-}
-
-export class ApplicationInitializationStack extends cdk.Stack {
-  readonly initialization: InitializationLambdas;
-
-  constructor(scope: Construct, id: string, props: ApplicationInitializationStackProps) {
-    super(scope, id, stackProps(props));
-
-    const config = stageConfig(props.stage);
-    if (!props.network || !props.storage.migrationPostgres) {
-      throw new Error("Initialization stack requires real PostgreSQL storage and private networking.");
-    }
-
-    this.templateOptions.description = "Aura Historia private database initialization stack";
-    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
-    this.initialization = new InitializationLambdas(this, "InitializationLambdas", {
-      config,
-      artifactBucket,
-      migrationPostgres: props.storage.migrationPostgres,
-      postgres: props.storage.postgres,
-      network: props.network,
-    });
-  }
-}
-
-export class ApplicationMigrationStack extends cdk.Stack {
-  readonly operations: RoutineDatabaseOperations;
-  constructor(scope: Construct, id: string, props: ApplicationInitializationStackProps) {
-    super(scope, id, stackProps(props));
-    constrainRoutineRoles(this, props.stage, "migration");
-    if (!props.network || !props.storage.migrationPostgres) throw new Error("Migration operations require private PostgreSQL.");
-    this.operations = new RoutineDatabaseOperations(this, "DatabaseOperations", {
-      config: stageConfig(props.stage), network: props.network,
-      postgres: props.storage.postgres, migrationPostgres: props.storage.migrationPostgres,
-      artifactBucket: s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME),
-    });
+    new cdk.CfnOutput(this, "HostUserName", { value: this.access.user.userName });
+    new cdk.CfnOutput(this, "BackupBucketName", { value: this.access.backupBucket.bucketName });
+    new cdk.CfnOutput(this, "OriginVerifySecretArn", { value: this.access.originVerifySecret.secretArn });
   }
 }
 
 export class ApplicationIdentityStack extends cdk.Stack {
   readonly identity: Identity;
+  readonly triggers: CognitoTriggers;
   readonly emailConfigurationSet: ses.ConfigurationSet;
+
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, stackProps(props));
     const config = stageConfig(props.stage);
     const stageName = config.stage;
     this.emailConfigurationSet = new ses.ConfigurationSet(this, "EmailConfigurationSet", {
-      configurationSetName: config.notificationEmail.configurationSet,
+      configurationSetName: config.emailSending.configurationSet,
       reputationMetrics: true,
     });
-    // Rollback sources and outstanding sender versions may still reference this set in either stage.
+    // Outstanding sender versions and the host may still reference this set.
     this.emailConfigurationSet.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
     const emailMetrics = this.emailConfigurationSet.addEventDestination("CloudWatchMetrics", {
       destination: ses.EventDestination.cloudWatchDimensions([{
@@ -294,32 +91,16 @@ export class ApplicationIdentityStack extends cdk.Stack {
       ],
     });
 
-
-    const trigger = (binary: string, id: string) => lambda.Function.fromFunctionAttributes(this, id, {
-      functionArn: this.formatArn({ service: "lambda", resource: "function", resourceName: `${binary}-${stageName}:live`,
-        arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }), sameEnvironment: true,
-    });
+    this.triggers = new CognitoTriggers(this, "CognitoTriggers", { config });
     this.identity = new Identity(this, "Identity", {
       config, stageName, emailConfigurationSet: this.emailConfigurationSet,
-      postConfirmationLambda: trigger("cognito-post-confirmation", "PostConfirmationTrigger"),
-      preSignUpLambda: trigger("cognito-pre-sign-up", "PreSignUpTrigger"),
+      postConfirmationTrigger: this.triggers.postConfirmation,
+      preSignUpTrigger: this.triggers.preSignUp,
     });
     this.identity.userPool.node.addDependency(emailMetrics);
-    // Initial bootstrap creates the pool before code; attach stable triggers in the second protected update.
-    const attach = new cdk.CfnParameter(this, "AttachIdentityTriggers", {
-      type: "String", default: "true", allowedValues: ["true", "false"],
-    });
-    const enabled = new cdk.CfnCondition(this, "IdentityTriggersAttached", {
-      expression: cdk.Fn.conditionEquals(attach.valueAsString, "true"),
-    });
-    const pool = this.identity.userPool.node.defaultChild as cognito.CfnUserPool;
-    pool.addPropertyOverride("LambdaConfig", cdk.Fn.conditionIf(enabled.logicalId, {
-      PostConfirmation: this.formatArn({ service: "lambda", resource: "function", resourceName: `cognito-post-confirmation-${stageName}:live`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }),
-      PreSignUp: this.formatArn({ service: "lambda", resource: "function", resourceName: `cognito-pre-sign-up-${stageName}:live`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }),
-    }, cdk.Aws.NO_VALUE));
-    for (const resource of this.node.findAll()) {
-      if (resource instanceof lambda.CfnPermission) resource.cfnOptions.condition = enabled;
-    }
+    grantHostPoolAdministration(this, config, this.identity);
+    retainRetiredStackExports(this, this.identity, this.emailConfigurationSet);
+
     new cdk.CfnOutput(this, "CognitoUserPoolId", { value: this.identity.userPool.userPoolId });
     new cdk.CfnOutput(this, "CognitoUserPoolClientPublicId", { value: this.identity.publicClient.userPoolClientId });
     new cdk.CfnOutput(this, "CognitoHostedUIDomain", {
@@ -333,197 +114,56 @@ export class ApplicationIdentityStack extends cdk.Stack {
   }
 }
 
-export interface ApplicationComputeStackProps extends ApplicationStackProps {
-  readonly storage: Storage;
-  readonly identity: Identity;
-  readonly emailConfigurationSet: ses.ConfigurationSet;
-  readonly workloadStorage: WorkloadStorage;
-  readonly queues: Queues;
-  readonly search: Search;
-  readonly dmsCdc?: DmsCdc;
-  readonly network?: Network;
+/**
+ * The Cognito admin calls the host makes: the REST API's user lookup and global sign-out, and
+ * the identity deletion worker's lookup and deletion. The pool's own stack grants them, so the
+ * statement names the pool exactly.
+ */
+function grantHostPoolAdministration(stack: cdk.Stack, config: StageConfig, identity: Identity): void {
+  new iam.Policy(stack, "HostCognitoAdministration", {
+    users: [iam.User.fromUserName(stack, "HostUser", config.host.userName)],
+    statements: [new iam.PolicyStatement({
+      actions: [
+        "cognito-idp:ListUsers",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminDeleteUser",
+        "cognito-idp:AdminUserGlobalSignOut",
+      ],
+      resources: [identity.userPool.userPoolArn],
+    })],
+  });
 }
 
-export class ApplicationComputeStack extends cdk.Stack {
-  readonly lambdas: Lambdas;
-  readonly identity: Identity;
-  readonly emailConfigurationSet: ses.ConfigurationSet;
-  readonly eventing: Eventing;
-  readonly periodicMatcher?: PeriodicMatcher;
-  readonly scheduledEcsCluster?: ecs.Cluster;
-
-  constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
-    super(scope, id, stackProps(props));
-
-    const config = stageConfig(props.stage);
-    const parameters = applicationParameters(this, config.searchFilterClassifier);
-    const stageName = config.stage;
-
-    this.templateOptions.description = "Aura Historia compute stack";
-    constrainRoutineRoles(this, props.stage, "runtime");
-
-    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
-    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", ARTIFACT_BUCKET_NAME);
-
-    this.emailConfigurationSet = props.emailConfigurationSet;
-
-    this.lambdas = new Lambdas(this, "Lambdas", {
-      config,
-      emailConfigurationSet: this.emailConfigurationSet,
-      parameters,
-      artifactBucket,
-      mailTemplateBucket,
-      postgres: props.storage.postgres,
-      search: props.search,
-      queues: importQueueCatalog(this, "LambdaQueues", stageName),
-      network: props.network,
-    });
-
-    new ReleaseRollout(this, "ReleaseRollout", { config, api: this.lambdas.apiAlias, mcp: this.lambdas.mcpAlias });
-    this.identity = props.identity;
-    addUserPoolEnvironment(
-      this.lambdas.functions,
-      this.identity.userPool.userPoolId,
-      this.identity.publicClient.userPoolClientId,
-    );
-    grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
-    grantCognitoFederatedLinkingAccess(this.lambdas.functions);
-
-    this.eventing = new Eventing(this, "Eventing", {
-      config,
-      workloadStorage: props.workloadStorage,
-      queues: importQueueCatalog(this, "Queues", stageName),
-      workerQueues: importWorkerQueueCatalog(this, "WorkerQueues", config),
-      functions: this.lambdas.functions,
-      productListingOpenSearchVersion: this.lambdas.productListingOpenSearchVersion,
-      productListingNormalizationVersion: this.lambdas.productListingNormalizationVersion,
-      productListingIngestionVersion: this.lambdas.productListingIngestionVersion,
-      productContentAssessmentVersion: this.lambdas.productContentAssessmentVersion,
-      productEmbeddingVersion: this.lambdas.productEmbeddingVersion,
-      productTranslationVersion: this.lambdas.productTranslationVersion,
-      searchFilterMatchNotificationVersion: this.lambdas.searchFilterMatchNotificationVersion,
-      watchlistNotificationVersion: this.lambdas.watchlistNotificationVersion,
-      notificationDeliveryVersion: this.lambdas.notificationDeliveryVersion,
-      marketingConsentSyncVersion: this.lambdas.marketingConsentSyncVersion,
-      userIdentityDeletionVersion: this.lambdas.userIdentityDeletionVersion,
-      geoResolutionVersion: this.lambdas.geoResolutionVersion,
-      listingGeographyVersion: this.lambdas.listingGeographyVersion,
-      listingShippingVersion: this.lambdas.listingShippingVersion,
-      backendCleanupVersion: this.lambdas.backendCleanupVersion,
-      cdcRouterVersion: this.lambdas.cdcRouterVersion,
-      cdcRouterActivation: parameters.cdcRouterActivation,
-      dmsCdc: props.dmsCdc,
-    });
-
-    if (!props.network) throw new Error("Periodic matcher requires the application network.");
-    this.scheduledEcsCluster = new ecs.Cluster(this, "ScheduledEcsCluster", {
-      vpc: props.network.vpc, clusterName: scheduledEcsClusterName(stageName),
-    });
-    // Preserve the deployed cluster when ownership moves from PeriodicMatcher to the compute stack.
-    // Removing this override requires a CloudFormation migration; new scheduled jobs must not copy it.
-    (this.scheduledEcsCluster.node.defaultChild as ecs.CfnCluster).overrideLogicalId("PeriodicMatcherCluster207C1F86");
-    const imageDigest = new cdk.CfnParameter(this, PERIODIC_MATCHER_IMAGE.digestParameter, {
-      type: "String", allowedPattern: "^sha256:[0-9a-f]{64}$",
-      description: "Verified immutable ECR image manifest digest for this release.",
-    });
-    const enabled = new cdk.CfnParameter(this, "PeriodicMatcherEnabled", {
-      type: "String", allowedValues: ["true", "false"], default: "false",
-    });
-    const activation = new cdk.CfnCondition(this, "PeriodicMatcherActivation", {
-      expression: cdk.Fn.conditionEquals(enabled.valueAsString, "true"),
-    });
-    this.periodicMatcher = new PeriodicMatcher(this, "PeriodicMatcher", {
-      config, deliveryDlq: props.workloadStorage.periodicMatcherDlq, network: props.network, cluster: this.scheduledEcsCluster, postgres: props.storage.postgres,
-      imageDigest: imageDigest.valueAsString, enabled: activation, commitSha: parameters.commitSha,
-      classifierModel: parameters.searchFilterClassifierModel,
-      batchCandidates: parameters.searchFilterMatchBatchCandidates,
-      shouldShowThresholdBps: parameters.searchFilterMatchShouldShowThresholdBps,
-    });
-    new cdk.CfnOutput(this, PERIODIC_MATCHER_IMAGE.taskDefinitionOutput, {
-      value: this.periodicMatcher.taskDefinitionArn,
-    });
-
-    computeOutputs(this, {
-      identity: this.identity,
-      eventing: this.eventing,
-    });
-  }
+/**
+ * The retired compute stack imports these values until it is deleted, and CloudFormation refuses
+ * to remove an export that is still imported. Remove this once that stack is gone.
+ */
+function retainRetiredStackExports(stack: cdk.Stack, identity: Identity, emailConfigurationSet: ses.ConfigurationSet): void {
+  stack.exportValue(emailConfigurationSet.configurationSetName);
+  stack.exportValue(identity.userPool.userPoolArn);
+  stack.exportValue(identity.publicClient.userPoolClientId);
+  stack.exportValue(identity.userPool.userPoolId);
+  if (identity.customDomain) stack.exportValue(identity.customDomain.domainName);
 }
 
-export interface ApplicationApiStackProps extends ApplicationStackProps {
-  readonly identity: Identity;
-}
-
+/** The public CloudFront distributions and Web ACLs for `api.` and `mcp.`, both on the host origin. */
 export class ApplicationApiStack extends cdk.Stack {
-  readonly api: BackendHttpApi;
-  readonly mcp: McpHttpApi;
+  readonly api: ApiCloudFront;
+  readonly mcp: McpCloudFront;
 
-  constructor(scope: Construct, id: string, props: ApplicationApiStackProps) {
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, stackProps(props));
 
     const config = stageConfig(props.stage);
-    const stageName = config.stage;
-
     this.templateOptions.description = "Aura Historia API stack";
-    constrainRoutineRoles(this, props.stage, "runtime");
+    constrainRoutineRoles(this, props.stage);
 
-    const functions = importLambdaCatalog(this, "LambdaImports", config);
-    this.api = new BackendHttpApi(this, "HttpApi", {
-      config,
-      stageName,
-      functions,
-    });
-
-    this.mcp = new McpHttpApi(this, "McpHttpApi", { config, function: functions.auraHistoriaMcp });
+    // The construct IDs predate the host origin; they keep the deployed resources' logical IDs.
+    this.api = new ApiCloudFront(this, "HttpApi", { config });
+    this.mcp = new McpCloudFront(this, "McpHttpApi", { config });
     new cdk.CfnOutput(this, "McpEndpointUrl", { value: this.mcp.endpointUrl });
     new cdk.CfnOutput(this, "McpCloudFrontDistributionDomainName", { value: this.mcp.distribution.attrDomainName });
-    new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
-    if (this.api.distribution) {
-      new cdk.CfnOutput(this, "ApiCloudFrontDistributionDomainName", {
-        value: this.api.distribution.attrDomainName,
-      });
-    }
-  }
-}
-
-export interface ApplicationObservabilityStackProps extends ApplicationStackProps {
-  readonly api: BackendHttpApi;
-  readonly dmsTaskArn: string;
-}
-
-export class ApplicationObservabilityStack extends cdk.Stack {
-  readonly observability: Observability;
-
-  constructor(scope: Construct, id: string, props: ApplicationObservabilityStackProps) {
-    super(scope, id, stackProps(props));
-
-    const config = stageConfig(props.stage);
-    const stageName = config.stage;
-
-    this.templateOptions.description = "Aura Historia observability stack";
-
-    this.observability = new Observability(this, "Observability", {
-      config,
-      stageName,
-      api: props.api.api,
-      dmsTaskArn: props.dmsTaskArn,
-      functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
-      workerQueues: importWorkerQueueCatalog(this, "WorkerQueueAlarmImports", config),
-      ingestionQueues: importQueueCatalog(this, "IngestionQueueAlarmImports", stageName),
-      periodicMatcherDeliveryDlq: sqs.Queue.fromQueueArn(this, "PeriodicMatcherDeliveryDlqImport", this.formatArn({ service: "sqs", resource: periodicMatcherNames(stageName).dlq })),
-      maintenanceSchedulerDeadLetterQueue: importMaintenanceSchedulerDeadLetterQueue(
-        this,
-        "MaintenanceSchedulerDeadLetterQueueAlarmImport",
-        stageName,
-      ),
-    });
-
-    if (this.observability.alarmTopic) {
-      new cdk.CfnOutput(this, "AlarmNotificationTopicArn", {
-        description: "SNS Topic ARN for CloudWatch alarm notifications",
-        value: this.observability.alarmTopic.topicArn,
-      });
-    }
+    new cdk.CfnOutput(this, "ApiCloudFrontDistributionDomainName", { value: this.api.distribution.attrDomainName });
   }
 }
 
@@ -533,87 +173,13 @@ function stackBaseProps(props: ApplicationStageProps): cdk.StackProps {
 }
 
 function stackProps(props: ApplicationStackProps): cdk.StackProps {
+  const { stage, ...rest } = props;
   return {
-    ...stackBaseProps(props),
-    terminationProtection: props.stage === "prod" ? true : props.terminationProtection,
+    ...rest,
+    terminationProtection: true,
     synthesizer: new cdk.CliCredentialsStackSynthesizer({
       fileAssetsBucketName: CLOUDFORMATION_STAGING_BUCKET_NAME,
-      bucketPrefix: `${props.stage}/`,
+      bucketPrefix: `${stage}/`,
     }),
   };
-}
-
-function networkOutputs(stack: cdk.Stack, network: Network): void {
-  new cdk.CfnOutput(stack, "VpcId", { value: network.vpc.vpcId });
-  new cdk.CfnOutput(stack, "NatGatewayEipAllocationId", { value: network.natEip.attrAllocationId });
-  new cdk.CfnOutput(stack, "NatGatewayEipPublicIp", { value: network.natEip.attrPublicIp });
-  new cdk.CfnOutput(stack, "ApplicationSecurityGroupId", { value: network.applicationSecurityGroup.securityGroupId });
-  new cdk.CfnOutput(stack, "DatabaseSecurityGroupId", { value: network.databaseSecurityGroup.securityGroupId });
-  new cdk.CfnOutput(stack, "DmsSecurityGroupId", { value: network.dmsSecurityGroup.securityGroupId });
-  new cdk.CfnOutput(stack, "DmsEndpointSecurityGroupId", { value: network.dmsEndpointSecurityGroup.securityGroupId });
-  new cdk.CfnOutput(stack, "MigrationSecurityGroupId", { value: network.migrationSecurityGroup.securityGroupId });
-}
-
-function dataOutputs(
-  stack: cdk.Stack,
-  resources: {
-    readonly search: Search;
-    readonly storage: Storage;
-    readonly queues: Queues;
-    readonly workerQueues: WorkerQueues;
-  },
-): void {
-  new cdk.CfnOutput(stack, "PostgresHost", { value: resources.storage.postgres.host });
-  new cdk.CfnOutput(stack, "PostgresPort", { value: resources.storage.postgres.port });
-  new cdk.CfnOutput(stack, "PostgresDatabase", { value: resources.storage.postgres.database });
-  new cdk.CfnOutput(stack, "OpensearchDomainName", { value: resources.search.domainName });
-  new cdk.CfnOutput(stack, "OutputOpensearchEndpointUrl", {
-    key: "OpensearchEndpointUrl",
-    value: resources.search.endpointUrl,
-  });
-
-
-
-
-  new cdk.CfnOutput(stack, "ProductListingIngestionQueueUrl", {
-    value: resources.queues.catalog.productListingIngestion.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductListingIngestionDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productListingIngestion.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ShopifyLambdaQueueUrl", {
-    value: resources.queues.catalog.shopify.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ShopifyLambdaDeadLetterQueueUrl", {
-    value: resources.queues.catalog.shopify.deadLetterQueue.queueUrl,
-  });
-  resources.workerQueues.addOutputs();
-
-}
-
-function computeOutputs(
-  stack: cdk.Stack,
-  resources: {
-    readonly identity: Identity;
-    readonly eventing: Eventing;
-  },
-): void {
-  new cdk.CfnOutput(stack, "CognitoHostedUIDomain", {
-    value: resources.identity.customDomain?.baseUrl() ?? cdk.Fn.sub("https://${Domain}.auth.${AWS::Region}.amazoncognito.com", {
-      Domain: resources.identity.domain.domainName,
-    }),
-  });
-  new cdk.CfnOutput(stack, "CognitoUserPoolId", { value: resources.identity.userPool.userPoolId });
-  new cdk.CfnOutput(stack, "CognitoUserPoolClientPublicId", {
-    value: resources.identity.publicClient.userPoolClientId,
-  });
-
-  new cdk.CfnOutput(stack, "OutputStripeEventBusName", {
-    key: "StripeEventBusName",
-    value: resources.eventing.stripeEventBus.eventBusName,
-  });
-  new cdk.CfnOutput(stack, "OutputShopifyEventBusName", {
-    key: "ShopifyEventBusName",
-    value: resources.eventing.shopifyEventBus.eventBusName,
-  });
 }
