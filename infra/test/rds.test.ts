@@ -130,8 +130,8 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.Environment.Variables.POSTGRES_PASSWORD !== undefined,
     );
 
-    expect(functions).toHaveLength(25);
-    expect(runtimeFunctions).toHaveLength(22);
+    expect(functions).toHaveLength(24);
+    expect(runtimeFunctions).toHaveLength(21);
     expect(runtimeFunctions.find((resource) =>
       resource.Properties.FunctionName === `aura-historia-mcp-${stage}`,
     )).toBeDefined();

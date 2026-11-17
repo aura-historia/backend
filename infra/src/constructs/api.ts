@@ -14,6 +14,7 @@ export enum RouteAuthPolicy {
   OAuth = "OAUTH",
   ProviderSignature = "PROVIDER_SIGNATURE",
   LoopsSignature = "LOOPS_SIGNATURE",
+  ShopifySignature = "SHOPIFY_SIGNATURE",
 }
 
 export enum RouteAuthorizationClass {
@@ -37,6 +38,7 @@ export enum ProviderProofRequirement {
   None = "NONE",
   WooCommerceSignature = "WOOCOMMERCE_SIGNATURE",
   LoopsSignature = "LOOPS_SIGNATURE",
+  ShopifySignature = "SHOPIFY_SIGNATURE",
 }
 
 /**
@@ -202,6 +204,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
 
   ...apiRoutes(RouteAuthPolicy.ProviderSignature, "/v1/webhooks/woocommerce/{listing_source_id}", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.LoopsSignature, "/v1/webhooks/loops", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.ShopifySignature, "/v1/webhooks/shopify", ["POST"]),
 ];
 
 export interface HttpApiProps {
@@ -724,6 +727,8 @@ function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): Ap
       return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.Partner, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.WooCommerceSignature };
     case RouteAuthPolicy.LoopsSignature:
       return { bearer: "NONE", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.LoopsSignature };
+    case RouteAuthPolicy.ShopifySignature:
+      return { bearer: "NONE", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.ShopifySignature };
     case RouteAuthPolicy.OAuth:
       throw new Error(`OAuth route '${path}' has no explicit credential policy.`);
   }

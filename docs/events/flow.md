@@ -106,9 +106,18 @@ unknown products retain their ordering fence without creating a canonical listin
 Unsupported schemas fail closed. Broad `products/*` topics are acknowledged
 without forwarding, including queue redrives.
 
-`X-Shopify-Triggered-At` continues to supply webhook source-time ordering independently
+Shopify delivers these topics over HTTPS to [`POST /v1/webhooks/shopify`](../swagger.yaml).
+The API verifies `X-Shopify-Hmac-Sha256` over the exact body with the app client secret
+(current or, during rotation, previous) before reading anything else, maps the delivery
+headers to the observation's provenance and answers `200` only after confirmed command
+admission. A malformed or unmappable delivery is `400`; uncertain admission is `5xx` and
+Shopify retries it for about four hours. A longer outage is recovered by re-importing.
+
+`X-Shopify-Triggered-At` supplies webhook source-time ordering independently
 of product `updated_at`, using the existing provider ordering and deletion-barrier rules
-above. Provider receipt and command deduplication remain unchanged.
+above. The required `X-Shopify-Webhook-Id` keys the provider receipt and the command
+identity, so Shopify's retries of one delivery deduplicate. The retained raw provenance
+keeps `eventBridgeEventId`, which is `null` for HTTPS deliveries.
 
 Initial/manual/recovery imports use the existing canonical asynchronous upsert and
 withdrawal endpoints. The app owns publication reads: imports upsert published products
@@ -268,7 +277,7 @@ freshness or widen the scheduled matching interval.
 | Intake | Boundary and acknowledgment |
 | --- | --- |
 | WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. Delivery IDs are unique only per webhook and second, so command and provider-receipt identity also bind the product and the sanitized evidence digest; the randomly sampled `related_ids` is not evidence. Deletions, including non-public status updates, carry the product ID as `sourceListingId`, so they withdraw the product's listing even when no live upsert has bound its raw stream, such as a listing created through the partner API. |
-| Shopify | Partner EventBridge → retained provider Standard queue → Shopify Lambda → command FIFO. Forwarding and command application are separate acknowledgments and failure locations. |
+| Shopify | Signed HTTPS webhook → API → command FIFO. The `200` acknowledges confirmed admission, not raw capture; command application is a separate acknowledgment and failure location. Shopify's retries end after about four hours; re-importing recovers longer outages. |
 | Stripe | Partner EventBridge → dedicated Lambda → User-service reconciliation. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. |
 | Cognito pre-sign-up | Federated collision checks fail closed. Linking requires the explicit provider trust policy and verified persisted identity; email alone is insufficient. |
 | Cognito post-confirmation | Registration commits the initial User/binding. Profile bootstrap applies only on first creation; replay does not synchronize profile or restore consent. [Signup consent](../marketing-consent.md#grants-and-double-opt-in) is a separate verified decision. |

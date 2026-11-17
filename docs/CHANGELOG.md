@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-17 — Shopify webhooks over HTTPS (#3024)
+
+- **New endpoint:** `POST /v1/webhooks/shopify` (`postShopifyWebhook`, tag `ProductListings`) receives the Shopify app's `product_listings/add`, `product_listings/update` and `product_listings/remove` webhooks directly, replacing delivery through the Amazon EventBridge partner source. It needs no Aura bearer; `X-Shopify-Hmac-Sha256` must be the base64 HMAC-SHA256 of the exact body bytes with the app's client secret, and the previous secret is accepted during rotation. The body is limited to 1 MiB.
+- **Responses:** `200` once the mapped ingestion command's admission is confirmed, and for other topics (including `products/*`) or shops without a Shopify ListingSource, which have no effect. `401 BAD_HEADER_VALUE` for a missing or wrong signature; `400 BAD_HEADER_VALUE` or `BAD_BODY_VALUE` for a malformed delivery, now including a product that cannot be mapped; `413 BAD_BODY_VALUE` above 1 MiB; `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` when admission is unconfirmed, which Shopify retries; `500 PRODUCT_LISTING_INTERNAL_ERROR` when the stage has no client secret.
+- **Unchanged:** payload schema, `body_html` stripping, `X-Shopify-Triggered-At` source-time ordering, deletion barriers, provider receipts and command identity are the same as for EventBridge deliveries, so a delivery received both ways is deduplicated. `X-Shopify-Webhook-Id` is now required for forwarded topics.
+
 ## 2026-11-16 — Anonymous illegal-content notices and submitter role `OTHER` (#3011)
 
 - **Anonymous reports:** `POST /v1/content-notices` (`submitContentNotice`) no longer requires `name` and `email` when `submitterRole` is `ILLEGAL_CONTENT_REPORTER`; either or both may be omitted or `null` (DSA Recital 50 and Art. 16(2)(c)). A present value is validated as before. `language` stays required. `PROVIDER`, `RIGHTS_HOLDER` and `OTHER` must still give both: a missing or `null` value now returns `400 CONTENT_NOTICE_CONTACT_REQUIRED` with `source.field` `/name` or `/email` instead of `400 BAD_BODY_VALUE`.

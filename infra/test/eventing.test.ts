@@ -42,7 +42,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(json.Parameters.CdcRouterEnabled).toMatchObject({ Default: "false", AllowedValues: ["true", "false"] });
 
     const mappings = resources(compute, "AWS::Lambda::EventSourceMapping");
-    expect(mappings).toHaveLength(16);
+    expect(mappings).toHaveLength(15);
     const router = mappings.find((mapping) => mapping.Properties.BatchSize === 100);
     expect(router?.Properties.Enabled).toEqual({ "Fn::If": ["CdcRouterActivation", true, false] });
     for (const mapping of mappings.filter((candidate) => candidate !== router)) {
@@ -52,8 +52,7 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     const normalization = mappings.find((mapping) => JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"));
     expect(normalization?.Properties.BatchSize).toBe(10);
     expect(JSON.stringify(normalization?.Properties.EventSourceArn)).toContain(`aura-worker-product-listing-normalization-${stage}`);
-    const shopify = mappings.find((mapping) => JSON.stringify(mapping.Properties.FunctionName).includes("ShopifyLambda"));
-    expect(shopify?.Properties).toMatchObject({ BatchSize: 10, MaximumBatchingWindowInSeconds: 1 });
+    expect(mappings.some((mapping) => JSON.stringify(mapping.Properties.FunctionName).includes("ShopifyLambda"))).toBe(false);
 
     const rules = resources(compute, "AWS::Events::Rule");
     for (const marker of ["customer.subscription.created", "X-Shopify-Topic"]) {

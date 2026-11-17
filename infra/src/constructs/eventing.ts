@@ -3,7 +3,6 @@ import * as events from "aws-cdk-lib/aws-events";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -205,6 +204,8 @@ function createPartnerEventRules(
   functions: LambdaFunctions,
   queues: QueueCatalog,
 ): void {
+  // Shopify now delivers over HTTPS (`POST /v1/webhooks/shopify`) and nothing consumes this
+  // queue; the rule and queue stay only until the CDK app is replaced.
   const shopifyRule = new events.Rule(scope, "ShopifyEventRule", {
     eventBus: shopifyEventBus,
     eventPattern: {
@@ -362,13 +363,6 @@ function createSqsEventSources(
     geoResolutionVersion, listingGeographyVersion, listingShippingVersion,
   } = props;
   const maximumConcurrency = (key: LambdaKey) => lambdaReservedConcurrency(key, props.config);
-  functions.shopify.addEventSource(new lambdaEventSources.SqsEventSource(queues.shopify.queue, {
-    batchSize: 10,
-    reportBatchItemFailures: true,
-    maxBatchingWindow: cdk.Duration.seconds(1),
-    maxConcurrency: maximumConcurrency("shopify"),
-  }));
-
   functions.productListingIngestion.addToRolePolicy(new iam.PolicyStatement({
     actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
     resources: [queues.productListingIngestion.queue.queueArn],
@@ -388,9 +382,7 @@ function createSqsEventSources(
   }
   ingestionMapping.addResourceDependency(consumerPolicy.node.defaultChild as iam.CfnPolicy);
   // First creation must establish durable consumption before creating producer functions.
-  for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
-    (producer.node.defaultChild as lambda.CfnFunction).addResourceDependency(ingestionMapping);
-  }
+  (functions.auraHistoriaApi.node.defaultChild as lambda.CfnFunction).addResourceDependency(ingestionMapping);
 
   const productListingOpenSearch = workerQueues["product-listing-opensearch"];
   if (!productListingOpenSearch) {

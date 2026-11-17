@@ -47,8 +47,8 @@ use crate::state::{
     ContentNoticesState, ListingSourcesState, LoopsWebhooksState, NewsletterState,
     NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
     PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, UsersState,
-    WatchlistState, WebhooksState,
+    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, ShopifyWebhooksState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -119,12 +119,15 @@ use oauth_service::use_cases::{
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
 use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingMutationHandler,
     queries::admin_product_listings::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
     },
 };
+use product_listing_shopify::ShopifyProductPayloadDecoder;
+use webhooks::shopify_signature::ShopifyWebhookSecrets;
 use woocommerce_service::WoocommerceWebhookIntake;
 
 use content_notice_postgres::{
@@ -246,6 +249,8 @@ pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
 pub const LOOPS_WEBHOOK_SIGNING_SECRET_ENV: &str = "LOOPS_WEBHOOK_SIGNING_SECRET";
+pub const SHOPIFY_APP_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_CLIENT_SECRET";
+pub const SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_PREVIOUS_CLIENT_SECRET";
 pub const NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV: &str =
     "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN";
 pub const NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV: &str = "NEWSLETTER_CONFIRMATION_EMAIL_FROM";
@@ -295,6 +300,7 @@ pub struct ApiConfig {
     loops: LoopsNewsletterConfig,
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
+    shopify_webhook_secrets: Option<ShopifyWebhookSecrets>,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -393,6 +399,7 @@ impl ApiConfig {
             &loops_webhook_signing_secret,
         )
         .map_err(|_| ApiConfigError::InvalidLoopsWebhookSigningSecret)?;
+        let shopify_webhook_secrets = shopify_webhook_secrets(&mut get)?;
 
         Ok(Self {
             bind_addr,
@@ -408,6 +415,7 @@ impl ApiConfig {
             loops,
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
+            shopify_webhook_secrets,
             public_listing_source_read_max_in_flight,
             public_listing_source_read_request_timeout,
         })
@@ -468,6 +476,10 @@ impl ApiConfig {
 
     fn loops_webhook_signing_secret(&self) -> &str {
         &self.loops_webhook_signing_secret
+    }
+
+    fn shopify_webhook_secrets(&self) -> Option<&ShopifyWebhookSecrets> {
+        self.shopify_webhook_secrets.as_ref()
     }
 
     /// Shared, non-queuing public ListingSource read budget for this API process.
@@ -656,6 +668,24 @@ pub enum ApiConfigError {
     ),
     #[error("invalid Loops webhook signing-secret configuration")]
     InvalidLoopsWebhookSigningSecret,
+    #[error("invalid Shopify app client-secret configuration")]
+    InvalidShopifyAppClientSecret,
+}
+
+/// Unset leaves the Shopify webhook unconfigured, and it then rejects every delivery; a previous
+/// secret is accepted only next to a current one during rotation.
+fn shopify_webhook_secrets<F>(get: &mut F) -> Result<Option<ShopifyWebhookSecrets>, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let previous = get(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV);
+    match get(SHOPIFY_APP_CLIENT_SECRET_ENV) {
+        Some(current) => ShopifyWebhookSecrets::new(current, previous)
+            .map(Some)
+            .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret),
+        None if previous.is_some() => Err(ApiConfigError::InvalidShopifyAppClientSecret),
+        None => Ok(None),
+    }
 }
 
 pub fn app(state: AppState) -> Router {
@@ -702,6 +732,21 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .route(
                     "/v1/webhooks/woocommerce/{listing_source_id}",
                     post(webhooks::post_woocommerce::post_woocommerce),
+                )
+                .with_state(webhooks),
+        );
+    }
+
+    if let Some(webhooks) = state.shopify_webhooks {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/v1/webhooks/shopify",
+                    post(webhooks::post_shopify::post_shopify).layer(
+                        tower_http::limit::RequestBodyLimitLayer::new(
+                            crate::transport::MAX_SHOPIFY_WEBHOOK_BODY_BYTES,
+                        ),
+                    ),
                 )
                 .with_state(webhooks),
         );
@@ -1647,6 +1692,11 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&submit_product_listing_ingestion),
         authorize_woocommerce_product,
     );
+    let process_shopify_product = ProcessShopifyProductListingHandler::new(
+        SqlxListingSourceReaders::new(pool.clone()),
+        Arc::clone(&partner_ingestion.submit_internal),
+        ShopifyProductPayloadDecoder,
+    );
     let access_token_use_case =
         AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));
     let resolve_cognito_user =
@@ -2128,6 +2178,10 @@ async fn app_state_from_config_and_runtime(
         .with_webhooks(WebhooksState::new(
             Arc::new(intake_woocommerce_product),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
+        .with_shopify_webhooks(ShopifyWebhooksState::new(
+            config.shopify_webhook_secrets().cloned(),
+            Arc::new(process_shopify_product),
         ))
         .with_loops_webhooks(LoopsWebhooksState::new(
             config.loops_webhook_signing_secret().to_owned(),
@@ -2653,6 +2707,47 @@ mod tests {
                     Err(ApiConfigError::InvalidLoopsWebhookSigningSecret)
                 ));
             }
+        }
+    }
+
+    #[test]
+    fn should_configure_optional_rotating_shopify_client_secrets() {
+        let config = |values: &[(&'static str, &str)]| {
+            let mut all = valid_api_config_values();
+            for (name, value) in values {
+                all.insert(name, (*value).to_owned());
+            }
+            ApiConfig::from_getter(|name| all.get(name).cloned())
+        };
+
+        assert!(matches!(config(&[]), Ok(config) if config.shopify_webhook_secrets().is_none()));
+        assert!(matches!(
+            config(&[(SHOPIFY_APP_CLIENT_SECRET_ENV, "current")]),
+            Ok(config) if config.shopify_webhook_secrets()
+                == ShopifyWebhookSecrets::new("current".to_owned(), None).ok().as_ref()
+        ));
+        assert!(matches!(
+            config(&[
+                (SHOPIFY_APP_CLIENT_SECRET_ENV, "current"),
+                (SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous"),
+            ]),
+            Ok(config) if config.shopify_webhook_secrets()
+                == ShopifyWebhookSecrets::new("current".to_owned(), Some("previous".to_owned()))
+                    .ok()
+                    .as_ref()
+        ));
+        for invalid in [
+            vec![(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous")],
+            vec![(SHOPIFY_APP_CLIENT_SECRET_ENV, " ")],
+            vec![
+                (SHOPIFY_APP_CLIENT_SECRET_ENV, "current"),
+                (SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, ""),
+            ],
+        ] {
+            assert!(matches!(
+                config(&invalid),
+                Err(ApiConfigError::InvalidShopifyAppClientSecret)
+            ));
         }
     }
 

@@ -1,4 +1,5 @@
 use crate::auth::TokenAuthenticator;
+use crate::webhooks::shopify_signature::ShopifyWebhookSecrets;
 use admin_overview_service::GetAdminOverviewUseCase;
 use async_trait::async_trait;
 use auction_service::use_cases::{
@@ -66,6 +67,7 @@ use party_service::use_cases::queries::get_party::GetPartyUseCase;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesUseCase;
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingUseCase;
 use product_listing_service::use_cases::{
     GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetPublicCatalogueOverviewUseCase, GetSimilarProductListingsUseCase,
@@ -172,6 +174,7 @@ pub struct AppState {
     pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
     pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
+    pub(crate) shopify_webhooks: Option<ShopifyWebhooksState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
@@ -228,6 +231,7 @@ impl AppState {
             notifications: None,
             webhooks: None,
             loops_webhooks: None,
+            shopify_webhooks: None,
             auctions: None,
             admin_product_listings: None,
             public_auctions: None,
@@ -387,6 +391,11 @@ impl AppState {
 
     pub fn with_loops_webhooks(mut self, webhooks: LoopsWebhooksState) -> Self {
         self.loops_webhooks = Some(webhooks);
+        self
+    }
+
+    pub fn with_shopify_webhooks(mut self, webhooks: ShopifyWebhooksState) -> Self {
+        self.shopify_webhooks = Some(webhooks);
         self
     }
 
@@ -561,6 +570,22 @@ impl LoopsWebhooksState {
             verifier,
             apply_preference_event,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ShopifyWebhooksState {
+    /// Without a configured client secret every delivery fails closed with `500`.
+    pub(crate) secrets: Option<ShopifyWebhookSecrets>,
+    pub(crate) process: Arc<dyn ProcessShopifyProductListingUseCase>,
+}
+
+impl ShopifyWebhooksState {
+    pub fn new(
+        secrets: Option<ShopifyWebhookSecrets>,
+        process: Arc<dyn ProcessShopifyProductListingUseCase>,
+    ) -> Self {
+        Self { secrets, process }
     }
 }
 
