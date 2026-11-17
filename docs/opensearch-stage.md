@@ -34,8 +34,8 @@ dev; production does not load demo certificates or demo users.
 The [production bootstrap](../opensearch/prod/bootstrap.py) requires Python 3,
 OpenSSL, Docker Compose and the normal OpenSearch host prerequisites below. It
 checks for at least 100 GiB free Docker storage and enough available RAM for the
-configured container limit plus 8 GiB host headroom. The default container limit
-is 20 GiB, with an 8 GiB heap, a 16 GiB memory reservation and no swap.
+configured container limit plus 8 GiB host headroom. The container runs without
+swap; its heap and memory limits follow the host's memory plan.
 
 ### Production resource allocation
 

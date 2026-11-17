@@ -39,13 +39,15 @@ stress_slice() {
   limit_mib=$(( max / 1048576 + 2048 ))
   log "${slice}: memory.max $(( max / 1048576 )) MiB; allocating until the kernel stops it"
 
-  local before after oom_before
+  local before after oom_before oom_after
   before="$(snapshot)"
   oom_before="$(memory_event "/sys/fs/cgroup/${slice}" oom_kill)"
   # The loader stops itself at memory.max + 2 GiB, so a cap that does not hold ends the
-  # test with exit 3 instead of exhausting the host.
+  # test with exit 3 instead of exhausting the host. OOMScoreAdjust makes it the
+  # victim inside the slice, ahead of the crawler or a login session.
   set +e
-  systemd-run --quiet --wait --collect --slice="${slice}" --unit="aura-stress-$$" \
+  systemd-run --quiet --wait --collect --slice="${slice}" --unit="aura-stress-${slice%.slice}-$$" \
+    -p OOMScoreAdjust=1000 \
     python3 -I -c '
 import sys
 limit_mib, chunk_mib = int(sys.argv[1]), int(sys.argv[2])
@@ -57,9 +59,11 @@ sys.exit(3)
   local status=$?
   set -e
   after="$(snapshot)"
+  oom_after="$(memory_event "/sys/fs/cgroup/${slice}" oom_kill)"
 
-  log "${slice}: loader exit ${status}, slice oom_kill ${oom_before} -> $(memory_event "/sys/fs/cgroup/${slice}" oom_kill)"
+  log "${slice}: loader exit ${status}, slice oom_kill ${oom_before} -> ${oom_after}"
   [[ ${status} -ne 3 ]] || fail "${slice}: the loader passed memory.max + 2 GiB; the cap does not hold"
+  (( oom_after > oom_before )) || fail "${slice}: the loader ended without an OOM kill in the slice; the test proved nothing"
   printf 'serving before:\n%s\nserving after:\n%s\n' "${before}" "${after}"
   [[ "$(awk '{print $1, $2, $4}' <<<"${before}")" == "$(awk '{print $1, $2, $4}' <<<"${after}")" ]] \
     || fail "a serving container was OOM-killed or restarted during the ${slice} test"
@@ -68,6 +72,7 @@ sys.exit(3)
 slices=("$@")
 [[ ${#slices[@]} -gt 0 ]] || slices=(aura-batch.slice user.slice)
 [[ -d ${SERVING} ]] || fail "aura-serving.slice is not active"
+[[ -n "$(serving_containers)" ]] || fail "no container runs in aura-serving.slice; recreate OpenSearch there first"
 for slice in "${slices[@]}"; do
   stress_slice "${slice}"
 done

@@ -19,6 +19,7 @@ services:
     mem_reservation: ${OPENSEARCH_MEMORY_RESERVATION:-16g}
     memswap_limit: ${OPENSEARCH_MEMORY_LIMIT:-20g}
     cgroup_parent: aura-serving.slice
+    oom_score_adj: -500
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     cap_add: [IPC_LOCK]

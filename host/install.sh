@@ -3,7 +3,8 @@
 #
 # Usage: sudo host/install.sh <step>...
 #   cgroups   install the tier slices, cap user.slice, move the crawler units to the
-#             batch tier, remove the OpenSearch CPU reservation
+#             batch tier, default Docker containers to user.slice, remove the
+#             OpenSearch CPU reservation
 #   ssh       accept SSH keys only (refuses while a recent SSH user has no key)
 #   firewall  ufw: deny inbound except SSH and 443; the same for Docker-published ports
 #   check     print the effective state without changing anything
@@ -18,6 +19,8 @@ readonly TIER_SLICES=(aura-serving.slice aura-pipeline.slice aura-batch.slice)
 readonly BATCH_UNITS=(crawler-server.service review-agent-runner.service crawler-backup.service crawler-autodeploy.service)
 readonly RETIRED_SLICE=auraopensearch.slice
 readonly RESERVATION_UNITS=(init.scope system.slice user.slice machine.slice)
+readonly DOCKER_DAEMON_CONFIG=/etc/docker/daemon.json
+readonly DOCKER_DEFAULT_PARENT=user.slice
 readonly SSH_DROP_IN=/etc/ssh/sshd_config.d/10-aura-keys-only.conf
 readonly UFW_BLOCK_BEGIN='# BEGIN aura-historia docker ingress'
 readonly UFW_BLOCK_END='# END aura-historia docker ingress'
@@ -32,9 +35,9 @@ require_cgroup_v2() {
   [[ "$(docker info --format '{{.CgroupDriver}}')" == systemd ]] || fail "Docker must use the systemd cgroup driver"
 }
 
-cgroup_has_processes() {
-  local cgroup=/sys/fs/cgroup/$1
-  [[ -d ${cgroup} ]] && find "${cgroup}" -name cgroup.procs -exec cat {} + | grep -q .
+cgroup_populated() {
+  local events=/sys/fs/cgroup/$1/cgroup.events
+  [[ -f ${events} ]] && grep -qx 'populated 1' "${events}"
 }
 
 # Removes a drop-in only when it sets AllowedCPUs and nothing else, so an unrelated
@@ -72,6 +75,7 @@ install_cgroups() {
   done
   systemctl enable --now "${TIER_SLICES[@]}"
   log "tier slices active; crawler units join aura-batch.slice at their next start"
+  default_docker_parent
 
   retire_opensearch_slice
   verify_all_cpus_allowed
@@ -88,11 +92,22 @@ verify_all_cpus_allowed() {
   log "host processes may use every CPU (${online})"
 }
 
+# A container that names no tier would otherwise run uncapped in system.slice; ad-hoc
+# containers such as test fixtures belong to the sessions that start them.
+default_docker_parent() {
+  local current merged
+  current="$(cat "${DOCKER_DAEMON_CONFIG}" 2>/dev/null || echo '{}')"
+  [[ "$(jq -r '."cgroup-parent" // empty' <<<"${current}")" == "${DOCKER_DEFAULT_PARENT}" ]] && return 0
+  merged="$(jq --arg parent "${DOCKER_DEFAULT_PARENT}" '. + {"cgroup-parent": $parent}' <<<"${current}")"
+  install -D -m 0644 /dev/stdin "${DOCKER_DAEMON_CONFIG}" <<<"${merged}"
+  log "Docker defaults containers to ${DOCKER_DEFAULT_PARENT}; it applies after 'systemctl restart docker' (host/README.md)"
+}
+
 retire_opensearch_slice() {
   if ! systemctl cat "${RETIRED_SLICE}" >/dev/null 2>&1; then
     return 0
   fi
-  if cgroup_has_processes "${RETIRED_SLICE}"; then
+  if cgroup_populated "${RETIRED_SLICE}"; then
     log "${RETIRED_SLICE} still has processes: recreate OpenSearch in aura-serving.slice (host/README.md), then rerun 'cgroups'"
     return 0
   fi
@@ -102,13 +117,24 @@ retire_opensearch_slice() {
   log "retired ${RETIRED_SLICE}"
 }
 
-# Every account that logged in over SSH since wtmp began must hold a key, or turning
-# off passwords locks it out.
+# Terminal logins in both wtmp files, plus every password login sshd logged in the
+# journal (which also covers scp, rsync and other sessions without a terminal).
+recent_ssh_users() {
+  {
+    last -w --nohostname 2>/dev/null
+    last -w --nohostname -f /var/log/wtmp.1 2>/dev/null
+  } | awk '$2 ~ /^pts\// {print $1}'
+  journalctl --quiet --no-pager -o cat -t sshd -t sshd-session --since -60d \
+    --grep 'Accepted (password|keyboard-interactive)' 2>/dev/null |
+    sed -nE 's/.*Accepted [a-z/-]+ for (invalid user )?([^ ]+) from.*/\2/p'
+}
+
+# Every such account must hold a key, or turning off passwords locks it out.
 ssh_users_without_keys() {
   local user home
-  last -w --nohostname 2>/dev/null | awk '$2 ~ /^pts\// {print $1}' | sort -u | while read -r user; do
+  recent_ssh_users | sort -u | while read -r user; do
     home="$(getent passwd "${user}" | cut -d: -f6)" || continue
-    [[ -s ${home}/.ssh/authorized_keys ]] || echo "${user}"
+    [[ -s ${home}/.ssh/authorized_keys || -s ${home}/.ssh/authorized_keys2 ]] || echo "${user}"
   done
 }
 
@@ -138,11 +164,13 @@ install_ufw_docker_block() {
 }
 
 install_firewall() {
-  local port interface
+  local port interface stale
   port="$(ssh_port)"
   interface="$(external_interface)"
   [[ -n ${port} ]] || fail "cannot read the SSH port from sshd -T"
   [[ -n ${interface} ]] || fail "no default route; cannot name the external interface"
+  stale="$(stale_ufw_rules "${port}")"
+  [[ -z ${stale} ]] || fail "ufw holds rules this step does not own; delete them (ufw delete ...) or keep them by hand, then rerun:"$'\n'"${stale}"
 
   # ufw allow is idempotent; allow SSH before anything can enable the default deny.
   ufw allow "${port}/tcp" comment 'SSH'
@@ -154,13 +182,12 @@ install_firewall() {
   ufw --force enable
   ufw reload
   log "firewall: inbound ${port}/tcp and 443 only, including Docker-published ports on ${interface}"
-  stale_ufw_rules "${port}"
 }
 
-# Rules an earlier operator added survive this step; name them so they are reviewed.
+# Rules an earlier operator added would turn on with ufw, unseen; refuse them first.
 stale_ufw_rules() {
   local port=$1
-  ufw status numbered | grep -E '^\[' | grep -v -E "\b(${port}/tcp|443/tcp|443/udp)\b" || true
+  ufw show added | grep '^ufw ' | grep -v -E "^ufw allow (${port}/tcp|443/tcp|443/udp)( comment .*)?$" || true
 }
 
 print_check() {
