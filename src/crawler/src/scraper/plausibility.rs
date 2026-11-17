@@ -410,14 +410,29 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
     } else if is_word_list(source_listing_id) {
         vec![PlausibilityCheck::WordList]
     } else {
-        link_or_path_check(source_listing_id).into_iter().collect()
+        is_link_or_path_identity(source_listing_id)
+            .then_some(PlausibilityCheck::LinkOrPath)
+            .into_iter()
+            .collect()
     }
 }
 
-/// Whether a captured identity is a URL or path, as one a rule on the page URL derived before
-/// the identity plausibility checks reported it.
+/// Whether an identity is one URL or path, as a rule on the page URL, its canonical link or an
+/// image `src` reads it: an absolute, protocol-relative or relative URL, a host name with a path
+/// (`shop.example/products/x`), a `javascript:` or `mailto:` link, or a file name that comes with
+/// a path or a query (`product.php?id=9685`). Unlike a `state` label, a product code may carry a
+/// colon or a file-like suffix (`Tel:0123`, `12.JPG`, `A12.htm`), so those stay identities.
 pub(crate) fn is_link_or_path_identity(identity: &str) -> bool {
-    link_or_path_check(identity).is_some()
+    let link_start =
+        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto):\S)");
+    let host_with_path = regex!(r"(?i)^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::[0-9]+)?/");
+    let file_name =
+        regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
+    let value = identity.trim();
+    !value.contains(char::is_whitespace)
+        && (link_start.is_match(value)
+            || host_with_path.is_match(value)
+            || (file_name.is_match(value) && value.contains(['/', '?'])))
 }
 
 /// Whether `value` is a list of names rather than one identifier: at least
@@ -905,6 +920,10 @@ mod tests {
         #[case::marhamchurch_reference("#Marh3682")]
         #[case::inventory_number_with_slash("17/203")]
         #[case::labelled_inventory_number("Inventarnr. 17/203")]
+        #[case::code_with_a_colon("Tel:0123")]
+        #[case::code_with_a_scheme_like_prefix("DATA:42")]
+        #[case::code_with_an_image_suffix("12.JPG")]
+        #[case::code_with_a_page_suffix("A12.htm")]
         #[case::labelled_with_nbsp("Artikel-Nr:\u{a0}02092")]
         #[case::labelled_stock_number("Stock Number: 38088")]
         #[case::labelled_reference("Ref. 12432")]
@@ -1335,6 +1354,8 @@ mod tests {
         #[case::protocol_relative("//shop.example/products/j054-tea-bowl")]
         #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
         #[case::page_file("product.php?id=9685")]
+        #[case::host_without_scheme("shop.example/products/j054-tea-bowl")]
+        #[case::image_src("https://cdn.shop.example/images/j054.jpg")]
         fn should_report_an_identity_that_is_a_link_or_path_and_block_its_approval(
             #[case] identity: &str,
         ) {
