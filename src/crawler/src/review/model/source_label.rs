@@ -16,9 +16,10 @@ pub const MAX_SOURCE_LABEL_NOTE_CHARS: usize = 500;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SourceLabel {
-    /// The site shows items but sells nothing online, such as a gallery's catalogue.
+    /// The site offers no items for sale, such as a brochure site or an exhibition archive. A
+    /// catalogue of items bought by enquiry, priced or price on request, is an e-shop.
     NotAnEshop,
-    /// The site sells online, but not art or antiques; antique and vintage collectibles count as
+    /// The site offers items for sale, but not art or antiques; antique and vintage collectibles count as
     /// antiques, ordinary second-hand goods, new collectibles and reproductions do not.
     NotAnAntiqueShop,
     /// The shop's product URLs cannot be told apart by a URL pattern.
