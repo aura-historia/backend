@@ -6,9 +6,8 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
-use platform_postgres::{
-    PostgresConnectError, PostgresPoolConfig, PostgresPoolConfigError, SqlxUnitOfWork,
-};
+use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
+use platform_process::postgres::{PostgresConfigError, pool_config_from_env};
 use product_listing_opensearch::OpenSearchProductListingSearchReader;
 use product_listing_postgres::{
     SqlxProductListingCurrentEventGuardFactory,
@@ -27,8 +26,7 @@ use search_filter_service::use_cases::{
 };
 use search_filter_translation_llm::LargeLanguageModelSearchIntentTranslator;
 use std::{
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
-    path::PathBuf,
+    num::{NonZeroU64, NonZeroUsize},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -38,6 +36,9 @@ const MAX_HYBRID_SCAN_LIMIT: usize = 100;
 const DEFAULT_CLASSIFIER_PROVIDER: &str = "cloudflare";
 const DEFAULT_CLASSIFIER_MODEL: &str = "clef";
 const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
+/// One pooled connection, unless `POSTGRES_MAX_CONNECTIONS` says otherwise; the run lock holds
+/// its own connection beside the pool.
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
 /// Translations of filters saved while the translator failed, or before translations existed.
 /// The cap bounds how long a translator outage can delay matching; later runs continue.
 const INTENT_TRANSLATION_BACKFILL: SearchIntentTranslationBackfillPolicy =
@@ -145,20 +146,8 @@ impl PeriodicMatchConfig {
                 required("OPENSEARCH_PASSWORD")?,
             ))
         };
-        let postgres_max_connections =
-            NonZeroU32::new(number::<u32>("POSTGRES_MAX_CONNECTIONS", 1)?)
-                .ok_or(WiringError::InvalidPolicy)?
-                .get();
-        let postgres = PostgresPoolConfig::lambda(
-            required("POSTGRES_HOST")?,
-            number::<u16>("POSTGRES_PORT", 5432)?,
-            required("POSTGRES_DATABASE")?,
-            required("POSTGRES_USERNAME")?,
-            required("POSTGRES_PASSWORD")?,
-            postgres_max_connections,
-            PathBuf::from(required("POSTGRES_TLS_ROOT_CERT")?),
-        )
-        .map_err(WiringError::PostgresConfig)?;
+        let postgres = pool_config_from_env(DEFAULT_POSTGRES_MAX_CONNECTIONS)
+            .map_err(WiringError::PostgresConfig)?;
 
         Ok(Self {
             postgres,
@@ -289,7 +278,7 @@ pub enum WiringError {
     #[error("invalid periodic matching policy")]
     InvalidPolicy,
     #[error("invalid PostgreSQL configuration")]
-    PostgresConfig(#[source] PostgresPoolConfigError),
+    PostgresConfig(#[source] PostgresConfigError),
     #[error("invalid OpenSearch endpoint")]
     OpenSearchUrl(#[source] url::ParseError),
     #[error("failed to connect to PostgreSQL")]
@@ -364,6 +353,8 @@ mod tests {
                 assert!(config.auth.is_none());
                 assert_eq!(1, config.policy.classification_batch_candidates.get());
                 assert_eq!(config.endpoint.as_str(), "https://search.example.test/");
+                assert_eq!(1, config.postgres.max_connections());
+                assert!(config.postgres.tls().is_none());
             }
             "valid-prod" => {
                 let config = config.expect("valid production configuration");
@@ -384,6 +375,11 @@ mod tests {
             "classifier" => assert!(matches!(config, Err(WiringError::ClassifierConfig))),
             "url" => assert!(matches!(config, Err(WiringError::OpenSearchUrl(_)))),
             "number" => assert!(matches!(config, Err(WiringError::InvalidNumber { .. }))),
+            "postgres" => assert!(matches!(config, Err(WiringError::PostgresConfig(_)))),
+            "pool" => assert_eq!(
+                3,
+                config.expect("valid pool size").postgres.max_connections()
+            ),
             "missing" => assert!(matches!(config, Err(WiringError::MissingEnv { .. }))),
             other => panic!("unexpected configuration test case: {other}"),
         }
@@ -400,7 +396,6 @@ mod tests {
             ("POSTGRES_DATABASE", "aura"),
             ("POSTGRES_USERNAME", "user"),
             ("POSTGRES_PASSWORD", "password"),
-            ("POSTGRES_TLS_ROOT_CERT", "/path/to/ca.pem"),
             ("CLASSIFIER_MODEL_PROVIDER", "cloudflare"),
             ("CLOUDFLARE_ACCOUNT_ID", "account"),
             ("CLOUDFLARE_API_TOKEN", "test-token"),
@@ -425,8 +420,10 @@ mod tests {
             (&[("CLOUDFLARE_API_TOKEN", "  ")], "missing"),
             (&[("ANTHROPIC_API_KEY", "")], "missing"),
             (&[("OPENSEARCH_ENDPOINT_URL", "not-a-url")], "url"),
-            (&[("POSTGRES_PORT", "65536")], "number"),
-            (&[("POSTGRES_MAX_CONNECTIONS", "0")], "policy"),
+            (&[("POSTGRES_PORT", "65536")], "postgres"),
+            (&[("POSTGRES_MAX_CONNECTIONS", "0")], "postgres"),
+            (&[("POSTGRES_HOST", "")], "postgres"),
+            (&[("POSTGRES_MAX_CONNECTIONS", "3")], "pool"),
             (&[("PERIODIC_MATCH_HYBRID_SCAN_LIMIT", "101")], "policy"),
             (&[("PERIODIC_MATCH_EVALUATION_LIMIT", "101")], "policy"),
             (&[("PERIODIC_MATCH_MAX_RUN_SECONDS", "0")], "policy"),
