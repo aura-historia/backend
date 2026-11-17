@@ -29,7 +29,8 @@ impl SourceProductUrlReader {
         review_id: CrawlerReviewId,
     ) -> Result<Vec<SourceProductUrl>, sqlx::Error> {
         sqlx::query(
-            "SELECT su.url, su.last_scraped, su.last_error_kind
+            "SELECT su.url, su.last_scraped, su.last_error_kind,
+                    su.last_source_listing_id, su.last_extracted_source_listing_id
              FROM crawler_reviews r
              JOIN listing_source_urls su ON su.listing_source_id = r.listing_source_id
              WHERE r.review_id = $1
@@ -56,6 +57,8 @@ impl SourceProductUrlReader {
                 url: row.try_get("url")?,
                 last_scraped: row.try_get("last_scraped")?,
                 last_error_kind: row.try_get("last_error_kind")?,
+                captured_identity: row.try_get("last_source_listing_id")?,
+                page_identity: row.try_get("last_extracted_source_listing_id")?,
             })
         })
         .collect()

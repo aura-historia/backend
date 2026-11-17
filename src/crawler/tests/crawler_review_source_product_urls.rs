@@ -240,3 +240,33 @@ async fn should_offer_at_most_forty_urls_keeping_the_most_recently_scraped() {
     assert_eq!(offered[0].url, "https://shop.example/item-00");
     assert_eq!(offered[39].url, "https://shop.example/item-39");
 }
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_offer_each_url_with_its_captured_identity_and_the_identity_its_page_showed() {
+    let pool = get_postgres_client().await;
+    let source = listing_source(&pool, "shop").await;
+    let review_id = schema_review(&pool, source, "https://shop.example/review-page").await;
+    stored_url(
+        &pool,
+        source,
+        "https://shop.example/tea-bowl",
+        "product",
+        "ACTIVE",
+        Some(5),
+        None,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET last_source_listing_id = 'J054', last_extracted_source_listing_id = 'HF-0054' \
+         WHERE url = 'https://shop.example/tea-bowl'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let offered = offered(&pool, review_id).await;
+
+    assert_eq!(offered[0].captured_identity.as_deref(), Some("J054"));
+    assert_eq!(offered[0].page_identity.as_deref(), Some("HF-0054"));
+}
