@@ -23,6 +23,8 @@ Every crawler request verifies certificates against the operating system's trust
 
 On Linux the trust store is the system CA bundle (`SSL_CERT_FILE`/`SSL_CERT_DIR` or the distribution's default paths), read once per process. An image without a CA bundle fails closed: the crawler logs once that the trust store is unavailable, and every HTTPS request fails. Windows and macOS use the OS certificate engine, which can also accept roots that the Mozilla-derived Linux bundles do not include yet.
 
+The crawler's TLS client is rustls: TLS 1.2 and 1.3 with forward-secret AEAD suites only (ECDHE with AES-GCM or ChaCha20-Poly1305). A shop that offers only TLS 1.0 or 1.1, RSA key exchange, or CBC or DHE suites fails the handshake as a connect error naming the shop's alert, `ProtocolVersion` or `HandshakeFailure`, although curl may still reach the RSA, CBC and DHE ones. A chain that omits its intermediate certificate fails as `UnknownIssuer`, as in curl; browsers fetch the missing intermediate. A shop that ends a body without `Content-Length` or chunked framing by closing the connection without TLS `close_notify` fails the request, robots.txt included, with an error naming `close_notify`: such a body cannot be told from a truncated one, because the client decodes compressed bodies before the crawler sees their framing. Browsers and curl accept it. A shop that closes without `close_notify` after a framed body is unaffected. The crawler does not work around these failures.
+
 ## Crawler identity
 
 Every crawler request (spider pages and robots.txt, scraper HTML fetches, image probes, and review live inspection) sends the single user agent `AuraHistoriaBot/<version> (+https://aura-historia.com)`, defined once in the crawler's network module.
