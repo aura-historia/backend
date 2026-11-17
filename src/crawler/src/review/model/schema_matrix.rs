@@ -1,4 +1,7 @@
-use super::{CrawlerReviewPage, PageSignals, RemovedPageTemplateMatch, SchemaCandidateEvaluation};
+use super::{
+    CrawlerReviewPage, LinkIdentity, PageSignals, RemovedPageTemplateMatch,
+    SchemaCandidateEvaluation,
+};
 use crate::review::captured_identity_sample::CapturedIdentitySample;
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
@@ -50,6 +53,19 @@ pub struct LiveMatrixEvaluation {
     /// guard treats as outdated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub captured_identity_sample: Option<CapturedIdentitySample>,
+}
+
+impl LiveMatrixEvaluation {
+    /// Whether an identity that is a URL or path keeps the evaluated candidate out of an agent's
+    /// approval: it does unless the captured-identity sample shows the ListingSource's listings
+    /// captured under such identities, which the candidate keeps deriving. So a URL identity stays
+    /// approvable where it is already the listings' identity, and no source starts using one.
+    pub(crate) fn link_identity(&self) -> LinkIdentity {
+        match &self.captured_identity_sample {
+            Some(sample) if sample.keeps_captured_link_identities() => LinkIdentity::Captured,
+            _ => LinkIdentity::Blocks,
+        }
+    }
 }
 
 /// A review's schema matrix as the review API answers it: the matrix, and the review pages it

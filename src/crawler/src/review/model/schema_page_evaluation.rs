@@ -90,14 +90,20 @@ impl SchemaPageEvaluation {
         &self,
         exemptions: ApprovalExemptions,
     ) -> PlausibilityFindings {
-        let accepts_link_identity = exemptions.link_identity == LinkIdentity::Captured
-            && self.identity_links_to_shop_page();
+        let accepts_link_identity = self.accepts_link_identity(exemptions.link_identity);
         self.plausibility_findings.retaining(|finding| {
             finding.blocks_approval()
                 && !(exemptions.price_text == PriceTextOnState::Accepted
                     && finding.is_price_text_on_state())
                 && !(accepts_link_identity && finding.is_link_or_path_identity())
         })
+    }
+
+    /// Whether an approval under `link_identity` accepts this page's identity when it is a URL or
+    /// path: only where the listings were captured under such identities, and only a link to a page
+    /// of the shop.
+    pub fn accepts_link_identity(&self, link_identity: LinkIdentity) -> bool {
+        link_identity == LinkIdentity::Captured && self.identity_links_to_shop_page()
     }
 
     /// Whether the extracted identity links to a page of the shop, as a canonical link or

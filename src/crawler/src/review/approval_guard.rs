@@ -10,8 +10,8 @@ use crate::review::captured_identity_sample::{
     CapturedIdentityOutcome, CapturedIdentityPage, CapturedIdentitySample,
 };
 use crate::review::model::{
-    CrawlerReviewPage, LinkIdentity, LiveMatrixEvaluation, SchemaMatrix, SchemaPageReference,
-    UrlPatternDecision, UrlPatternReviewCandidate,
+    CrawlerReviewPage, LiveMatrixEvaluation, SchemaMatrix, SchemaPageReference, UrlPatternDecision,
+    UrlPatternReviewCandidate,
 };
 use crate::review::page_content_checks::{
     MissingContentRule, SeenState, missing_content_rules, pages_without_signals,
@@ -391,7 +391,7 @@ pub(crate) fn product_schema_approval_checks(
     if !rules.is_empty() {
         failed.push(FailedApprovalCheck::RuleMatchesNothing { rules });
     }
-    let implausible = implausible_pages(matrix, link_identity(evaluation));
+    let implausible = implausible_pages(matrix, evaluation.link_identity());
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
@@ -410,17 +410,6 @@ pub(crate) fn product_schema_approval_checks(
         failed.extend(captured_identity_check(sample));
     }
     failed
-}
-
-/// Whether an identity that is a URL or path keeps the candidate of `evaluation` out of
-/// approval: it does unless its captured-identity sample shows the ListingSource's listings
-/// captured under such identities, which the candidate keeps deriving. So a URL identity stays
-/// approvable where it is already the listings' identity, and no source starts using one.
-fn link_identity(evaluation: &LiveMatrixEvaluation) -> LinkIdentity {
-    match &evaluation.captured_identity_sample {
-        Some(sample) if sample.keeps_captured_link_identities() => LinkIdentity::Captured,
-        _ => LinkIdentity::Blocks,
-    }
 }
 
 /// The check the matrix's captured-identity `sample` fails, if any.
@@ -1092,7 +1081,10 @@ mod tests {
         );
         match refused.as_slice() {
             [FailedApprovalCheck::ImplausibleExtraction { pages }] => {
-                assert_eq!(*pages, implausible_pages(matrix, LinkIdentity::Blocks));
+                assert_eq!(
+                    *pages,
+                    implausible_pages(matrix, crate::review::model::LinkIdentity::Blocks)
+                );
                 pages.clone()
             }
             other => panic!("expected only implausible extractions: {other:?}"),
