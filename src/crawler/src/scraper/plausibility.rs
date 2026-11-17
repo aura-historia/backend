@@ -543,17 +543,18 @@ fn is_availability_value(state: &str) -> bool {
         )
 }
 
-/// A `state` that is one URL, path or `javascript:` link, as a rule reads from an image's `src`
-/// or a link's `href`: `https://shop.example/img/cart.png`, `/images/add_to_order.gif` or
-/// `javascript:LoadIntoBasket()`. A label has words and no scheme, leading slash or file
-/// extension; a scheme counts only with something after its colon, so a `Tel:` label is none.
-/// The caller exempts availability values such as `https://schema.org/InStock`.
-fn link_or_path_check(state: &str) -> Option<PlausibilityCheck> {
+/// A value that is one URL, path or `javascript:` link, as a rule reads from an image's `src`,
+/// a link's `href` or a page's canonical link: `https://shop.example/img/cart.png`,
+/// `/images/add_to_order.gif` or `javascript:LoadIntoBasket()`. A label or code has no scheme,
+/// leading slash or file extension; a scheme counts only with something after its colon, so a
+/// `Tel:` label is none. A `state` caller exempts availability values such as
+/// `https://schema.org/InStock`.
+fn link_or_path_check(value: &str) -> Option<PlausibilityCheck> {
     let scheme_or_path_start =
         regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto|tel|data):\S)");
     let file_extension =
         regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
-    let value = state.trim();
+    let value = value.trim();
     let is_link_or_path = !value.contains(char::is_whitespace)
         && (scheme_or_path_start.is_match(value) || file_extension.is_match(value));
     is_link_or_path.then_some(PlausibilityCheck::LinkOrPath)
