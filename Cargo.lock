@@ -6556,6 +6556,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-postgres-queue"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "platform-postgres-secretsmanager"
 version = "0.1.0"
 dependencies = [
@@ -6575,6 +6589,7 @@ version = "0.1.0"
 dependencies = [
  "aura-historia-jobs",
  "aws-sdk-sqs",
+ "platform-postgres-queue",
  "serde_json",
  "thiserror 2.0.21",
  "url",
