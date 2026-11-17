@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
-const READ_SOURCE_PAGE: &str = "Read a page of the ListingSource you qualify, fetched now from the shop through the crawler's network: with its user agent AuraHistoriaBot and obeying the shop's robots.txt. Leave url out to read the crawl root, the start page; any other url must lie on the source's crawl host (a path such as /shop/ is resolved against it). view OUTLINE (the default) shows the page's elements one per line in CSS notation, MARKDOWN its readable text; both leave out scripts, styles, navigation, header and footer. links lists the shop pages the page links, with their texts, navigation included: read the category, shop and item pages from there instead of guessing URLs. A page the shop's robots.txt refuses the crawler answers an error with reason ROBOTS_DISALLOWED, whose details quote the refusing rule, such as User-agent: *; Disallow: /. A shop whose robots.txt asks for a Crawl-delay above the 60 seconds the crawler honours answers every page with reason ROBOTS_CRAWL_DELAY_TOO_LONG, quoting the rule, such as User-agent: *; Crawl-delay: 120: the crawler requests nothing from it. A bot challenge answers reason BOT_CHALLENGE. Each call fetches the shop once; a process has a small budget of calls (INSPECT_LIMIT_REACHED when spent).";
+const READ_SOURCE_PAGE: &str = "Read a page of the ListingSource you qualify, fetched now from the shop through the crawler's network: with its user agent AuraHistoriaBot and obeying the shop's robots.txt. Leave url out to read the crawl root, the start page; any other url must lie on the source's crawl host (a path such as /shop/ is resolved against it). view OUTLINE (the default) shows the page's elements one per line in CSS notation, MARKDOWN its readable text; both leave out scripts, styles, navigation, header and footer. links lists up to 80 shop pages the page links, with their texts, the page's own content first and its navigation after: read the category, shop and item pages from there instead of guessing URLs. links_total counts them all; when it is higher than links_offset plus the links listed, a large menu may hide the item pages, so read the same page again with links_offset set to the next position (each read fetches the page again). A page the shop's robots.txt refuses the crawler answers an error with reason ROBOTS_DISALLOWED, whose details quote the refusing rule, such as User-agent: *; Disallow: /. A shop whose robots.txt asks for a Crawl-delay above the 60 seconds the crawler honours answers every page with reason ROBOTS_CRAWL_DELAY_TOO_LONG, quoting the rule, such as User-agent: *; Crawl-delay: 120: the crawler requests nothing from it. A bot challenge answers reason BOT_CHALLENGE. Each call fetches the shop once; a process has a small budget of calls (INSPECT_LIMIT_REACHED when spent).";
 
 const QUALIFY_SOURCE: &str = "Decide, once, whether the ListingSource is a real art and antiques e-shop the crawler may crawl, with a note of 1 to 500 characters naming your evidence and the URLs you read. QUALIFIED: it offers art and antiques for sale online (art, or antiques of any kind, including antique and vintage collectibles; not ordinary second-hand goods, new collectibles or reproductions) as a catalogue of individual items, each showing it is for sale by a price, price on request or an availability status, bought through a cart or buy button or by enquiry, so a dealer's or gallery's enquiry-only catalogue qualifies; a site selling only by auction is QUALIFIED with OTHER (auction platform), for a human; a mixed shop qualifies when they are a significant part of what it sells (give a rough share and the categories seen). Add a label to a QUALIFIED decision only when the crawler cannot crawl this real art and antiques e-shop: URL_PATTERN_APPROACH_NOT_APPLICABLE, PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE, BOT_PROTECTION, JAVASCRIPT_RENDERED, LOGIN_REQUIRED or OTHER. DISQUALIFIED needs its label: ROBOTS_DISALLOWED when robots.txt refuses AuraHistoriaBot the crawl root or its product pages, by a Disallow rule or a Crawl-delay above 60 seconds (quote the rule), SHOP_CLOSED when the domain is parked or for sale or the site says the business closed (never for one failed fetch), NOT_AN_ESHOP when it offers no items for sale (such as a brochure site about the business or its services, a museum or collection, an artist's portfolio or exhibition pages whose works show no sign of being for sale, or a record of sold items only), NOT_AN_ANTIQUE_SHOP when it offers items for sale but not art or antiques. NEEDS_HUMAN without a label when you cannot tell from what you could read, such as an unreachable site without proof that it closed or a bot challenge on every page. The decision's label replaces the source's label, which stays in its history; a QUALIFIED decision without a label keeps a label the source has, for a human (label_effect KEPT_LABEL). Refused with CONFLICT and reason ALREADY_QUALIFIED when the source has a qualification, HUMAN_LABEL when a human's label stands, NOT_IN_CRAWL_SCOPE when the scope does not admit it. After it, report.";
 
@@ -28,6 +28,10 @@ pub(super) struct ReadSourcePageArguments {
     url: Option<String>,
     #[serde(default)]
     view: Option<PageView>,
+    /// The position of the first link to list, for the links after an earlier answer's; 0 when
+    /// left out.
+    #[serde(default)]
+    links_offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -80,6 +84,9 @@ async fn read_source_page(
         .filter(|url| !url.is_empty())
     {
         query.push_str(&format!("&url={}", encoded(url)));
+    }
+    if let Some(offset) = arguments.links_offset.filter(|offset| *offset > 0) {
+        query.push_str(&format!("&links_offset={offset}"));
     }
     context.inspections.take()?;
     match context

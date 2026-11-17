@@ -97,11 +97,23 @@ pub struct SourcePageProjection {
     /// Whether the page's structured data describes exactly one product. Information only.
     pub describes_one_product: bool,
     /// The pages of the shop the page links, which the projection leaves out: where to read on.
+    /// At most [`MAX_PAGE_LINKS`], from `links_offset` on.
     pub links: Vec<PageLink>,
+    /// The position in the page's links of the first of `links`.
+    pub links_offset: usize,
+    /// How many distinct shop pages the page links, `links` and the others.
+    pub links_total: usize,
 }
 
-/// The most links of a page the qualification reads.
+/// The most links of a page one answer of the qualification lists.
 pub const MAX_PAGE_LINKS: usize = 80;
+
+/// One window of a page's links, as [`page_links`] lists them, and how many there are.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageLinks {
+    pub links: Vec<PageLink>,
+    pub total: usize,
+}
 
 /// The longest link text kept, in characters.
 const MAX_LINK_TEXT_CHARS: usize = 80;
@@ -114,10 +126,13 @@ pub struct PageLink {
 }
 
 /// The distinct http(s) pages on `page_url`'s host or its www twin that `html` links, resolved as
-/// Spider resolves them, without fragments, in page order, at most [`MAX_PAGE_LINKS`]; the page
-/// itself is left out. A shop's own navigation names its category and item pages, which the
-/// projection's views drop.
-pub fn page_links(html: &str, page_url: &Url) -> Vec<PageLink> {
+/// Spider resolves them, without fragments, at most [`MAX_PAGE_LINKS`] from position `offset`,
+/// with their total; the page itself is left out. A shop's own navigation names its category and
+/// item pages, which the projection's views drop. The links of the page's content come first and
+/// those in its navigation, header and footer after them, each in page order: a dealer's menu can
+/// hold more links than one answer lists, ahead of the item pages a category page lists, and a
+/// menu built without those elements is paged past with `offset`.
+pub fn page_links(html: &str, page_url: &Url, offset: usize) -> PageLinks {
     static LINKS: std::sync::LazyLock<scraper::Selector> =
         std::sync::LazyLock::new(|| scraper::Selector::parse("a[href]").expect("link selector"));
     let base = crate::spider::discovery::link_base(page_url, html.as_bytes());
@@ -126,8 +141,12 @@ pub fn page_links(html: &str, page_url: &Url) -> Vec<PageLink> {
     let mut page = page_url.clone();
     page.set_fragment(None);
     seen.insert(page.to_string());
-    document
+    let (content, chrome): (Vec<_>, Vec<_>) = document
         .select(&LINKS)
+        .partition(|anchor| !is_in_page_chrome(anchor));
+    let links: Vec<PageLink> = content
+        .into_iter()
+        .chain(chrome)
         .filter_map(|anchor| {
             let mut url = base.join(anchor.value().attr("href")?.trim()).ok()?;
             url.set_fragment(None);
@@ -146,8 +165,29 @@ pub fn page_links(html: &str, page_url: &Url) -> Vec<PageLink> {
                 url: url.to_string(),
             })
         })
-        .take(MAX_PAGE_LINKS)
-        .collect()
+        .collect();
+    PageLinks {
+        total: links.len(),
+        links: links
+            .into_iter()
+            .skip(offset)
+            .take(MAX_PAGE_LINKS)
+            .collect(),
+    }
+}
+
+/// Whether `anchor` sits in the page's navigation, header or footer, by tag or by a theme's
+/// prefixed custom element such as `header-drawer`.
+fn is_in_page_chrome(anchor: &scraper::ElementRef) -> bool {
+    anchor
+        .ancestors()
+        .filter_map(scraper::ElementRef::wrap)
+        .any(|element| {
+            let name = element.value().name();
+            ["nav", "header", "footer"]
+                .iter()
+                .any(|chrome| name == *chrome || name.starts_with(&format!("{chrome}-")))
+        })
 }
 
 /// What a page's `html` shows the review agents: its projection in one view, and whether its
@@ -196,10 +236,16 @@ mod tests {
             <a href="#cart">cart</a>
         </body></html>"##;
 
-        let links = page_links(html, &Url::parse("https://www.shop.example/de/").unwrap());
+        let links = page_links(
+            html,
+            &Url::parse("https://www.shop.example/de/").unwrap(),
+            0,
+        );
 
+        assert_eq!(3, links.total);
         assert_eq!(
             links
+                .links
                 .iter()
                 .map(|link| (link.url.as_str(), link.text.as_str()))
                 .collect::<Vec<_>>(),
@@ -209,6 +255,48 @@ mod tests {
                 ("https://shop.example/artikel/1", "Art. 1"),
             ]
         );
+    }
+
+    /// Butchoff (#3008): a category page lists its item pages after a menu of more links than one
+    /// answer lists. The content's links come first; a menu that is no `nav`, `header` or
+    /// `footer` is paged past with the offset, and the total says that more links follow.
+    #[test]
+    fn should_list_the_content_s_links_first_and_page_through_the_rest() {
+        let menu = |prefix: &str| -> String {
+            (0..MAX_PAGE_LINKS)
+                .map(|index| {
+                    format!(r#"<li><a href="/{prefix}-{index}">{prefix} {index}</a></li>"#)
+                })
+                .collect()
+        };
+        let html = format!(
+            r#"<html><body><nav><ul>{}</ul></nav><div class="mega-menu"><ul>{}</ul></div>
+            <main><a href="/item/1">Clock</a></main></body></html>"#,
+            menu("category"),
+            menu("theme"),
+        );
+        let page = Url::parse("https://shop.example/clocks").unwrap();
+        let urls = |links: &PageLinks| -> Vec<String> {
+            links.links.iter().map(|link| link.url.clone()).collect()
+        };
+
+        let first = page_links(&html, &page, 0);
+        let last = page_links(&html, &page, 2 * MAX_PAGE_LINKS);
+
+        assert_eq!(2 * MAX_PAGE_LINKS + 1, first.total);
+        assert_eq!(MAX_PAGE_LINKS, first.links.len());
+        assert_eq!(
+            vec![
+                "https://shop.example/theme-0",
+                "https://shop.example/theme-1"
+            ],
+            urls(&first)[..2]
+        );
+        assert_eq!(
+            "https://shop.example/item/1",
+            urls(&page_links(&html, &page, MAX_PAGE_LINKS))[0]
+        );
+        assert_eq!(vec!["https://shop.example/category-79"], urls(&last));
     }
 
     #[test]
