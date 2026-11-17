@@ -62,17 +62,27 @@ pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
     project_children(&parsed_page(input))
 }
 
-/// The parsed page `input` as a browser shows it once its streamed segments are in place
-/// ([`place_streamed_segments`]), without the elements of [`REMOVED_DSL_TAGS`] and comments, which
-/// every view of the page leaves out; an element named with a prefix of
-/// [`REMOVED_DSL_TAG_PREFIXES`] is still in it, for the walker to skip with
-/// [`has_removed_tag_prefix`]. An `aside` inside `main` or an `article` stays: it is part of the
-/// page's content, often a product page's price and cart panel, where an `aside` outside them is
-/// the page's sidebar.
+/// The parsed page `input` as the shop serves it, the tree the selectors of a schema run on,
+/// without what every view leaves out ([`without_removed_elements`]).
 pub(super) fn parsed_page(input: &str) -> NodeRef {
+    without_removed_elements(parse_html().one(input))
+}
+
+/// The parsed page `input` as a browser shows it once its streamed segments are in place
+/// ([`place_streamed_segments`]), without what every view leaves out. Only for reading what the
+/// page shows: the moved content is not where a selector finds it on the served page.
+pub(super) fn parsed_page_as_shown(input: &str) -> NodeRef {
     let document = parse_html().one(input);
     place_streamed_segments(&document);
+    without_removed_elements(document)
+}
 
+/// `document` without the elements of [`REMOVED_DSL_TAGS`] and comments, which every view of the
+/// page leaves out; an element named with a prefix of [`REMOVED_DSL_TAG_PREFIXES`] is still in
+/// it, for the walker to skip with [`has_removed_tag_prefix`]. An `aside` inside `main` or an
+/// `article` stays: it is part of the page's content, often a product page's price and cart
+/// panel, where an `aside` outside them is the page's sidebar.
+fn without_removed_elements(document: NodeRef) -> NodeRef {
     // Collected before detaching: detaching the node a selection stands on ends its traversal.
     let removed: Vec<NodeRef> = REMOVED_DSL_TAGS
         .iter()

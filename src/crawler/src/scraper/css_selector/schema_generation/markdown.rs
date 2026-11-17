@@ -1,5 +1,6 @@
 //! The page as markdown, the review agents' other view of a page beside its outline
-//! ([`super::outline`]): the readable content of the same parsed page, without the scripts,
+//! ([`super::outline`]): the readable content of the same parsed page, with React's streamed
+//! segments moved into the places a browser shows them ([`super::streamed_segments`]), without the scripts,
 //! styles, navigation, header, footer and comments the outline leaves out, as headings (`#`),
 //! paragraphs, list items, table rows (`| a | b |`), the text of links and buttons, and image alt
 //! text (`![alt]`). It carries no tags, attributes or URLs, so it is for reading what a page shows,
@@ -8,7 +9,7 @@
 //! form selects are left out as well; texts are whole, not shortened.
 
 use super::outline::within_limits;
-use super::projection::{has_removed_tag_prefix, parsed_page};
+use super::projection::{has_removed_tag_prefix, parsed_page_as_shown};
 use kuchiki::NodeRef;
 
 /// The most lines one markdown view holds, the first in document order.
@@ -28,7 +29,7 @@ const INLINE_TAGS: &[&str] = &[
 /// The markdown of the page `input`.
 pub fn html_to_agent_page_markdown(input: &str) -> String {
     let mut writer = MarkdownWriter::default();
-    writer.children(&parsed_page(input));
+    writer.children(&parsed_page_as_shown(input));
     writer.flush();
     within_limits(
         writer.lines,

@@ -3,12 +3,16 @@
 //! with an inline script call that moves it into the place it fills. `$RC("B:…","S:…")` (or
 //! `$RR`, the same with stylesheets) replaces a Suspense boundary's fallback with the segment, and
 //! `$RS("S:…","P:…")` replaces a placeholder `<template>`. A browser runs those calls before anyone
-//! reads the page; the projection runs no script, so without this step a streamed product page's
-//! content would sit hidden at its end. The projection therefore makes the same moves before it
-//! removes the scripts and the comments that delimit the boundaries. A segment no call names
-//! stays where it is, hidden, as a browser leaves it.
+//! reads the page; the projection runs no script, and the markdown view leaves hidden elements
+//! out, so without this step a streamed product page's content would be missing from it. The
+//! markdown view therefore makes the same moves before it removes the scripts and the comments
+//! that delimit the boundaries. The outline and the schema generation prompt do not: selectors run
+//! on the page as served, where the segments stay at its end. A segment no call names stays where
+//! it is, hidden, as a browser leaves it; one whose boundary or placeholder is gone is dropped, as
+//! a browser drops it.
 
 use kuchiki::NodeRef;
+use std::collections::HashMap;
 
 /// The most streamed segment moves one page gets, the first in script order; a real page streams
 /// a few dozen at most.
@@ -29,15 +33,20 @@ enum SegmentMove {
 /// Moves every streamed segment of `document` that a script call names into its place, in the
 /// order of the calls, as React's streaming runtime does in a browser.
 pub(super) fn place_streamed_segments(document: &NodeRef) {
-    for segment_move in segment_moves(document) {
+    let moves = segment_moves(document);
+    if moves.is_empty() {
+        return;
+    }
+    let elements = ElementsById::of(document);
+    for segment_move in moves {
         match segment_move {
             SegmentMove::CompleteBoundary { boundary, segment } => {
-                complete_boundary(document, &boundary, &segment)
+                complete_boundary(&elements, &boundary, &segment)
             }
             SegmentMove::CompleteSegment {
                 segment,
                 placeholder,
-            } => complete_segment(document, &segment, &placeholder),
+            } => complete_segment(&elements, &segment, &placeholder),
         }
     }
 }
@@ -72,21 +81,46 @@ fn segment_moves(document: &NodeRef) -> Vec<SegmentMove> {
         .collect()
 }
 
-/// `$RC`: removes the boundary's content, from its `<template id="B:…">` up to the comment that
-/// closes the boundary, and puts the segment's children there. A boundary that is gone leaves the
-/// segment where it is.
-fn complete_boundary(document: &NodeRef, boundary_id: &str, segment_id: &str) {
-    let (Some(boundary), Some(segment)) = (
-        element_by_id(document, boundary_id),
-        element_by_id(document, segment_id),
-    ) else {
+/// The page's elements by id, the first in document order for an id used twice, as
+/// `getElementById` finds them. Indexed once, before any move: a move keeps every element's id
+/// and only takes elements out of the page, which [`ElementsById::attached`] then leaves out.
+struct ElementsById(HashMap<String, NodeRef>);
+
+impl ElementsById {
+    fn of(document: &NodeRef) -> Self {
+        let mut elements = HashMap::new();
+        for node in document.descendants() {
+            let id = node
+                .as_element()
+                .and_then(|element| element.attributes.borrow().get("id").map(str::to_owned));
+            if let Some(id) = id {
+                elements.entry(id).or_insert(node);
+            }
+        }
+        Self(elements)
+    }
+
+    /// The element with `id` while it is still in the page.
+    fn attached(&self, id: &str) -> Option<&NodeRef> {
+        self.0.get(id).filter(|node| node.parent().is_some())
+    }
+}
+
+/// `$RC`: takes the segment out of the page, then removes the boundary's content, from its
+/// `<template id="B:…">` up to the comment that closes the boundary, and puts the segment's
+/// children there. A segment whose boundary is gone is dropped, as a browser drops it.
+fn complete_boundary(elements: &ElementsById, boundary_id: &str, segment_id: &str) {
+    let Some(segment) = elements.attached(segment_id) else {
+        return;
+    };
+    segment.detach();
+    let Some(boundary) = elements.attached(boundary_id) else {
         return;
     };
     let Some(parent) = boundary.parent() else {
         return;
     };
-    let boundary_end = remove_boundary_content(&boundary);
-    segment.detach();
+    let boundary_end = remove_boundary_content(boundary);
     for child in segment.children().collect::<Vec<_>>() {
         match &boundary_end {
             Some(end) => end.insert_before(child),
@@ -97,7 +131,8 @@ fn complete_boundary(document: &NodeRef, boundary_id: &str, segment_id: &str) {
 
 /// Removes `start` and its following siblings up to the comment that closes the boundary it opens,
 /// and returns that comment, or `None` when the boundary is not closed in its parent. Nested
-/// boundaries (`<!--$-->`, `<!--$?-->`, `<!--$!-->`) are removed whole.
+/// boundaries, opened by a comment starting with `$` (`<!--$-->`, `<!--$?-->`, `<!--$!-->` and
+/// any later kind), are removed whole.
 fn remove_boundary_content(start: &NodeRef) -> Option<NodeRef> {
     let mut depth = 0usize;
     let mut next = Some(start.clone());
@@ -106,7 +141,7 @@ fn remove_boundary_content(start: &NodeRef) -> Option<NodeRef> {
         match marker.as_deref() {
             Some("/$") if depth == 0 => return Some(node),
             Some("/$") => depth -= 1,
-            Some("$" | "$?" | "$!") => depth += 1,
+            Some(marker) if marker.starts_with('$') => depth += 1,
             _ => {}
         }
         next = node.next_sibling();
@@ -115,26 +150,20 @@ fn remove_boundary_content(start: &NodeRef) -> Option<NodeRef> {
     None
 }
 
-/// `$RS`: puts the segment's children in the placeholder template's place.
-fn complete_segment(document: &NodeRef, segment_id: &str, placeholder_id: &str) {
-    let (Some(segment), Some(placeholder)) = (
-        element_by_id(document, segment_id),
-        element_by_id(document, placeholder_id),
-    ) else {
+/// `$RS`: takes the segment out of the page and puts its children in the placeholder template's
+/// place. A segment whose placeholder is gone is dropped, as a browser drops it.
+fn complete_segment(elements: &ElementsById, segment_id: &str, placeholder_id: &str) {
+    let Some(segment) = elements.attached(segment_id) else {
         return;
     };
     segment.detach();
+    let Some(placeholder) = elements.attached(placeholder_id) else {
+        return;
+    };
     for child in segment.children().collect::<Vec<_>>() {
         placeholder.insert_before(child);
     }
     placeholder.detach();
-}
-
-fn element_by_id(document: &NodeRef, id: &str) -> Option<NodeRef> {
-    document.descendants().find(|node| {
-        node.as_element()
-            .is_some_and(|element| element.attributes.borrow().get("id") == Some(id))
-    })
 }
 
 #[cfg(test)]
@@ -196,20 +225,62 @@ mod tests {
     }
 
     #[test]
-    fn should_leave_a_segment_hidden_when_no_call_or_no_boundary_names_it() {
+    fn should_leave_a_segment_no_call_names_and_drop_one_whose_target_is_gone() {
         let html = concat!(
             r#"<body><div hidden id="S:0"><p>unplaced</p></div>"#,
             r#"<div hidden id="S:1"><p>orphan</p></div><script>$RC("B:9","S:1")</script>"#,
+            r#"<div hidden id="S:2"><p>orphan</p></div><script>$RS("S:2","P:9")</script>"#,
             r#"<script src="/app.js"></script></body>"#,
         );
 
         assert_eq!(
+            r#"<div hidden="" id="S:0"><p>unplaced</p></div>"#,
+            placed(html)
+        );
+    }
+
+    /// A call naming the segment as its own boundary drops the segment, as React does, and must
+    /// not empty the rest of the page.
+    #[test]
+    fn should_remove_nothing_but_the_segment_when_a_call_names_it_as_its_own_boundary() {
+        let html = concat!(
+            r#"<body><div hidden id="S:0"><p>segment</p></div><p>kept</p><p>also kept</p>"#,
+            r#"<script>$RC("S:0","S:0")</script></body>"#,
+        );
+
+        assert_eq!("<p>kept</p><p>also kept</p>", placed(html));
+    }
+
+    /// React fills nested boundaries in the order of their calls: an outer segment brings in the
+    /// placeholder a later call fills. A boundary without its closing comment takes the segment
+    /// at the end of its parent.
+    #[test]
+    fn should_fill_a_placeholder_an_earlier_segment_brought_in_and_an_unclosed_boundary() {
+        let html = concat!(
+            r#"<body><main><!--$?--><template id="B:0"></template><p>Loading…</p><!--/$-->"#,
+            r#"</main><section><!--$?--><template id="B:1"></template><p>Loading…</p></section>"#,
+            r#"<div hidden id="S:0"><h1>Chair</h1><template id="P:1"></template></div>"#,
+            r#"<div hidden id="S:1"><p>£50</p></div><div hidden id="S:2"><p>Sold</p></div>"#,
+            r#"<script>$RC("B:0","S:0");$RS("S:1","P:1");$RC("B:1","S:2")</script></body>"#,
+        );
+
+        assert_eq!(
             concat!(
-                r#"<div hidden="" id="S:0"><p>unplaced</p></div>"#,
-                r#"<div hidden="" id="S:1"><p>orphan</p></div>"#
+                "<main><!--$?--><h1>Chair</h1><p>£50</p><!--/$--></main>",
+                "<section><!--$?--><p>Sold</p></section>"
             ),
             placed(html)
         );
+    }
+
+    #[test]
+    fn should_take_at_most_the_first_moves_of_a_page() {
+        let calls: String = (0..MAX_SEGMENT_MOVES + 1)
+            .map(|index| format!(r#"$RC("B:{index}","S:{index}");"#))
+            .collect();
+        let document = parse_html().one(format!("<body><script>{calls}</script></body>"));
+
+        assert_eq!(MAX_SEGMENT_MOVES, segment_moves(&document).len());
     }
 
     #[test]

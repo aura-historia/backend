@@ -204,6 +204,30 @@ mod tests {
     use super::*;
     use crate::scraper::css_selector::product_schema_service::html_to_schema_prompt_dsl;
 
+    /// Selectors run on the page as served, so the outline keeps a streamed segment where the
+    /// shop serves it, at the end, which the markdown moves into place; a product panel in an
+    /// `aside` inside `main` shows, the page's sidebar does not.
+    #[test]
+    fn should_keep_streamed_segments_where_served_and_show_an_aside_inside_main() {
+        let html = concat!(
+            r#"<html><body><aside class="filters">Era</aside><main><h1>Chair</h1>"#,
+            r#"<aside class="panel"><span class="price">£50</span></aside>"#,
+            r#"<!--$?--><template id="B:0"></template><!--/$--></main>"#,
+            r#"<div hidden id="S:0"><p class="sold">Sold</p></div>"#,
+            r#"<script>$RC("B:0","S:0")</script></body></html>"#,
+        );
+
+        assert_eq!(
+            "h1 | Chair\n\
+             aside.panel\n\
+             \x20span.price | £50\n\
+             template[id='B:0']\n\
+             div[id='S:0']\n\
+             \x20p.sold | Sold\n",
+            html_to_agent_page_outline(html)
+        );
+    }
+
     #[test]
     fn should_show_each_element_in_css_notation_indented_by_its_depth() {
         let html = r#"<html><body><div class="product-main" id="main">
