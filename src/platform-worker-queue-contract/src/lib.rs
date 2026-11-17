@@ -218,6 +218,10 @@ impl SqsQueueConfig {
     }
 }
 
+/// Deliveries before a worker job moves to its dead-letter queue, deployed as `maxReceiveCount`
+/// by `infra/src/worker-queue-config.ts`.
+pub const MAX_RECEIVE_COUNT: u32 = 5;
+
 /// Source-queue visibility deployed by `infra/src/worker-queue-config.ts`.
 pub fn visibility(scope: WorkerScope) -> Duration {
     Duration::from_secs(match scope {
@@ -370,7 +374,8 @@ fn validate_source_attributes(
     )
     .map_err(|_| QueueError::Attribute("RedrivePolicy"))?;
     if redrive["deadLetterTargetArn"] != config.arn(true)
-        || !(redrive["maxReceiveCount"] == 5 || redrive["maxReceiveCount"] == "5")
+        || !(redrive["maxReceiveCount"] == MAX_RECEIVE_COUNT
+            || redrive["maxReceiveCount"] == MAX_RECEIVE_COUNT.to_string().as_str())
     {
         return Err(QueueError::Attribute("RedrivePolicy"));
     }
