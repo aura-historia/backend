@@ -373,6 +373,7 @@ dependencies = [
  "product-listing-opensearch",
  "product-listing-postgres",
  "product-listing-service",
+ "product-listing-shopify",
  "product-service",
  "reqwest 0.12.28",
  "rstest",
@@ -7131,10 +7132,12 @@ name = "product-listing-shopify"
 version = "0.1.0"
 dependencies = [
  "application",
+ "base64 0.23.1",
  "listing-source-core",
  "listing-source-service",
  "localization",
  "money",
+ "openssl",
  "product-listing-normalization",
  "product-listing-service",
  "serde",
@@ -8701,49 +8704,6 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
-
-[[package]]
-name = "shopify-lambda"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "auction-postgres",
- "aws-config",
- "aws-sdk-sqs",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "aws_lambda_events",
- "fxrate-core",
- "fxrate-postgres",
- "fxrate-service",
- "http 1.5.0",
- "lambda_runtime",
- "listing-source-core",
- "listing-source-postgres",
- "listing-source-service",
- "localization",
- "money",
- "platform-lambda-bootstrap",
- "platform-observability",
- "platform-postgres",
- "product-listing-ingestion-sqs",
- "product-listing-normalization",
- "product-listing-postgres",
- "product-listing-service",
- "product-listing-shopify",
- "product-service",
- "serde",
- "serde_json",
- "serial_test",
- "sqlx",
- "strum 0.28.0",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "uuid",
-]
 
 [[package]]
 name = "signal-hook-registry"

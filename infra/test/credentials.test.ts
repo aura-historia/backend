@@ -26,6 +26,7 @@ test("operators provision exactly these runtime credential secrets and JSON fiel
     ["/aura-historia/prod/postgres/runtime", ["username", "password"]],
     ["/aura-historia/prod/app/stripe", ["apiKey", "webhookSigningSecret"]],
     ["/aura-historia/prod/app/loops", ["apiKey", "webhookSigningSecret"]],
+    ["/aura-historia/prod/app/shopify", ["clientSecret"]],
     ["/aura-historia/prod/app/opensearch", ["readerPassword", "productProjectorPassword"]],
     ["/aura-historia/prod/app/anthropic", ["apiKey"]],
     ["/aura-historia/prod/app/google", ["applicationCredentials"]],

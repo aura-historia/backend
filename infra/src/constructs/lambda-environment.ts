@@ -140,6 +140,7 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     STRIPE_WEBHOOK_SIGNING_SECRET: context.credential(secrets.stripe, "webhookSigningSecret"),
     ...loopsNewsletterEnvironment(context),
     LOOPS_WEBHOOK_SIGNING_SECRET: context.credential(secrets.loops, "webhookSigningSecret"),
+    SHOPIFY_APP_CLIENT_SECRET: context.credential(secrets.shopify, "clientSecret"),
   };
 }
 

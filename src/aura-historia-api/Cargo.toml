@@ -82,7 +82,9 @@ product-listing-core = { workspace = true }
 product-listing-ingestion-sqs = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
+product-listing-normalization = { workspace = true }
 product-listing-service = { workspace = true }
+product-listing-shopify = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
@@ -117,7 +119,6 @@ aws-smithy-types = { workspace = true }
 base64 = { workspace = true }
 mockall = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
-product-listing-normalization = { workspace = true }
 product-service = { workspace = true }
 rstest = { workspace = true }
 strum = { workspace = true }

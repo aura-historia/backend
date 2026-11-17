@@ -417,7 +417,6 @@ const throttleAlarmLambdaKeys = new Set<LambdaKey>([
 ]);
 
 const queueWorkerKeys = new Set<LambdaKey>([
-  "shopify",
   "productListingIngestion",
   "productListingOpenSearch",
   "productListingNormalization",

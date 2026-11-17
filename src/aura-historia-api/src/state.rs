@@ -65,7 +65,9 @@ use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
 use party_service::use_cases::queries::get_party::GetPartyUseCase;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
+use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerifier;
 use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesUseCase;
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingUseCase;
 use product_listing_service::use_cases::{
     GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetPublicCatalogueOverviewUseCase, GetSimilarProductListingsUseCase,
@@ -173,6 +175,7 @@ pub struct AppState {
     pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
     pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
+    pub(crate) shopify_webhooks: Option<ShopifyWebhooksState>,
     pub(crate) stripe_webhooks: Option<StripeWebhooksState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
@@ -230,6 +233,7 @@ impl AppState {
             notifications: None,
             webhooks: None,
             loops_webhooks: None,
+            shopify_webhooks: None,
             stripe_webhooks: None,
             auctions: None,
             admin_product_listings: None,
@@ -390,6 +394,11 @@ impl AppState {
 
     pub fn with_loops_webhooks(mut self, webhooks: LoopsWebhooksState) -> Self {
         self.loops_webhooks = Some(webhooks);
+        self
+    }
+
+    pub fn with_shopify_webhooks(mut self, webhooks: ShopifyWebhooksState) -> Self {
+        self.shopify_webhooks = Some(webhooks);
         self
     }
 
@@ -569,6 +578,21 @@ impl LoopsWebhooksState {
             verifier,
             apply_preference_event,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ShopifyWebhooksState {
+    pub(crate) verifier: Arc<dyn ShopifyWebhookVerifier>,
+    pub(crate) process: Arc<dyn ProcessShopifyProductListingUseCase>,
+}
+
+impl ShopifyWebhooksState {
+    pub fn new(
+        verifier: Arc<dyn ShopifyWebhookVerifier>,
+        process: Arc<dyn ProcessShopifyProductListingUseCase>,
+    ) -> Self {
+        Self { verifier, process }
     }
 }
 
