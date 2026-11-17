@@ -95,6 +95,31 @@ struct ScrapeBatchContext {
     crawl_host: String,
     batch_time_budget: Duration,
     stop: CronStop,
+    /// The identities the batch's first scrapes claimed for capture.
+    claimed_identities: ClaimedIdentities,
+}
+
+/// The identities a batch's first scrapes claimed, each with the URL that claimed it. A captured
+/// URL's identity reaches the database only once the raw-capture collector pushes its capture,
+/// in batches, so until then the database lookup cannot see it: another spelling of the same
+/// product scraped later in the batch finds the claim here and is retired as its duplicate. The
+/// pass waits for the collector before it ends, so later passes find the identity in the database.
+#[derive(Default)]
+struct ClaimedIdentities(Mutex<HashMap<String, url::Url>>);
+
+impl ClaimedIdentities {
+    /// Claims `source_listing_id` for `url`, or answers the URL that claimed it first.
+    async fn claim(&self, source_listing_id: &str, url: &url::Url) -> Option<url::Url> {
+        let mut claimed = self.0.lock().await;
+        match claimed.get(source_listing_id) {
+            Some(claimant) if claimant != url => Some(claimant.clone()),
+            Some(_) => None,
+            None => {
+                claimed.insert(source_listing_id.to_owned(), url.clone());
+                None
+            }
+        }
+    }
 }
 
 /// Metadata applied only after durable raw capture succeeds.
@@ -1079,9 +1104,9 @@ async fn retire_duplicate_of_known_identity(
 }
 
 /// Retires a URL's first scrape (one that carries no identity yet) when another product URL of
-/// its ListingSource carries `source_listing_id`, and answers its outcome; `None` when the URL
-/// may be captured. A URL that already carries an identity is never retired here: the identity
-/// conflict check judges it.
+/// its ListingSource carries `source_listing_id`, or claimed it earlier in the batch, and answers
+/// its outcome; `None` when the URL may be captured, having claimed the identity. A URL that
+/// already carries an identity is never retired here: the identity conflict check judges it.
 async fn retire_first_scrape_of_known_identity(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
@@ -1102,7 +1127,16 @@ async fn retire_first_scrape_of_known_identity(
         Ok(Some(carrier)) => Some(
             retire_duplicate_of_known_identity(candidate, ctx, source_listing_id, &carrier).await,
         ),
-        Ok(None) => None,
+        Ok(None) => {
+            let claimant = ctx
+                .claimed_identities
+                .claim(source_listing_id, &candidate.url)
+                .await?;
+            Some(
+                retire_duplicate_of_known_identity(candidate, ctx, source_listing_id, &claimant)
+                    .await,
+            )
+        }
         Err(error) => {
             warn!(
                 error = %error,
@@ -2687,6 +2721,7 @@ impl CrawlerCronJob {
                                 listing_source_name,
                                 batch_time_budget,
                                 stop,
+                                claimed_identities: ClaimedIdentities::default(),
                             };
 
                             ScheduledScrapeBatchOutcome {
@@ -3609,6 +3644,7 @@ mod tests {
             listing_source_name: "Example Shop".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
+            claimed_identities: ClaimedIdentities::default(),
         }
     }
 
@@ -3637,6 +3673,7 @@ mod tests {
             listing_source_name: "Example Shop".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
+            claimed_identities: ClaimedIdentities::default(),
         };
 
         let deferred = scrape_batch_candidates(vec![candidate], first_context).await;
@@ -3665,6 +3702,7 @@ mod tests {
             listing_source_name: "Example Shop".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
+            claimed_identities: ClaimedIdentities::default(),
         };
 
         let mut retry_candidate = scraper_candidate(
@@ -3720,6 +3758,7 @@ mod tests {
             listing_source_name: "Example Shop".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
+            claimed_identities: ClaimedIdentities::default(),
         };
 
         let outcome = scrape_batch_candidates(vec![candidate], context).await;
@@ -5267,6 +5306,7 @@ mod tests {
                 listing_source_name: "Example Shop".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
+                claimed_identities: ClaimedIdentities::default(),
             },
         )
         .await;
@@ -5610,6 +5650,7 @@ mod tests {
                 listing_source_name: "Example Shop".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
+                claimed_identities: ClaimedIdentities::default(),
             },
         )
         .await;
@@ -5675,6 +5716,7 @@ mod tests {
                 listing_source_name: "Example Shop".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
+                claimed_identities: ClaimedIdentities::default(),
             },
         )
         .await;
@@ -5753,6 +5795,7 @@ mod tests {
                 listing_source_name: "Example Shop".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
+                claimed_identities: ClaimedIdentities::default(),
             },
         )
         .await;
@@ -5808,6 +5851,7 @@ mod tests {
                 listing_source_name: "Example Shop".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
+                claimed_identities: ClaimedIdentities::default(),
             },
         )
         .await;
@@ -5847,6 +5891,7 @@ mod tests {
             listing_source_name: "Example Shop".to_owned(),
             batch_time_budget,
             stop: CronStop::default(),
+            claimed_identities: ClaimedIdentities::default(),
         }
     }
 
@@ -7518,6 +7563,7 @@ mod tests {
                 listing_source_name: candidate.listing_source_name.clone(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
+                claimed_identities: ClaimedIdentities::default(),
             }
         }
 
@@ -7820,6 +7866,61 @@ mod tests {
 
             assert!(outcome.errored);
             assert!(outcome.capture.is_none());
+        }
+
+        /// Two spellings of one product scraped in one batch, as Loveday's `/product/223/…-table/`
+        /// and `…-table-1/` were: the collector has not pushed the first capture yet, so the
+        /// database knows neither identity, and only the batch's claim retires the second.
+        #[tokio::test]
+        async fn should_retire_the_second_spelling_of_an_identity_the_batch_already_claimed() {
+            let first = url::Url::parse("https://example.com/product/223/table/").unwrap();
+            let second = url::Url::parse("https://example.com/product/223/table-1/").unwrap();
+            let mut scraper_service = MockScraperService::new();
+            scraper_service
+                .expect_scrape()
+                .times(2)
+                .returning(|request| {
+                    let scraped = scraped_product(request.url.clone());
+                    Box::pin(async move { scrape_outcome(Ok(Some(scraped))) })
+                });
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_url_carrying_source_listing_id()
+                .times(2)
+                .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            scraper_candidates
+                .expect_set_disposition()
+                .once()
+                .withf({
+                    let second = second.clone();
+                    move |_, retired, disposition, _| {
+                        *retired == second && *disposition == CrawlerDisposition::Duplicate
+                    }
+                })
+                .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+            let first_outcome =
+                scrape_candidate(scraper_candidate("ListingSource", first), &ctx).await;
+            let second_outcome =
+                scrape_candidate(scraper_candidate("ListingSource", second), &ctx).await;
+
+            assert!(first_outcome.capture.is_some());
+            assert!(second_outcome.capture.is_none());
+            assert!(second_outcome.skipped);
+            assert!(!second_outcome.errored);
+        }
+
+        #[tokio::test]
+        async fn should_let_the_url_that_claimed_an_identity_claim_it_again() {
+            let claims = ClaimedIdentities::default();
+            let first = url::Url::parse("https://example.com/product/223/table/").unwrap();
+            let second = url::Url::parse("https://example.com/product/223/table-1/").unwrap();
+
+            assert_eq!(claims.claim(IDENTITY, &first).await, None);
+            assert_eq!(claims.claim(IDENTITY, &first).await, None);
+            assert_eq!(claims.claim(IDENTITY, &second).await, Some(first));
+            assert_eq!(claims.claim("another identity", &second).await, None);
         }
     }
 
