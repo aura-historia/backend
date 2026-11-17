@@ -17,7 +17,6 @@ const PROD_RESERVATIONS: Record<string, number> = {
   "backend-cleanup-lambda": 1,
   "cognito-post-confirmation": 5,
   "cognito-pre-sign-up": 5,
-  "stripe-lambda": 5,
   "product-listing-opensearch-lambda": 10,
   "product-listing-ingestion-lambda": 2,
   "product-listing-normalization-lambda": 5,
@@ -121,6 +120,6 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
 test("leaves regional headroom when prod and dev share the 1,000-execution quota", () => {
   const total = STAGES.flatMap((stage) => Object.values(reservations(templatesFor(stage))))
     .reduce((sum, limit) => sum + limit, 0);
-  expect(total).toBe(156);
+  expect(total).toBe(151);
   expect(1_000 - total).toBeGreaterThanOrEqual(100);
 });

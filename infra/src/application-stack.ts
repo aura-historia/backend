@@ -608,10 +608,6 @@ function computeOutputs(
     value: resources.identity.publicClient.userPoolClientId,
   });
 
-  new cdk.CfnOutput(stack, "OutputStripeEventBusName", {
-    key: "StripeEventBusName",
-    value: resources.eventing.stripeEventBus.eventBusName,
-  });
   new cdk.CfnOutput(stack, "OutputShopifyEventBusName", {
     key: "ShopifyEventBusName",
     value: resources.eventing.shopifyEventBus.eventBusName,

@@ -62,23 +62,15 @@ export function cdcRouterEventSourceMappingIdExportName(stage: string): string {
 }
 
 export class Eventing extends Construct {
-  readonly stripeEventBus: events.IEventBus;
   readonly shopifyEventBus: events.IEventBus;
 
   constructor(scope: Construct, id: string, props: EventingProps) {
     super(scope, id);
 
-    this.stripeEventBus = events.EventBus.fromEventBusName(this, "StripeEventBus", props.config.stripeEventBusName);
     this.shopifyEventBus = events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
 
     createCloudWatchLogRetentionRule(this, props.functions);
-    createPartnerEventRules(
-      this,
-      this.stripeEventBus,
-      this.shopifyEventBus,
-      props.functions,
-      props.queues,
-    );
+    createPartnerEventRules(this, this.shopifyEventBus, props.queues);
 
     if (!props.backendCleanupVersion) {
       throw new Error("Real eventing requires a cleanup Lambda version.");
@@ -199,9 +191,7 @@ function fxRateSchedulerInput(): string {
 
 function createPartnerEventRules(
   scope: Construct,
-  stripeEventBus: events.IEventBus,
   shopifyEventBus: events.IEventBus,
-  functions: LambdaFunctions,
   queues: QueueCatalog,
 ): void {
   // Shopify now delivers over HTTPS (`POST /v1/webhooks/shopify`) and nothing consumes this
@@ -219,20 +209,6 @@ function createPartnerEventRules(
   });
 
   allowEventRuleToSendToQueue(scope, "ShopifyEventRuleQueuePolicy", shopifyRule, queues.shopify.queue);
-
-  new events.Rule(scope, "StripeEventRule", {
-    eventBus: stripeEventBus,
-    eventPattern: {
-      detail: {
-        type: [
-          "customer.subscription.created",
-          "customer.subscription.updated",
-          "customer.subscription.deleted",
-        ],
-      },
-    },
-    targets: [new targets.LambdaFunction(functions.stripe)],
-  });
 }
 
 function allowEventRuleToSendToQueue(scope: Construct, id: string, rule: events.Rule, queue: sqs.IQueue): void {

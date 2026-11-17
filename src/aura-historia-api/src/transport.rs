@@ -34,6 +34,7 @@ pub(crate) const MAX_LOOPS_WEBHOOK_BODY_BYTES: usize = 64 * 1024;
 /// exceed it.
 pub(crate) const MAX_SHOPIFY_WEBHOOK_BODY_BYTES: usize = 1_048_576;
 const _: () = assert!(MAX_SHOPIFY_WEBHOOK_BODY_BYTES <= MAX_REQUEST_BODY_BYTES);
+pub(crate) const MAX_STRIPE_WEBHOOK_BODY_BYTES: usize = 256 * 1024;
 /// Leave time to map and serialize a bounded publisher outcome before the HTTP timeout.
 pub(crate) const PUBLICATION_REPORT_HEADROOM: Duration = Duration::from_millis(300);
 pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -150,6 +151,7 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
             .is_some_and(|source| !source.is_empty() && !source.contains('/'));
     let loops_webhook = request.method() == Method::POST && path == "/v1/webhooks/loops";
     let shopify_webhook = request.method() == Method::POST && path == "/v1/webhooks/shopify";
+    let stripe_webhook = request.method() == Method::POST && path == "/v1/webhooks/stripe";
     // Public submission forms answer every oversized body like their own capped body.
     let public_submission = (request.method() == Method::PUT
         && path == "/v1/newsletter-subscriptions")
@@ -160,6 +162,7 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
         || woocommerce_webhook
         || shopify_webhook
         || loops_webhook
+        || stripe_webhook
         || public_submission)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
         && response
@@ -177,6 +180,8 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
             )
             .with_detail("The webhook body exceeds the supported limit.")
             .into_response()
+        } else if stripe_webhook {
+            crate::webhooks::post_stripe::payload_too_large().into_response()
         } else {
             ApiError::new(
                 axum::http::StatusCode::PAYLOAD_TOO_LARGE,
@@ -454,6 +459,13 @@ mod tests {
         "/v1/webhooks/loops",
         StatusCode::PAYLOAD_TOO_LARGE,
         "LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::POST,
+        "/v1/webhooks/stripe",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE",
         "private, no-store"
     )]
     #[case(

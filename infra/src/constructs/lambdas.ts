@@ -109,19 +109,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 5,
     environment: providerSignupEnvironment,
   },
-  stripe: {
-    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
-    id: "StripeLambda",
-    binaryName: "stripe-lambda",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 30,
-    environment: (context) => ({
-      STRIPE_API_KEY: context.credential(credentialSecrets(context.config.stage).stripe, "apiKey"),
-      STRIPE_PRO_PRODUCT_ID: context.config.stripeProProductId,
-      STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
-    }),
-  },
 
   productListingOpenSearch: {
     reservedConcurrency: (config) => config.isProd ? 10 : undefined,

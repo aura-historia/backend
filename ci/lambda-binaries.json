@@ -7,7 +7,6 @@
   "database-migration-lambda",
   "fxrate-lambda",
   "backend-cleanup-lambda",
-  "stripe-lambda",
   "product-listing-opensearch-lambda",
   "product-listing-normalization-lambda",
   "product-listing-ingestion-lambda",

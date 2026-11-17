@@ -80,6 +80,9 @@ function expectedApiEnvironmentKeys(): string[] {
     "STRIPE_PRO_YEARLY_PRICE_ID",
     "STRIPE_ULTIMATE_MONTHLY_PRICE_ID",
     "STRIPE_ULTIMATE_YEARLY_PRICE_ID",
+    "STRIPE_PRO_PRODUCT_ID",
+    "STRIPE_ULTIMATE_PRODUCT_ID",
+    "STRIPE_WEBHOOK_SIGNING_SECRET",
     "VERTEX_AI_LOCATION",
     "VERTEX_AI_PROJECT_ID",
     "LOOPS_API_BASE_URL",
@@ -160,6 +163,8 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.SHOPIFY_APP_CLIENT_SECRET)
       .toEqual(credentialReference(credentialSecrets(stage).shopify, "clientSecret"));
     expect(environment.Variables.STRIPE_API_KEY).toEqual(credentialReference(credentialSecrets(stage).stripe, "apiKey"));
+    expect(environment.Variables.STRIPE_WEBHOOK_SIGNING_SECRET)
+      .toEqual(credentialReference(credentialSecrets(stage).stripe, "webhookSigningSecret"));
     expect(environment.Variables.ANTHROPIC_API_KEY).toEqual(credentialReference(credentialSecrets(stage).anthropic, "apiKey"));
     // Previews must decide as the periodic matcher does: same model, threshold and token.
     expect(environment.Variables).toMatchObject({

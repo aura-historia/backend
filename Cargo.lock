@@ -1557,6 +1557,7 @@ dependencies = [
  "application",
  "async-trait",
  "billing-service",
+ "openssl",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -9194,33 +9195,6 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
-]
-
-[[package]]
-name = "stripe-lambda"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "aws_lambda_events",
- "billing-stripe",
- "lambda_runtime",
- "platform-lambda-bootstrap",
- "platform-observability",
- "platform-postgres",
- "serde",
- "serde-email",
- "serde_json",
- "serial_test",
- "sha2 0.11.1",
- "sqlx",
- "test-api",
- "tokio",
- "tracing",
- "user-core",
- "user-postgres",
- "user-service",
- "uuid",
 ]
 
 [[package]]

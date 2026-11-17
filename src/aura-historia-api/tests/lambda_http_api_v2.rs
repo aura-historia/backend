@@ -620,6 +620,15 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             aura_historia_api::STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
             "price_ultimate_yearly",
         ),
+        (aura_historia_api::STRIPE_PRO_PRODUCT_ID_ENV, "prod_pro"),
+        (
+            aura_historia_api::STRIPE_ULTIMATE_PRODUCT_ID_ENV,
+            "prod_ultimate",
+        ),
+        (
+            aura_historia_api::STRIPE_WEBHOOK_SIGNING_SECRET_ENV,
+            "whsec_lambda_test_stripe_webhook",
+        ),
         (
             aura_historia_api::LOOPS_API_KEY_ENV,
             "lambda-test-loops-key",

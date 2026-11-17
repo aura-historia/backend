@@ -49,6 +49,8 @@ mod product_listings;
 mod public_overview;
 #[path = "api_cases/search_filters.rs"]
 mod search_filters;
+#[path = "api_cases/stripe_webhook.rs"]
+mod stripe_webhook;
 #[path = "api_cases/users.rs"]
 mod users;
 #[path = "api_cases/watchlist.rs"]

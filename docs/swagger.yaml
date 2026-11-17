@@ -35,7 +35,7 @@ info:
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
     \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Request bodies are limited to 1 MiB and requests time out after 30 seconds. A declared `Content-Length` above 1 MiB is\
-    \ rejected at the edge with `413` (`BAD_BODY_VALUE`, JSON body) before authentication or route handling.\n- `POST /v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `POST /v1/webhooks/shopify` is limited to 1 MiB and answers within about four seconds; it requires a valid Shopify HMAC but no Aura bearer.\n- `GET /v1/health` is a\
+    \ rejected at the edge with `413` (`BAD_BODY_VALUE`, JSON body) before authentication or route handling.\n- `POST /v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `POST /v1/webhooks/stripe` is limited to 256 KiB and has a 20-second processing budget; it requires a valid Stripe signature but no Aura bearer.\n- `POST /v1/webhooks/shopify` is limited to 1 MiB and answers within about four seconds; it requires a valid Shopify HMAC but no Aura bearer.\n- `GET /v1/health` is a\
     \ process liveness check. `GET /v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
     \ signed validation. A mapped raw-capture command receives `204` only after confirmed shared FIFO admission; authorized ignored create/update status events are no-op `204`. Queue admission is not raw capture, provider receipt persistence, canonical normalization, or search visibility. Capture conflicts are handled by the consumer, not returned synchronously; existing partner Product batch writes remain synchronous.\n\n## Environment\
@@ -3542,6 +3542,132 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
               example: { status: 503, title: Service Unavailable, error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE }
+  /v1/webhooks/stripe:
+    post:
+      summary: Reconcile a signed Stripe subscription event
+      description: >-
+        Receives one Stripe snapshot event signed over the exact received body bytes. No Aura/Cognito bearer is
+        required; `Stripe-Signature` must carry a timestamp within five minutes of arrival and at least one `v1`
+        HMAC-SHA256 signature made with the endpoint signing secret. Every `v1` signature counts, so the endpoint
+        verifies throughout a signing-secret rotation. The request body is limited to 256 KiB.
+
+        The Stripe webhook endpoint must be created with API version `2026-10-28.endive` and subscribed to
+        `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`.
+        Those events request a fresh read of the customer's Stripe subscriptions and synchronize the user's tier
+        within a 20-second processing budget; the snapshot itself never assigns a tier. Any other authenticated
+        event type is acknowledged without effects.
+
+        `204` means the reconciliation committed, or the event ID was already reconciled with the same type,
+        subscription and customer. Stripe retries every other answer. All responses are `no-store`.
+      operationId: postStripeSubscriptionWebhook
+      tags: [Billing]
+      security: []
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          description: >-
+            `t=<unix seconds>,v1=<hex HMAC-SHA256 of "{t}.{raw body}">`, with one `v1` per active signing secret.
+            Other entries, such as the `v0` test scheme or debug metadata, are ignored. Exactly one header is accepted.
+          schema: { type: string, maxLength: 4096 }
+      requestBody:
+        required: true
+        description: Stripe event object. The service verifies the signature before parsing the body.
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, object, type]
+              properties:
+                id: { type: string, example: evt_1QExample }
+                object: { type: string, enum: [event] }
+                type: { type: string, example: customer.subscription.updated }
+                api_version:
+                  type: string
+                  description: Must be `2026-10-28.endive` for subscription events.
+                data:
+                  type: object
+                  description: For subscription events, `object` is the subscription with its `id` and `customer` ID or expanded customer.
+              additionalProperties: true
+            example:
+              id: evt_1QExample
+              object: event
+              api_version: 2026-10-28.endive
+              type: customer.subscription.updated
+              data:
+                object:
+                  id: sub_1QExample
+                  object: subscription
+                  customer: cus_QExample
+      responses:
+        "204":
+          description: Reconciliation committed, identical event already reconciled, or event type ignored. No response body.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "private, no-store" }
+        "400":
+          description: >-
+            Authentic event that is malformed, rendered with another API version, or reuses a reconciled event ID
+            with a different type, subscription or customer. Uses `STRIPE_WEBHOOK_INVALID_BODY`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                {
+                  status: 400,
+                  title: Bad Request,
+                  error: STRIPE_WEBHOOK_INVALID_BODY,
+                }
+        "401":
+          description: Missing, repeated, malformed, stale or non-matching `Stripe-Signature`. The response does not distinguish authentication failures. Uses `STRIPE_WEBHOOK_UNAUTHORIZED`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                {
+                  status: 401,
+                  title: Unauthorized,
+                  error: STRIPE_WEBHOOK_UNAUTHORIZED,
+                }
+        "413":
+          description: Request body exceeds 256 KiB. Uses `STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                {
+                  status: 413,
+                  title: Payload Too Large,
+                  error: STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE,
+                }
+        "500":
+          description: >-
+            Stripe or Aura state violates an invariant, such as an unmapped product, an unknown subscription status
+            or a customer bound to another user. Needs an operator; Stripe keeps retrying. Uses
+            `STRIPE_WEBHOOK_INTERNAL_ERROR`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                {
+                  status: 500,
+                  title: Internal Server Error,
+                  error: STRIPE_WEBHOOK_INTERNAL_ERROR,
+                }
+        "503":
+          description: >-
+            Stripe read or database failure, uncertain commit, concurrent reconciliation, no user for the customer
+            yet, or exceeded processing budget. Stripe retries the delivery. Uses
+            `STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE`.
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+              example:
+                {
+                  status: 503,
+                  title: Service Unavailable,
+                  error: STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE,
+                }
   /v1/product-listings/by-slug/{productListingTitleSlugId}:
     get:
       summary: Get a single product by title slug

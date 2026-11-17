@@ -125,6 +125,8 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     STRIPE_PRO_YEARLY_PRICE_ID: config.stripeProYearlyPriceId,
     STRIPE_ULTIMATE_MONTHLY_PRICE_ID: config.stripeUltimateMonthlyPriceId,
     STRIPE_ULTIMATE_YEARLY_PRICE_ID: config.stripeUltimateYearlyPriceId,
+    STRIPE_PRO_PRODUCT_ID: config.stripeProProductId,
+    STRIPE_ULTIMATE_PRODUCT_ID: config.stripeUltimateProductId,
   };
 
 
@@ -135,6 +137,7 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     ...searchFilterPreviewEnvironment(context),
     ...searchIntentTranslatorEnvironment(context),
     STRIPE_API_KEY: context.credential(secrets.stripe, "apiKey"),
+    STRIPE_WEBHOOK_SIGNING_SECRET: context.credential(secrets.stripe, "webhookSigningSecret"),
     ...loopsNewsletterEnvironment(context),
     LOOPS_WEBHOOK_SIGNING_SECRET: context.credential(secrets.loops, "webhookSigningSecret"),
     SHOPIFY_APP_CLIENT_SECRET: context.credential(secrets.shopify, "clientSecret"),

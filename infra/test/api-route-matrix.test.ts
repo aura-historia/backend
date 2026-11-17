@@ -144,7 +144,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(181);
+      expect(routes).toHaveLength(182);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every(isCanonicalRouteKey)).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -457,6 +457,18 @@ describe("HTTP API route policy matrix", () => {
         providerProof: ProviderProofRequirement.LoopsSignature,
       },
     }]);
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/v1/webhooks/stripe")).toEqual([{
+      method: "POST",
+      path: "/v1/webhooks/stripe",
+      lambda: "auraHistoriaApi",
+      auth: RouteAuthPolicy.StripeSignature,
+      policy: {
+        bearer: "NONE",
+        authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.StripeSignature,
+      },
+    }]);
     expect(API_ROUTE_CATALOG.filter((route) => route.path === "/v1/webhooks/shopify")).toEqual([{
       method: "POST",
       path: "/v1/webhooks/shopify",
@@ -622,7 +634,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(181);
+    expect(routes).toHaveLength(182);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; exact discovery and site-document routes add one route
     // per method each.
