@@ -1,0 +1,13 @@
+[Unit]
+Description=Aura Historia serving tier: PostgreSQL, OpenSearch, API, MCP and Caddy
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/README.md
+
+[Slice]
+CPUWeight=1000
+IOWeight=1000
+# Covers the members' own mem_reservation (memory.low); with memory_recursiveprot a
+# member is protected only up to what its parent slice is.
+MemoryLow=28G
+
+[Install]
+WantedBy=multi-user.target

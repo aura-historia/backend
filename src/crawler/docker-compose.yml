@@ -4,6 +4,9 @@ services:
     # Parallel queries allocate shared memory in /dev/shm; Docker's 64 MB default runs out under crawl + review API load.
     shm_size: 512mb
     command: ["postgres", "-c", "max_connections=300"]
+    # The production host sets the parent to place the database in its batch tier (host/README.md).
+    cgroup_parent: ${CRAWLER_POSTGRES_CGROUP_PARENT:-}
+    mem_limit: 3g
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

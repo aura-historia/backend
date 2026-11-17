@@ -1,0 +1,11 @@
+[Unit]
+Description=Aura Historia batch tier: crawler, crawler database and crawler review agents
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/README.md
+
+[Slice]
+CPUWeight=50
+IOWeight=50
+MemoryMax=6G
+
+[Install]
+WantedBy=multi-user.target

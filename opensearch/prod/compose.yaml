@@ -13,14 +13,12 @@ services:
     restart: unless-stopped
     environment:
       DISABLE_INSTALL_DEMO_CONFIG: "true"
-      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms16g -Xmx16g}
-    mem_limit: ${OPENSEARCH_MEMORY_LIMIT:-32g}
-    mem_reservation: ${OPENSEARCH_MEMORY_RESERVATION:-24g}
-    memswap_limit: ${OPENSEARCH_MEMORY_LIMIT:-32g}
-    cpus: ${OPENSEARCH_CPUS:-8.0}
-    cpuset: ${OPENSEARCH_CPUSET:-2-5,8-11}
-    cgroup_parent: auraopensearch.slice
-    cpu_shares: 2048
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms8g -Xmx8g}
+    # Host memory plan and tier weights: host/README.md.
+    mem_limit: ${OPENSEARCH_MEMORY_LIMIT:-20g}
+    mem_reservation: ${OPENSEARCH_MEMORY_RESERVATION:-16g}
+    memswap_limit: ${OPENSEARCH_MEMORY_LIMIT:-20g}
+    cgroup_parent: aura-serving.slice
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     cap_add: [IPC_LOCK]
@@ -65,6 +63,7 @@ services:
       opensearch: {condition: service_healthy}
     mem_limit: 256m
     cpus: 0.5
+    cgroup_parent: aura-serving.slice
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -76,7 +75,6 @@ services:
       - gateway-data:/data
     tmpfs: [/config:size=16m, /tmp:size=16m]
     ports:
-      - 80:80
       - 443:443
       - 443:443/udp
     networks: [search]
