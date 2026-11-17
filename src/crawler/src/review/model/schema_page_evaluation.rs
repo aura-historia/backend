@@ -5,6 +5,7 @@ use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PlausibilityFindings,
 };
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -83,20 +84,60 @@ impl SchemaPageEvaluation {
 
     /// The per-page findings that block approval under `exemptions`: every finding
     /// [`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)
-    /// keeps, except price text in `state` and an identity that is a URL or path where
-    /// `exemptions` accepts them.
+    /// keeps, except price text in `state` and an identity that links to a page of the shop
+    /// where `exemptions` accepts them.
     pub fn blocking_plausibility_findings(
         &self,
         exemptions: ApprovalExemptions,
     ) -> PlausibilityFindings {
+        let accepts_link_identity = exemptions.link_identity == LinkIdentity::Captured
+            && self.identity_links_to_shop_page();
         self.plausibility_findings.retaining(|finding| {
             finding.blocks_approval()
                 && !(exemptions.price_text == PriceTextOnState::Accepted
                     && finding.is_price_text_on_state())
-                && !(exemptions.link_identity == LinkIdentity::Captured
-                    && finding.is_link_or_path_identity())
+                && !(accepts_link_identity && finding.is_link_or_path_identity())
         })
     }
+
+    /// Whether the extracted identity links to a page of the shop, as a canonical link or
+    /// `og:url` does: resolved against the page's URL it is an `http` or `https` URL on the
+    /// page's host, `www.` aside, and names no image. An image `src`, a `javascript:` link or
+    /// another host's URL is no URL identity a source was captured under.
+    fn identity_links_to_shop_page(&self) -> bool {
+        let Some(identity) = self
+            .extracted
+            .as_ref()
+            .map(|raw| raw.source_listing_id.trim())
+            .filter(|identity| !identity.is_empty())
+        else {
+            return false;
+        };
+        let Ok(page) = Url::parse(&self.url) else {
+            return false;
+        };
+        let Ok(target) = page.join(identity) else {
+            return false;
+        };
+        let host_of = |url: &Url| {
+            url.host_str()
+                .map(|host| host.trim_start_matches("www.").to_ascii_lowercase())
+        };
+        matches!(target.scheme(), "http" | "https")
+            && host_of(&target).is_some()
+            && host_of(&target) == host_of(&page)
+            && !names_image(target.path())
+    }
+}
+
+/// Whether a URL path ends in an image file name.
+fn names_image(path: &str) -> bool {
+    path.rsplit_once('.').is_some_and(|(_, extension)| {
+        matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "avif" | "bmp" | "ico"
+        )
+    })
 }
 
 #[cfg(test)]

@@ -106,14 +106,20 @@ impl CapturedIdentitySample {
     }
 
     /// Whether the candidate keeps URL identities the ListingSource's listings were captured
-    /// under: a sampled page captured under a URL or path from which the schemas derive the same.
-    /// Only then may an approval keep an identity that is a URL: the listings cannot move to
-    /// another identity, while a source without such listings must not start using one.
+    /// under: every sampled listing was captured under a URL or path, and the schemas derive the
+    /// same from at least one of them. Only then may an approval keep an identity that is a URL:
+    /// such listings cannot move to another identity, while a source without them must not start
+    /// using one. A sampled listing captured under a code shows a source whose identity an
+    /// approval switched to the page URL after capture, whose code listings stay in conflict
+    /// under a URL rule, so it keeps the URL identity out of approval.
     pub(crate) fn keeps_captured_link_identities(&self) -> bool {
-        self.pages.iter().any(|page| {
-            page.outcome == CapturedIdentityOutcome::Agrees
-                && is_link_or_path_identity(&page.captured_identity)
-        })
+        self.pages
+            .iter()
+            .all(|page| is_link_or_path_identity(&page.captured_identity))
+            && self
+                .pages
+                .iter()
+                .any(|page| page.outcome == CapturedIdentityOutcome::Agrees)
     }
 }
 
@@ -295,5 +301,68 @@ mod tests {
                 identities: vec!["https://shop.example/products/rose".to_owned()],
             }
         );
+    }
+
+    mod captured_link_identities {
+        use super::*;
+
+        const ROSE_URL: &str = "https://shop.example/products/rose";
+
+        fn sampled(
+            captured_identity: &str,
+            outcome: CapturedIdentityOutcome,
+        ) -> CapturedIdentityPage {
+            CapturedIdentityPage {
+                url: ROSE_URL.to_owned(),
+                captured_identity: captured_identity.to_owned(),
+                outcome,
+            }
+        }
+
+        fn sample(pages: Vec<CapturedIdentityPage>) -> CapturedIdentitySample {
+            CapturedIdentitySample { pages }
+        }
+
+        #[test]
+        fn should_keep_them_when_every_sampled_listing_has_one_and_the_schemas_derive_it() {
+            let sample = sample(vec![
+                sampled(ROSE_URL, CapturedIdentityOutcome::Agrees),
+                sampled("/products/tulip", CapturedIdentityOutcome::NotFetched),
+            ]);
+
+            assert!(sample.keeps_captured_link_identities());
+        }
+
+        /// HaresFur after its second approval: listings captured under SKUs beside listings
+        /// captured under the og:url the new rule derives.
+        #[test]
+        fn should_not_keep_them_when_a_sampled_listing_was_captured_under_a_code() {
+            let sample = sample(vec![
+                sampled(ROSE_URL, CapturedIdentityOutcome::Agrees),
+                sampled(
+                    "J054",
+                    CapturedIdentityOutcome::Differs {
+                        identities: vec!["https://shop.example/products/tea-bowl".to_owned()],
+                    },
+                ),
+            ]);
+
+            assert!(!sample.keeps_captured_link_identities());
+        }
+
+        #[rstest::rstest]
+        #[case::differs(CapturedIdentityOutcome::Differs { identities: vec!["R-17".to_owned()] })]
+        #[case::no_identity(CapturedIdentityOutcome::NoIdentity)]
+        #[case::not_fetched(CapturedIdentityOutcome::NotFetched)]
+        fn should_not_keep_them_when_the_schemas_derive_none_of_them(
+            #[case] outcome: CapturedIdentityOutcome,
+        ) {
+            assert!(!sample(vec![sampled(ROSE_URL, outcome)]).keeps_captured_link_identities());
+        }
+
+        #[test]
+        fn should_not_keep_them_for_a_source_without_captured_listings() {
+            assert!(!CapturedIdentitySample::default().keeps_captured_link_identities());
+        }
     }
 }

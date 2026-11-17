@@ -1584,6 +1584,41 @@ mod tests {
         );
     }
 
+    /// The exemption covers an identity that links to a page of the shop, not any link: an
+    /// image `src` a schema reads as the identity stays refused even where the sampled
+    /// listings were captured under the same kind of value.
+    #[test]
+    fn should_refuse_an_image_url_identity_where_the_listings_were_captured_under_one() {
+        let image_identity_page = |slug: &str, title: &str| {
+            let (page, html) = product_page(slug, "h1", title);
+            let html = html.replace(
+                &format!("id=\"product-id\">{slug}<"),
+                &format!("id=\"product-id\">https://shop.example/images/{slug}.jpg<"),
+            );
+            (page, html)
+        };
+        let pages = [
+            image_identity_page("chair", "Chair"),
+            image_identity_page("table", "Table"),
+        ];
+        let schemas = [schema("h1")];
+        let (_, vase_html) = image_identity_page("vase", "Vase");
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[(
+                "vase",
+                "https://shop.example/images/vase.jpg",
+                Some(vase_html),
+            )],
+        );
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(refuses_url_identities(&refused, 2), "{refused:?}");
+    }
+
     /// A page whose `state` element holds `state`.
     fn page_in_state(slug: &str, state: &str) -> (CrawlerReviewPage, String) {
         let (page, html) = product_page(slug, "h1", slug);
