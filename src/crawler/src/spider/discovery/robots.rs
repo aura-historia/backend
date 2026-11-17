@@ -57,17 +57,69 @@ pub(super) async fn admit_crawl(
     }
 }
 
+/// Reads robots.txt of the configured crawl `root`'s origin before the root itself is requested,
+/// so an origin robots.txt refuses (a disallowed root, a `Crawl-delay` the crawler does not
+/// honour, an unreachable robots.txt, or a dropped connection) is refused without any page
+/// request. Answers the policy, to admit the established root by once the preflight has
+/// followed it. `None` leaves the decision to [`admit_crawl`] after the preflight: the client
+/// could not be built or the request failed on the shop's own host, which the preflight then
+/// meets and classifies as it classifies a root request (TLS, connect, timeout).
+pub(super) async fn read_before_preflight(
+    transport: &dyn SpiderTransport,
+    root: &Url,
+    timeout: Duration,
+) -> Result<Option<RobotsPolicy>, SpiderDiscoveryError> {
+    let Ok(client) = transport.client_for(root, timeout).await else {
+        return Ok(None);
+    };
+    match fetch_robots_policy(transport, root, &client, timeout).await {
+        Ok(FetchedRobots::Policy(policy)) => {
+            check_policy(root, &policy)?;
+            Ok(Some(policy))
+        }
+        Ok(FetchedRobots::Unreachable(unreachable)) => {
+            Err(robots_unreachable_error(Some(Box::new(unreachable))))
+        }
+        Err(
+            dropped @ SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::AccessDenied,
+                ..
+            },
+        ) => Err(dropped),
+        Err(error) => {
+            debug!(
+                crawl_root = %root,
+                error = %error,
+                "robots.txt request failed before the crawl-root preflight; the preflight decides"
+            );
+            Ok(None)
+        }
+    }
+}
+
 /// Admits the crawl of `root` under the robots.txt `policy` it read.
-fn admit_policy(root: &Url, policy: RobotsPolicy) -> Result<CrawlRobots, SpiderDiscoveryError> {
+pub(super) fn admit_policy(
+    root: &Url,
+    policy: RobotsPolicy,
+) -> Result<CrawlRobots, SpiderDiscoveryError> {
+    check_policy(root, &policy)?;
     let label = policy.label();
-    match policy {
-        RobotsPolicy::Unreachable => Err(robots_unreachable_error(None)),
-        RobotsPolicy::Unavailable => Ok(CrawlRobots {
+    Ok(match policy {
+        RobotsPolicy::Rules(rules) => crawl_robots(root, &rules, label),
+        RobotsPolicy::Unavailable | RobotsPolicy::Unreachable => CrawlRobots {
             deny_list: DenyList::default(),
             crawl_delay: None,
             rules: None,
             policy: label,
-        }),
+        },
+    })
+}
+
+/// Why `policy` refuses a crawl of `root`: an unreachable robots.txt, a `Crawl-delay` the
+/// crawler does not honour, or a disallowed root.
+fn check_policy(root: &Url, policy: &RobotsPolicy) -> Result<(), SpiderDiscoveryError> {
+    match policy {
+        RobotsPolicy::Unreachable => Err(robots_unreachable_error(None)),
         RobotsPolicy::Rules(rules) if rules.crawl_delay_too_long() => {
             info!(
                 event = "crawler.spider.robots_crawl_delay_too_long",
@@ -89,7 +141,7 @@ fn admit_policy(root: &Url, policy: RobotsPolicy) -> Result<CrawlRobots, SpiderD
             CrawlFailureKind::RobotsBlocked,
             "robots.txt disallows the crawl root",
         )),
-        RobotsPolicy::Rules(rules) => Ok(crawl_robots(root, &rules, label)),
+        RobotsPolicy::Rules(_) | RobotsPolicy::Unavailable => Ok(()),
     }
 }
 

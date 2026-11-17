@@ -28,6 +28,7 @@ use crate::network::policy::{
     location_text, network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
+use crate::network::robots::RobotsPolicy;
 use crate::network::robots_directives::PageDirectives;
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
@@ -38,7 +39,9 @@ use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::redirects::{RedirectAnswer, RedirectFollower};
 pub use crate::spider::discovery::robots::RobotsUnreachable;
-use crate::spider::discovery::robots::{CrawlRobots, admit_crawl};
+use crate::spider::discovery::robots::{
+    CrawlRobots, admit_crawl, admit_policy, read_before_preflight,
+};
 use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::PageIdentityEvidence;
@@ -1133,11 +1136,19 @@ async fn preflight_crawl_root(
     retry: RetryPolicy,
     deadline: Duration,
     max_body_bytes: usize,
+    robots: Option<&RobotsPolicy>,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     let mut chain = RootChain::new(configured_root);
     let followed = tokio::time::timeout(
         deadline,
-        follow_crawl_root(transport, &mut chain, timeout, retry, max_body_bytes),
+        follow_crawl_root(
+            transport,
+            &mut chain,
+            timeout,
+            retry,
+            max_body_bytes,
+            robots,
+        ),
     )
     .await
     .unwrap_or_else(|_| {
@@ -1194,15 +1205,27 @@ impl RootChain {
 /// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
 /// the twin would; a move counts against the redirect bound. A host the chain already left is
 /// never moved back to, and a move the twin redirects back from is not one. Answers the status
-/// the root answered and the client pinned to it.
+/// the root answered and the client pinned to it. `robots`, the policy of the configured root's
+/// origin read before the preflight, refuses a hop on that origin it disallows before the hop is
+/// requested.
 async fn follow_crawl_root(
     transport: &dyn SpiderTransport,
     chain: &mut RootChain,
     timeout: Duration,
     retry: RetryPolicy,
     max_body_bytes: usize,
+    robots: Option<&RobotsPolicy>,
 ) -> Result<(u16, spider::reqwest::Client), SpiderDiscoveryError> {
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
+        if let Some(policy) = robots
+            && chain.current.origin() == chain.configured.origin()
+            && policy.check(&chain.current).is_err()
+        {
+            return Err(SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RobotsBlocked,
+                "robots.txt disallows where the crawl root redirects",
+            ));
+        }
         let RootFetch { response, client } =
             fetch_crawl_root(transport, &chain.current, chain.arrival, timeout, retry).await?;
         chain
@@ -1279,9 +1302,9 @@ async fn root_page_reroot(
 /// body the transport ceiling already truncated would truncate again, and a
 /// 429 limits the client, not the page, so the crawl reacts to it instead
 /// (see `RateLimitSignal`). A retry runs inside the page's task, outside
-/// Spider's delay between request starts, so it waits `backoff`, the crawl's
-/// own delay, rather than Spider's own short exponential backoff, and never re-requests a
-/// page faster than the crawl requests pages.
+/// Spider's delay between request starts, so it waits at least `backoff`, the
+/// crawl's own delay, and never re-requests a page faster than the crawl
+/// requests pages; the cap of Spider's own exponential backoff stays the floor.
 struct PageRetryStrategy {
     max_retries: u32,
     backoff: Duration,
@@ -1297,11 +1320,19 @@ impl RetryStrategy for PageRetryStrategy {
             RetryDirective::stop()
         } else {
             RetryDirective {
-                backoff: Some(self.backoff),
+                backoff: Some(self.backoff.max(spider_retry_backoff(outcome.attempt))),
                 ..RetryDirective::default()
             }
         }
     }
+}
+
+/// The cap of the backoff Spider waits before retrying a page over HTTP when no strategy sets
+/// one: one second, doubled per further attempt, up to a minute. Spider waits a random share of
+/// it (full jitter), so the cap itself is never faster than Spider would be.
+fn spider_retry_backoff(attempt: u32) -> Duration {
+    let doublings = attempt.saturating_sub(1).min(6);
+    Duration::from_secs(1u64 << doublings).min(Duration::from_secs(60))
 }
 
 /// Library-level outcome handed from the crawl task to the filter task once
@@ -1721,6 +1752,16 @@ impl SpiderImpl {
         })?;
         let request_timeout = Duration::from_secs(self.config.request_timeout_secs);
         self.wait_for_politeness_turn(&configured_root).await;
+        let configured_origin = configured_root.origin();
+        // robots.txt read first counts against the preflight deadline: a stalling host cannot
+        // hold the slot for longer by stalling robots.txt too.
+        let preflight_started = tokio::time::Instant::now();
+        let robots_read_first = tokio::time::timeout(
+            self.config.preflight_deadline,
+            read_before_preflight(self.transport.as_ref(), &configured_root, request_timeout),
+        )
+        .await
+        .unwrap_or(Ok(None))?;
         let PreflightedRoot {
             url: root_url,
             status: root_preflight_status,
@@ -1731,8 +1772,11 @@ impl SpiderImpl {
             configured_root,
             request_timeout,
             self.config.preflight_retry,
-            self.config.preflight_deadline,
+            self.config
+                .preflight_deadline
+                .saturating_sub(preflight_started.elapsed()),
             max_body_bytes,
+            robots_read_first.as_ref(),
         )
         .await?;
         let CrawlRules {
@@ -1741,9 +1785,15 @@ impl SpiderImpl {
             robots,
             deny_patterns: blacklist_regex,
             deny_list,
-        } = crawl_rules(self.transport.as_ref(), &root_url, &client, request_timeout)
-            .await
-            .map_err(|error| error.after_reroot(root_reroot.as_ref()))?;
+        } = crawl_rules(
+            self.transport.as_ref(),
+            &root_url,
+            &client,
+            request_timeout,
+            robots_read_first.filter(|_| root_url.origin() == configured_origin),
+        )
+        .await
+        .map_err(|error| error.after_reroot(root_reroot.as_ref()))?;
         let delay_millis = crawl_request_delay_millis(
             pace.delay_millis(self.config.delay_millis),
             robots.crawl_delay,
@@ -1940,19 +1990,24 @@ struct CrawlRules {
     deny_list: Arc<RegexSet>,
 }
 
-/// The rules a crawl from `root` runs under, with robots.txt read through the client pinned to
-/// the root in preflight.
+/// The rules a crawl from `root` runs under: under `robots_read`, the policy of `root`'s origin
+/// read before the preflight, or else with robots.txt read now through the client pinned to the
+/// root in preflight, as for a root the preflight moved to another host.
 async fn crawl_rules(
     transport: &dyn SpiderTransport,
     root: &Url,
     client: &spider::reqwest::Client,
     request_timeout: Duration,
+    robots_read: Option<RobotsPolicy>,
 ) -> Result<CrawlRules, SpiderDiscoveryError> {
     let host_whitelist = configured_host_whitelist(root)?;
     let host_whitelist_regex = Regex::new(&host_whitelist).map_err(|_| {
         SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
     })?;
-    let robots = admit_crawl(transport, root, client, request_timeout).await?;
+    let robots = match robots_read {
+        Some(policy) => admit_policy(root, policy)?,
+        None => admit_crawl(transport, root, client, request_timeout).await?,
+    };
     let mut deny_patterns = CrawledUrl::spider_deny_patterns();
     deny_patterns.extend(
         robots
@@ -4308,15 +4363,15 @@ mod tests {
             ])
         );
         assert_eq!(diagnostics.root_reroot, Some(www_move()));
-        // The bare host is asked for its root page once, in preflight; robots.txt comes from
-        // the host the crawl runs on.
+        // The bare host is asked for robots.txt before its root page, which the preflight asks
+        // for once; the crawl's robots.txt is read again from the host the crawl moved to.
         assert_eq!(
             requests
                 .iter()
                 .filter(|(host, ..)| host == "example.com")
                 .map(|(_, target, ..)| target.as_str())
                 .collect::<Vec<_>>(),
-            ["/"]
+            ["/robots.txt", "/"]
         );
         assert!(
             requests
@@ -4961,7 +5016,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_fail_preflight_as_access_denied_when_every_attempt_is_dropped() {
-        let site = TestSite::spawn(Arc::new(|_: &str, _: usize| SiteResponse::Drop)).await;
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/robots.txt" => SiteResponse::Html("404 Not Found", String::new()),
+            _ => SiteResponse::Drop,
+        }))
+        .await;
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
         let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
@@ -5018,8 +5077,9 @@ mod tests {
         let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
 
         assert!(discovered.contains("http://example.com/product/1"));
-        // One client for the single preflight hop, none extra for the crawl.
-        assert_eq!(transport.builds.load(Ordering::Relaxed), 1);
+        // One client for robots.txt read before the root, one for the single preflight hop,
+        // none extra for the crawl.
+        assert_eq!(transport.builds.load(Ordering::Relaxed), 2);
         site.finish().await;
     }
 
@@ -5423,6 +5483,9 @@ mod tests {
     #[tokio::test]
     async fn should_bound_root_redirect_chain() {
         let site = TestSite::spawn(Arc::new(|target: &str, _: usize| {
+            if target == "/robots.txt" {
+                return SiteResponse::Html("404 Not Found", String::new());
+            }
             let hop: usize = target.trim_start_matches("/hop").parse().unwrap_or(0);
             SiteResponse::Redirect(Box::leak(format!("/hop{}", hop + 1).into_boxed_str()))
         }))
@@ -5443,7 +5506,8 @@ mod tests {
             error.redirect_target(),
             Some(format!("http://example.com/hop{MAX_ROOT_REDIRECTS}").as_str())
         );
-        assert_eq!(site.requests.lock().await.len(), MAX_ROOT_REDIRECTS + 1);
+        // robots.txt, then the root and each redirect hop.
+        assert_eq!(site.requests.lock().await.len(), MAX_ROOT_REDIRECTS + 2);
         site.finish().await;
     }
 
@@ -5690,6 +5754,10 @@ mod tests {
                 CrawlFailureKind::RobotsBlocked,
             ),
             (
+                SiteResponse::Html("200 OK", "User-agent: *\nCrawl-delay: 120\n".to_string()),
+                CrawlFailureKind::RobotsBlocked,
+            ),
+            (
                 SiteResponse::Html("503 Service Unavailable", String::new()),
                 CrawlFailureKind::ServerError,
             ),
@@ -5711,9 +5779,75 @@ mod tests {
                 (expected_kind == CrawlFailureKind::ServerError).then_some(503),
                 "{error:?}"
             );
+            // robots.txt is read before the root, so a refused origin sees no page request.
+            assert_eq!(site.requests_for("/").await, 0, "{error:?}");
+            assert_eq!(site.requests_for("/robots.txt").await, 1, "{error:?}");
             assert_eq!(site.requests_for("/category/1").await, 0);
             site.finish().await;
         }
+    }
+
+    /// A crawl root that redirects on its own origin to a path robots.txt disallows is refused
+    /// before that path is requested.
+    #[tokio::test]
+    async fn should_refuse_a_root_redirect_robots_txt_disallows_without_requesting_it() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/robots.txt" => {
+                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /de/\n".to_string())
+            }
+            "/" => SiteResponse::Redirect("/de/"),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                SpiderDiscoveryError::Preflight {
+                    kind: CrawlFailureKind::RobotsBlocked,
+                    reason: "robots.txt disallows where the crawl root redirects",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert_eq!(site.requests_for("/de/").await, 0);
+        assert_eq!(site.requests_for("/").await, 1);
+        site.finish().await;
+    }
+
+    /// robots.txt that admits the crawl is read once, before the crawl root, and its policy
+    /// paces and filters the crawl the preflight then establishes on the same origin.
+    #[tokio::test]
+    async fn should_read_robots_txt_once_before_the_crawl_root() {
+        let site = TestSite::spawn(site_with_robots(SiteResponse::Html(
+            "200 OK",
+            "User-agent: *\nCrawl-delay: 0.01\n".to_string(),
+        )))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.finish().await;
+
+        let targets: Vec<&str> = requests
+            .iter()
+            .map(|(_, target, ..)| target.as_str())
+            .collect();
+        assert_eq!(targets.first(), Some(&"/robots.txt"), "{targets:?}");
+        assert_eq!(
+            targets
+                .iter()
+                .filter(|target| **target == "/robots.txt")
+                .count(),
+            1,
+            "{targets:?}"
+        );
+        assert!(targets.contains(&"/"), "{targets:?}");
+        assert_eq!(diagnostics.robots_crawl_delay_ms, Some(10));
     }
 
     /// A shop whose crawl root answers but whose robots.txt connection is closed unanswered
@@ -5735,6 +5869,7 @@ mod tests {
             ),
             "{error:?}"
         );
+        assert_eq!(site.requests_for("/").await, 0);
         assert_eq!(site.requests_for("/category/1").await, 0);
         site.finish().await;
     }
@@ -5871,6 +6006,39 @@ mod tests {
 
         assert!(directive.should_retry);
         assert_eq!(directive.backoff, Some(Duration::from_secs(45)));
+    }
+
+    /// A crawl paced faster than Spider's own retry backoff keeps that backoff as the floor.
+    #[test]
+    fn should_keep_spiders_own_retry_backoff_as_the_floor() {
+        let strategy = PageRetryStrategy {
+            max_retries: 2,
+            backoff: Duration::from_millis(500),
+        };
+        let outcome = |attempt| AttemptOutcome {
+            attempt,
+            status_code: spider::reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            should_retry: true,
+            content_truncated: false,
+            waf_check: false,
+            anti_bot_tech: &AntiBotTech::None,
+            proxy_configured: false,
+            url: "https://example.com/",
+            profile_key: None,
+            html_length: 0,
+            bytes_transferred: None,
+            error_status: None,
+            final_redirect_destination: None,
+        };
+
+        assert_eq!(
+            strategy.on_retry(&outcome(1)).backoff,
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(
+            strategy.on_retry(&outcome(2)).backoff,
+            Some(Duration::from_secs(2))
+        );
     }
 
     /// A delay above the former 60 s cap reaches Spider whole: its static delay is not capped,
