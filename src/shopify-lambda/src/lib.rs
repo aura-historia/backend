@@ -1,6 +1,5 @@
 mod types;
 
-use product_listing_service::ports::shopify_product_decoder::ShopifyProductEventKind;
 use product_listing_service::use_cases::commands::process_shopify_product_listing::{
     ProcessShopifyProductListingUseCase, ShopifyEventProvenance,
     ShopifyProductListingProcessingError,
@@ -15,14 +14,15 @@ use listing_source_core::Domain;
 use platform_lambda_bootstrap::LambdaInvocationBudget;
 use product_listing_ingestion_sqs::with_publication_deadline;
 use product_listing_normalization::SourcePayload;
+use product_listing_shopify::product_listing_event_kind;
+pub use product_listing_shopify::{
+    SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+    SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
+};
 
 use serde_json::Value;
 use std::time::Duration;
 use tracing::{info, warn};
-
-pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD: &str = "product_listings/add";
-pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE: &str = "product_listings/update";
-pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE: &str = "product_listings/remove";
 
 const INVOCATION_BUDGET_CAP: Duration = Duration::from_secs(30);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(1);
@@ -78,11 +78,8 @@ async fn process_event(
     span.record("shopify_topic", detail.metadata.topic.as_str());
     span.record("shopify_domain", detail.metadata.shop_domain.as_str());
 
-    let kind = match detail.metadata.topic.as_str() {
-        SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD => ShopifyProductEventKind::Add,
-        SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE => ShopifyProductEventKind::Update,
-        SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE => ShopifyProductEventKind::Remove,
-        _ => return MessageOutcome::Acknowledged,
+    let Some(kind) = product_listing_event_kind(detail.metadata.topic.as_str()) else {
+        return MessageOutcome::Acknowledged;
     };
     let shop_domain = match Domain::try_from(detail.metadata.shop_domain.as_str()) {
         Ok(domain) => domain,
@@ -227,6 +224,7 @@ mod tests {
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
     use listing_source_service::ports::{ListingSourceReadError, ShopifySourceReader};
+    use product_listing_service::ports::shopify_product_decoder::ShopifyProductEventKind;
     use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
     use product_listing_service::use_cases::{
         ProductListingIngestionActor, ProductListingIngestionIdempotencyKey,

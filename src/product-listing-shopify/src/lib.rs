@@ -246,6 +246,21 @@ fn product_availability(payload: &ShopifyProductPayload) -> ProductListingRawVal
     }
 }
 
+pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD: &str = "product_listings/add";
+pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE: &str = "product_listings/update";
+pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE: &str = "product_listings/remove";
+
+/// The catalog topics Aura forwards; every other topic, including broad `products/*`, is
+/// acknowledged without forwarding.
+pub fn product_listing_event_kind(topic: &str) -> Option<ShopifyProductEventKind> {
+    match topic {
+        SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD => Some(ShopifyProductEventKind::Add),
+        SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE => Some(ShopifyProductEventKind::Update),
+        SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE => Some(ShopifyProductEventKind::Remove),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct ShopifyProductPayloadDecoder;
 
