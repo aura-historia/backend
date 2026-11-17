@@ -543,7 +543,8 @@ subscription and customer. Delivery metadata such as `pending_webhooks` and the 
 snapshot are not part of it, so redeliveries and the same event sent to several
 destinations dedupe. Reusing an ID with a different type, customer or subscription fails
 closed. Receipts written by the retired EventBridge consumer fingerprinted the whole
-snapshot, so an event it completed answers `400` when the webhook receives it again.
+snapshot; their scheme is stored with them, and they dedupe a webhook delivery of the same
+event by customer and subscription alone, so both destinations may run during the cutover.
 Receipts are retained for replay safety. Identical completed deliveries skip provider I/O.
 A customer reconciliation revision advances on every completed new event, including
 unchanged tiers. If another reconciliation commits during a provider read, the older
@@ -556,7 +557,9 @@ unknown users, identity conflicts, invalid provider state, uncertain commits and
 exhausted budget answer `5xx`. Stripe retries every non-2xx answer for up to three days in
 live mode; once the cause is fixed, an operator resends a failed event from the Stripe
 Dashboard within 15 days or with `stripe events resend` within 30 days of its creation.
-The log event `stripe_webhook.reconciliation_failed` records each `5xx`.
+The log event `stripe_webhook.reconciliation_failed` records each `5xx` with its causes,
+and `stripe_webhook.rejected` each authentic event answered `400`; unauthenticated
+requests are not logged.
 
 Current `active`, `trialing` and `past_due` subscriptions grant the highest configured
 product tier across the customer's subscriptions. `past_due` retains access during payment
@@ -570,10 +573,11 @@ The reconciliation and billing API share the `STRIPE_API_KEY` stage credential: 
 permissions must preserve customer creation and Checkout/billing-portal session creation,
 plus customer and subscription reads. The endpoint signing secret is the
 `webhookSigningSecret` field of the same Stripe stage credential
-(`STRIPE_WEBHOOK_SIGNING_SECRET`) and is never logged. The key, product/price identifiers
-and webhook endpoint must use the same Stripe account and test/live environment. No
-transaction stays open across Stripe I/O; a failed application rolls back its receipt and
-revision together with business changes.
+(`STRIPE_WEBHOOK_SIGNING_SECRET`) and is never logged. The API refuses to start without a
+valid `whsec_` secret, so the field must exist before a release that requires it. The key,
+product/price identifiers and webhook endpoint must use the same Stripe account and
+test/live environment. No transaction stays open across Stripe I/O; a failed application
+rolls back its receipt and revision together with business changes.
 
 ## Operations and validation
 

@@ -43,8 +43,12 @@ pub async fn post_stripe(
     {
         Ok(StripeWebhookEvent::Subscription(command)) => command,
         Ok(StripeWebhookEvent::Ignored) => return StatusCode::NO_CONTENT.into_response(),
-        Err(error) => return verification_error(error).into_response(),
+        Err(error) => {
+            log_verification_failure(error);
+            return verification_error(error).into_response();
+        }
     };
+    let event_id = command.event_id.clone();
     let metadata = request_metadata(&headers);
     let context = OperationContext {
         principal: Principal::System,
@@ -60,24 +64,64 @@ pub async fn post_stripe(
         Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(error)) => {
             let response = reconciliation_error(&error).into_response();
-            if response.status().is_server_error() {
-                tracing::warn!(
-                    event = "stripe_webhook.reconciliation_failed",
-                    status = response.status().as_u16(),
-                    error = %error,
-                    "Stripe subscription reconciliation failed; Stripe retries the delivery"
-                );
-            }
+            log_reconciliation_failure(&event_id, &error, response.status());
             response
         }
         Err(_) => {
             tracing::warn!(
                 event = "stripe_webhook.reconciliation_failed",
+                stripe_event_id = %event_id,
                 status = StatusCode::SERVICE_UNAVAILABLE.as_u16(),
                 "Stripe subscription reconciliation exceeded its processing budget"
             );
             temporarily_unavailable().into_response()
         }
+    }
+}
+
+/// Unauthenticated requests are not logged: anyone can send them. An authentic event that
+/// is rejected is, because Stripe keeps retrying it and only an operator can resolve it.
+fn log_verification_failure(error: StripeWebhookVerificationError) {
+    match error {
+        StripeWebhookVerificationError::InvalidSignature => {}
+        StripeWebhookVerificationError::MalformedEvent => tracing::warn!(
+            event = "stripe_webhook.rejected",
+            reason = "malformed_event",
+            "Authentic Stripe event is malformed or rendered with another API version"
+        ),
+        StripeWebhookVerificationError::CryptographicFailure => tracing::error!(
+            event = "stripe_webhook.reconciliation_failed",
+            status = StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+            "Stripe webhook signature could not be computed"
+        ),
+    }
+}
+
+fn log_reconciliation_failure(
+    event_id: &str,
+    error: &ApplyStripeSubscriptionError,
+    status: StatusCode,
+) {
+    let causes = application::error::error_chain(error)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ");
+    if status.is_server_error() {
+        tracing::warn!(
+            event = "stripe_webhook.reconciliation_failed",
+            stripe_event_id = %event_id,
+            status = status.as_u16(),
+            error = %causes,
+            "Stripe subscription reconciliation failed; Stripe retries the delivery"
+        );
+    } else {
+        tracing::warn!(
+            event = "stripe_webhook.rejected",
+            stripe_event_id = %event_id,
+            status = status.as_u16(),
+            error = %causes,
+            "Authentic Stripe event was rejected; Stripe retries the delivery"
+        );
     }
 }
 
@@ -349,7 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_each_reconciliation_outcome_to_its_status() {
-        let cases: [(Outcome, StatusCode, Option<&str>); 9] = [
+        let cases: [(Outcome, StatusCode, Option<&str>); 11] = [
             (
                 || Ok(ApplyStripeSubscriptionResult::Applied),
                 StatusCode::NO_CONTENT,
@@ -379,6 +423,20 @@ mod tests {
                 },
                 StatusCode::SERVICE_UNAVAILABLE,
                 Some("STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE"),
+            ),
+            (
+                || Err(StripeSubscriptionSyncError::ConcurrentReconciliation.into()),
+                StatusCode::SERVICE_UNAVAILABLE,
+                Some("STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE"),
+            ),
+            (
+                || {
+                    Err(ApplyStripeSubscriptionError::InvalidPersistedState {
+                        source: static_error("invalid tier"),
+                    })
+                },
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Some("STRIPE_WEBHOOK_INTERNAL_ERROR"),
             ),
             (
                 || Err(ApplyStripeSubscriptionError::UserNotFound),

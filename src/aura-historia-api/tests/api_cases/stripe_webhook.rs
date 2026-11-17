@@ -248,6 +248,35 @@ async fn event_identity_conflicts_answer_400_without_mutating_user() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
+async fn receipts_from_the_retired_eventbridge_consumer_dedupe_by_identity() {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool, UserTier::Free, Some("cus_1")).await;
+    // The deployed Lambda inserts without the scheme column and hashed the whole snapshot.
+    sqlx::query(
+        "INSERT INTO stripe_subscription_reconciliations (stripe_customer_id) VALUES ('cus_1')",
+    )
+    .execute(&pool)
+    .await
+    .expect("seed reconciliation");
+    sqlx::query("INSERT INTO stripe_subscription_event_receipts (stripe_event_id, stripe_customer_id, stripe_subscription_id, fingerprint) VALUES ('evt_lambda', 'cus_1', $1, $2)")
+        .bind("sub_1")
+        .bind([7_u8; 32].as_slice())
+        .execute(&pool)
+        .await
+        .expect("seed legacy receipt");
+    let before = account(&pool, user_id).await;
+    let app = webhook_app(pool.clone(), Provider::new(Some(user_id), UserTier::Pro));
+
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        deliver(&app, "evt_lambda", STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED).await
+    );
+
+    assert_eq!(before, account(&pool, user_id).await);
+    assert_eq!(1, receipts(&pool).await);
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA], isolated = true)]
 async fn failed_application_answers_503_and_does_not_consume_receipt() {
     let pool = get_postgres_client().await;
     let provider = Provider::new(None, UserTier::Pro);
