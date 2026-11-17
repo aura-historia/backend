@@ -833,6 +833,36 @@ mod tests {
         )
     }
 
+    /// A redirect that only changes the trailing slash or the language segment leads to the page
+    /// itself: the page keeps the URL as its effective URL, so its scrape keeps the URL's captured
+    /// identity instead of being judged as a redirect to another product.
+    #[test]
+    fn should_keep_the_captured_identity_after_a_trailing_slash_or_language_segment_redirect() {
+        use product_listing_core::source_listing_id::SourceListingId;
+        let extracted =
+            || SourceListingId::try_from("https://shop.example/en/products/j156").unwrap();
+        for (original, served) in [
+            (
+                "https://shop.example/products/j156",
+                "https://shop.example/products/j156/",
+            ),
+            (
+                "https://shop.example/products/j156",
+                "https://shop.example/en/products/j156",
+            ),
+        ] {
+            let original = Url::parse(original).unwrap();
+            let redirect = Redirect::of(&original, &Url::parse(served).unwrap(), None);
+
+            let captured =
+                pinned_source_listing_id(Some("J156"), redirect.url != original, extracted())
+                    .unwrap();
+
+            assert_eq!(redirect.url, original, "{served}");
+            assert_eq!(captured.as_ref(), "J156", "{served}");
+        }
+    }
+
     #[test]
     fn should_name_the_same_page_when_a_redirect_only_adds_removes_or_replaces_the_language_segment()
      {
