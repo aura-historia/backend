@@ -13,7 +13,7 @@ export const BACKUP_PREFIXES = ["pgbackrest/", "secrets/"] as const;
  * Actions the host user may never take on the backup bucket, whatever its IAM policies say:
  * removing an old object version or the settings that keep old versions.
  */
-export const BACKUP_PROTECTION_ACTIONS = [
+const BACKUP_PROTECTION_ACTIONS = [
   "s3:DeleteObjectVersion",
   "s3:PutBucketVersioning",
   "s3:PutLifecycleConfiguration",
@@ -29,7 +29,8 @@ export interface HostAccessProps {
 /**
  * What the self-hosted host needs from AWS before it serves traffic: an IAM user for its runtime
  * calls, the versioned bucket its backups go to, and the secret CloudFront sends to its origin.
- * Access keys are created and rotated by an operator, never by CloudFormation.
+ * Access keys are created and rotated by an operator, never by CloudFormation. Each grant is
+ * its own managed policy, which leaves room beyond the user's small inline-policy size limit.
  */
 export class HostAccess extends Construct {
   readonly user: iam.User;
@@ -92,7 +93,7 @@ function createBackupBucket(scope: Construct, config: StageConfig, user: iam.IUs
 
 /** pgBackRest lists, reads, writes and expires current objects; old versions stay out of reach. */
 function grantBackups(scope: Construct, user: iam.IUser, bucket: s3.IBucket): void {
-  new iam.Policy(scope, "BackupPolicy", {
+  new iam.ManagedPolicy(scope, "BackupPolicy", {
     users: [user],
     statements: [
       new iam.PolicyStatement({
@@ -110,7 +111,7 @@ function grantBackups(scope: Construct, user: iam.IUser, bucket: s3.IBucket): vo
 /** Senders select the managed configuration set explicitly, never the identity's default. */
 function grantEmailSending(scope: Construct, config: StageConfig, user: iam.IUser): void {
   const stack = cdk.Stack.of(scope);
-  new iam.Policy(scope, "EmailSendingPolicy", {
+  new iam.ManagedPolicy(scope, "EmailSendingPolicy", {
     users: [user],
     statements: [new iam.PolicyStatement({
       actions: ["ses:SendEmail"],
@@ -127,7 +128,7 @@ function grantEmailSending(scope: Construct, config: StageConfig, user: iam.IUse
  * Autocomplete serves display-only address suggestions (REST API).
  */
 function grantPlaceLookups(scope: Construct, user: iam.IUser): void {
-  new iam.Policy(scope, "PlaceLookupPolicy", {
+  new iam.ManagedPolicy(scope, "PlaceLookupPolicy", {
     users: [user],
     statements: [new iam.PolicyStatement({
       actions: ["geo-places:Geocode", "geo-places:GetPlace", "geo-places:Autocomplete"],
@@ -146,7 +147,7 @@ function grantLogsAndMetrics(scope: Construct, config: StageConfig, user: iam.IU
     resourceName: name,
     arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
   });
-  new iam.Policy(scope, "TelemetryPolicy", {
+  new iam.ManagedPolicy(scope, "TelemetryPolicy", {
     users: [user],
     statements: [
       new iam.PolicyStatement({

@@ -121,9 +121,13 @@ value. The host accepts a request only with that header and only on port 443 fro
 origin-facing IP ranges, refreshed daily. Cache policies, response headers, selective caching
 and Web ACLs are unchanged by the origin; see the [HTTP front door](http-api-front-door.md).
 
-The Cognito triggers run outside any VPC. Pre-sign-up uses only the Cognito API; the
-post-confirmation forwarder calls the host through the public API hostname, because the host
-accepts only CloudFront. Their code is pinned to completed release objects through each
+CloudFormation reads the origin name and the secret only when it updates a distribution. After
+changing either, deploy `api` with a template change, such as the new secret version.
+
+The Cognito triggers run outside any VPC, so neither can reach the host's database. Pre-sign-up
+may call only the Cognito API and the host's public front door; the post-confirmation forwarder
+calls the host through the public API hostname, because the host accepts only CloudFront. Their
+code is pinned to objects in the release bundle bucket, which therefore stays, through each
 function's artifact key, version and SHA-256 parameters; Cognito invokes their `live` aliases.
 
 ### Production deletion protection
@@ -152,13 +156,23 @@ An update that intentionally replaces or removes an `identity` resource other th
 ### Deploying the reduced app
 
 The reduced `identity` and `api` stacks reach prod only at the cutover, after the host serves
-the application; `host` may deploy earlier. Keep the retained stack names. Before the first
-reduced deployment:
+the application; `host` may deploy earlier. Keep the retained stack names. Deploy each stack
+with `cdk deploy` from `infra/`, passing its parameters: `identity` takes the
+`CognitoIdentityProvidersCredentialVersion` and both triggers' artifact key, version and
+SHA-256; `api` takes `OriginVerifyCredentialVersion`. Before the first reduced deployment:
 
+- Both trigger artifacts must be built from code that runs without the database: a
+  pre-sign-up trigger without PostgreSQL configuration and a configured post-confirmation
+  forwarder. Cognito invokes them for every sign-up and confirmation, so a trigger that cannot
+  start fails them all.
 - `identity` keeps the exports the retired `compute` stack imports, so `compute` may stay until
   teardown. Remove those exports only after `compute` is deleted.
 - The retired `observability` stack imports the API Gateway ID, which the reduced `api` stack
-  removes. Delete `observability` before deploying `api`.
+  removes. Delete `observability` before deploying `api`; its alarms watch the retired
+  serverless runtime.
+- Deploying `api` switches the origins and deletes the API Gateway APIs and their regional
+  domains in one update. Until writes land on the host, roll back by redeploying the previous
+  `api` template, which recreates them in front of the still-deployed Lambdas.
 - The trigger move replaces the two Cognito invoke permissions in `identity`; review the
   change set and allow exactly those replacements in the stack-policy override.
 

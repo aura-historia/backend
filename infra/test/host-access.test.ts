@@ -2,7 +2,6 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig } from "../src/config";
-import { BACKUP_PROTECTION_ACTIONS } from "../src/constructs/host-access";
 
 type Statement = {
   readonly Effect: "Allow" | "Deny";
@@ -31,7 +30,7 @@ const actions = (statement: Statement) => [statement.Action].flat();
 
 /** Every statement the host user is allowed, from the host stack and the identity stack. */
 function hostUserStatements(): Statement[] {
-  return [host, identity].flatMap((template) => Object.values(template.findResources("AWS::IAM::Policy")) as Resource[])
+  return [host, identity].flatMap((template) => Object.values(template.findResources("AWS::IAM::ManagedPolicy")) as Resource[])
     .filter((policy) => JSON.stringify(policy.Properties.Users ?? []).match(/HostUser|aura-historia-prod-host/))
     .flatMap((policy) => policy.Properties.PolicyDocument.Statement as Statement[]);
 }
@@ -45,7 +44,9 @@ describe("host access stack", () => {
     const [, user] = only(host, "AWS::IAM::User");
     expect(user.Properties.UserName).toBe("aura-historia-prod-host");
     expect(user.Properties.Policies).toBeUndefined();
-    expect(user.Properties.ManagedPolicyArns).toBeUndefined();
+    // Grants are managed policies, leaving IAM's 2,048-character aggregate inline limit unused.
+    expect(host.findResources("AWS::IAM::Policy")).toEqual({});
+    expect(identity.findResources("AWS::IAM::Policy", { Properties: { Users: ["aura-historia-prod-host"] } })).toEqual({});
     expect(host.findResources("AWS::IAM::AccessKey")).toEqual({});
     expect(host.findResources("AWS::IAM::Role")).toEqual({});
   });
@@ -88,8 +89,10 @@ describe("host access stack", () => {
       .find((statement) => statement.Sid === "DenyHostVersionRemoval");
     expect(deny?.Effect).toBe("Deny");
     expect(deny?.Principal).toEqual({ AWS: { "Fn::GetAtt": [userId, "Arn"] } });
-    expect(actions(deny!).sort()).toEqual([...BACKUP_PROTECTION_ACTIONS].sort());
-    expect(actions(deny!)).toContain("s3:DeleteObjectVersion");
+    expect(actions(deny!).sort()).toEqual([
+      "s3:DeleteBucket", "s3:DeleteBucketPolicy", "s3:DeleteObjectVersion",
+      "s3:PutBucketPolicy", "s3:PutBucketVersioning", "s3:PutLifecycleConfiguration",
+    ]);
   });
 
   test("lets the host read, write and expire current backup objects under its two prefixes only", () => {
@@ -125,7 +128,7 @@ describe("host access stack", () => {
       "cognito-idp:AdminDeleteUser", "cognito-idp:AdminGetUser", "cognito-idp:AdminUserGlobalSignOut", "cognito-idp:ListUsers",
     ]);
     expect(cognito[0].Resource).toEqual({ "Fn::GetAtt": [poolId, "Arn"] });
-    const [, administration] = Object.entries(identity.findResources("AWS::IAM::Policy"))
+    const [, administration] = Object.entries(identity.findResources("AWS::IAM::ManagedPolicy"))
       .find(([id]) => id.startsWith("HostCognitoAdministration")) as [string, Resource];
     expect(administration.Properties.Users).toEqual(["aura-historia-prod-host"]);
   });

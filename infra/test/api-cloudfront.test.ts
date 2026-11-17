@@ -2,7 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import type { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { API_SELECTIVE_READ_PATH_PATTERNS } from "../src/constructs/api";
-import { STAGES, stageConfig, type StageName } from "../src/config";
+import { STAGES, type StageName } from "../src/config";
 import { templateForConstruct } from "./construct-template";
 import { expectHostOrigin } from "./host-origin-assertions";
 
@@ -25,14 +25,12 @@ function only(template: Template, type: string): [string, CloudFormationResource
 }
 
 describe.each(STAGES)("%s REST CloudFront distribution", (stage) => {
-  const config = stageConfig(stage);
   let template: Template;
   beforeAll(() => { template = apiTemplate(stage); });
 
   test("serves the exact public API host from the host origin, locked by the secret header", () => {
     const [, distribution] = only(template, "AWS::CloudFront::Distribution");
     const front = distribution.Properties.DistributionConfig;
-    expect(config.apiDomainName).toBe("api.aura-historia.com");
     expect(front.Aliases).toEqual(["api.aura-historia.com"]);
     expect(front.ViewerCertificate).toEqual({
       AcmCertificateArn: `{{resolve:ssm:/certificates/${stage}/api-cloudfront-certificate-arn}}`,

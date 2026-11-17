@@ -115,12 +115,13 @@ export class ApplicationIdentityStack extends cdk.Stack {
 }
 
 /**
- * The Cognito admin calls the host makes: the REST API's user lookup and global sign-out, and
+ * Managed rather than inline, like the host stack's grants, so the user's policies stay clear
+ * of IAM's aggregate inline-policy size limit. The Cognito admin calls the host makes: the REST API's user lookup and global sign-out, and
  * the identity deletion worker's lookup and deletion. The pool's own stack grants them, so the
  * statement names the pool exactly.
  */
 function grantHostPoolAdministration(stack: cdk.Stack, config: StageConfig, identity: Identity): void {
-  new iam.Policy(stack, "HostCognitoAdministration", {
+  new iam.ManagedPolicy(stack, "HostCognitoAdministration", {
     users: [iam.User.fromUserName(stack, "HostUser", config.host.userName)],
     statements: [new iam.PolicyStatement({
       actions: [

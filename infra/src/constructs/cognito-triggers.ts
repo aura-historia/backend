@@ -25,7 +25,10 @@ export const PRE_SIGN_UP_TRIGGER: TriggerDefinition = {
   environment: (config) => ({ COGNITO_PROVIDER_SIGNUP_POLICY: providerSignupPolicy(config) }),
 };
 
-/** Forwards each confirmation to the host's signed internal endpoint; it holds no business state. */
+/**
+ * Forwards each confirmation to the host's signed internal endpoint; it holds no business state.
+ * Its endpoint and signing-key configuration arrive with its binary.
+ */
 export const POST_CONFIRMATION_TRIGGER: TriggerDefinition = {
   id: "PostConfirmation",
   binaryName: "cognito-post-confirmation-forwarder",

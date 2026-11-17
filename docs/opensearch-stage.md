@@ -202,8 +202,7 @@ configuration; passwords are the stage's OpenSearch [runtime credential](infra.m
 secret. Never expose values in transcripts. Rotate host credentials, then release the new secret
 version to affected consumers before revoking old ones.
 
-[`config.ts`](../infra/src/config.ts) declares destination CIDRs and
-[`network.ts`](../infra/src/constructs/network.ts) permits dev application TCP 9443
+The dev network declared destination CIDRs and permitted dev application TCP 9443
 through NAT. Verify owner approval, current DNS/routing and the **deployed** rule
 before rollout. Security groups do not follow DNS changes. Coordinate host rotation
 with CIDR/configuration and TLS changes; never broaden to `0.0.0.0/0`, use a raw-IP
