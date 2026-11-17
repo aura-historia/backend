@@ -296,6 +296,31 @@ impl JobQueue {
         Ok(settlement)
     }
 
+    /// Gives a claimed job back unfinished, for a worker that stops before the job completes. The
+    /// job is claimable again at once and its FIFO group is unblocked. The interrupted attempt is
+    /// not counted against the retry budget, except that a claimed job keeps at least one counted
+    /// attempt, so it never re-enters deduplication. Only the current lease releases the job.
+    pub async fn release(&self, lease: &JobLease) -> Result<Settlement, JobQueueError> {
+        let released = sqlx::query(
+            "UPDATE job_queue_jobs \
+             SET lease_token = NULL, leased_until = NULL, available_at = now(), \
+                 attempts = GREATEST(attempts - 1, 1), last_error_class = $4 \
+             WHERE job_id = $1 AND scope = $2 AND lease_token = $3",
+        )
+        .bind(lease.job_id().as_uuid())
+        .bind(self.scope.name().as_str())
+        .bind(lease.token())
+        .bind(ErrorClass::RELEASED)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(if released == 1 {
+            Settlement::Released
+        } else {
+            Settlement::StaleLease
+        })
+    }
+
     async fn acknowledge(&self, lease: &JobLease) -> Result<Settlement, JobQueueError> {
         let deleted = sqlx::query(
             "DELETE FROM job_queue_jobs WHERE job_id = $1 AND scope = $2 AND lease_token = $3",

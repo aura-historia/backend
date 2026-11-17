@@ -18,6 +18,11 @@ const LAMBDA_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 const LAMBDA_IDLE_IN_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(10);
 const LAMBDA_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const LAMBDA_MAX_LIFETIME: Duration = Duration::from_secs(600);
+/// A long-running process waits longer for a pooled connection than a Lambda invocation could,
+/// because its pool is shared by many concurrent requests or jobs.
+const SERVICE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVICE_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+const SERVICE_MAX_LIFETIME: Duration = Duration::from_secs(1_800);
 const MIGRATION_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const MIGRATION_STATEMENT_TIMEOUT: Duration = Duration::from_secs(300);
 const MIGRATION_LOCK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -169,6 +174,14 @@ impl PostgresPoolTimeouts {
         }
     }
 
+    /// The Lambda statement, lock and idle-in-transaction bounds, with a longer acquire wait.
+    pub const fn service() -> Self {
+        Self {
+            acquire: SERVICE_ACQUIRE_TIMEOUT,
+            ..Self::lambda()
+        }
+    }
+
     pub const fn migration() -> Self {
         Self {
             acquire: MIGRATION_ACQUIRE_TIMEOUT,
@@ -208,6 +221,14 @@ impl PostgresPoolProfile {
             timeouts: PostgresPoolTimeouts::lambda(),
             idle_timeout: LAMBDA_IDLE_TIMEOUT,
             max_lifetime: LAMBDA_MAX_LIFETIME,
+        }
+    }
+
+    const fn service() -> Self {
+        Self {
+            timeouts: PostgresPoolTimeouts::service(),
+            idle_timeout: SERVICE_IDLE_TIMEOUT,
+            max_lifetime: SERVICE_MAX_LIFETIME,
         }
     }
 
@@ -291,24 +312,32 @@ impl PostgresPoolConfig {
         Ok(config)
     }
 
-    pub fn migration(
+    /// The pool of a long-running process on the host. PostgreSQL is reachable only on internal
+    /// networks, so the connection carries no TLS; a `host` starting with `/` names the
+    /// directory of a Unix socket.
+    pub fn service(
         host: String,
         port: u16,
         database: String,
         username: String,
         password: String,
         max_connections: u32,
-        root_certificate: PathBuf,
     ) -> Result<Self, PostgresPoolConfigError> {
-        if max_connections != 1 {
-            return Err(PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne);
-        }
-        if root_certificate.as_os_str().is_empty() {
-            return Err(PostgresPoolConfigError::EmptyRootCertificate);
-        }
-
         let mut config = Self::new(host, port, database, username, password, max_connections)?;
-        config.tls = Some(PostgresTlsConfig::VerifyFull { root_certificate });
+        config.profile = Some(PostgresPoolProfile::service());
+        Ok(config)
+    }
+
+    /// One operator connection for migrations and role bootstrap, over the same internal
+    /// network or Unix socket as [`PostgresPoolConfig::service`].
+    pub fn migration(
+        host: String,
+        port: u16,
+        database: String,
+        username: String,
+        password: String,
+    ) -> Result<Self, PostgresPoolConfigError> {
+        let mut config = Self::new(host, port, database, username, password, 1)?;
         config.profile = Some(PostgresPoolProfile::migration());
         Ok(config)
     }
@@ -456,8 +485,6 @@ pub enum PostgresPoolConfigError {
     ZeroMaxConnections,
     #[error("Postgres TLS root certificate path must not be empty")]
     EmptyRootCertificate,
-    #[error("Postgres migration max connections must be exactly one")]
-    MigrationMaxConnectionsMustBeOne,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -594,38 +621,21 @@ mod tests {
     }
 
     #[test]
-    fn should_configure_migration_pool_with_verified_tls_and_single_connection() {
+    fn should_configure_migration_connection_without_tls_and_single_connection() {
         let config = PostgresPoolConfig::migration(
-            "database.example.test".to_owned(),
+            "postgres".to_owned(),
             5432,
             "aura".to_owned(),
             "postgres".to_owned(),
             "secret".to_owned(),
-            1,
-            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
         );
         let config = match config {
             Ok(config) => config,
             Err(error) => panic!("unexpected config error: {error}"),
         };
 
-        assert_eq!(config.min_connections(), 0);
         assert_eq!(config.max_connections(), 1);
-        assert_eq!(
-            config.timeouts(),
-            Some(PostgresPoolTimeouts {
-                acquire: Duration::from_secs(10),
-                statement: Duration::from_secs(300),
-                lock: Duration::from_secs(15),
-                idle_in_transaction: Duration::from_secs(60),
-            })
-        );
-        assert_eq!(
-            config.tls(),
-            Some(&PostgresTlsConfig::VerifyFull {
-                root_certificate: PathBuf::from("/opt/aura-historia/rds-ca.pem"),
-            })
-        );
+        assert_eq!(config.tls(), None);
         assert_eq!(
             config.profile,
             Some(PostgresPoolProfile {
@@ -644,27 +654,41 @@ mod tests {
         assert!(startup_options.contains("statement_timeout=300000ms"));
         assert!(startup_options.contains("lock_timeout=15000ms"));
         assert!(startup_options.contains("idle_in_transaction_session_timeout=60000ms"));
-        assert!(format!("{:?}", config.connect_options()).contains("VerifyFull"));
+        assert!(!format!("{:?}", config.connect_options()).contains("VerifyFull"));
     }
 
     #[test]
-    fn should_reject_migration_pool_connection_limits_other_than_one() {
-        for max_connections in [0, 2] {
-            let config = PostgresPoolConfig::migration(
-                "localhost".to_owned(),
-                5432,
-                "aura".to_owned(),
-                "postgres".to_owned(),
-                "secret".to_owned(),
-                max_connections,
-                PathBuf::from("/opt/aura-historia/rds-ca.pem"),
-            );
+    fn should_configure_service_pool_without_tls_and_with_lambda_statement_bounds() {
+        let config = PostgresPoolConfig::service(
+            "/run/postgresql".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "aura_runtime".to_owned(),
+            "secret".to_owned(),
+            12,
+        );
+        let config = match config {
+            Ok(config) => config,
+            Err(error) => panic!("unexpected config error: {error}"),
+        };
 
-            assert_eq!(
-                Err(PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne),
-                config
-            );
-        }
+        assert_eq!(config.max_connections(), 12);
+        assert_eq!(config.tls(), None);
+        let timeouts = config.timeouts().expect("service profile");
+        assert_eq!(timeouts.acquire(), Duration::from_secs(5));
+        assert_eq!(
+            (
+                timeouts.statement(),
+                timeouts.lock(),
+                timeouts.idle_in_transaction()
+            ),
+            (
+                PostgresPoolTimeouts::lambda().statement(),
+                PostgresPoolTimeouts::lambda().lock(),
+                PostgresPoolTimeouts::lambda().idle_in_transaction()
+            )
+        );
+        assert!(!format!("{:?}", config.connect_options()).contains("VerifyFull"));
     }
 
     #[test]
