@@ -81,7 +81,15 @@ explicit origin allowlist.
   WAF rate rule. The application owns request-rate limits, which shape requests, not
   database capacity. Routes that make a paid provider call per request, such as
   [address suggestions](geography.md#address-suggestions), carry their own lower limit
-  as a ceiling across all callers; per-user quotas stay in the application.
+  as a ceiling across all callers; per-user quotas stay in the application. Each API
+  process enforces a token bucket for every request (`AURA_HISTORIA_API_RATE_LIMIT_PER_SECOND`,
+  `AURA_HISTORIA_API_RATE_LIMIT_BURST`; defaults 1,000 per second, burst 2,500) and a lower one
+  for `POST /v1/address-suggestions` (`AURA_HISTORIA_API_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND`,
+  `..._BURST`; defaults 12.5 per second, burst 25). The defaults split API Gateway's former
+  production throttles between the two API replicas; change them together with the replica
+  count. An exhausted limit returns `429 REQUEST_RATE_LIMITED` with `Retry-After: 1` before
+  authentication, with the usual CORS and request headers. Only the liveness probe
+  `/v1/health` is exempt; `/v1/ready` queries PostgreSQL and OpenSearch, so it stays limited.
 - Contract-valid loopback redirect URIs can match the common rule set's EC2 metadata
   SSRF body/query rules (`localhost`, such as the Shopify CLI `--use-localhost` callback
   `https://localhost:3458/oauth/callback`, or a native agent's `http://localhost:…/callback`)

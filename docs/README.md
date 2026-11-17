@@ -18,6 +18,9 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |
 | PostgreSQL job queue: delivery, FIFO groups, deduplication and custody | [Job queue](../src/platform-postgres-queue/README.md) |
 | Delivery outbox: capture, dispatch, custody and reprojection | [Delivery outbox](../src/delivery-outbox/README.md) |
+| Host processes: configuration from environment and files, PostgreSQL pools, shutdown | [Host process](../src/platform-process/README.md) |
+| Worker process: consumers per scope, concurrency, timeouts, shutdown, outbox dispatcher | [Worker](../src/aura-historia-worker/README.md), [consumer runtime](../src/platform-worker/README.md) |
+| Operator and scheduled commands: migrate, inspect, redrive, `reproject-all`, cleanup | [Ops commands](../src/aura-historia-ops/README.md) |
 | AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
 | Local tests, CI lanes and fixture diagnostics | [Testing and CI](ci.md) |
 | HTTP creation retry exceptions and recovery | [Command retries](command-retries.md) |

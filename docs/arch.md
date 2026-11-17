@@ -195,8 +195,8 @@ Transports that share application operations MUST reuse narrow, typed service-fa
 rather than another transport's state, router or controllers. The shared composition root owns
 pool/client configuration and concrete adapter construction; family selection MUST NOT load
 unrelated provider configuration. Extract each family when a transport needs it, preserving
-service-owned transactions and authorization. A warm execution environment composes pools and
-handles once and reuses them; a failed composition is retried by the next invocation.
+service-owned transactions and authorization. A long-running process composes pools and
+handles once at startup and reuses them; a failed composition stops startup.
 The [`aura-historia-runtime` composition seam](../src/aura-historia-runtime/README.md) documents
 its bounded ownership and incremental extraction rule.
 

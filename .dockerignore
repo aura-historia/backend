@@ -1,10 +1,15 @@
-# Only the workspace sources and the committed public RDS trust asset enter the build.
+# Only the workspace sources, the migrations embedded by `ops`, the role SQL and the committed
+# public RDS trust asset enter the build.
 *
 !Cargo.toml
 !Cargo.lock
 !rust-toolchain.toml
 !src
 !src/**
+!migrations
+!migrations/**
+!infra/sql
+!infra/sql/**
 !infra
 !infra/assets
 !infra/assets/rds-ca-layer
