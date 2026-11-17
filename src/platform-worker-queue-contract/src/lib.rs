@@ -1,4 +1,7 @@
-//! Shared SQS destination identity and read-only source/DLQ contract.
+//! Shared SQS destination identity and read-only source/DLQ contract, and the PostgreSQL job
+//! queue scopes that replace those queues.
+pub mod job_queue;
+
 use aura_historia_jobs::{WorkerQueueType, WorkerScope};
 use aws_sdk_sqs::types::QueueAttributeName;
 use serde_json::Value;

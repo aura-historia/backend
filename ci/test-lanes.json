@@ -34,6 +34,7 @@
     "platform-lambda-sqs",
     "platform-opensearch",
     "platform-postgres",
+    "platform-postgres-queue",
     "platform-postgres-secretsmanager",
     "platform-worker-queue-contract",
     "product-content-assessment-lambda",
