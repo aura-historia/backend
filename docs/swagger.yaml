@@ -3209,7 +3209,7 @@ paths:
                 title: Not Found
                 error: LISTING_SOURCE_NOT_FOUND
         "413":
-          description: Payload too large — the HTTP body limit or encoded SQS message limit was exceeded before confirmed admission. No queue acceptance is claimed.
+          description: Payload too large — the HTTP body limit or encoded queue message limit was exceeded before confirmed admission. No queue acceptance is claimed.
           content:
             application/problem+json:
               schema:

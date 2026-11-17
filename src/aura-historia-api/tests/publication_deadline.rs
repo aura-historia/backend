@@ -1,5 +1,5 @@
 //! Deadline regression across HTTP API v2, the shared HTTP middleware, partner admission,
-//! and the real SQS SDK publisher. The connector replaces only the network, not the SDK.
+//! and the real queue publisher. Only the enqueue statement is fake.
 use application::operation_context::CredentialCapability;
 use aura_historia_api::{
     app,
@@ -7,24 +7,11 @@ use aura_historia_api::{
     lambda::handle_http_api_v2_request,
     state::{AppState, AsyncPartnerProductListingsState},
 };
-use aws_sdk_sqs::config::{Credentials, Region};
-use aws_smithy_runtime_api::{
-    client::{
-        http::{
-            HttpClient, HttpConnector, HttpConnectorFuture, HttpConnectorSettings,
-            SharedHttpConnector,
-        },
-        orchestrator::{HttpRequest, HttpResponse},
-        result::ConnectorError,
-        runtime_components::RuntimeComponents,
-    },
-    shared::IntoShared,
-};
-use aws_smithy_types::body::SdkBody;
 use axum::{Router, body::to_bytes, http::StatusCode};
 use lambda_http::{RequestExt, lambda_runtime::Context};
 use product_listing_ingestion_queue::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+    AdmissionError, IngestionAdmission, IngestionJob, QueueProductListingIngestionPublisher,
+    ScopedProductListingIngestionPublisher,
 };
 use product_listing_service::use_cases::SubmitPartnerProductListingIngestionHandler;
 use serde_json::{Value, json};
@@ -36,7 +23,6 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use user_core::user_id::UserId;
 
-const QUEUE_URL: &str = "https://sqs.us-east-1.amazonaws.com/123456789012/ingestion.fifo";
 const SOURCE_ID: &str = "ls_01h455vb4pex5vy7enb1p677vn";
 const PATH: &str = "/v1/listing-sources/ls_01h455vb4pex5vy7enb1p677vn/product-listings/async";
 
@@ -85,79 +71,41 @@ impl TokenAuthenticator for Auth {
     }
 }
 
-// Every request goes through SQS request building/signing, wire serialization and receipt parsing.
-// Only the HTTP connector is fake: index 2 and listing `stall` never return a receipt.
-#[derive(Clone, Debug)]
-struct SqsHttp {
-    requests: mpsc::UnboundedSender<Value>,
+/// One enqueue the publisher started: its FIFO group and decoded wire message.
+#[derive(Debug)]
+struct Sent {
+    group: String,
+    message: Value,
 }
 
-impl HttpConnector for SqsHttp {
-    fn call(&self, request: HttpRequest) -> HttpConnectorFuture {
-        assert_eq!(request.method(), "POST");
-        assert_eq!(request.uri(), "https://sqs.us-east-1.amazonaws.com/");
-        assert_eq!(
-            request.headers().get("x-amz-target"),
-            Some("AmazonSQS.SendMessageBatch")
-        );
-        assert!(request.headers().get("authorization").is_some());
-        let body: Value = serde_json::from_slice(request.body().bytes().unwrap()).unwrap();
-        assert_eq!(body["QueueUrl"], QUEUE_URL);
-        let entries = body["Entries"].as_array().unwrap();
-        let stalled = entries.iter().any(|entry| {
-            let message: Value =
-                serde_json::from_str(entry["MessageBody"].as_str().unwrap()).unwrap();
-            message["index"] == 2 || message["payload"]["command"]["sourceListingId"] == "stall"
-        });
-        self.requests
-            .send(body.clone())
-            .expect("test must observe all SDK calls");
+// Every command goes through the publisher's encoding, FIFO keys and deadline handling. Only the
+// enqueue statement is fake: index 2 and listing `stall` never return.
+struct Admission {
+    sent: mpsc::UnboundedSender<Sent>,
+}
+
+#[async_trait::async_trait]
+impl IngestionAdmission for Admission {
+    async fn enqueue(&self, job: &IngestionJob) -> Result<(), AdmissionError> {
+        let message: Value = serde_json::from_str(job.body()).unwrap();
+        let stalled =
+            message["index"] == 2 || message["payload"]["command"]["sourceListingId"] == "stall";
+        self.sent
+            .send(Sent {
+                group: job.group_key().as_str().to_owned(),
+                message,
+            })
+            .expect("test must observe all enqueues");
         if stalled {
-            return HttpConnectorFuture::new(async {
-                std::future::pending::<Result<HttpResponse, ConnectorError>>().await
-            });
+            std::future::pending::<()>().await;
         }
-        let successful: Vec<_> = entries.iter().map(|entry| {
-            json!({"Id": entry["Id"], "MessageId": "confirmed", "MD5OfMessageBody": "0123456789abcdef0123456789abcdef"})
-        }).collect();
-        let response: HttpResponse = http::Response::builder()
-            .status(200)
-            .header("content-type", "application/x-amz-json-1.0")
-            .body(SdkBody::from(
-                json!({"Successful": successful, "Failed": []}).to_string(),
-            ))
-            .unwrap()
-            .try_into()
-            .unwrap();
-        HttpConnectorFuture::ready(Ok(response))
+        Ok(())
     }
 }
 
-impl HttpClient for SqsHttp {
-    fn http_connector(
-        &self,
-        _: &HttpConnectorSettings,
-        _: &RuntimeComponents,
-    ) -> SharedHttpConnector {
-        self.clone().into_shared()
-    }
-}
-
-fn router(requests: mpsc::UnboundedSender<Value>, gate: Option<Arc<Gate>>) -> Router {
-    let config = aws_sdk_sqs::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new(
-            "test",
-            "test",
-            None,
-            None,
-            "deadline-test",
-        ))
-        .http_client(SqsHttp { requests })
-        .build();
-    let publisher = ScopedSqsProductListingIngestionPublisher::new(
-        SqsProductListingIngestionPublisher::new(aws_sdk_sqs::Client::from_conf(config), QUEUE_URL),
+fn router(sent: mpsc::UnboundedSender<Sent>, gate: Option<Arc<Gate>>) -> Router {
+    let publisher = ScopedProductListingIngestionPublisher::new(
+        QueueProductListingIngestionPublisher::new(Admission { sent }),
     );
     let state = AsyncPartnerProductListingsState::new(
         Arc::new(SubmitPartnerProductListingIngestionHandler::new(publisher)),
@@ -214,11 +162,8 @@ async fn report(response: axum::response::Response) -> (StatusCode, String, Valu
     (status, key, body)
 }
 
-fn wire_index(request: &Value) -> usize {
-    let entries = request["Entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1, "same-group sends must be sequential");
-    let message: Value = serde_json::from_str(entries[0]["MessageBody"].as_str().unwrap()).unwrap();
-    message["index"].as_u64().unwrap() as usize
+fn wire_index(sent: &Sent) -> usize {
+    sent.message["index"].as_u64().unwrap() as usize
 }
 
 #[tokio::test(start_paused = true)]
@@ -240,21 +185,15 @@ async fn delayed_preparation_still_reports_confirmed_custody_before_lambda_408()
     tokio::time::advance(Duration::from_secs(2)).await; // time spent preparing the request
     assert!(
         calls_rx.try_recv().is_err(),
-        "no SQS send before authorization"
+        "no enqueue before authorization"
     );
     release_tx.send(()).unwrap();
     let first_call = calls_rx.recv().await.unwrap();
     let second_call = calls_rx.recv().await.unwrap();
     assert_eq!(wire_index(&first_call), 0);
     assert_eq!(wire_index(&second_call), 2);
-    assert_ne!(
-        first_call["Entries"][0]["MessageBody"],
-        second_call["Entries"][0]["MessageBody"]
-    );
-    assert_eq!(
-        first_call["Entries"][0]["MessageGroupId"],
-        second_call["Entries"][0]["MessageGroupId"]
-    );
+    assert_ne!(first_call.message, second_call.message);
+    assert_eq!(first_call.group, second_call.group);
     assert!(!first.is_finished());
 
     // Same warm router/publisher, different invocation. A hung previous send cannot own its budget.
@@ -281,8 +220,7 @@ async fn delayed_preparation_still_reports_confirmed_custody_before_lambda_408()
     assert_eq!(key, "kept-key");
     assert!(body["submissionId"].as_str().unwrap().starts_with("plis1_"));
     assert_eq!(body["acceptedCount"], 1);
-    let confirmed_message: Value =
-        serde_json::from_str(first_call["Entries"][0]["MessageBody"].as_str().unwrap()).unwrap();
+    let confirmed_message = &first_call.message;
     assert_eq!(confirmed_message["listingSourceId"], SOURCE_ID);
     assert_eq!(confirmed_message["submissionId"], body["submissionId"]);
     assert_eq!(confirmed_message["inputCount"], 4);

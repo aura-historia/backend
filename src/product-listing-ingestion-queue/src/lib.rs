@@ -1,11 +1,11 @@
-//! Versioned queue contract and FIFO SQS publisher for product-listing ingestion.
+//! Versioned wire contract and PostgreSQL job queue admission for ProductListing ingestion.
 
 pub mod codec;
+pub mod delivery;
 pub mod publisher;
 
 pub use publisher::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+    AdmissionError, IngestionAdmission, IngestionJob, PostgresIngestionAdmission,
+    QueueProductListingIngestionPublisher, ScopedProductListingIngestionPublisher, rejection_code,
     with_publication_deadline,
 };
-
-pub mod delivery;

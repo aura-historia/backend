@@ -7,7 +7,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use listing_source_core::ListingSourceId;
-use product_listing_ingestion_queue::codec;
+use product_listing_ingestion_queue::{codec, rejection_code};
 use product_listing_normalization::{
     ProductListingNormalizationInput, RawProductListingProvenance,
 };
@@ -62,7 +62,8 @@ impl ProductListingRawCaptureItem {
 ///
 /// `Persisted` means the ingestion queue accepted the observation; the consumer captures it
 /// transactionally afterwards. `DiscardedUnsendable` is terminal: the observation cannot be
-/// encoded within the queue's message limit, so retrying the same page can never succeed.
+/// encoded within the queue's message limit or the queue refuses it as invalid, so retrying the
+/// same page can never succeed.
 /// `DiscardedMissingSource` is terminal for an observation whose ListingSource no longer exists.
 /// Neither discard claims that raw business data was persisted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -205,8 +206,14 @@ fn map_item_outcome(outcome: &ProductListingIngestionOutcome) -> ProductListingR
     }
 }
 
-/// Publisher rejection codes for a message that cannot be encoded or does not fit the queue.
-const UNSENDABLE_PUBLISHER_CODES: [&str; 2] = ["INVALID_MESSAGE_SIZE", "ENCODING_FAILED"];
+/// Publisher rejection codes for a message that cannot be encoded, does not fit the queue or
+/// that the queue refuses as invalid: sending the same observation again can never succeed.
+const UNSENDABLE_PUBLISHER_CODES: [&str; 4] = [
+    rejection_code::INVALID_MESSAGE_SIZE,
+    rejection_code::ENCODING_FAILED,
+    rejection_code::INVALID_JOB_KEY,
+    rejection_code::QUEUE_REFUSED,
+];
 
 /// Encoded queue-message size of an observation, measured as the publisher will encode it; an
 /// observation over the queue's message limit is a `TooLarge` error.
@@ -650,6 +657,18 @@ mod tests {
             (
                 rejected_by_publisher("ENCODING_FAILED"),
                 ProductListingRawCaptureOutcome::DiscardedUnsendable,
+            ),
+            (
+                rejected_by_publisher("QUEUE_REFUSED"),
+                ProductListingRawCaptureOutcome::DiscardedUnsendable,
+            ),
+            (
+                rejected_by_publisher("INVALID_JOB_KEY"),
+                ProductListingRawCaptureOutcome::DiscardedUnsendable,
+            ),
+            (
+                rejected_by_publisher("QUEUE_RETRYABLE_FAILURE"),
+                ProductListingRawCaptureOutcome::RetryableFailure,
             ),
             (
                 rejected_by_publisher("SEND_FAILED"),

@@ -7,6 +7,7 @@ use platform_lambda_sqs::{
     safe_message_id,
 };
 use platform_postgres::SqlxUnitOfWork;
+use platform_postgres_queue::{Disposition, ErrorClass, JobId};
 use product_listing_ingestion_queue::codec;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingCommandReceiptStoreFactory,
@@ -22,7 +23,7 @@ use std::{
     cell::{Cell, RefCell},
     future::Future,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tracing::{debug, info, warn};
 
@@ -160,7 +161,7 @@ async fn handler_with_budget(
                 category,
                 failure,
                 command.as_ref(),
-                safe_message_id(&attempt.message_id).unwrap_or("invalid"),
+                Delivery::SqsMessage(safe_message_id(&attempt.message_id).unwrap_or("invalid")),
                 attempt.duration.as_millis(),
             );
             disposition.fifo_disposition()
@@ -202,6 +203,15 @@ impl AttemptDisposition {
         }
     }
 
+    /// The job queue settlement of this attempt, with the same meaning as its FIFO disposition.
+    fn queue_disposition(self, category: &str) -> Disposition {
+        match self {
+            Self::Completed | Self::Rejected => Disposition::Complete,
+            Self::Unprocessable => Disposition::Park(error_class(category)),
+            Self::Retained | Self::Contended => Disposition::Retry(error_class(category)),
+        }
+    }
+
     const fn metric(self) -> IngestionMetricOutcome {
         match self {
             Self::Completed => IngestionMetricOutcome::Completed,
@@ -219,9 +229,13 @@ fn log_attempt(
     category: &'static str,
     failure: Option<&FailureDiagnostic>,
     command: Option<&CommandCorrelation>,
-    sqs_message_id: &str,
+    delivery: Delivery<'_>,
     duration_ms: u128,
 ) {
+    let (sqs_message_id, job_id) = match delivery {
+        Delivery::SqsMessage(id) => (Some(id), None),
+        Delivery::Job(id) => (None, Some(tracing::field::display(id))),
+    };
     let dependency = failure.and_then(FailureDiagnostic::dependency);
     let error_category = failure.map(FailureDiagnostic::category);
     let sqlstate = failure.and_then(FailureDiagnostic::sqlstate);
@@ -236,6 +250,7 @@ fn log_attempt(
                     error_category,
                     sqlstate,
                     sqs_message_id,
+                    job_id,
                     duration_ms,
                     command_id = %command.command_id,
                     submission_id = %command.submission_id,
@@ -252,6 +267,7 @@ fn log_attempt(
                     error_category,
                     sqlstate,
                     sqs_message_id,
+                    job_id,
                     duration_ms,
                     $message
                 ),
@@ -368,6 +384,51 @@ impl JobDisposition {
             Self::Contended(category) => (AttemptDisposition::Contended, category, None),
         }
     }
+}
+
+/// Where the attempted command came from, for its log line.
+#[derive(Clone, Copy)]
+enum Delivery<'a> {
+    SqsMessage(&'a str),
+    Job(JobId),
+}
+
+/// A diagnostic code as the bounded error class the job queue records with a failed attempt.
+fn error_class(category: &str) -> ErrorClass {
+    ErrorClass::new(category.to_ascii_lowercase()).unwrap_or_else(|_| {
+        ErrorClass::new(UNCLASSIFIED_ERROR_CLASS).expect("the fallback error class is valid")
+    })
+}
+
+const UNCLASSIFIED_ERROR_CLASS: &str = "ingestion_failed";
+
+/// Runs the payload of one claimed `product-listing-ingestion` job and returns its settlement. Dispositions
+/// match the SQS FIFO consumer's: completion and deterministic business rejection complete the
+/// job, a command that can never apply as delivered is parked, and retryable or contended
+/// failures are retried. The caller owns claiming, settling and any time limit.
+pub async fn process_queued_ingestion_job(
+    job_id: JobId,
+    payload: &str,
+    use_case: &(dyn ProcessProductListingIngestionUseCase + Send + Sync),
+) -> Disposition {
+    let started = Instant::now();
+    let (result, command) = match decode_ingestion_job(payload) {
+        Ok((envelope, command)) => (
+            execute_ingestion_job(envelope, use_case).await,
+            Some(command),
+        ),
+        Err(disposition) => (disposition, None),
+    };
+    let (disposition, category, failure) = result.attempt();
+    log_attempt(
+        disposition,
+        category,
+        failure,
+        command.as_ref(),
+        Delivery::Job(job_id),
+        started.elapsed().as_millis(),
+    );
+    disposition.queue_disposition(category)
 }
 
 async fn process_ingestion_job(
@@ -1564,5 +1625,82 @@ mod tests {
         .unwrap();
         assert!(failure_ids(response).is_empty());
         assert_eq!(use_case.calls(), 2);
+    }
+
+    fn queue_class(class: &str) -> ErrorClass {
+        ErrorClass::new(class).unwrap()
+    }
+
+    #[tokio::test]
+    async fn should_settle_queued_jobs_as_the_fifo_consumer_disposes_of_records() {
+        let job_id = JobId::from_uuid(uuid::Uuid::now_v7());
+        for (mode, expected) in [
+            (Mode::Applied, Disposition::Complete),
+            (Mode::Complete, Disposition::Complete),
+            (Mode::MissingTarget, Disposition::Complete),
+            (Mode::Forbidden, Disposition::Complete),
+            (
+                Mode::Conflict,
+                Disposition::Park(queue_class("fingerprint_conflict")),
+            ),
+            (
+                Mode::Failure,
+                Disposition::Retry(queue_class("begin_transaction_failed")),
+            ),
+            (
+                Mode::CommitUnknown,
+                Disposition::Retry(queue_class("commit_unconfirmed")),
+            ),
+            (
+                Mode::VersionConflict,
+                Disposition::Retry(queue_class("update_concurrency_conflict")),
+            ),
+        ] {
+            let use_case = FakeUseCase::new([mode]);
+
+            let disposition = process_queued_ingestion_job(job_id, &valid_body(), &use_case).await;
+
+            assert_eq!(expected, disposition);
+            assert_eq!(1, use_case.calls());
+        }
+    }
+
+    #[tokio::test]
+    async fn should_park_a_queued_job_that_is_no_valid_wire_command_without_executing_it() {
+        let use_case = FakeUseCase::new([]);
+
+        let disposition = process_queued_ingestion_job(
+            JobId::from_uuid(uuid::Uuid::now_v7()),
+            "{\"schemaVersion\":1}",
+            &use_case,
+        )
+        .await;
+
+        assert_eq!(
+            Disposition::Park(queue_class("invalid_wire_command")),
+            disposition
+        );
+        assert_eq!(0, use_case.calls());
+    }
+
+    #[test]
+    fn should_fall_back_to_a_bounded_error_class_for_unrepresentable_codes() {
+        assert_eq!(
+            queue_class("receipt_operation_failed"),
+            error_class("RECEIPT_OPERATION_FAILED")
+        );
+        assert_eq!(
+            queue_class(UNCLASSIFIED_ERROR_CLASS),
+            error_class("not-a-class")
+        );
+    }
+
+    #[test]
+    fn should_process_queued_jobs_in_a_sendable_future() {
+        fn assert_send<T: Send>(_: &T) {}
+        let use_case = FakeUseCase::new([]);
+        let future =
+            process_queued_ingestion_job(JobId::from_uuid(uuid::Uuid::now_v7()), "", &use_case);
+        assert_send(&future);
     }
 }

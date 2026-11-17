@@ -75,8 +75,8 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   apply through the existing delivery use case after catalog normalization commits.
   Their failures do not undo terminal raw progress. Existing shipping change and validity
   signals retain their ordinary transaction boundaries.
-- Async partner commands and mapped Shopify/WooCommerce observations use a separate
-  ProductListing FIFO. The consumer commits canonical state/event or raw capture
+- Async partner commands, mapped Shopify/WooCommerce observations and crawler raw
+  observations use the separate `product-listing-ingestion` FIFO scope of the job queue. The consumer commits canonical state/event or raw capture
   together with its successful command receipt. [Admission, execution and retry identity](../product-listing.md#asynchronous-ingestion-submission)
   are independent of downstream normalization and projection.
 - Provider observations of one source record are ordered by provider source time. An
@@ -254,7 +254,7 @@ SQS transport IDs are not business idempotency keys.
 
 | Consumer | Authority and completion rule |
 | --- | --- |
-| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the DLQ on redelivery; other failures retain only their own FIFO message group. |
+| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the job queue's failure custody on redelivery; other failures retain only their own FIFO group. |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |

@@ -170,7 +170,7 @@ mod tests {
                         },
                         3 => ProductListingIngestionOutcome::Rejected {
                             reason: ProductListingIngestionRejectionReason::Publisher {
-                                code: "SQS_RETRYABLE_FAILURE".into(),
+                                code: "QUEUE_RETRYABLE_FAILURE".into(),
                             },
                             retryable: true,
                         },

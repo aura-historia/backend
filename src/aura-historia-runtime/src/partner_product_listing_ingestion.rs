@@ -6,7 +6,7 @@ use partnership_service::use_cases::commands::put_listing_source_ingestion_confi
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_queue::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+    QueueProductListingIngestionPublisher, ScopedProductListingIngestionPublisher,
 };
 use product_listing_service::ports::{
     ProductListingIngestionPublishError, ProductListingIngestionPublisher,
@@ -45,10 +45,11 @@ impl ProductListingIngestionDependencies {
         }
     }
 
-    /// Reuse the application's AWS client configuration; requests install their own deadline.
-    pub fn from_sqs(client: aws_sdk_sqs::Client, queue_url: String) -> Self {
-        Self::new(ScopedSqsProductListingIngestionPublisher::new(
-            SqsProductListingIngestionPublisher::new(client, queue_url),
+    /// Admit into the PostgreSQL job queue on the application's pool; requests install their
+    /// own deadline.
+    pub fn from_postgres(pool: PgPool) -> Self {
+        Self::new(ScopedProductListingIngestionPublisher::new(
+            QueueProductListingIngestionPublisher::postgres(pool),
         ))
     }
 }
@@ -91,20 +92,8 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://fixture:fixture@127.0.0.1:9/fixture")
             .unwrap();
-        let runtime = crate::Runtime::from_pool(pool);
-        let dependencies = || {
-            let config = aws_sdk_sqs::config::Builder::new()
-                .behavior_version_latest()
-                .region(aws_sdk_sqs::config::Region::new("eu-central-1"))
-                .credentials_provider(aws_sdk_sqs::config::Credentials::new(
-                    "fixture", "fixture", None, None, "fixture",
-                ))
-                .build();
-            ProductListingIngestionDependencies::from_sqs(
-                aws_sdk_sqs::Client::from_conf(config),
-                "http://127.0.0.1:9/fixture.fifo".into(),
-            )
-        };
+        let runtime = crate::Runtime::from_pool(pool.clone());
+        let dependencies = || ProductListingIngestionDependencies::from_postgres(pool.clone());
         let first = runtime.partner_product_listing_ingestion(dependencies());
         let second = runtime.partner_product_listing_ingestion(dependencies());
         assert!(Arc::ptr_eq(&first.submit, &second.submit));
