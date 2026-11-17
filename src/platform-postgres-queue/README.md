@@ -24,7 +24,7 @@ concurrent claimers never lease the same job. Only the current lease settles a j
 | --- | --- |
 | Complete (also a deterministic business rejection) | The job is deleted. |
 | Retry | The job is released after the scope's retry delay. With its budget spent it moves to custody. |
-| Park (can never succeed as delivered) | A first delivery is released like a retry; a redelivered job moves to custody at once. |
+| Park (can never succeed as delivered) | A first delivery is released like a retry, unless its budget is spent; a redelivered job moves to custody at once. |
 
 A settlement with a superseded token, or a repeated one, reports a stale lease and changes
 nothing. A job whose lease expires unsettled becomes claimable again; if that was its last
@@ -38,9 +38,15 @@ empty and a large backlog are routinely stale.
 
 Every job of a FIFO scope carries a group key. Within a group only the oldest job is claimable,
 and only while no job of the group is leased; groups do not block each other. Claims of one FIFO
-scope are serialized, so no group is ever leased twice. A FIFO claim walks the scope in enqueue
-order, so its cost grows with jobs queued behind blocked heads: keep groups narrow, as the
-per-listing and per-user keys are.
+scope are serialized, so no group is ever leased twice. Enqueues of one group are serialized
+too: each holds its group's transaction lock until the enqueueing transaction commits, so a
+group's jobs become visible in enqueue order and a later job never runs ahead of an earlier one
+that was still uncommitted. A transaction that enqueues into several groups should take them in
+a stable order.
+
+A FIFO claim walks the scope in enqueue order while holding the scope's claim lock, so its cost
+grows with the jobs queued behind blocked heads. Keep groups narrow, as the per-listing and
+per-user keys are; a few wide groups with a deep backlog slow every claim of their scope.
 
 ## Deduplication
 
@@ -51,7 +57,8 @@ insert-or-nothing. A claimed job leaves that set, so a retry never collides with
 
 `enqueue` accepts a transaction's connection, making the job commit or roll back with the
 caller's writes, or a pool. A statement trigger notifies the channel `job_queue:<scope>` once
-per committing transaction. `JobWakeups` listens on a worker's scopes; workers also poll, since
+per committing transaction. PostgreSQL serializes the commits of transactions that notify, which
+bounds enqueue throughput across all scopes. `JobWakeups` listens on a worker's scopes; workers also poll, since
 retries, expired leases and unblocked FIFO groups become claimable without a notification and a
 reconnecting listener can miss one.
 
@@ -63,7 +70,7 @@ with its attempt count, custody reason, last error class and timestamps. Error c
 bounded labels, never error text or payload content. Custody is never purged.
 
 - `inspect` reports a scope's waiting depth, leased count, age of the oldest waiting job and
-  custody count. It is also the metrics source.
+  custody count, reading only that scope's rows. It is the source the queue metrics publish.
 - `redrive` moves selected or all custody jobs of a scope back with their identity and order
   and a fresh retry budget. A redriven FIFO job runs before every later job of its group. A job
   whose ID or dedup key is already queued stays in custody and is reported as conflicting.

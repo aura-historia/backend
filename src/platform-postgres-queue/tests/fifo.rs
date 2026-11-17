@@ -3,11 +3,15 @@
 
 mod support;
 
-use futures::future::join_all;
-use platform_postgres_queue::{CustodyReason, Disposition, JobId, JobQueue, Settlement};
+use futures::future::{join, join_all};
+use platform_postgres_queue::{
+    CustodyReason, Disposition, EnqueueOutcome, GroupKey, JobId, JobQueue, NewJob, Settlement,
+    enqueue,
+};
 use std::{
     collections::{HashMap, HashSet},
     sync::Mutex,
+    time::{Duration, Instant},
 };
 use support::{DATABASE, ack, claim_ids, claim_one, class, custody_row, fifo, push, sorted};
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
@@ -154,7 +158,7 @@ async fn should_never_lease_two_jobs_of_a_group_to_concurrent_claimers() {
             let jobs = queue.claim(4).await.unwrap();
             if jobs.is_empty() {
                 idle_rounds += 1;
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
                 continue;
             }
             idle_rounds = 0;
@@ -182,4 +186,69 @@ async fn should_never_lease_two_jobs_of_a_group_to_concurrent_claimers() {
     join_all(workers).await;
 
     assert_eq!(expected, completed.into_inner().unwrap());
+}
+
+#[aura_integration_test(services = [DATABASE], isolated = true)]
+async fn should_make_concurrent_enqueues_of_a_group_visible_in_sequence_order() {
+    let pool = get_postgres_client().await;
+    let scope = fifo("fifo-enqueue-order");
+    let job =
+        |payload: &str| NewJob::new(&scope, Some(GroupKey::new("g").unwrap()), payload).unwrap();
+    let mut first = pool.begin().await.unwrap();
+    let EnqueueOutcome::Enqueued(first_id) = enqueue(&mut *first, &job("first")).await.unwrap()
+    else {
+        panic!("enqueue must insert");
+    };
+
+    let second = async {
+        let mut transaction = pool.begin().await.unwrap();
+        let outcome = enqueue(&mut *transaction, &job("second")).await.unwrap();
+        transaction.commit().await.unwrap();
+        (outcome, Instant::now())
+    };
+    let commit_first = async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let committing = Instant::now();
+        first.commit().await.unwrap();
+        committing
+    };
+    let ((second_outcome, second_committed), first_committing) = join(second, commit_first).await;
+
+    assert!(
+        second_committed >= first_committing,
+        "the later enqueue of a group waits for the earlier one to commit"
+    );
+    let EnqueueOutcome::Enqueued(second_id) = second_outcome else {
+        panic!("enqueue must insert");
+    };
+    let queue = JobQueue::new(pool, scope.clone());
+    let head = claim_one(&queue).await.unwrap();
+    assert_eq!(first_id, head.job_id());
+    ack(&queue, &head).await;
+    assert_eq!(second_id, claim_one(&queue).await.unwrap().job_id());
+}
+
+#[aura_integration_test(services = [DATABASE], isolated = true)]
+async fn should_park_a_first_delivery_whose_retry_budget_is_spent() {
+    let pool = get_postgres_client().await;
+    let scope = support::scope(
+        "fifo-park-budget",
+        platform_postgres_queue::QueueOrdering::Fifo,
+        support::LONG,
+        1,
+        Duration::ZERO,
+    );
+    let poison = push(&pool, &scope, Some("g"), "{}").await;
+    let queue = JobQueue::new(pool.clone(), scope);
+
+    let job = claim_one(&queue).await.unwrap();
+
+    assert_eq!(
+        Settlement::MovedToCustody(CustodyReason::Parked),
+        queue
+            .settle(job.lease(), Disposition::Park(class("invalid_job")))
+            .await
+            .unwrap()
+    );
+    assert_eq!("PARKED", custody_row(&pool, poison).await.2);
 }

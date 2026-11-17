@@ -21,8 +21,8 @@ pub enum Disposition {
     /// delay, or move it to custody once its retry budget is spent.
     Retry(ErrorClass),
     /// Can never succeed as delivered. A first delivery is released like [`Disposition::Retry`],
-    /// which absorbs a consumer deploy that lags its producer; a redelivered job moves to
-    /// custody at once, so it stops holding its FIFO group.
+    /// which absorbs a consumer deploy that lags its producer; a redelivered job, or one whose
+    /// budget is spent, moves to custody as parked at once, so it stops holding its FIFO group.
     Park(ErrorClass),
 }
 
@@ -91,18 +91,29 @@ impl JobQueue {
             let mut claimed = Vec::with_capacity(rows.len());
             let mut moved_to_custody = false;
             for row in rows {
+                let id = JobId::from_uuid(row.0);
                 match row {
-                    (id, None, None, None, None, None) => {
+                    (_, None, attempts, ..) => {
                         moved_to_custody = true;
                         custody::log_custody_transfer(
                             self.scope.name(),
-                            JobId::from_uuid(id),
-                            i32::try_from(self.scope.max_attempts()).unwrap_or(i32::MAX),
+                            id,
+                            attempts.unwrap_or_default(),
                             CustodyReason::RetryBudgetExhausted,
                             ErrorClass::LEASE_EXPIRED,
                         );
                     }
-                    row => claimed.push(claimed_job(row)?),
+                    row => match claimed_job(row) {
+                        Ok(job) => claimed.push(job),
+                        // Failing the batch would drop the healthy jobs leased with this one.
+                        // Left unsettled, it reaches custody once its attempts run out.
+                        Err(error) => tracing::error!(
+                            job_scope = self.scope.name().as_str(),
+                            job_id = %id,
+                            error = &error as &dyn std::error::Error,
+                            "Claimed job holds invalid persisted state; left to its lease"
+                        ),
+                    },
                 }
             }
             // Moving an exhausted FIFO head unblocks its group only for the next claim.
@@ -137,7 +148,7 @@ impl JobQueue {
     }
 
     /// Selects and locks candidates, moves exhausted ones to custody and leases the rest, in
-    /// one statement. Custody rows come back with every column but the ID null.
+    /// one statement. Custody rows come back with only the ID and attempt count.
     async fn claim_once(
         &self,
         connection: &mut PgConnection,
@@ -187,7 +198,7 @@ impl JobQueue {
                  SELECT job_id, sequence, scope, group_key, dedup_key, payload, enqueued_at, \
                         attempts, '{exhausted}', '{lease_expired}', last_claimed_at \
                  FROM exhausted \
-                 RETURNING job_id \
+                 RETURNING job_id, attempts \
              ), leased AS ( \
                  UPDATE job_queue_jobs AS jobs \
                  SET attempts = jobs.attempts + 1, \
@@ -202,7 +213,7 @@ impl JobQueue {
              ) \
              SELECT job_id, lease_token, attempts, group_key, payload, enqueued_at FROM leased \
              UNION ALL \
-             SELECT job_id, NULL::uuid, NULL::integer, NULL::text, NULL::text, \
+             SELECT job_id, NULL::uuid, attempts, NULL::text, NULL::text, \
                     NULL::timestamptz \
              FROM custody",
             exhausted = CustodyReason::RetryBudgetExhausted.as_str(),
@@ -244,13 +255,15 @@ impl JobQueue {
         };
         let attempt = u32::try_from(attempts)
             .map_err(|_| JobQueueError::InvalidPersistedState("negative job attempt count"))?;
-        let custody_reason = if matches!(disposition, Disposition::Park(_)) && attempt >= 2 {
-            Some(CustodyReason::Parked)
-        } else if attempt >= self.scope.max_attempts() {
-            Some(CustodyReason::RetryBudgetExhausted)
-        } else {
-            None
-        };
+        let exhausted = attempt >= self.scope.max_attempts();
+        let custody_reason =
+            if matches!(disposition, Disposition::Park(_)) && (attempt >= 2 || exhausted) {
+                Some(CustodyReason::Parked)
+            } else if exhausted {
+                Some(CustodyReason::RetryBudgetExhausted)
+            } else {
+                None
+            };
         let settlement = match custody_reason {
             Some(reason) => {
                 custody::move_to_custody(
@@ -300,7 +313,8 @@ impl JobQueue {
         })
     }
 
-    /// Depth, leases, oldest waiting age and custody size of this scope.
+    /// Depth, leases, oldest waiting age and custody size of this scope. Each half of the union
+    /// matches one partial scope index, so other scopes' backlogs are never read.
     pub async fn inspect(&self) -> Result<ScopeStats, JobQueueError> {
         let (depth, leased, oldest_age_seconds, in_custody): (i64, i64, Option<f64>, i64) =
             sqlx::query_as(
@@ -310,7 +324,13 @@ impl JobQueue {
                      extract(epoch FROM now() - min(enqueued_at) \
                          FILTER (WHERE NOT coalesce(leased_until > now(), false)))::float8, \
                      (SELECT count(*) FROM job_queue_failures WHERE scope = $1) \
-                 FROM job_queue_jobs WHERE scope = $1",
+                 FROM ( \
+                     SELECT leased_until, enqueued_at FROM job_queue_jobs \
+                     WHERE scope = $1 AND group_key IS NULL \
+                     UNION ALL \
+                     SELECT leased_until, enqueued_at FROM job_queue_jobs \
+                     WHERE scope = $1 AND group_key IS NOT NULL \
+                 ) AS jobs",
             )
             .bind(self.scope.name().as_str())
             .fetch_one(&self.pool)
