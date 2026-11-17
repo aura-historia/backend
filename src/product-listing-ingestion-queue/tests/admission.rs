@@ -202,14 +202,21 @@ async fn should_give_the_crawler_role_no_table_privilege_and_one_executable_defi
         vec!["job_queue_enqueue_product_listing_ingestion(text,text,text)".to_owned()],
         definer_functions
     );
-    let replication_may_enqueue: bool = sqlx::query_scalar(
-        "SELECT has_function_privilege('aura_replication', \
-         'job_queue_enqueue_product_listing_ingestion(text, text, text)', 'EXECUTE')",
+    let executors: Vec<String> = sqlx::query_scalar(
+        "SELECT CASE WHEN grant_.grantee = 0 THEN 'PUBLIC' ELSE grant_.grantee::regrole::text END \
+         FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) AS grant_ \
+         WHERE p.oid = 'job_queue_enqueue_product_listing_ingestion(text, text, text)'::regprocedure \
+           AND grant_.privilege_type = 'EXECUTE' AND grant_.grantee <> p.proowner \
+         ORDER BY 1",
     )
-    .fetch_one(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
-    assert!(!replication_may_enqueue, "PUBLIC must not execute it");
+    assert_eq!(
+        vec![CRAWLER_ROLE.to_owned(), "aura_runtime".to_owned()],
+        executors,
+        "PUBLIC must not execute it"
+    );
 
     let crawler = crawler_pool(&pool).await;
     for statement in [
