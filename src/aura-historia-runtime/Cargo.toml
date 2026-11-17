@@ -25,6 +25,7 @@ partnership-service = { workspace = true }
 party-postgres = { workspace = true }
 party-service = { workspace = true }
 platform-postgres = { workspace = true }
+platform-process = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-ingestion-sqs = { workspace = true }
 product-listing-opensearch = { workspace = true }

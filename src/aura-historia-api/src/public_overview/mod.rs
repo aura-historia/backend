@@ -126,7 +126,7 @@ mod tests {
                 .with_state(PublicOverviewState::new(Arc::new(
                     FakeGetPublicCatalogueOverviewUseCase { requests, outcome },
                 ))),
-            crate::transport::NATIVE_REQUEST_TIMEOUT,
+            crate::transport::REQUEST_TIMEOUT,
         )
     }
 

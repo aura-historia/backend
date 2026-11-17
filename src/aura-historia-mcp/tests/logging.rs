@@ -18,7 +18,6 @@ fn should_keep_protocol_payloads_out_of_binary_logs_even_with_verbose_environmen
         .env("POSTGRES_DATABASE", "fixture")
         .env("POSTGRES_USERNAME", "fixture")
         .env("POSTGRES_PASSWORD", "fixture-password")
-        .env("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem")
         .env("STAGE", "ephemeral")
         .env(
             "PRODUCT_LISTING_INGESTION_QUEUE_URL",

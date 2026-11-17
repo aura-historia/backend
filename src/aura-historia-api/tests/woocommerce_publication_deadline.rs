@@ -1,10 +1,10 @@
-//! WooCommerce deadline regression through the HTTP API v2 adapter, real intake service,
-//! partner submission handler, and scoped SQS SDK publisher. Only external ports are faked.
+//! WooCommerce deadline regression through the HTTP router and its request timeout, the real
+//! intake service, partner submission handler, and scoped SQS SDK publisher. Only external
+//! ports are faked.
 use application::operation_context::CredentialCapability;
 use aura_historia_api::{
-    app,
+    app_with_request_timeout,
     auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
-    lambda::handle_http_api_v2_request,
     state::{AppState, WebhooksState},
 };
 use aws_sdk_sqs::config::{Credentials, Region};
@@ -22,7 +22,6 @@ use aws_smithy_runtime_api::{
 };
 use axum::{Router, body::to_bytes, http::StatusCode};
 use base64::Engine;
-use lambda_http::{RequestExt, lambda_runtime::Context};
 use listing_source_core::ListingSourceId;
 use listing_source_service::ports::{
     ListingSourceReadError, WoocommerceSignatureVerification, WoocommerceSignatureVerifier,
@@ -40,13 +39,14 @@ use product_listing_service::use_cases::{
     ProductListingIngestionActor, ProductListingIngestionIntent,
     SubmitPartnerProductListingIngestionHandler,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::sync::{mpsc, oneshot};
+use tower::ServiceExt;
 use user_core::user_id::UserId;
 use woocommerce_service::WoocommerceWebhookIntake;
 
@@ -56,6 +56,8 @@ const SECRET: &str = "woocommerce-deadline-test-secret";
 const RAW_BODY: &[u8] = br#"{ "id": 901, "name": "Lambda \u00e9 cabinet", "permalink": "https://partner.example/901", "price": "42.00", "status": "publish", "stock_status": "instock", "images": [], "futureWooKey": "\u00e9" }"#;
 const DELIVERY_ID: &str = "deadline-delivery-901";
 const CORRELATION_ID: &str = "woocommerce-deadline-correlation";
+/// Publication stops 300ms before the request times out.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
 
 struct Auth {
     user_id: UserId,
@@ -228,39 +230,29 @@ fn router(
         SubmitPartnerProductListingIngestionHandler::new(publisher),
         UnexpectedIgnoredStatusAuthorization,
     );
-    app(AppState::new().with_webhooks(WebhooksState::new(
-        Arc::new(intake),
-        Arc::new(Auth { user_id }),
-    )))
+    app_with_request_timeout(
+        AppState::new().with_webhooks(WebhooksState::new(
+            Arc::new(intake),
+            Arc::new(Auth { user_id }),
+        )),
+        REQUEST_TIMEOUT,
+    )
 }
 
-fn request(remaining: Duration) -> lambda_http::Request {
-    let path = format!("/v1/webhooks/woocommerce/{SOURCE_ID}");
-    let event = json!({
-        "version": "2.0", "routeKey": "$default", "rawPath": path, "rawQueryString": "",
-        "headers": {
-            "authorization": "Bearer partner-token", "content-type": "application/json",
-            "host": "api.example.test", "x-correlation-id": CORRELATION_ID,
-            "x-wc-webhook-topic": "product.updated",
-            "x-wc-webhook-signature": base64::engine::general_purpose::STANDARD.encode(sign(RAW_BODY)),
-            "x-wc-webhook-delivery-id": DELIVERY_ID
-        },
-        "requestContext": {"stage": "$default", "http": {
-            "method": "POST", "path": path, "protocol": "HTTP/1.1",
-            "sourceIp": "127.0.0.1", "userAgent": "deadline-test"
-        }},
-        "body": base64::engine::general_purpose::STANDARD.encode(RAW_BODY),
-        "isBase64Encoded": true
-    });
-    let mut context = Context::default();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+fn request() -> axum::http::Request<axum::body::Body> {
+    axum::http::Request::post(format!("/v1/webhooks/woocommerce/{SOURCE_ID}"))
+        .header("authorization", "Bearer partner-token")
+        .header("content-type", "application/json")
+        .header("host", "api.example.test")
+        .header("x-correlation-id", CORRELATION_ID)
+        .header("x-wc-webhook-topic", "product.updated")
+        .header(
+            "x-wc-webhook-signature",
+            base64::engine::general_purpose::STANDARD.encode(sign(RAW_BODY)),
+        )
+        .header("x-wc-webhook-delivery-id", DELIVERY_ID)
+        .body(axum::body::Body::from(RAW_BODY.to_vec()))
         .unwrap()
-        .as_millis() as u64;
-    context.deadline = now + remaining.as_millis() as u64;
-    lambda_http::request::from_str(&event.to_string())
-        .unwrap()
-        .with_lambda_context(context)
 }
 
 type TestSetup = (
@@ -313,12 +305,9 @@ async fn assert_unavailable(response: axum::response::Response) -> String {
 }
 
 #[tokio::test(start_paused = true)]
-async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambda_timeout() {
+async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_the_request_timeout() {
     let (app, user_id, verified, entered, release, mut calls) = setup();
-    let response = tokio::spawn(handle_http_api_v2_request(
-        app,
-        request(Duration::from_secs(5)),
-    ));
+    let response = tokio::spawn(app.oneshot(request()));
     entered.await.unwrap();
     tokio::time::advance(Duration::from_secs(2)).await;
     assert!(
@@ -357,7 +346,7 @@ async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambd
         "pending SDK request cannot acknowledge custody"
     );
 
-    // 5s Lambda deadline minus 1s response headroom, then 300ms for error reporting.
+    // 4s request timeout, minus 300ms for error reporting.
     tokio::time::advance(Duration::from_millis(1750)).await;
     let response_request_id = assert_unavailable(response.await.unwrap().unwrap()).await;
     assert_eq!(wire_request_id.as_str(), response_request_id);
@@ -370,10 +359,7 @@ async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambd
 #[tokio::test(start_paused = true)]
 async fn source_lookup_finishing_after_publication_deadline_does_not_start_an_sqs_send() {
     let (app, _, verified, entered, release, mut calls) = setup();
-    let response = tokio::spawn(handle_http_api_v2_request(
-        app,
-        request(Duration::from_secs(5)),
-    ));
+    let response = tokio::spawn(app.oneshot(request()));
     entered.await.unwrap();
     tokio::time::advance(Duration::from_millis(3750)).await;
     assert!(calls.try_recv().is_err());

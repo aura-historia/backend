@@ -1,4 +1,4 @@
-//! Complete production consumer catalogue over local HTTP, Lambda and the official SDK client.
+//! Complete production consumer catalogue over local HTTP and the official SDK client.
 use test_api::{Postgres, aura_integration_test};
 const SCHEMA: Postgres = Postgres::new("migrations");
 #[path = "consumer_release/catalogue.rs"]

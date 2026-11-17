@@ -548,10 +548,8 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         assert!(sent.lock().unwrap().is_empty());
-        let limited = crate::transport::with_transport_middleware(
-            app,
-            crate::transport::NATIVE_REQUEST_TIMEOUT,
-        );
+        let limited =
+            crate::transport::with_transport_middleware(app, crate::transport::REQUEST_TIMEOUT);
         let oversized = request(&limited, &path, &"x".repeat(1_048_577), None, Some("token")).await;
         assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(

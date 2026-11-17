@@ -9,7 +9,6 @@ pub(crate) mod content_notices;
 pub mod error;
 mod geographic_search;
 pub(crate) mod keyset_cursor;
-pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
 pub mod notifications;
@@ -23,6 +22,8 @@ pub(crate) mod patch_value;
 mod product_listing_management;
 pub mod product_listings;
 pub(crate) mod public_overview;
+mod rate_limit;
+pub use platform_process::{InvalidRateLimit, RateLimit};
 mod readiness;
 pub mod search_filters;
 pub mod shipping;
@@ -239,6 +240,12 @@ use user_service::use_cases::{
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
+pub const API_RATE_LIMIT_PER_SECOND_ENV: &str = "AURA_HISTORIA_API_RATE_LIMIT_PER_SECOND";
+pub const API_RATE_LIMIT_BURST_ENV: &str = "AURA_HISTORIA_API_RATE_LIMIT_BURST";
+pub const ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND_ENV: &str =
+    "AURA_HISTORIA_API_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND";
+pub const ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST_ENV: &str =
+    "AURA_HISTORIA_API_ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
 pub const COGNITO_USER_POOL_ID_ENV: &str = "AURA_HISTORIA_COGNITO_USER_POOL_ID";
@@ -289,6 +296,13 @@ pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT: u64 = 4;
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS: u64 = 500;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
+// Each API process enforces its own limits. The defaults split API Gateway's production stage
+// throttle (2,000 requests per second, burst 5,000) and its address-suggestion route throttle
+// (25 per second, burst 50) between the two API replicas.
+const DEFAULT_API_RATE_LIMIT_PER_SECOND: f64 = 1_000.0;
+const DEFAULT_API_RATE_LIMIT_BURST: f64 = 2_500.0;
+const DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND: f64 = 12.5;
+const DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST: f64 = 25.0;
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
@@ -303,6 +317,8 @@ struct StripeSubscriptionProducts {
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
+    rate_limit: RateLimit,
+    address_suggestions_rate_limit: RateLimit,
     cognito_jwt: CognitoJwtConfig,
     oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
     oauth_metadata_document_client_policy: MetadataDocumentClientPolicy,
@@ -425,9 +441,25 @@ impl ApiConfig {
         )
         .map_err(|_| ApiConfigError::InvalidLoopsWebhookSigningSecret)?;
         let shopify_webhook_secrets = shopify_webhook_secrets(&mut get)?;
+        let rate_limit = rate_limit_config(
+            &mut get,
+            API_RATE_LIMIT_PER_SECOND_ENV,
+            DEFAULT_API_RATE_LIMIT_PER_SECOND,
+            API_RATE_LIMIT_BURST_ENV,
+            DEFAULT_API_RATE_LIMIT_BURST,
+        )?;
+        let address_suggestions_rate_limit = rate_limit_config(
+            &mut get,
+            ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND_ENV,
+            DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND,
+            ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST_ENV,
+            DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST,
+        )?;
 
         Ok(Self {
             bind_addr,
+            rate_limit,
+            address_suggestions_rate_limit,
             cognito_jwt: CognitoJwtConfig::new(issuer, app_client_ids),
             oauth_resource_policy,
             oauth_metadata_document_client_policy,
@@ -672,6 +704,8 @@ pub enum ApiConfigError {
     },
     #[error("missing required configuration {name}")]
     MissingRequiredConfig { name: &'static str },
+    #[error("invalid rate limit configuration {name}")]
+    InvalidRateLimit { name: &'static str },
     #[error("invalid URL configuration {name}")]
     InvalidUrlConfig {
         name: &'static str,
@@ -720,11 +754,62 @@ where
         .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret)
 }
 
-pub fn app(state: AppState) -> Router {
-    app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT)
+fn rate_limit_config<F>(
+    get: &mut F,
+    rate_name: &'static str,
+    default_rate: f64,
+    burst_name: &'static str,
+    default_burst: f64,
+) -> Result<RateLimit, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let mut number = |name: &'static str, default: f64| match get(name) {
+        Some(value) => value
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| ApiConfigError::InvalidRateLimit { name }),
+        None => Ok(default),
+    };
+    let rate = number(rate_name, default_rate)?;
+    let burst = number(burst_name, default_burst)?;
+    RateLimit::new(rate, burst).map_err(|_| ApiConfigError::InvalidRateLimit { name: rate_name })
 }
 
-fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
+pub fn app(state: AppState) -> Router {
+    app_with_request_timeout(state, crate::transport::REQUEST_TIMEOUT)
+}
+
+/// The router whose requests end within `request_timeout`; the server uses
+/// [`transport::REQUEST_TIMEOUT`]. Asynchronous admission publishes until shortly before it.
+pub fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
+    compose_app(state, request_timeout, None)
+}
+
+/// The server's router: [`app_with_request_timeout`] with the process's request-rate limits
+/// enforced inside the transport middleware, so a `429` carries CORS, request and correlation
+/// headers and its trace span like any other response.
+pub fn app_with_rate_limits(
+    state: AppState,
+    request_timeout: Duration,
+    rate_limit: RateLimit,
+    address_suggestions_rate_limit: RateLimit,
+) -> Router {
+    compose_app(
+        state,
+        request_timeout,
+        Some(rate_limit::RateLimits::new(
+            rate_limit,
+            address_suggestions_rate_limit,
+        )),
+    )
+}
+
+fn compose_app(
+    state: AppState,
+    request_timeout: Duration,
+    rate_limits: Option<rate_limit::RateLimits>,
+) -> Router {
     let health_routes = Router::new()
         .route("/v1/health", get(readiness::health))
         .route("/v1/ready", get(readiness::ready))
@@ -1290,6 +1375,12 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(discovery) = state.agent_discovery {
         routes = routes.merge(agent_discovery_routes(discovery));
     }
+    if let Some(limits) = rate_limits {
+        routes = routes.layer(axum::middleware::from_fn_with_state(
+            limits,
+            rate_limit::enforce,
+        ));
+    }
 
     with_transport_middleware(routes, request_timeout)
 }
@@ -1371,25 +1462,6 @@ fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Ro
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
     app_state_from_config(&config).await
-}
-
-pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
-    let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
-    let runtime = Runtime::from_env().await?;
-    lambda_app_from_config_and_runtime(&config, &runtime).await
-}
-
-/// Composes the complete Lambda router once for a warm execution environment.
-pub async fn lambda_app_from_config_and_runtime(
-    config: &ApiConfig,
-    runtime: &Runtime,
-) -> Result<Router, ApiStateError> {
-    log_product_listing_search_cache_config(config);
-    let state = app_state_from_config_and_runtime(config, runtime).await?;
-    Ok(app_with_request_timeout(
-        state,
-        crate::transport::LAMBDA_REQUEST_TIMEOUT,
-    ))
 }
 
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
@@ -2371,6 +2443,8 @@ fn log_product_listing_search_cache_config(config: &ApiConfig) {
     );
 }
 
+/// Serves until `shutdown` resolves, then stops accepting connections and drains in-flight
+/// requests, each of which ends within [`transport::REQUEST_TIMEOUT`].
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>
 where
     S: Future<Output = ()> + Send + 'static,
@@ -2382,12 +2456,13 @@ where
     let listener = TcpListener::bind(config.bind_addr())
         .await
         .map_err(ApiRunError::Bind)?;
-    serve(
-        app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT),
-        listener,
-        shutdown,
-    )
-    .await
+    let app = app_with_rate_limits(
+        state,
+        crate::transport::REQUEST_TIMEOUT,
+        config.rate_limit,
+        config.address_suggestions_rate_limit,
+    );
+    serve(app, listener, shutdown).await
 }
 
 pub async fn serve<S>(app: Router, listener: TcpListener, shutdown: S) -> Result<(), ApiRunError>
@@ -2399,7 +2474,9 @@ where
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
         .await
-        .map_err(ApiRunError::Serve)
+        .map_err(ApiRunError::Serve)?;
+    info!("aura-historia-api drained in-flight requests and stopped");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2715,6 +2792,30 @@ mod tests {
             )
             .unwrap_or_else(|_| panic!("valid newsletter email config rejected"));
             assert!(config.newsletter_confirmation_email == expected);
+        }
+    }
+
+    #[test]
+    fn should_default_rate_limits_to_each_replicas_share_and_reject_invalid_ones() {
+        let config =
+            ApiConfig::from_getter(|name| valid_api_config_values().get(name).cloned()).unwrap();
+        assert_eq!(RateLimit::new(1_000.0, 2_500.0).unwrap(), config.rate_limit);
+        assert_eq!(
+            RateLimit::new(12.5, 25.0).unwrap(),
+            config.address_suggestions_rate_limit
+        );
+
+        for (name, value) in [
+            (API_RATE_LIMIT_PER_SECOND_ENV, "fast"),
+            (API_RATE_LIMIT_PER_SECOND_ENV, "0"),
+            (ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST_ENV, "0.5"),
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(name, value.to_owned());
+            assert!(matches!(
+                ApiConfig::from_getter(|name| values.get(name).cloned()),
+                Err(ApiConfigError::InvalidRateLimit { .. })
+            ));
         }
     }
 

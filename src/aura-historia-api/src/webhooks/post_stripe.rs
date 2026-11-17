@@ -20,7 +20,7 @@ const SIGNATURE_HEADER: HeaderName = HeaderName::from_static("stripe-signature")
 /// Covers the bounded Stripe provider read plus the two short reconciliation transactions.
 pub(crate) const PROCESSING_BUDGET: Duration = Duration::from_secs(20);
 const _: () =
-    assert!(PROCESSING_BUDGET.as_millis() < crate::transport::NATIVE_REQUEST_TIMEOUT.as_millis());
+    assert!(PROCESSING_BUDGET.as_millis() < crate::transport::REQUEST_TIMEOUT.as_millis());
 
 /// Authenticates a Stripe delivery by its signature over the exact body, then runs the
 /// subscription reconciliation synchronously. Stripe retries every non-2xx answer.

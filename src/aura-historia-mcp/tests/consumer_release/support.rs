@@ -1,4 +1,4 @@
-use aura_historia_mcp::{MAX_RESPONSE_BYTES, McpDependencies, TransportConfig, mcp_router};
+use aura_historia_mcp::{McpDependencies, TransportConfig, mcp_router};
 use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
@@ -44,7 +44,6 @@ impl EmbeddingGenerator for NoEmbeddings {
 pub struct Server {
     pub http: reqwest::Client,
     pub origin: String,
-    pub app: axum::Router,
     stop: CancellationToken,
 }
 impl Server {
@@ -89,9 +88,8 @@ impl Server {
                 Ok(())
             })
             .unwrap();
-        let router = app.clone();
         let task = tokio::spawn(async move {
-            axum::serve(listener, router)
+            axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown.cancelled_owned())
                 .await
                 .unwrap();
@@ -104,7 +102,6 @@ impl Server {
         Self {
             http: reqwest::Client::new(),
             origin: format!("http://{address}"),
-            app,
             stop,
         }
     }
@@ -168,42 +165,6 @@ impl Server {
             json!({"name":name,"arguments":arguments}),
         )
         .await
-    }
-    pub async fn lambda(&self, token: Option<&str>, method: &str, mut params: Value) -> Value {
-        use lambda_http::{
-            lambda_runtime::{Context, LambdaEvent},
-            request::LambdaRequest,
-        };
-        use std::time::{SystemTime, UNIX_EPOCH};
-        use tower::ServiceExt;
-        params["_meta"] = json!({"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"consumer-lambda","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}});
-        let mut headers = json!({"host":self.origin.trim_start_matches("http://"),"content-type":"application/json","accept":"application/json,text/event-stream","mcp-protocol-version":"2026-07-28","mcp-method":method});
-        if let Some(name) = params["name"].as_str() {
-            headers["mcp-name"] = json!(name);
-        }
-        if let Some(token) = token {
-            headers["authorization"] = json!(format!("Bearer {token}"));
-        }
-        let payload:LambdaRequest=serde_json::from_value(json!({"version":"2.0","routeKey":"ANY /v1","rawPath":"/v1","rawQueryString":"","headers":headers,"requestContext":{"stage":"$default","http":{"method":"POST","path":"/v1","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"consumer-lambda"}},"body":json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}).to_string(),"isBase64Encoded":false})).unwrap();
-        let app = self.app.clone();
-        let service = lambda_http::service_fn(move |request| {
-            aura_historia_mcp::lambda::handle_http_api_v2_request(app.clone(), request)
-        });
-        let mut context = Context::default();
-        context.deadline = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
-            + Duration::from_secs(30))
-        .as_millis() as u64;
-        let response = lambda_http::Adapter::from(service)
-            .oneshot(LambdaEvent { payload, context })
-            .await
-            .unwrap();
-        let response = serde_json::to_value(response).unwrap();
-        assert!(serde_json::to_vec(&response).unwrap().len() < 6 * 1024 * 1024);
-        assert_eq!(200, response["statusCode"]);
-        assert_eq!("no-store", response["headers"]["cache-control"]);
-        let bytes = response["body"].as_str().unwrap();
-        assert!(bytes.len() <= MAX_RESPONSE_BYTES);
-        serde_json::from_str(bytes).unwrap()
     }
 }
 impl Drop for Server {
