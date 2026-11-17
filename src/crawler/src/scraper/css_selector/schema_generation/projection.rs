@@ -80,8 +80,9 @@ pub(super) fn parsed_page_as_shown(input: &str) -> NodeRef {
 /// `document` without the elements of [`REMOVED_DSL_TAGS`] and comments, which every view of the
 /// page leaves out; an element named with a prefix of [`REMOVED_DSL_TAG_PREFIXES`] is still in
 /// it, for the walker to skip with [`has_removed_tag_prefix`]. An `aside` inside `main` or an
-/// `article` stays: it is part of the page's content, often a product page's price and cart
-/// panel, where an `aside` outside them is the page's sidebar.
+/// `article` stays unless it is a list of links ([`is_link_list`]): it is part of the page's
+/// content, often a product page's price and cart panel, where an `aside` outside them, or one
+/// that lists other pages, is the page's sidebar.
 fn without_removed_elements(document: NodeRef) -> NodeRef {
     // Collected before detaching: detaching the node a selection stands on ends its traversal.
     let removed: Vec<NodeRef> = REMOVED_DSL_TAGS
@@ -601,6 +602,24 @@ fn is_content_aside(node: &NodeRef) -> bool {
         && node
             .ancestors()
             .any(|ancestor| is_named(&ancestor, &["main", "article"]))
+        && !is_link_list(node)
+}
+
+/// Whether most of `node`'s text is the text of its links: a list of other pages, such as a
+/// category menu or related items, rather than the page's own content. A price and cart panel
+/// holds a few links at most.
+fn is_link_list(node: &NodeRef) -> bool {
+    let visible_chars = |text: String| {
+        text.split_whitespace()
+            .map(|word| word.chars().count())
+            .sum::<usize>()
+    };
+    let linked = node.select("a").map_or(0, |links| {
+        links
+            .map(|link| visible_chars(link.as_node().text_contents()))
+            .sum()
+    });
+    linked * 2 > visible_chars(node.text_contents())
 }
 
 fn remove_comments(node: &NodeRef) {

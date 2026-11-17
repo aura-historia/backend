@@ -206,12 +206,14 @@ mod tests {
 
     /// Selectors run on the page as served, so the outline keeps a streamed segment where the
     /// shop serves it, at the end, which the markdown moves into place; a product panel in an
-    /// `aside` inside `main` shows, the page's sidebar does not.
+    /// `aside` inside `main` shows, the page's sidebar and a related items list do not.
     #[test]
     fn should_keep_streamed_segments_where_served_and_show_an_aside_inside_main() {
         let html = concat!(
             r#"<html><body><aside class="filters">Era</aside><main><h1>Chair</h1>"#,
-            r#"<aside class="panel"><span class="price">£50</span></aside>"#,
+            r#"<aside class="panel"><span class="price">£50</span><button>Add to cart</button>"#,
+            r#"<a href="/ship">Shipping</a>"#,
+            r#"</aside><aside class="related"><a href="/stool">Oak stool</a> £20</aside>"#,
             r#"<!--$?--><template id="B:0"></template><!--/$--></main>"#,
             r#"<div hidden id="S:0"><p class="sold">Sold</p></div>"#,
             r#"<script>$RC("B:0","S:0")</script></body></html>"#,
@@ -221,6 +223,8 @@ mod tests {
             "h1 | Chair\n\
              aside.panel\n\
              \x20span.price | £50\n\
+             \x20button | Add to cart\n\
+             \x20a | Shipping\n\
              template[id='B:0']\n\
              div[id='S:0']\n\
              \x20p.sold | Sold\n",
