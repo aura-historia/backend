@@ -1071,7 +1071,7 @@ function sourceConditions(source) {
             key: 'identity_conflict', text: 'Identity conflict',
             more: `${formatCount(conflicted)} of ${formatCount(Number(source.product_urls) || 0)} URLs not captured`,
             since: source.identity_conflict_since, sinceLabel: 'In conflict since',
-            title: 'These URLs redirect to a page that derives another identity than the one their listings were captured under, so the redirected page is not captured; check where they redirect'
+            title: 'These URLs redirect to a page that derives another identity than the one their listings were captured under, or show the identity another product URL of the source carries without evidence of the same product, so they are not captured; check the pages'
         });
     }
     const pageIdentityChanged = Number(source.page_identity_changed_urls) || 0;
@@ -1188,7 +1188,7 @@ const FAILURES = {
     ConnectionDropped: {label: 'Connection dropped', cause: 'The shop closed the connection without answering the page.', profile: 'page'},
     RobotsConnectionDropped: {label: 'robots.txt connection dropped', cause: 'The shop closed the connection without answering robots.txt, so the page was not requested.', profile: 'page'},
     RawCaptureFailed: {label: 'Capture failed', cause: "The page's content could not be stored.", profile: 'page'},
-    SourceListingIdConflict: {label: 'Identity conflict', cause: 'The URL redirects to a page that derives another identity than the one its listing was captured under, so the page is not captured; the retry delay grows until the product schemas change.', profile: 'page'},
+    SourceListingIdConflict: {label: 'Identity conflict', cause: 'The URL redirects to a page that derives another identity than the one its listing was captured under, or its page shows the identity another product URL carries without evidence of the same product, so the page is not captured; the retry delay grows until the product schemas change.', profile: 'page'},
     FreshSchemaNormalizationFailed: {label: 'New schema failed', cause: 'A freshly generated schema extracts values that fail the plausibility checks.', profile: 'page'},
     SchemaGenerationValidationFailed: {label: 'Schema generation failed', cause: 'The generated schemas did not pass the checks.', profile: 'page'}
 };

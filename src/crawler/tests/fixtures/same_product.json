@@ -1,0 +1,60 @@
+{
+  "description": "Product URLs of one ListingSource that carry one identity. `same_product::same_product_evidence` (unit tests) and migration 20261117100002 (tests/identity_migrations.rs) must answer each row alike: the survivor keeps capturing, a row with evidence of the same product is retired, any other row is kept. `page_identity` is the identity the row's page derived (`last_extracted_source_listing_id`), the captured one when null. Paths are relative to the shop's root.",
+  "groups": [
+    {
+      "name": "spellings with tracking parameters and doubled slashes",
+      "rows": [
+        { "path": "products/hagi-tea-bowl", "captured": "T-1", "page_identity": "T-1", "title": "Hagi tea bowl", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 3, "expected": "survivor", "evidence": null },
+        { "path": "products/hagi-tea-bowl?utm_source=mail&fbclid=1", "captured": "T-1", "page_identity": "T-1", "title": "Hagi tea bowl, Edo period", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 2, "expected": "retire", "evidence": "spelling" },
+        { "path": "products//hagi-tea-bowl/", "captured": "T-1", "page_identity": "T-1", "title": "Hagi-Teeschale", "last_error_kind": null, "last_scraped_days_ago": 3, "created_days_ago": 1, "expected": "retire", "evidence": "spelling" }
+      ]
+    },
+    {
+      "name": "translations under a language parameter, with different titles",
+      "rows": [
+        { "path": "artikel.php?id=5&Sprache=de", "captured": "W-5", "page_identity": "W-5", "title": "Briefmarke Rigi 1882", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 5, "expected": "survivor", "evidence": null },
+        { "path": "artikel.php?id=5&Sprache=fr", "captured": "W-5", "page_identity": "W-5", "title": "Timbre Rigi 1882", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 4, "expected": "retire", "evidence": "spelling" },
+        { "path": "werk/12?l=en", "captured": "W-5", "page_identity": "W-5", "title": "Rigi stamp 1882", "last_error_kind": null, "last_scraped_days_ago": 3, "created_days_ago": 3, "expected": "keep", "evidence": null }
+      ]
+    },
+    {
+      "name": "translations under a language segment, with different titles",
+      "rows": [
+        { "path": "en/products/delft-vase", "captured": "H-9", "page_identity": "H-9", "title": "Delft vase", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 2, "expected": "survivor", "evidence": null },
+        { "path": "nl/products/delft-vase/", "captured": "H-9", "page_identity": "H-9", "title": "Delftse vaas", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 1, "expected": "retire", "evidence": "spelling" }
+      ]
+    },
+    {
+      "name": "distinct products under a reused stock code",
+      "rows": [
+        { "path": "products/rolf-palm-stoneware-vase", "captured": "C327", "page_identity": "C327", "title": "Rolf Palm stoneware vase", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 30, "expected": "survivor", "evidence": null },
+        { "path": "products/stig-lindberg-faience-dish", "captured": "C327", "page_identity": "C327", "title": "Stig Lindberg Faience dish", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 2, "expected": "keep", "evidence": null },
+        { "path": "libro.php?id=88", "captured": "1956", "page_identity": "1956", "title": "Cien años de soledad", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 9, "expected": "survivor", "evidence": null },
+        { "path": "libro.php?id=91", "captured": "1956", "page_identity": "1956", "title": "La colmena", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 8, "expected": "keep", "evidence": null }
+      ]
+    },
+    {
+      "name": "a spelling without a captured title",
+      "rows": [
+        { "path": "product/3051/oak-chest/", "captured": "#3051", "page_identity": "#3051", "title": "Oak chest", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 3, "expected": "survivor", "evidence": null },
+        { "path": "product/3051/oak-chest-1/", "captured": "#3051", "page_identity": "#3051", "title": null, "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 2, "expected": "retire", "evidence": "title" }
+      ]
+    },
+    {
+      "name": "a failing and a stale earliest row next to a healthy spelling",
+      "rows": [
+        { "path": "products/brass-lamp", "captured": "SKU-77", "page_identity": "SKU-77", "title": "Brass lamp", "last_error_kind": "HttpError", "last_scraped_days_ago": 1, "created_days_ago": 10, "expected": "retire", "evidence": "title" },
+        { "path": "products/brass-lamp-2", "captured": "SKU-77", "page_identity": "SKU-77", "title": "Brass lamp", "last_error_kind": null, "last_scraped_days_ago": 3, "created_days_ago": 2, "expected": "survivor", "evidence": null },
+        { "path": "products/brass-lamp-3", "captured": "SKU-77", "page_identity": "SKU-77", "title": "Brass lamp", "last_error_kind": null, "last_scraped_days_ago": null, "created_days_ago": 1, "expected": "retire", "evidence": "title" }
+      ]
+    },
+    {
+      "name": "an identity read from the page URL and the number the page shows now",
+      "rows": [
+        { "path": "print/40475", "captured": "40475", "page_identity": "40475", "title": "Hiroshige: Tokaido, Hara station", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 1, "expected": "survivor", "evidence": null },
+        { "path": "ukiyoe/ukiyoe_detail.php?print_id=40475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=40475", "page_identity": "40475", "title": "Hiroshige, Tokaido Hara", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 5, "expected": "retire", "evidence": "identity_token" },
+        { "path": "ukiyoe/ukiyoe_detail.php?print_id=140475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=140475", "page_identity": "40475", "title": "Kuniyoshi, warrior print", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 4, "expected": "keep", "evidence": null }
+      ]
+    }
+  ]
+}

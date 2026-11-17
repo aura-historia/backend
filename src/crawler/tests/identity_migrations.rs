@@ -1,8 +1,10 @@
 //! The one-off data migrations that come with keeping captured identities: releasing the URLs stuck
 //! in an identity conflict (#2983) and retiring spellings of one product that were both captured
-//! under one identity before a batch claimed the identities it captured.
+//! under one identity before a batch claimed the identities it captured, by the same-product rule
+//! the scraper applies (`crawler::scraper::same_product`).
 
 use crawler::CrawlRoot;
+use crawler::scraper::same_product::{ProductUrlIdentity, same_product_evidence};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     QualificationGate, ScopedListingSource,
@@ -21,6 +23,7 @@ const RELEASE_CONFLICTS: &str =
     include_str!("../migrations/20261117100001_release_identity_conflicts.sql");
 const RETIRE_DUPLICATES: &str =
     include_str!("../migrations/20261117100002_retire_duplicate_identity_urls.sql");
+const SAME_PRODUCT_FIXTURES: &str = include_str!("fixtures/same_product.json");
 
 async fn insert_listing_source(pool: &PgPool) -> ListingSourceId {
     let listing_source_id = ListingSourceId::new();
@@ -56,7 +59,8 @@ async fn insert_captured_url(
         .unwrap();
     sqlx::query(
         "UPDATE listing_source_urls \
-         SET last_source_listing_id = $2, created = NOW() - make_interval(days => $3) \
+         SET last_source_listing_id = $2, last_extracted_source_listing_id = $2, \
+             created = NOW() - make_interval(days => $3) \
          WHERE url = $1",
     )
     .bind(&url)
@@ -111,6 +115,8 @@ async fn should_release_conflicted_urls_and_record_the_page_identity_of_the_othe
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+/// Loveday's `table`, `table-1` and `table-2` spellings, captured without titles, show one
+/// product; the earliest row keeps capturing it.
 async fn should_retire_every_later_spelling_captured_under_an_identity_and_keep_the_first() {
     let pool = get_postgres_client().await;
     let listing_source_id = insert_listing_source(&pool).await;
@@ -144,11 +150,15 @@ async fn should_retire_every_later_spelling_captured_under_an_identity_and_keep_
         )
         .await
         .unwrap();
-    sqlx::query("UPDATE listing_source_urls SET last_source_listing_id = '#2798' WHERE url = $1")
-        .bind(&foreign)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET last_source_listing_id = '#2798', last_extracted_source_listing_id = '#2798' \
+         WHERE url = $1",
+    )
+    .bind(&foreign)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     run(&pool, RETIRE_DUPLICATES).await;
     run(&pool, RETIRE_DUPLICATES).await;
@@ -170,4 +180,117 @@ async fn should_retire_every_later_spelling_captured_under_an_identity_and_keep_
     assert_eq!(disposition(third).await, "DUPLICATE");
     assert_eq!(disposition(alone).await, "ACTIVE");
     assert_eq!(disposition(foreign).await, "ACTIVE");
+}
+
+#[derive(serde::Deserialize)]
+struct FixtureRow {
+    path: String,
+    captured: String,
+    page_identity: String,
+    title: Option<String>,
+    last_error_kind: Option<String>,
+    last_scraped_days_ago: Option<i32>,
+    created_days_ago: i32,
+    expected: String,
+}
+
+#[derive(serde::Deserialize)]
+struct FixtureGroup {
+    name: String,
+    rows: Vec<FixtureRow>,
+}
+
+#[derive(serde::Deserialize)]
+struct Fixtures {
+    groups: Vec<FixtureGroup>,
+}
+
+/// The migration and the scraper's same-product rule answer every row of the shared fixtures
+/// alike: spellings, translations and untitled variants are retired, distinct products under a
+/// reused stock code (HaresFur's `C327`) are kept, and the healthiest row survives a failing or
+/// stale earlier one.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_retire_exactly_the_urls_the_same_product_rule_retires() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = insert_listing_source(&pool).await;
+    let fixtures: Fixtures = serde_json::from_str(SAME_PRODUCT_FIXTURES).unwrap();
+    for row in fixtures.groups.iter().flat_map(|group| &group.rows) {
+        let url = format!("{ROOT}{}", row.path);
+        sqlx::query(
+            "INSERT INTO listing_source_urls \
+             (listing_source_id, url, url_class, raw_source_record_key, last_source_listing_id, \
+              last_extracted_source_listing_id, last_captured_title, last_error_kind, last_scraped, \
+              created) \
+             VALUES ($1, $2, 'product', $2, $3, $4, $5, $6, \
+                     NOW() - make_interval(days => $7), NOW() - make_interval(days => $8))",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(&url)
+        .bind(&row.captured)
+        .bind(&row.page_identity)
+        .bind(&row.title)
+        .bind(&row.last_error_kind)
+        .bind(row.last_scraped_days_ago)
+        .bind(row.created_days_ago)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    run(&pool, RETIRE_DUPLICATES).await;
+    run(&pool, RETIRE_DUPLICATES).await;
+
+    let root = url::Url::parse(ROOT).unwrap();
+    for group in &fixtures.groups {
+        for row in &group.rows {
+            let url = format!("{ROOT}{}", row.path);
+            let disposition: String = sqlx::query_scalar(
+                "SELECT crawler_disposition FROM listing_source_urls WHERE url = $1",
+            )
+            .bind(&url)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let survivor = group
+                .rows
+                .iter()
+                .find(|carrier| {
+                    carrier.expected == "survivor" && carrier.captured == row.page_identity
+                })
+                .unwrap();
+            let rule_retires = row.expected != "survivor" && {
+                let page_url = root.join(&row.path).unwrap();
+                let carrier_url = root.join(&survivor.path).unwrap();
+                same_product_evidence(
+                    ProductUrlIdentity {
+                        url: &page_url,
+                        captured_identity: Some(&row.captured),
+                        title: row.title.as_deref(),
+                    },
+                    &row.page_identity,
+                    ProductUrlIdentity {
+                        url: &carrier_url,
+                        captured_identity: Some(&survivor.captured),
+                        title: survivor.title.as_deref(),
+                    },
+                )
+                .is_some()
+            };
+
+            assert_eq!(
+                disposition == "DUPLICATE",
+                rule_retires,
+                "{}: {} ({disposition})",
+                group.name,
+                row.path
+            );
+            assert_eq!(
+                rule_retires,
+                row.expected == "retire",
+                "{}: {}",
+                group.name,
+                row.path
+            );
+        }
+    }
 }

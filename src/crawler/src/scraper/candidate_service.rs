@@ -42,6 +42,8 @@ pub struct ScraperCandidate {
     /// The identity the selected schema extracted at the URL's last capture that extracted one,
     /// `None` before it was recorded.
     pub last_extracted_source_listing_id: Option<String>,
+    /// The title the URL's last capture recorded, `None` before any capture recorded one.
+    pub last_captured_title: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -231,6 +233,56 @@ pub enum RedirectDestination {
     Unsettled,
 }
 
+/// The product URL of a ListingSource that carries a source listing id another URL's page shows:
+/// the earliest stored product URL of the ListingSource, not retired, that was captured under the
+/// identity and whose page showed it at its last capture (`last_extracted_source_listing_id` equals
+/// `last_source_listing_id`). A URL in an identity conflict, or one whose page identity is not yet
+/// recorded, carries nothing, so two URLs whose pages swapped identities never retire each other
+/// (`docs/crawler/scheduling-and-retries.md#captured-identity`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityCarrier {
+    pub url: Url,
+    /// The title the carrier's last capture recorded.
+    pub title: Option<String>,
+}
+
+/// The [`IdentityCarrier`] of `source_listing_id` among the product URLs of `listing_source_id`
+/// other than `excluding_url`, the earliest stored when several qualify.
+pub async fn identity_carrier<'e, E>(
+    executor: E,
+    listing_source_id: &ListingSourceId,
+    source_listing_id: &str,
+    excluding_url: &Url,
+) -> Result<Option<IdentityCarrier>, sqlx::Error>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT url, last_captured_title
+         FROM listing_source_urls
+         WHERE listing_source_id = $1
+           AND last_source_listing_id = $2
+           AND last_extracted_source_listing_id IS NOT DISTINCT FROM last_source_listing_id
+           AND url <> $3
+           AND url_class = 'product'
+           AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+         ORDER BY created, url
+         LIMIT 1",
+    )
+    .bind(listing_source_id_uuid)
+    .bind(source_listing_id)
+    .bind(excluding_url.as_str())
+    .fetch_optional(executor)
+    .await?;
+    row.map(|(url, title)| {
+        Url::parse(&url)
+            .map(|url| IdentityCarrier { url, title })
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))
+    })
+    .transpose()
+}
+
 /// Durable completion state for one ordinary crawler scrape.
 #[derive(Debug, Clone)]
 pub struct ScrapeCompletion {
@@ -380,14 +432,14 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// The product URL of the ListingSource other than `excluding_url` that is not retired and
-    /// already carries `source_listing_id`; the earliest stored row when several do.
-    async fn url_carrying_source_listing_id(
+    /// The [carrier](IdentityCarrier) of `source_listing_id` among the ListingSource's product
+    /// URLs other than `excluding_url`.
+    async fn identity_carrier(
         &self,
         listing_source_id: &ListingSourceId,
         source_listing_id: &str,
         excluding_url: &Url,
-    ) -> Result<Option<Url>, sqlx::Error>;
+    ) -> Result<Option<IdentityCarrier>, sqlx::Error>;
     /// What the crawler stores at the page a scrape of a URL of `listing_source_id` was
     /// redirected to, read before any raw observation is queued.
     async fn redirect_destination(
@@ -904,6 +956,7 @@ struct ScraperCandidateRow {
     is_circuit_probe: bool,
     last_source_listing_id: Option<String>,
     last_extracted_source_listing_id: Option<String>,
+    last_captured_title: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
     unsettled_redirect_target: Option<String>,
@@ -1025,6 +1078,7 @@ macro_rules! eligible_scraper_urls_cte {
                 AND s.next_scrape_at <= NOW()) AS is_circuit_probe
             , su.last_source_listing_id
             , su.last_extracted_source_listing_id
+            , su.last_captured_title
             , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_waited_on END AS schema_review_waited_on
@@ -1105,7 +1159,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
-        last_source_listing_id, last_extracted_source_listing_id, schema_review_waited_on,
+        last_source_listing_id, last_extracted_source_listing_id, last_captured_title,
+        schema_review_waited_on,
         schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
         removed_by_redirect_target,
         page_error_streak, last_error_kind,
@@ -1196,6 +1251,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 is_circuit_probe: row.is_circuit_probe,
                 last_source_listing_id: row.last_source_listing_id,
                 last_extracted_source_listing_id: row.last_extracted_source_listing_id,
+                last_captured_title: row.last_captured_title,
                 schema_review_wait,
                 unsettled_redirect,
                 removed_by_redirect_target,
@@ -1336,31 +1392,19 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         })
     }
 
-    async fn url_carrying_source_listing_id(
+    async fn identity_carrier(
         &self,
         listing_source_id: &ListingSourceId,
         source_listing_id: &str,
         excluding_url: &Url,
-    ) -> Result<Option<Url>, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url: Option<String> = sqlx::query_scalar(
-            "SELECT url
-             FROM listing_source_urls
-             WHERE listing_source_id = $1
-               AND (last_source_listing_id = $2 OR last_extracted_source_listing_id = $2)
-               AND url <> $3
-               AND url_class = 'product'
-               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-             ORDER BY created, url
-             LIMIT 1",
+    ) -> Result<Option<IdentityCarrier>, sqlx::Error> {
+        identity_carrier(
+            &self.pool,
+            listing_source_id,
+            source_listing_id,
+            excluding_url,
         )
-        .bind(listing_source_id_uuid)
-        .bind(source_listing_id)
-        .bind(excluding_url.as_str())
-        .fetch_optional(&self.pool)
-        .await?;
-        url.map(|url| Url::parse(&url).map_err(|error| sqlx::Error::Decode(Box::new(error))))
-            .transpose()
+        .await
     }
 
     async fn redirect_destination(
