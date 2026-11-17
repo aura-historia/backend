@@ -1078,6 +1078,43 @@ async fn retire_duplicate_of_known_identity(
     }
 }
 
+/// Retires a URL's first scrape (one that carries no identity yet) when another product URL of
+/// its ListingSource carries `source_listing_id`, and answers its outcome; `None` when the URL
+/// may be captured. A URL that already carries an identity is never retired here: the identity
+/// conflict check judges it.
+async fn retire_first_scrape_of_known_identity(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    source_listing_id: &str,
+) -> Option<ScrapeCandidateOutcome> {
+    if candidate.last_source_listing_id.is_some() {
+        return None;
+    }
+    match ctx
+        .scraper_candidates
+        .url_carrying_source_listing_id(
+            &candidate.listing_source_id,
+            source_listing_id,
+            &candidate.url,
+        )
+        .await
+    {
+        Ok(Some(carrier)) => Some(
+            retire_duplicate_of_known_identity(candidate, ctx, source_listing_id, &carrier).await,
+        ),
+        Ok(None) => None,
+        Err(error) => {
+            warn!(
+                error = %error,
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                "Failed to look up the product URL carrying a scraped source listing id"
+            );
+            Some(errored_outcome("SourceListingIdLookup"))
+        }
+    }
+}
+
 async fn retire_as_duplicate(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
@@ -1243,36 +1280,10 @@ async fn handle_successful_scrape(
     {
         return reject_identity_conflict(candidate, ctx, captured_identity, &scraped).await;
     }
-    if candidate.last_source_listing_id.is_none() {
-        match ctx
-            .scraper_candidates
-            .url_carrying_source_listing_id(
-                &candidate.listing_source_id,
-                &scraped.source_listing_id,
-                &candidate.url,
-            )
-            .await
-        {
-            Ok(Some(carrier)) => {
-                return retire_duplicate_of_known_identity(
-                    candidate,
-                    ctx,
-                    &scraped.source_listing_id,
-                    &carrier,
-                )
-                .await;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                warn!(
-                    error = %error,
-                    listing_source_id = %candidate.listing_source_id,
-                    url = %candidate.url,
-                    "Failed to look up the product URL carrying a scraped source listing id"
-                );
-                return errored_outcome("SourceListingIdLookup");
-            }
-        }
+    if let Some(outcome) =
+        retire_first_scrape_of_known_identity(candidate, ctx, &scraped.source_listing_id).await
+    {
+        return outcome;
     }
     let provenance = match crawler_provenance(
         Some(scraped.hash.as_str()),
