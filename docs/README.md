@@ -17,6 +17,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Event sources, routes and completion semantics | [Event flow](events/flow.md) |
 | Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |
 | PostgreSQL job queue: delivery, FIFO groups, deduplication and custody | [Job queue](../src/platform-postgres-queue/README.md) |
+| Delivery outbox: capture, dispatch, custody and reprojection | [Delivery outbox](../src/delivery-outbox/README.md) |
 | AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
 | Local tests, CI lanes and fixture diagnostics | [Testing and CI](ci.md) |
 | HTTP creation retry exceptions and recovery | [Command retries](command-retries.md) |

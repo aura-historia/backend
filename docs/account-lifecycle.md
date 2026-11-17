@@ -15,8 +15,8 @@ Cognito profile does not delete the upstream Google/Facebook account.
 
 ## Delivery and provider reconciliation
 
-The committed request travels through DMS, Kinesis, the CDC router and the dedicated
-`user-identity-deletion` Standard SQS worker. Only the deleted user ID enters that path;
+The committed request travels through the delivery outbox and the dedicated
+`user-identity-deletion` Standard job scope. Only the deleted user ID enters that path;
 the worker rereads provider identity and progress from PostgreSQL. Identity rows, provider
 usernames, emails and profiles are excluded from CDC. Only request inserts produce jobs.
 

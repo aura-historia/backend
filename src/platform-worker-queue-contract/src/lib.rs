@@ -42,71 +42,6 @@ pub enum QueueError {
     PreparedJob,
 }
 
-/// The router has one configured source queue per deployed scope; consent is optional until C06.
-#[derive(Clone, Debug)]
-pub struct CdcRouterQueueConfig {
-    queues: Vec<SqsQueueConfig>,
-}
-
-impl CdcRouterQueueConfig {
-    pub fn from_env() -> Result<Self, QueueError> {
-        Self::from_getter(|name| std::env::var(name).ok())
-    }
-
-    pub fn from_getter<F>(mut get: F) -> Result<Self, QueueError>
-    where
-        F: FnMut(&'static str) -> Option<String>,
-    {
-        let region = required_config(&mut get, AWS_REGION_ENV)?;
-        let stage = required_config(&mut get, "STAGE")?;
-        // Do not let the AWS global endpoint override bypass the explicit local boundary.
-        if get("AWS_ENDPOINT_URL").is_some() {
-            return Err(QueueError::InvalidConfig(
-                "AWS_ENDPOINT_URL (use AWS_ENDPOINT_URL_SQS)",
-            ));
-        }
-        let endpoint = get(SQS_ENDPOINT_ENV)
-            .map(|value| {
-                value
-                    .parse()
-                    .map_err(|_| QueueError::InvalidConfig(SQS_ENDPOINT_ENV))
-            })
-            .transpose()?;
-        let mut queues = Vec::with_capacity(WorkerScope::ALL.len());
-        for scope in WorkerScope::ALL {
-            let env = scope.router_queue_url_env();
-            let configured_url = match get(env) {
-                Some(value) if !value.is_empty() => value,
-                Some(_) => return Err(QueueError::MissingConfig(env)),
-                None if scope == WorkerScope::MarketingConsentSync => {
-                    // C05 defines the target contract; C06 supplies and activates this destination.
-                    continue;
-                }
-                None => return Err(QueueError::MissingConfig(env)),
-            };
-            let queue_url = configured_url
-                .parse()
-                .map_err(|_| QueueError::InvalidConfig(env))?;
-            queues.push(SqsQueueConfig::new(
-                scope,
-                queue_url,
-                region.clone(),
-                stage.clone(),
-                endpoint.clone(),
-            )?);
-        }
-        Ok(Self { queues })
-    }
-
-    pub fn region(&self) -> &str {
-        // Ten existing destinations are required, so the configured queue list is never empty.
-        self.queues[0].region()
-    }
-
-    pub fn into_queues(self) -> Vec<SqsQueueConfig> {
-        self.queues
-    }
-}
 impl SqsQueueConfig {
     pub fn new(
         scope: WorkerScope,
@@ -241,15 +176,6 @@ pub fn visibility(scope: WorkerScope) -> Duration {
         WorkerScope::ProductListingEmbedding => 360,
         WorkerScope::NotificationDelivery => 330,
     })
-}
-
-fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, QueueError>
-where
-    F: FnMut(&'static str) -> Option<String>,
-{
-    get(name)
-        .filter(|value| !value.is_empty())
-        .ok_or(QueueError::MissingConfig(name))
 }
 
 fn valid_label(value: &str) -> bool {
@@ -451,8 +377,7 @@ fn tls_denied(policy: &Value, arn: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        Attributes, CdcRouterQueueConfig, QueueError, SqsQueueConfig, private_policy, tls_denied,
-        validate_attributes,
+        Attributes, QueueError, SqsQueueConfig, private_policy, tls_denied, validate_attributes,
     };
     use aura_historia_jobs::{WorkerQueueType, WorkerScope};
     use aws_sdk_sqs::types::QueueAttributeName as A;
@@ -583,77 +508,6 @@ mod tests {
         .to_string(),
     );
         assert!(validate_attributes(&config, &source, false).is_err());
-    }
-
-    #[test]
-    fn router_requires_all_scoped_urls() {
-        let mut values = HashMap::from([
-            ("AWS_REGION", "eu-central-1".to_owned()),
-            ("STAGE", "prod".to_owned()),
-        ]);
-        for scope in WorkerScope::ALL {
-            let suffix = if scope.queue_type() == WorkerQueueType::Fifo {
-                ".fifo"
-            } else {
-                ""
-            };
-            values.insert(
-            scope.router_queue_url_env(),
-            format!(
-                "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod{suffix}",
-                scope.as_str(),
-            ),
-        );
-        }
-        let queues = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
-            .unwrap()
-            .into_queues();
-        assert_eq!(queues.len(), WorkerScope::ALL.len());
-        assert_eq!(
-            queues.iter().map(SqsQueueConfig::scope).collect::<Vec<_>>(),
-            WorkerScope::ALL
-        );
-        for scope in WorkerScope::ALL
-            .into_iter()
-            .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
-        {
-            let name = scope.router_queue_url_env();
-            let value = values.remove(name).unwrap();
-            assert_eq!(
-                CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned()).err(),
-                Some(QueueError::MissingConfig(name))
-            );
-            values.insert(name, value);
-        }
-    }
-
-    #[test]
-    fn marketing_consent_router_url_is_optional_before_c06_activation() {
-        let mut values = HashMap::from([
-            ("AWS_REGION", "eu-central-1".to_owned()),
-            ("STAGE", "prod".to_owned()),
-        ]);
-        for scope in WorkerScope::ALL
-            .into_iter()
-            .filter(|scope| *scope != WorkerScope::MarketingConsentSync)
-        {
-            values.insert(
-                scope.router_queue_url_env(),
-                format!(
-                    "https://sqs.eu-central-1.amazonaws.com/123456789012/aura-worker-{}-prod",
-                    scope.as_str()
-                ),
-            );
-        }
-        let queues = CdcRouterQueueConfig::from_getter(|name| values.get(name).cloned())
-            .unwrap()
-            .into_queues();
-        assert_eq!(WorkerScope::ALL.len() - 1, queues.len());
-        assert!(
-            queues
-                .iter()
-                .all(|queue| queue.scope() != WorkerScope::MarketingConsentSync)
-        );
     }
 
     fn attributes(config: &SqsQueueConfig, dlq: bool) -> Attributes {
@@ -801,21 +655,5 @@ mod tests {
         let mut broken = allow;
         broken["NotPrincipal"] = json!({"AWS":"arn:aws:iam::123456789012:role/other"});
         assert!(!private_policy(&json!({"Statement":broken})));
-    }
-
-    #[test]
-    fn global_endpoint_override_is_not_accepted() {
-        let config = CdcRouterQueueConfig::from_getter(|name| match name {
-            "AWS_REGION" => Some("eu-central-1".into()),
-            "STAGE" => Some("prod".into()),
-            "AWS_ENDPOINT_URL" => Some("https://other.example".into()),
-            _ => None,
-        });
-        assert_eq!(
-            config.err(),
-            Some(QueueError::InvalidConfig(
-                "AWS_ENDPOINT_URL (use AWS_ENDPOINT_URL_SQS)"
-            ))
-        );
     }
 }

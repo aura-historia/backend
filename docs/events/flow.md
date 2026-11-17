@@ -10,11 +10,10 @@ Code and configuration define exact codecs and resource settings, not live state
 ```mermaid
 flowchart TD
     Writes[Service transaction] --> PG[PostgreSQL state and events]
-    PG --> DMS[DMS CDC]
-    DMS --> Kinesis[Kinesis]
-    Kinesis --> Router[Router Lambda]
-    Router --> Standard[Scoped Standard SQS queues]
-    Router --> Consent[Recipient-scoped consent FIFO]
+    PG -->|AFTER INSERT trigger, same transaction| Outbox[delivery_outbox]
+    Outbox --> Dispatcher[Outbox dispatcher]
+    Dispatcher --> Standard[Standard job scopes]
+    Dispatcher --> Consent[Recipient-grouped consent FIFO scope]
     Standard --> Workers[Worker use cases]
     Consent --> Loops[Consent use case and Loops adapter]
     Intake[Async partner and provider intake] --> Commands[ProductListing command FIFO]
@@ -23,19 +22,20 @@ flowchart TD
 
 Command admission and committed-change delivery are separate boundaries. An API
 success may confirm a transaction or queue custody; neither implies search visibility
-or external delivery. PostgreSQL remains authoritative. DMS start and router activation
-require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
-Routine application delivery leaves DMS running and preserves selected-source identity,
-strict router shapes, retained-message readers and intentional consumer/schedule activation.
-Any captured relation DDL, capture selection/topology change or consumer retirement requires
-reviewed maintenance through the same environment admission hold. Stopping DMS does not
-drain Kinesis/SQS, discard retained contracts or authorize a new slot/start position; use
-[controlled maintenance and recovery](../durable-worker-runbook.md#approved-dms-maintenance).
+or external delivery. PostgreSQL remains authoritative. Capture is part of the writer's
+transaction: a committed source insert always has its outbox row, and a rolled-back one has
+none. The outbox, the [job queue](../../src/platform-postgres-queue/README.md) and their custody
+tables are the whole delivery path; nothing outside PostgreSQL holds work in transit.
+Changing a selected source's routed columns needs the capture trigger, the dispatcher's codec
+and the route to change together, under a new snapshot version when stored rows could still
+carry the old shape. The [delivery outbox](../../src/delivery-outbox/README.md) owns
+dispatch mechanics and the [worker runbook](../durable-worker-runbook.md#delivery-outbox-recovery)
+owns recovery.
 
 ## Account identity deletion
 
-Account removal atomically appends `user_identity_deletion_requests`. DMS selects only
-its deleted user ID; provider identities and delivery state stay outside CDC. Inserts
+Account removal atomically appends `user_identity_deletion_requests`. The outbox captures
+only its deleted user ID; provider identities and delivery state stay outside CDC. Inserts
 route schema-1 `USER_IDENTITY_DELETION` jobs to the isolated `user-identity-deletion`
 Standard queue. The worker rereads retained identity state and acknowledges only committed
 completion. Unknown targets, active claims and uncertain provider effects remain retryable.
@@ -149,7 +149,7 @@ inheritance semantics belong to [geography](../geography.md#listingsource-locati
 
 These signals atomically establish coalesced durable listing-geography work. The
 `listing_geography_wakeups` table alone adds CDC/job routing; the original journals stay
-outside DMS. Consumers reread current authority under dependency equality guards and
+outside capture. Consumers reread current authority under dependency equality guards and
 use the listing's monotonic projection fence. Location correction, retirement,
 source replacement/clear and provider rights/expiry refresh current read state without
 rewriting historical listing assertions. Missing authority produces absence. See the
@@ -158,21 +158,20 @@ rewriting historical listing assertions. Missing authority produces absence. See
 
 ## CDC routing
 
-The router consumes native Kinesis envelopes containing strict DMS records. It
-validates the complete route and encoded jobs before any send, and checkpoints only
-once every required publication is confirmed. Partial or uncertain fanout can duplicate
-jobs. Failure stops at the earliest unconfirmed sequence; safe non-trigger operations
-and informational controls produce no jobs. Invalid rows and incompatible schema
-controls retain failure custody rather than being silently skipped. The DMS-generated
-`create-table` control for `awsdms_apply_exceptions` in the empty target schema is
-informational and creates no jobs; this exception does not accept its data records,
-other schema operations or unknown tables.
+An `AFTER INSERT` row trigger on each selected source appends a versioned JSONB snapshot of
+exactly the columns its route reads to `delivery_outbox`, in the writer's transaction. The
+dispatcher claims snapshots in outbox order, decodes each with its source's strict codec,
+routes it and validates and encodes every resulting job before enqueueing any. It enqueues the
+jobs and deletes the snapshots in one transaction, so publication is never partial; a crash
+before commit leaves the batch to be dispatched again with the same effect. Unknown sources,
+unsupported snapshot versions, missing or extra columns, wrongly typed columns and invalid
+values move the snapshot unchanged into `delivery_outbox_failures` in the same transaction,
+labelled with a bounded error class; they are never skipped and never block later snapshots.
+Updates and deletes of selected sources, and every other table, capture nothing.
 
-The DMS adapter decodes a serialized JSONB `product_listing_events.payload` once
-before shared event validation; already-object payloads follow the same validation.
-Malformed JSON, non-object values, unsupported versions and invalid event fields
-retain failure custody. Other row fields and raw evidence are not decoded into
-jobs. This transport conversion preserves event identity and retry keys.
+ProductListing event snapshots carry the JSONB `payload` as an object; routing validates the
+complete event contract. Other row fields and raw evidence are not captured. Snapshots are
+transport: jobs carry compact identities, never snapshots.
 
 | Selected source | Trigger | Consumer |
 | --- | --- | --- |
@@ -184,6 +183,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 | `listing_geography_wakeups` | INSERT | Effective listing geography worker |
 | `listing_shipping_wakeups` | INSERT | Effective listing shipping worker |
+| `user_identity_deletion_requests` | INSERT | User identity deletion worker |
 
 Product event fanout:
 
@@ -202,20 +202,22 @@ rows, saved-filter configuration, Users, watchlist entries, Auction events, proo
 operational receipts do not implicitly trigger these routes. In particular, a User update
 is not a subscription job.
 
-Consent CDC is deliberately minimized: INSERT/UPDATE carry only `intent_id` and
-`recipient_key`; DELETE carries only the primary key under default replica identity.
-Only INSERT produces work; extra fields fail validation even on non-trigger operations.
-Email, profile, proof, source keys, leases and provider data must not enter this CDC path.
+Consent capture is deliberately minimized to `intent_id` and `recipient_key`. Email,
+profile, proof, source keys, leases and provider data never enter the outbox. One dispatch
+transaction runs at a time and enqueues in outbox order; consent writers serialize per
+recipient before inserting an intent, so each recipient's intents reach its FIFO group in
+commit order. A snapshot redriven from custody runs after that recipient's intents that were
+already dispatched; the consent worker rereads its intent, so it cannot override a newer one.
 
-Geographic resolution CDC selects only the immutable resolution ID/generation wake-up
-table, with exact decimal-string generations. All operations reject extra columns.
+Geographic resolution capture selects only the immutable resolution ID/generation wake-up
+table, with integer generations. Extra columns fail closed.
 Private inputs, cache fingerprints, tenant scope, review choices and provider evidence
 remain outside CDC. Resolution claims/completions reread PostgreSQL; old generations
 complete as superseded and active leases retain retry custody. Hourly backend cleanup
 supplies recovery for missed deliveries by advancing runnable pending generations and
 inserting fresh immutable wake-ups, preserving attempts. It
 also purges ineligible evidence and commits invalidation. Cleanup makes no provider
-calls; fresh recovery wake-ups require the normal CDC/SQS path to be healthy.
+calls; fresh recovery wake-ups require the outbox dispatcher to be running.
 Accepted evidence and the content-free enrichment/invalidation journal commit together.
 Dependency journal inserts atomically coalesce effective-listing-geography work.
 Only its compact work ID/generation wake-ups participate in CDC; private source
@@ -240,7 +242,9 @@ Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. T
 credentials, signatures and signed request headers still never enter it.
 
 Exact route and wire definitions live in [CDC routing](../../src/aura-historia-cdc-routing/src/lib.rs),
-[router decoding](../../src/cdc-router-lambda/src/cdc.rs) and [job codecs](../../src/aura-historia-jobs/src/).
+[snapshot codecs](../../src/delivery-outbox/src/snapshot.rs), the
+[capture trigger](../../migrations/20261118090000_delivery_outbox.sql) and
+[job codecs](../../src/aura-historia-jobs/src/).
 
 ## Consumer completion and fences
 
@@ -505,9 +509,9 @@ address, as the email provider requires: a producer converts an international do
 punycode and rejects an address it cannot convert, which the provider would refuse
 permanently.
 
-The delivery row carries only the message identity. As for every source, DMS publishes
-only the delivery primary key, and the router job carries only `notification_delivery_id`.
-Recipient address, language and payload never enter Kinesis, SQS or logs. Delivery takes
+The delivery row carries only the message identity. As for every source, the outbox
+captures only the delivery primary key, and the routed job carries only `notification_delivery_id`.
+Recipient address, language and payload never enter the outbox, jobs or logs. Delivery takes
 the recipient and language from the message, never from a user account, and renders the
 kind's template in that language or in English. External templates carry no name and no
 account or notification-settings links. Claim, lease, fenced finalization, retry
@@ -591,7 +595,7 @@ rolls back its receipt and revision together with business changes.
 
 ## Operations and validation
 
-[Worker operations](../durable-worker-runbook.md) distinguish router archives, worker
+[Worker operations](../durable-worker-runbook.md) distinguish outbox custody, worker
 DLQs, upstream provider failures and scheduled-task failures. Infrastructure declarations
 and fixtures do not prove delivery. Observe real mapping states, lag, backlog and completed
 outcomes before retiring a producer or enabling traffic.

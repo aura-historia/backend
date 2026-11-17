@@ -17,7 +17,7 @@ members = [
     "src/aura-historia-runtime",
     "src/aura-historia-jobs",
     "src/aura-historia-cdc-routing",
-    "src/cdc-router-lambda",
+    "src/delivery-outbox",
     "src/platform-lambda-sqs",
     "src/platform-worker-queue-contract",
     "src/search-filter-periodic-match",
@@ -137,7 +137,7 @@ tokio-util = "0.7.18"
 aura-historia-jobs = { path = "src/aura-historia-jobs" }
 aura-historia-cdc-routing = { path = "src/aura-historia-cdc-routing" }
 platform-worker-queue-contract = { path = "src/platform-worker-queue-contract" }
-cdc-router-lambda = { path = "src/cdc-router-lambda" }
+delivery-outbox = { path = "src/delivery-outbox" }
 platform-lambda-sqs = { path = "src/platform-lambda-sqs" }
 product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lambda" }
 product-listing-normalization-lambda = { path = "src/product-listing-normalization-lambda" }
