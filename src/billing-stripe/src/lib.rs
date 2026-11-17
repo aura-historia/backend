@@ -234,4 +234,10 @@ fn classify_status(status: StatusCode) -> StripeBillingError {
 }
 
 mod subscriptions;
+mod webhook;
 pub use subscriptions::StripeSubscriptionReader;
+pub use webhook::{
+    InvalidStripeWebhookSigningSecret, STRIPE_EVENT_TYPE_SUBSCRIPTION_CREATED,
+    STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED, STRIPE_EVENT_TYPE_SUBSCRIPTION_UPDATED,
+    STRIPE_WEBHOOK_API_VERSION, StripeSubscriptionWebhookVerifier,
+};

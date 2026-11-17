@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-17 — Signed Stripe subscription webhook (#3023)
+
+- **Webhook:** new anonymous `POST /v1/webhooks/stripe` (`postStripeSubscriptionWebhook`, tag `Billing`) receives Stripe's `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted` events and reconciles the user's tier from a fresh Stripe read before answering. It replaces delivery through the AWS EventBridge partner bus. No Aura bearer is accepted or needed: `Stripe-Signature` must carry a timestamp within five minutes and a `v1` HMAC-SHA256 signature over `{t}.{raw body}` made with the endpoint signing secret; any of several `v1` signatures may match, so secret rotation works. The body is limited to 256 KiB and processing to 20 seconds.
+- **Responses:** `204` when the reconciliation committed, the event ID was already reconciled with the same type, subscription and customer, or the event has another type. An invalid signature returns `401 STRIPE_WEBHOOK_UNAUTHORIZED`; a malformed event, an event rendered with an API version other than `2026-10-28.endive`, or a reused event ID with different content returns `400 STRIPE_WEBHOOK_INVALID_BODY`; an oversized body returns `413 STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE`. Stripe or database failures, an unknown user and an exceeded budget return `503 STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE`; broken invariants such as an unmapped product or a customer bound to another user return `500 STRIPE_WEBHOOK_INTERNAL_ERROR`. Stripe retries every non-2xx answer. Responses are `no-store`.
+
 ## 2026-11-16 — Anonymous illegal-content notices and submitter role `OTHER` (#3011)
 
 - **Anonymous reports:** `POST /v1/content-notices` (`submitContentNotice`) no longer requires `name` and `email` when `submitterRole` is `ILLEGAL_CONTENT_REPORTER`; either or both may be omitted or `null` (DSA Recital 50 and Art. 16(2)(c)). A present value is validated as before. `language` stays required. `PROVIDER`, `RIGHTS_HOLDER` and `OTHER` must still give both: a missing or `null` value now returns `400 CONTENT_NOTICE_CONTACT_REQUIRED` with `source.field` `/name` or `/email` instead of `400 BAD_BODY_VALUE`.
