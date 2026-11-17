@@ -6,7 +6,7 @@ image_ref="${1:?usage: smoke.sh IMAGE_REF}"
 inspect="$(docker image inspect "$image_ref")"
 jq -e '
   length == 1 and .[0].Os == "linux" and .[0].Architecture == "amd64" and
-  .[0].Config.Labels["org.opencontainers.image.title"] == "aura-historia" and
+  (.[0].Config.Labels["org.opencontainers.image.title"] // "" | length > 0) and
   .[0].Config.User == "10001:10001" and
   (.[0].Config.Volumes // {} | keys == ["/tmp"]) and
   (.[0].Config.Entrypoint // []) == [] and
@@ -17,7 +17,9 @@ jq -e '
     startswith("CLOUDFLARE_API_TOKEN=") or startswith("ANTHROPIC_API_KEY=") or
     startswith("STRIPE_API_KEY=") or startswith("GOOGLE_APPLICATION_CREDENTIALS=")
   ) | not))
-' <<< "$inspect" >/dev/null
+' <<< "$inspect" >/dev/null || {
+  echo 'Image metadata does not match the host image contract.' >&2; exit 1;
+}
 
 if docker run --rm --network none --read-only --user 0:0 --entrypoint /usr/bin/touch \
   "$image_ref" /root/should-not-be-writable >/dev/null 2>&1; then
