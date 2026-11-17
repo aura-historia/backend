@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-17 — Shopify webhooks over HTTPS (#3024)
+
+- **New endpoint:** `POST /v1/webhooks/shopify` (`postShopifyWebhook`, tag `ProductListings`) receives the Shopify app's `product_listings/add`, `product_listings/update` and `product_listings/remove` webhooks directly, replacing delivery through the Amazon EventBridge partner source. It needs no Aura bearer; `X-Shopify-Hmac-Sha256` must be the base64 HMAC-SHA256 of the exact body bytes with the app's client secret, and the previous secret is accepted during rotation. The body is limited to 1 MiB.
+- **Responses:** `200` once the mapped ingestion command's admission is confirmed, and for other topics (including `products/*`) or shops without a Shopify ListingSource, which have no effect. `401 BAD_HEADER_VALUE` for a missing or wrong signature; `400 BAD_HEADER_VALUE` or `BAD_BODY_VALUE` for a malformed delivery, now including a product that cannot be mapped; `413 BAD_BODY_VALUE` above 1 MiB; `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` when admission is unconfirmed, which Shopify retries. `X-Shopify-Webhook-Id` is required for forwarded topics.
+
 ## 2026-11-17 — Signed Stripe subscription webhook (#3023)
 
 - **Webhook:** new anonymous `POST /v1/webhooks/stripe` (`postStripeSubscriptionWebhook`, tag `Billing`) receives Stripe's `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted` events and reconciles the user's tier from a fresh Stripe read before answering. It replaces delivery through the AWS EventBridge partner bus. No Aura bearer is accepted or needed: `Stripe-Signature` must carry a timestamp within five minutes and a `v1` HMAC-SHA256 signature over `{t}.{raw body}` made with the endpoint signing secret; any of several `v1` signatures may match, so secret rotation works. The body is limited to 256 KiB and processing to 20 seconds.

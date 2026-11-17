@@ -84,6 +84,7 @@ members = [
     "src/platform-aws",
     "src/platform-opensearch",
     "src/platform-postgres",
+    "src/platform-postgres-queue",
     "src/platform-postgres-secretsmanager",
     "src/fxrate-core",
     "src/fxrate-service",
@@ -106,7 +107,6 @@ members = [
     "src/content-notice-core",
     "src/content-notice-service",
     "src/content-notice-postgres",
-    "src/shopify-lambda",
     "src/user-core",
     "src/user-service",
     "src/user-cognito",
@@ -199,6 +199,7 @@ platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
 platform-aws = { path = "src/platform-aws" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
+platform-postgres-queue = { path = "src/platform-postgres-queue" }
 platform-postgres-secretsmanager = { path = "src/platform-postgres-secretsmanager" }
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }

@@ -142,7 +142,7 @@ approved activation plan, not on every deployment.
 
 Current recovery windows are defined in the constructs: Kinesis and CDC/command
 source queues retain seven days, worker DLQs 14 days, and router failure objects 90 days.
-Shopify upstream source retention is four days. Verify effective attributes before recovery.
+Verify effective attributes before recovery.
 Standard SQS DLQ transfer preserves original enqueue time, so source/DLQ windows are not
 additive; FIFO transfer resets DLQ enqueue time but still does not guarantee recoverability.
 Router exhaustion archives the failed invocation; neither archives nor DLQs replay themselves.
@@ -232,14 +232,26 @@ separately.
 
 ## Shopify forwarding recovery
 
-Keep the EventBridge → Shopify Standard queue → Shopify Lambda boundary. The Lambda
-acknowledges a mapped observation only after confirmed command-FIFO admission. A lost send
-reply may already have queued it; retry with the same identity. The FIFO acknowledges
-application independently, and normalization/projection complete later.
+Shopify posts `product_listings/*` webhooks to the API, which answers `200` only after
+confirmed command-FIFO admission. A lost reply may already have queued the command; Shopify's
+retry carries the same `X-Shopify-Webhook-Id` and therefore the same command identity. The
+FIFO acknowledges application independently, and normalization/projection complete later.
 
-Inspect **both**
-upstream and ingestion queue ages/DLQs on failure. Rollback fences the Shopify producer;
-pausing shared consumption requires a separate retention plan.
+The API does not start without `SHOPIFY_APP_CLIENT_SECRET`, the app's client secret. While the
+app's secret rotates, set the old one as `SHOPIFY_APP_PREVIOUS_CLIENT_SECRET` until Shopify
+signs only with the new one. A `401` burst means neither matches the app's secret.
+
+On failure, inspect the app's webhook delivery metrics in the Shopify Partner Dashboard, the
+API's `post_shopify_webhook` events and the ingestion queue age/DLQ. Shopify stops retrying a
+delivery after about four hours and may remove a subscription that keeps failing, so after a
+longer outage confirm the app's subscriptions still point at the HTTPS endpoint and re-import
+the affected shops through the canonical asynchronous upsert and withdrawal endpoints.
+
+Cut over from EventBridge only after the HTTPS route serves with the secret configured, and
+switch the app's subscriptions right after the release that removes the Shopify Lambda:
+EventBridge deliveries in between stay unconsumed in the retained `shopify-lambda-queue`
+(four-day retention) and are recovered by re-importing. Once the app uses HTTPS, rolling the
+API back past the route loses deliveries after Shopify's retry window; re-import afterwards.
 
 ## WooCommerce webhook queue recovery
 
