@@ -825,9 +825,6 @@ impl ReviewServer {
             .map_err(|err| live_url_fetch_error(url.as_str(), &err))
     }
 
-    /// Fetches the review page live for a human's preview (`/api/review-pages/{id}/inspect`,
-    /// `/html`), outside the console's cap on live jobs; the console refuses the review agents'
-    /// tokens on these routes (see [`ReviewAccess::authorize`]).
     /// The identity rule of each live product schema of the review's ListingSource, as
     /// [`ReviewDetailAnswer::live_identity_rules`] answers them; none for a URL-pattern review.
     async fn live_identity_rules(
@@ -848,6 +845,9 @@ impl ReviewServer {
                     .collect()
             })
             .unwrap_or_default())
+    /// Fetches the review page live for a human's preview (`/api/review-pages/{id}/inspect`,
+    /// `/html`), outside the console's cap on live jobs; the console refuses the review agents'
+    /// tokens on these routes (see [`ReviewAccess::authorize`]).
     }
 
     async fn live_review_page(
