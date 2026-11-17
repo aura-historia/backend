@@ -633,6 +633,10 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             LOOPS_WEBHOOK_SIGNING_SECRET,
         ),
         (
+            aura_historia_api::SHOPIFY_APP_CLIENT_SECRET_ENV,
+            "lambda-test-shopify-client-secret",
+        ),
+        (
             aura_historia_api::S3_BUCKET_NAME_TEMPLATES_ENV,
             "lambda-test-mail-templates",
         ),

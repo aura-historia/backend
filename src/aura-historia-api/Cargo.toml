@@ -61,7 +61,6 @@ listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 localization = { workspace = true }
 lambda_http = { workspace = true }
-openssl = { workspace = true, features = ["vendored"] }
 partnership-core = { workspace = true }
 partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }
@@ -119,6 +118,7 @@ aws-smithy-runtime-api = { workspace = true }
 aws-smithy-types = { workspace = true }
 base64 = { workspace = true }
 mockall = { workspace = true }
+openssl = { workspace = true, features = ["vendored"] }
 product-service = { workspace = true }
 rstest = { workspace = true }
 strum = { workspace = true }

@@ -7116,10 +7116,12 @@ name = "product-listing-shopify"
 version = "0.1.0"
 dependencies = [
  "application",
+ "base64 0.23.1",
  "listing-source-core",
  "listing-source-service",
  "localization",
  "money",
+ "openssl",
  "product-listing-normalization",
  "product-listing-service",
  "serde",

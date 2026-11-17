@@ -10,7 +10,6 @@ use auction_postgres::SqlxAuctionReferenceValidatorFactory;
 use aura_historia_api::{
     app,
     state::{AppState, ShopifyWebhooksState},
-    webhooks::shopify_signature::ShopifyWebhookSecrets,
 };
 use axum::{
     body::Body,
@@ -43,7 +42,8 @@ use product_listing_service::{
 };
 use product_listing_shopify::{
     SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
-    SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, ShopifyProductPayloadDecoder,
+    SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, ShopifyHmacWebhookVerifier,
+    ShopifyProductPayloadDecoder, ShopifyWebhookSecrets,
 };
 use product_service::use_cases::{
     NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionHandler,
@@ -964,7 +964,7 @@ impl ShopifyTestHarness {
             .unwrap_or_else(|_| panic!("Shopify test client secret must be nonblank"));
         let router = app(
             AppState::new().with_shopify_webhooks(ShopifyWebhooksState::new(
-                Some(secrets),
+                Arc::new(ShopifyHmacWebhookVerifier::new(secrets)),
                 Arc::new(processor),
             )),
         );

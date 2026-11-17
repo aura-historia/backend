@@ -126,8 +126,9 @@ use product_listing_service::use_cases::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
     },
 };
-use product_listing_shopify::ShopifyProductPayloadDecoder;
-use webhooks::shopify_signature::ShopifyWebhookSecrets;
+use product_listing_shopify::{
+    ShopifyHmacWebhookVerifier, ShopifyProductPayloadDecoder, ShopifyWebhookSecrets,
+};
 use woocommerce_service::WoocommerceWebhookIntake;
 
 use content_notice_postgres::{
@@ -300,7 +301,7 @@ pub struct ApiConfig {
     loops: LoopsNewsletterConfig,
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
-    shopify_webhook_secrets: Option<ShopifyWebhookSecrets>,
+    shopify_webhook_secrets: ShopifyWebhookSecrets,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -478,8 +479,8 @@ impl ApiConfig {
         &self.loops_webhook_signing_secret
     }
 
-    fn shopify_webhook_secrets(&self) -> Option<&ShopifyWebhookSecrets> {
-        self.shopify_webhook_secrets.as_ref()
+    fn shopify_webhook_secrets(&self) -> &ShopifyWebhookSecrets {
+        &self.shopify_webhook_secrets
     }
 
     /// Shared, non-queuing public ListingSource read budget for this API process.
@@ -672,20 +673,15 @@ pub enum ApiConfigError {
     InvalidShopifyAppClientSecret,
 }
 
-/// Unset leaves the Shopify webhook unconfigured, and it then rejects every delivery; a previous
-/// secret is accepted only next to a current one during rotation.
-fn shopify_webhook_secrets<F>(get: &mut F) -> Result<Option<ShopifyWebhookSecrets>, ApiConfigError>
+/// The current client secret is required; the previous one is accepted next to it only while
+/// the app's secret rotates.
+fn shopify_webhook_secrets<F>(get: &mut F) -> Result<ShopifyWebhookSecrets, ApiConfigError>
 where
     F: FnMut(&'static str) -> Option<String>,
 {
-    let previous = get(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV);
-    match get(SHOPIFY_APP_CLIENT_SECRET_ENV) {
-        Some(current) => ShopifyWebhookSecrets::new(current, previous)
-            .map(Some)
-            .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret),
-        None if previous.is_some() => Err(ApiConfigError::InvalidShopifyAppClientSecret),
-        None => Ok(None),
-    }
+    let current = required_config(get, SHOPIFY_APP_CLIENT_SECRET_ENV)?;
+    ShopifyWebhookSecrets::new(current, get(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV))
+        .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret)
 }
 
 pub fn app(state: AppState) -> Router {
@@ -2180,7 +2176,9 @@ async fn app_state_from_config_and_runtime(
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_shopify_webhooks(ShopifyWebhooksState::new(
-            config.shopify_webhook_secrets().cloned(),
+            Arc::new(ShopifyHmacWebhookVerifier::new(
+                config.shopify_webhook_secrets().clone(),
+            )),
             Arc::new(process_shopify_product),
         ))
         .with_loops_webhooks(LoopsWebhooksState::new(
@@ -2377,6 +2375,10 @@ mod tests {
             (
                 LOOPS_WEBHOOK_SIGNING_SECRET_ENV,
                 "whsec_dGVzdC1sb29wcy13ZWJob29r".to_owned(),
+            ),
+            (
+                SHOPIFY_APP_CLIENT_SECRET_ENV,
+                "test-shopify-client-secret".to_owned(),
             ),
             (
                 S3_BUCKET_NAME_TEMPLATES_ENV,
@@ -2711,44 +2713,54 @@ mod tests {
     }
 
     #[test]
-    fn should_configure_optional_rotating_shopify_client_secrets() {
-        let config = |values: &[(&'static str, &str)]| {
+    fn should_require_shopify_client_secret_and_accept_previous_during_rotation() {
+        let config = |set: &[(&'static str, &str)], unset: &[&'static str]| {
             let mut all = valid_api_config_values();
-            for (name, value) in values {
+            for name in unset {
+                all.remove(name);
+            }
+            for (name, value) in set {
                 all.insert(name, (*value).to_owned());
             }
             ApiConfig::from_getter(|name| all.get(name).cloned())
         };
+        let secrets = |current: &str, previous: Option<&str>| {
+            ShopifyWebhookSecrets::new(current.to_owned(), previous.map(str::to_owned)).unwrap()
+        };
 
-        assert!(matches!(config(&[]), Ok(config) if config.shopify_webhook_secrets().is_none()));
         assert!(matches!(
-            config(&[(SHOPIFY_APP_CLIENT_SECRET_ENV, "current")]),
-            Ok(config) if config.shopify_webhook_secrets()
-                == ShopifyWebhookSecrets::new("current".to_owned(), None).ok().as_ref()
+            config(&[(SHOPIFY_APP_CLIENT_SECRET_ENV, "current")], &[]),
+            Ok(config) if *config.shopify_webhook_secrets() == secrets("current", None)
         ));
         assert!(matches!(
-            config(&[
-                (SHOPIFY_APP_CLIENT_SECRET_ENV, "current"),
-                (SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous"),
-            ]),
-            Ok(config) if config.shopify_webhook_secrets()
-                == ShopifyWebhookSecrets::new("current".to_owned(), Some("previous".to_owned()))
-                    .ok()
-                    .as_ref()
+            config(
+                &[
+                    (SHOPIFY_APP_CLIENT_SECRET_ENV, "current"),
+                    (SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous"),
+                ],
+                &[],
+            ),
+            Ok(config) if *config.shopify_webhook_secrets() == secrets("current", Some("previous"))
         ));
-        for invalid in [
-            vec![(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous")],
-            vec![(SHOPIFY_APP_CLIENT_SECRET_ENV, " ")],
-            vec![
-                (SHOPIFY_APP_CLIENT_SECRET_ENV, "current"),
-                (SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, ""),
-            ],
+        for (set, unset) in [
+            (vec![], vec![SHOPIFY_APP_CLIENT_SECRET_ENV]),
+            (
+                vec![(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous")],
+                vec![SHOPIFY_APP_CLIENT_SECRET_ENV],
+            ),
+            (vec![(SHOPIFY_APP_CLIENT_SECRET_ENV, " ")], vec![]),
         ] {
             assert!(matches!(
-                config(&invalid),
-                Err(ApiConfigError::InvalidShopifyAppClientSecret)
+                config(&set, &unset),
+                Err(ApiConfigError::MissingRequiredConfig {
+                    name: SHOPIFY_APP_CLIENT_SECRET_ENV
+                })
             ));
         }
+        assert!(matches!(
+            config(&[(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, " ")], &[]),
+            Err(ApiConfigError::InvalidShopifyAppClientSecret)
+        ));
     }
 
     #[test]

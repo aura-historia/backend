@@ -1,3 +1,9 @@
+mod webhook_verifier;
+
+pub use webhook_verifier::{
+    BlankShopifyClientSecret, ShopifyHmacWebhookVerifier, ShopifyWebhookSecrets,
+};
+
 use listing_source_service::ports::ShopifySource;
 use product_listing_normalization::{
     NormalizationContext, NormalizationInputError, ProductListingNormalizationContextV1,

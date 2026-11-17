@@ -1,5 +1,4 @@
 use crate::auth::TokenAuthenticator;
-use crate::webhooks::shopify_signature::ShopifyWebhookSecrets;
 use admin_overview_service::GetAdminOverviewUseCase;
 use async_trait::async_trait;
 use auction_service::use_cases::{
@@ -66,6 +65,7 @@ use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
 use party_service::use_cases::queries::get_party::GetPartyUseCase;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
+use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerifier;
 use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesUseCase;
 use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingUseCase;
 use product_listing_service::use_cases::{
@@ -575,17 +575,16 @@ impl LoopsWebhooksState {
 
 #[derive(Clone)]
 pub struct ShopifyWebhooksState {
-    /// Without a configured client secret every delivery fails closed with `500`.
-    pub(crate) secrets: Option<ShopifyWebhookSecrets>,
+    pub(crate) verifier: Arc<dyn ShopifyWebhookVerifier>,
     pub(crate) process: Arc<dyn ProcessShopifyProductListingUseCase>,
 }
 
 impl ShopifyWebhooksState {
     pub fn new(
-        secrets: Option<ShopifyWebhookSecrets>,
+        verifier: Arc<dyn ShopifyWebhookVerifier>,
         process: Arc<dyn ProcessShopifyProductListingUseCase>,
     ) -> Self {
-        Self { secrets, process }
+        Self { verifier, process }
     }
 }
 

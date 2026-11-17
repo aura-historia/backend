@@ -104,7 +104,7 @@ unknown products retain their ordering fence without creating a canonical listin
 `SHOPIFY_PRODUCT` payload schema 1 retains the nested listing snapshot, stripping
 `body_html` inside `product_listing` (and at the outer level). Raw values use schema 1.
 Unsupported schemas fail closed. Broad `products/*` topics are acknowledged
-without forwarding, including queue redrives.
+without forwarding.
 
 Shopify delivers these topics over HTTPS to [`POST /v1/webhooks/shopify`](../swagger.yaml).
 The API verifies `X-Shopify-Hmac-Sha256` over the exact body with the app client secret
@@ -116,8 +116,9 @@ Shopify retries it for about four hours. A longer outage is recovered by re-impo
 `X-Shopify-Triggered-At` supplies webhook source-time ordering independently
 of product `updated_at`, using the existing provider ordering and deletion-barrier rules
 above. The required `X-Shopify-Webhook-Id` keys the provider receipt and the command
-identity, so Shopify's retries of one delivery deduplicate. The retained raw provenance
-keeps `eventBridgeEventId`, which is `null` for HTTPS deliveries.
+identity, so Shopify's retries of one delivery deduplicate. Separate subscriptions deliver
+one event under different webhook IDs; equal listing state then collapses during capture.
+The retained raw provenance keeps `eventBridgeEventId`, which is `null` for HTTPS deliveries.
 
 Initial/manual/recovery imports use the existing canonical asynchronous upsert and
 withdrawal endpoints. The app owns publication reads: imports upsert published products

@@ -237,15 +237,21 @@ confirmed command-FIFO admission. A lost reply may already have queued the comma
 retry carries the same `X-Shopify-Webhook-Id` and therefore the same command identity. The
 FIFO acknowledges application independently, and normalization/projection complete later.
 
-On failure, inspect the app's webhook delivery history in the Shopify Partner Dashboard,
-the API's `post_shopify_webhook` events and the ingestion queue age/DLQ. A `401` burst means
-the stage's client secret does not match the app's (`SHOPIFY_APP_CLIENT_SECRET`, with
-`SHOPIFY_APP_PREVIOUS_CLIENT_SECRET` during rotation); a `500` means none is configured.
-Shopify stops retrying a delivery after about four hours and may remove a subscription that
-keeps failing, so after a longer outage re-import the affected shops through the canonical
-asynchronous upsert and withdrawal endpoints and confirm the app's subscriptions still point
-at the HTTPS endpoint. Rollback fences the Shopify producer; pausing shared consumption
-requires a separate retention plan.
+The API does not start without `SHOPIFY_APP_CLIENT_SECRET`, the app's client secret. While the
+app's secret rotates, set the old one as `SHOPIFY_APP_PREVIOUS_CLIENT_SECRET` until Shopify
+signs only with the new one. A `401` burst means neither matches the app's secret.
+
+On failure, inspect the app's webhook delivery metrics in the Shopify Partner Dashboard, the
+API's `post_shopify_webhook` events and the ingestion queue age/DLQ. Shopify stops retrying a
+delivery after about four hours and may remove a subscription that keeps failing, so after a
+longer outage confirm the app's subscriptions still point at the HTTPS endpoint and re-import
+the affected shops through the canonical asynchronous upsert and withdrawal endpoints.
+
+Cut over from EventBridge only after the HTTPS route serves with the secret configured, and
+switch the app's subscriptions right after the release that removes the Shopify Lambda:
+EventBridge deliveries in between stay unconsumed in the retained `shopify-lambda-queue`
+(four-day retention) and are recovered by re-importing. Once the app uses HTTPS, rolling the
+API back past the route loses deliveries after Shopify's retry window; re-import afterwards.
 
 ## WooCommerce webhook queue recovery
 

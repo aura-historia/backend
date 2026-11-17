@@ -8,7 +8,6 @@ use crate::error::{
 };
 use crate::state::ShopifyWebhooksState;
 use crate::transport::PUBLICATION_REPORT_HEADROOM;
-use crate::webhooks::shopify_signature::ShopifySignatureError;
 use application::operation_context::{OperationContext, Principal};
 use axum::body::Bytes;
 use axum::extract::State;
@@ -17,6 +16,7 @@ use axum::response::{IntoResponse, Response};
 use listing_source_core::Domain;
 use product_listing_ingestion_sqs::with_publication_deadline;
 use product_listing_normalization::SourcePayload;
+use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerificationError;
 use product_listing_service::use_cases::commands::process_shopify_product_listing::{
     ShopifyEventProvenance, ShopifyProductListingProcessingError,
 };
@@ -62,22 +62,23 @@ pub async fn post_shopify(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let Some(secrets) = state.secrets.as_ref() else {
-        tracing::error!("Shopify webhook client secret is not configured; rejecting delivery");
-        return internal_error("Shopify webhook verification is not configured.").into_response();
-    };
     let signatures = headers
         .get_all(HMAC_HEADER)
         .iter()
         .map(HeaderValue::as_bytes)
         .collect::<Vec<_>>();
-    match secrets.verify(&signatures, &body) {
+    match state.verifier.verify(&signatures, &body) {
         Ok(()) => {}
-        Err(ShopifySignatureError::Cryptography) => {
-            return internal_error("Shopify webhook verification failed internally.")
+        Err(ShopifyWebhookVerificationError::CryptographicFailure) => {
+            tracing::error!("Shopify webhook signature could not be computed");
+            return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+                .with_detail("Shopify webhook verification failed internally.")
                 .into_response();
         }
-        Err(ShopifySignatureError::MalformedHeader | ShopifySignatureError::Mismatch) => {
+        Err(
+            ShopifyWebhookVerificationError::MalformedSignature
+            | ShopifyWebhookVerificationError::InvalidSignature,
+        ) => {
             return ApiError::unauthorized(BAD_HEADER_VALUE)
                 .with_header_field("X-Shopify-Hmac-Sha256")
                 .with_detail("Shopify webhook signature is invalid.")
@@ -242,15 +243,10 @@ fn admission_unconfirmed() -> ApiError {
         .with_detail("Shopify delivery admission was not confirmed; retry the delivery.")
 }
 
-fn internal_error(detail: &'static str) -> ApiError {
-    ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR).with_detail(detail)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::AppState;
-    use crate::webhooks::shopify_signature::ShopifyWebhookSecrets;
     use axum::body::Body;
     use axum::http::Request;
     use base64::Engine;
@@ -260,6 +256,7 @@ mod tests {
     };
     use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
     use product_listing_service::ports::shopify_product_decoder::ShopifyProductEventKind;
+    use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerifier;
     use product_listing_service::use_cases::commands::process_shopify_product_listing::{
         ProcessShopifyProductListingHandler, ProcessShopifyProductListingUseCase,
     };
@@ -271,6 +268,7 @@ mod tests {
         SubmitInternalProductListingIngestionUseCase, product_listing_ingestion_identity,
     };
     use product_listing_shopify::ShopifyProductPayloadDecoder;
+    use product_listing_shopify::{ShopifyHmacWebhookVerifier, ShopifyWebhookSecrets};
     use serde::Deserialize;
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
@@ -354,19 +352,31 @@ mod tests {
     }
 
     fn router(
-        secrets: Option<ShopifyWebhookSecrets>,
+        verifier: Arc<dyn ShopifyWebhookVerifier>,
         process: Arc<dyn ProcessShopifyProductListingUseCase>,
     ) -> axum::Router {
         crate::app(
-            AppState::new().with_shopify_webhooks(ShopifyWebhooksState::new(secrets, process)),
+            AppState::new().with_shopify_webhooks(ShopifyWebhooksState::new(verifier, process)),
         )
     }
 
-    fn secrets() -> Option<ShopifyWebhookSecrets> {
-        Some(
+    fn secrets() -> Arc<dyn ShopifyWebhookVerifier> {
+        Arc::new(ShopifyHmacWebhookVerifier::new(
             ShopifyWebhookSecrets::new(SECRET.to_owned(), Some(PREVIOUS_SECRET.to_owned()))
                 .unwrap(),
-        )
+        ))
+    }
+
+    struct BrokenVerifier;
+
+    impl ShopifyWebhookVerifier for BrokenVerifier {
+        fn verify(
+            &self,
+            _signatures: &[&[u8]],
+            _raw_body: &[u8],
+        ) -> Result<(), ShopifyWebhookVerificationError> {
+            Err(ShopifyWebhookVerificationError::CryptographicFailure)
+        }
     }
 
     fn sign(secret: &str, body: &[u8]) -> String {
@@ -512,10 +522,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_closed_without_configured_client_secret() {
+    async fn should_fail_closed_when_signature_cannot_be_computed() {
         let processor = FakeProcessor::new(Outcome::Admitted);
         let (status, response) = send(
-            router(None, processor.clone()),
+            router(Arc::new(BrokenVerifier), processor.clone()),
             signed_request(delivery_headers("product_listings/add"), body()),
         )
         .await;
@@ -666,6 +676,51 @@ mod tests {
         assert_eq!(PROCESSING_BUDGET, started.elapsed());
     }
 
+    /// API Gateway may base64-encode the body; the HMAC must still see Shopify's exact bytes.
+    #[tokio::test]
+    async fn should_verify_http_api_v2_base64_body_against_its_original_signature() {
+        let processor = FakeProcessor::new(Outcome::Admitted);
+        let body = "{ \"product_listing\" : { \"product_id\": 42, \"title\": \"Kommode \u{e9}\", \"handle\": \"kommode\" } }"
+            .as_bytes()
+            .to_vec();
+        let mut event: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/http_api_v2_health.json"))
+                .unwrap();
+        event["routeKey"] = "POST /v1/webhooks/shopify".into();
+        event["rawPath"] = "/v1/webhooks/shopify".into();
+        event["requestContext"]["http"]["method"] = "POST".into();
+        event["requestContext"]["http"]["path"] = "/v1/webhooks/shopify".into();
+        let mut headers = serde_json::Map::from_iter([
+            ("host".to_owned(), json!("api.example.test")),
+            (
+                "x-shopify-hmac-sha256".to_owned(),
+                json!(sign(SECRET, &body)),
+            ),
+        ]);
+        for (name, value) in delivery_headers("product_listings/add") {
+            headers.insert(name.to_ascii_lowercase(), json!(value));
+        }
+        event["headers"] = Value::Object(headers);
+        event["body"] = base64::engine::general_purpose::STANDARD
+            .encode(&body)
+            .into();
+        event["isBase64Encoded"] = true.into();
+        let request = lambda_http::request::from_str(&event.to_string()).unwrap();
+
+        let response = crate::lambda::handle_http_api_v2_request(
+            router(secrets(), processor.clone()),
+            request,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            processor.executions()[0].payload
+        );
+    }
+
     #[derive(Deserialize)]
     struct EventBridgeEvent {
         id: String,
@@ -751,9 +806,9 @@ mod tests {
     }
 
     /// One delivery, once as the EventBridge `detail` the Lambda received and once as the HTTPS
-    /// request Shopify sends, must produce the same ingestion command, so receipts and command
-    /// identities deduplicate across the cutover. Only the EventBridge envelope ID, which an
-    /// HTTPS delivery does not have, differs in the retained provenance.
+    /// request Shopify sends, must produce the same ingestion command: identity, receipt, source
+    /// record, input and ordering time. Only the EventBridge envelope ID, which an HTTPS
+    /// delivery does not have, differs in the retained provenance.
     #[tokio::test]
     async fn should_submit_the_same_command_as_the_eventbridge_delivery() {
         let event: EventBridgeEvent = serde_json::from_str(EVENTBRIDGE_DELIVERY).unwrap();

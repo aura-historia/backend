@@ -3531,7 +3531,7 @@ paths:
               schema: { $ref: "#/components/schemas/ApiError" }
               example: { status: 413, title: Payload Too Large, error: BAD_BODY_VALUE }
         "500":
-          description: The stage has no Shopify client secret configured, or verification failed internally. Uses `PRODUCT_LISTING_INTERNAL_ERROR`.
+          description: The signature could not be computed. Uses `PRODUCT_LISTING_INTERNAL_ERROR`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }
