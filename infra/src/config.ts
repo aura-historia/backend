@@ -159,7 +159,6 @@ export interface StageConfig {
   readonly stripeCheckoutCancelUrl: string;
   readonly stripeCheckoutSuccessUrl: string;
   readonly stripePortalReturnUrl: string;
-  readonly stripeEventBusName: string;
   readonly shopifyEventBusName: string;
   readonly stripeProProductId: string;
   readonly stripeUltimateProductId: string;
@@ -305,7 +304,6 @@ export function stageConfig(stage: StageName): StageConfig {
     stripePortalReturnUrl: isProd
       ? "https://aura-historia.com/me/account"
       : "https://stage.aura-historia.com/me/account",
-    stripeEventBusName: ssmValue(`/eventbridge/${stage}/stripe-event-bus-name`),
     shopifyEventBusName: ssmValue(`/eventbridge/${stage}/shopify-event-bus-name`),
     stripeProProductId: ssmValue(`/stripe/${stage}/pro-product-id`),
     stripeUltimateProductId: ssmValue(`/stripe/${stage}/ultimate-product-id`),

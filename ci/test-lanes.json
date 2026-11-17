@@ -51,7 +51,6 @@
     "search-filter-postgres",
     "shipping-postgres",
     "shopify-lambda",
-    "stripe-lambda",
     "test-api",
     "test-api-macros",
     "user-email-aws",

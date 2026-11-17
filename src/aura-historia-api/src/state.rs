@@ -99,7 +99,7 @@ use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
 use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeUseCase;
 use std::sync::Arc;
-use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
+use user_service::ports::stripe_subscription_sync::StripeWebhookVerifier;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenUseCase;
@@ -114,6 +114,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase;
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensUseCase;
 use user_service::use_cases::queries::search_users::SearchUsersUseCase;
+use user_service::use_cases::{ApplyLoopsPreferenceEventUseCase, ApplyStripeSubscriptionUseCase};
 use user_service::use_cases::{
     ConfirmNewsletterSubscriptionUseCase, RequestNewsletterSubscriptionUseCase,
 };
@@ -172,6 +173,7 @@ pub struct AppState {
     pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
     pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
+    pub(crate) stripe_webhooks: Option<StripeWebhooksState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
@@ -228,6 +230,7 @@ impl AppState {
             notifications: None,
             webhooks: None,
             loops_webhooks: None,
+            stripe_webhooks: None,
             auctions: None,
             admin_product_listings: None,
             public_auctions: None,
@@ -387,6 +390,11 @@ impl AppState {
 
     pub fn with_loops_webhooks(mut self, webhooks: LoopsWebhooksState) -> Self {
         self.loops_webhooks = Some(webhooks);
+        self
+    }
+
+    pub fn with_stripe_webhooks(mut self, webhooks: StripeWebhooksState) -> Self {
+        self.stripe_webhooks = Some(webhooks);
         self
     }
 
@@ -560,6 +568,24 @@ impl LoopsWebhooksState {
             signing_secret: Arc::from(signing_secret.into()),
             verifier,
             apply_preference_event,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct StripeWebhooksState {
+    pub(crate) verifier: Arc<dyn StripeWebhookVerifier>,
+    pub(crate) apply_subscription: Arc<dyn ApplyStripeSubscriptionUseCase>,
+}
+
+impl StripeWebhooksState {
+    pub fn new(
+        verifier: Arc<dyn StripeWebhookVerifier>,
+        apply_subscription: Arc<dyn ApplyStripeSubscriptionUseCase>,
+    ) -> Self {
+        Self {
+            verifier,
+            apply_subscription,
         }
     }
 }

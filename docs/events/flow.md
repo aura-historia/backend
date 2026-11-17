@@ -269,7 +269,7 @@ freshness or widen the scheduled matching interval.
 | --- | --- |
 | WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. Delivery IDs are unique only per webhook and second, so command and provider-receipt identity also bind the product and the sanitized evidence digest; the randomly sampled `related_ids` is not evidence. Deletions, including non-public status updates, carry the product ID as `sourceListingId`, so they withdraw the product's listing even when no live upsert has bound its raw stream, such as a listing created through the partner API. |
 | Shopify | Partner EventBridge → retained provider Standard queue → Shopify Lambda → command FIFO. Forwarding and command application are separate acknowledgments and failure locations. |
-| Stripe | Partner EventBridge → dedicated Lambda → User-service reconciliation. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. |
+| Stripe | Signed HTTP webhook → synchronous User-service reconciliation; the answer is the acknowledgment. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. See [Stripe subscription reconciliation](#stripe-subscription-reconciliation). |
 | Cognito pre-sign-up | Federated collision checks fail closed. Linking requires the explicit provider trust policy and verified persisted identity; email alone is insufficient. |
 | Cognito post-confirmation | Registration commits the initial User/binding. Profile bootstrap applies only on first creation; replay does not synchronize profile or restore consent. [Signup consent](../marketing-consent.md#grants-and-double-opt-in) is a separate verified decision. |
 | Loops | Exact-byte signed HTTP event → atomic preference application/receipt. See [preference webhooks](../marketing-consent.md#preference-webhooks). |
@@ -520,34 +520,64 @@ or template kind before any producer writes it.
 
 ### Stripe subscription reconciliation
 
-Subscription created, updated and deleted events request a fresh customer/subscription
-read; their snapshots do not directly assign tiers. Stripe [does not guarantee event
-ordering](https://docs.stripe.com/event-destinations/eventbridge#event-ordering), and
-second-resolution event timestamps cannot establish a total order.
+Stripe delivers `customer.subscription.created`, `.updated` and `.deleted` to the API's
+signed webhook, `POST /v1/webhooks/stripe` ([API contract](../swagger.yaml)). The
+`Stripe-Signature` proof is checked against the raw body before anything is parsed:
+HMAC-SHA256 over `{timestamp}.{body}` with the endpoint signing secret, any `v1` signature
+in the header may match so secret rotation works, other header entries are ignored, the
+timestamp must lie within five minutes of arrival, and comparison is constant-time. The
+webhook endpoint must be created with API version `2026-10-28.endive`
+(`STRIPE_WEBHOOK_API_VERSION` in `billing-stripe`); subscription events rendered with
+another version fail closed, so changing the version means a new endpoint together with a
+code change, as in Stripe's [endpoint
+upgrade](https://docs.stripe.com/upgrades#update-your-webhook-endpoints). Other
+authenticated event types are acknowledged without effects.
 
-The Stripe event ID identifies a durable receipt. Reusing it with different canonical
-content, customer or subscription identity fails closed. Receipts are retained for replay
-safety. Identical completed deliveries skip provider I/O. A customer reconciliation
-revision advances on every completed new event, including unchanged tiers. If another
-reconciliation commits during a provider read, the older reader must retry from current
-state. Provider failures, malformed selected events, unknown users and identity conflicts
-remain failures for Lambda’s asynchronous retry policy. This route currently has no
-configured asynchronous failure destination; exhausted retries require operator replay
-from retained provider event evidence.
+Subscription events request a fresh customer/subscription read; their snapshots do not
+directly assign tiers. Stripe [does not guarantee event
+ordering](https://docs.stripe.com/webhooks#event-ordering), and second-resolution event
+timestamps cannot establish a total order.
+
+The Stripe event ID identifies a durable receipt, fingerprinted by event type,
+subscription and customer. Delivery metadata such as `pending_webhooks` and the rendered
+snapshot are not part of it, so redeliveries and the same event sent to several
+destinations dedupe. Reusing an ID with a different type, customer or subscription fails
+closed. Receipts written by the retired EventBridge consumer fingerprinted the whole
+snapshot; their scheme is stored with them, and they dedupe a webhook delivery of the same
+event by customer and subscription alone, so both destinations may run during the cutover.
+Receipts are retained for replay safety. Identical completed deliveries skip provider I/O.
+A customer reconciliation revision advances on every completed new event, including
+unchanged tiers. If another reconciliation commits during a provider read, the older
+reader must retry from current state.
+
+The webhook answers only after the reconciliation commits or fails, within a 20-second
+budget that covers the bounded provider read. Completed and identical replayed events
+answer `2xx`. Malformed events and conflicting receipts answer `400`. Provider failures,
+unknown users, identity conflicts, invalid provider state, uncertain commits and an
+exhausted budget answer `5xx`. Stripe retries every non-2xx answer for up to three days in
+live mode; once the cause is fixed, an operator resends a failed event from the Stripe
+Dashboard within 15 days or with `stripe events resend` within 30 days of its creation.
+The log event `stripe_webhook.reconciliation_failed` records each `5xx` with its causes,
+and `stripe_webhook.rejected` each authentic event answered `400`; unauthenticated
+requests are not logged.
 
 Current `active`, `trialing` and `past_due` subscriptions grant the highest configured
-product tier across the customer's subscriptions. `past_due` retains access during
-payment recovery; canceled, unpaid, incomplete, expired and paused subscriptions grant
-none. Unknown statuses/products and incomplete responses fail closed. Subscription
-pagination is explicit and the entire provider read has a bounded deadline. Customer
-metadata may establish an unbound user's association but cannot replace another customer
-or contradict an existing user's association.
+product tier across the customer's subscriptions. `past_due` retains access during payment
+recovery; canceled, unpaid, incomplete, expired and paused subscriptions grant none.
+Unknown statuses/products and incomplete responses fail closed. Subscription pagination is
+explicit and the entire provider read has a bounded deadline. Customer metadata may
+establish an unbound user's association but cannot replace another customer or contradict
+an existing user's association.
 
-The consumer and billing API share the `STRIPE_API_KEY` stage credential: restricted permissions must preserve customer creation
-and Checkout/billing-portal session creation, plus customer and subscription reads.
-The key, product/price identifiers and event destination must use the same Stripe account
-and test/live environment. No transaction stays open across Stripe I/O; a failed
-application rolls back its receipt and revision together with business changes.
+The reconciliation and billing API share the `STRIPE_API_KEY` stage credential: restricted
+permissions must preserve customer creation and Checkout/billing-portal session creation,
+plus customer and subscription reads. The endpoint signing secret is the
+`webhookSigningSecret` field of the same Stripe stage credential
+(`STRIPE_WEBHOOK_SIGNING_SECRET`) and is never logged. The API refuses to start without a
+valid `whsec_` secret, so the field must exist before a release that requires it. The key,
+product/price identifiers and webhook endpoint must use the same Stripe account and
+test/live environment. No transaction stays open across Stripe I/O; a failed application
+rolls back its receipt and revision together with business changes.
 
 ## Operations and validation
 
