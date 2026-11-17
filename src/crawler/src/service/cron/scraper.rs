@@ -131,6 +131,7 @@ struct CandidateMeta {
     schema_fingerprint: String,
     raw_input_sha256: Vec<u8>,
     source_listing_id: String,
+    extracted_source_listing_id: Option<String>,
     title: Option<String>,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
@@ -475,6 +476,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
+                            extracted_source_listing_id: meta.extracted_source_listing_id.clone(),
                             title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
@@ -492,6 +494,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
+                            extracted_source_listing_id: meta.extracted_source_listing_id.clone(),
                             title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
@@ -1103,6 +1106,45 @@ async fn retire_duplicate_of_known_identity(
     }
 }
 
+/// Reports a page whose own identity changed while the schemas did not: the selected schema
+/// extracts another identity from the URL than it did at the URL's last capture under the same
+/// schema set, so the shop likely shows another product at the URL. The scrape still captures
+/// under the URL's captured identity, as every unredirected scrape does; the event lets an
+/// operator check the page. A schema change, or a page that extracts no identity, such as a sold
+/// page without it, shows nothing about the product
+/// (`docs/crawler/scheduling-and-retries.md#captured-identity`).
+fn report_page_identity_change(candidate: &ScraperCandidate, scraped: &ScrapedProduct) {
+    let Some((previous, current)) = changed_page_identity(candidate, scraped) else {
+        return;
+    };
+    warn!(
+        event = "crawler.product_url_page_identity_changed",
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_host,
+        url = %candidate.url,
+        captured_identity = candidate.last_source_listing_id.as_deref().unwrap_or_default(),
+        previous_page_identity = previous,
+        page_identity = current,
+        "A product page shows another identity under unchanged schemas; capturing it under its captured identity"
+    );
+}
+
+/// The identity the URL's page showed at its last capture and the one it shows now, when they
+/// differ under the same schema set on the unredirected page, as
+/// [`report_page_identity_change`] reports them.
+fn changed_page_identity<'a>(
+    candidate: &'a ScraperCandidate,
+    scraped: &'a ScrapedProduct,
+) -> Option<(&'a str, &'a str)> {
+    let previous = candidate.last_extracted_source_listing_id.as_deref()?;
+    let current = scraped.extracted_source_listing_id.as_deref()?;
+    let same_schemas =
+        candidate.last_scraped_schema_fingerprint.as_deref() == Some(&scraped.schema_fingerprint);
+    (previous != current && same_schemas && candidate.url == scraped.effective_url)
+        .then_some((previous, current))
+}
+
 /// Retires a URL's first scrape (one that carries no identity yet) when another product URL of
 /// its ListingSource carries `source_listing_id`, or claimed it earlier in the batch, and answers
 /// its outcome; `None` when the URL may be captured, having claimed the identity. A URL that
@@ -1319,6 +1361,7 @@ async fn handle_successful_scrape(
     {
         return outcome;
     }
+    report_page_identity_change(candidate, &scraped);
     let provenance = match crawler_provenance(
         Some(scraped.hash.as_str()),
         Some(scraped.schema_fingerprint.as_str()),
@@ -1337,6 +1380,7 @@ async fn handle_successful_scrape(
         schema_fingerprint: scraped.schema_fingerprint,
         raw_input_sha256: scraped.raw_input_sha256,
         source_listing_id: scraped.source_listing_id,
+        extracted_source_listing_id: scraped.extracted_source_listing_id,
         title: scraped.title,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
     };
@@ -1354,6 +1398,7 @@ async fn handle_successful_scrape(
                 schema_fingerprint: meta.schema_fingerprint.clone(),
                 raw_input_sha256: meta.raw_input_sha256.clone(),
                 source_listing_id: meta.source_listing_id.clone(),
+                extracted_source_listing_id: meta.extracted_source_listing_id.clone(),
                 title: meta.title.clone(),
                 disposition: SCRAPED_URL_DISPOSITION,
                 expected_last_captured_raw_input_sha256: meta
@@ -3059,6 +3104,7 @@ mod tests {
             schema_fingerprint: "schema-fingerprint".to_owned(),
             raw_input_sha256: vec![3; 32],
             source_listing_id: "source-id".to_owned(),
+            extracted_source_listing_id: None,
             title: Some("Chair".to_owned()),
             expected_last_captured_raw_input_sha256: None,
         }
@@ -3742,6 +3788,7 @@ mod tests {
                         raw_input_sha256: vec![7; 32],
                         effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
+                        extracted_source_listing_id: None,
                         title: Some("Chair".to_owned()),
                     })))
                 })
@@ -4211,6 +4258,7 @@ mod tests {
                         raw_input_sha256: vec![3; 32],
                         effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
+                        extracted_source_listing_id: None,
                         title: Some("Chair".to_owned()),
                     })))
                 })
@@ -4258,6 +4306,7 @@ mod tests {
                 raw_input,
                 effective_url: effective_url.clone(),
                 source_listing_id: "SKU-123".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Chair".to_owned()),
                 hash: "redirect-hash".to_owned(),
                 schema_fingerprint: "redirect-schema".to_owned(),
@@ -4766,6 +4815,7 @@ mod tests {
                             raw_input_sha256: product_sha256,
                             effective_url: url,
                             source_listing_id: "SKU-1".to_owned(),
+                            extracted_source_listing_id: None,
                             title: Some("Chair".to_owned()),
                         })))
                     })
@@ -5471,6 +5521,7 @@ mod tests {
                             raw_input_sha256: vec![2; 32],
                             effective_url: url.clone(),
                             source_listing_id: "ListingSource".to_owned(),
+                            extracted_source_listing_id: None,
                             title: Some("Chair".to_owned()),
                         })))
                     }
@@ -7606,33 +7657,15 @@ mod tests {
             );
         }
 
+        /// The sold template derives another identity than the one the listing was captured under
+        /// (`product-53036` instead of `53036`): the listing keeps updating under its captured
+        /// identity, and the capture records what the template derived.
         #[tokio::test]
-        async fn should_record_an_identity_conflict_with_the_schema_cooldown_when_the_sold_template_derives_another_identity()
+        async fn should_capture_the_sold_page_under_the_captured_identity_when_the_sold_template_derives_another()
          {
-            let before = time::OffsetDateTime::now_utc();
             let candidate = sold_candidate();
-            let url = candidate.url.clone();
             let mut scraper_candidates = MockScraperCandidateService::new();
-            scraper_candidates
-                .expect_mark_fetch_failure()
-                .once()
-                .withf(
-                    move |_, received_url, kind, message, status_code, next_retry_at, _| {
-                        let cooldown =
-                            time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
-                        *received_url == url
-                            && kind == SOURCE_LISTING_ID_CONFLICT_ERROR_KIND
-                            && message.contains("`product-53036`")
-                            && message.contains("`53036`")
-                            && status_code.is_none()
-                            && *next_retry_at >= before + cooldown
-                            && *next_retry_at <= time::OffsetDateTime::now_utc() + cooldown
-                    },
-                )
-                .returning(|_, _, _, _, _, _, _| {
-                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-                });
-            scraper_candidates.expect_mark_as_scraped().never();
+            scraper_candidates.expect_mark_fetch_failure().never();
             let ctx = context(
                 &candidate,
                 schema(attribute("div.product", "id"), "p.stock"),
@@ -7641,21 +7674,48 @@ mod tests {
 
             let outcome = scrape_candidate(candidate, &ctx).await;
 
-            assert!(outcome.capture.is_none());
-            assert!(outcome.errored, "an identity conflict is a failed scrape");
-            assert!(
-                !outcome.skipped,
-                "an identity conflict has a durable outcome"
-            );
+            assert!(!outcome.errored && !outcome.skipped);
+            let capture = outcome
+                .capture
+                .expect("the sold page must be captured under the listing's identity");
+            match &capture.on_success {
+                RawCaptureSuccessAction::MarkScraped(meta) => {
+                    assert_eq!(meta.source_listing_id, CAPTURED_IDENTITY);
+                    assert_eq!(
+                        meta.extracted_source_listing_id.as_deref(),
+                        Some("product-53036")
+                    );
+                }
+                _ => panic!("a sold product page must be marked scraped after capture"),
+            }
         }
 
-        /// A conflict repeats until the schemas change, which releases the URL at once, so each
-        /// conflict in a row doubles the delay instead of refetching every schema cooldown.
+        /// A redirect can lead to another product, so a redirected page that derives another
+        /// identity stays an identity conflict, and each conflict in a row doubles the delay.
         #[tokio::test]
-        async fn should_double_the_retry_delay_of_an_identity_conflict_that_repeats() {
+        async fn should_double_the_retry_delay_of_an_identity_conflict_after_a_redirect_that_repeats()
+         {
             let before = time::OffsetDateTime::now_utc();
             let mut candidate = sold_candidate();
             candidate.identity_conflict_streak = 2;
+            let destination =
+                url::Url::parse("https://example.com/product/georgian-chair-2").unwrap();
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().once().returning(move |_| {
+                let scraped = ScrapedProduct {
+                    acquired_at: time::OffsetDateTime::now_utc(),
+                    raw_input: crawler_verified_removal_input(&destination)
+                        .unwrap_or_else(|error| panic!("test raw input: {error}")),
+                    hash: "hash".to_owned(),
+                    schema_fingerprint: "schema".to_owned(),
+                    raw_input_sha256: vec![7; 32],
+                    effective_url: destination.clone(),
+                    source_listing_id: "product-53037".to_owned(),
+                    extracted_source_listing_id: Some("product-53037".to_owned()),
+                    title: Some("Georgian Chair".to_owned()),
+                };
+                Box::pin(async move { scrape_outcome(Ok(Some(scraped))) })
+            });
             let mut scraper_candidates = MockScraperCandidateService::new();
             scraper_candidates
                 .expect_mark_fetch_failure()
@@ -7669,11 +7729,7 @@ mod tests {
                 .returning(|_, _, _, _, _, _, _| {
                     Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
                 });
-            let ctx = context(
-                &candidate,
-                schema(attribute("div.product", "id"), "p.stock"),
-                scraper_candidates,
-            );
+            let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
 
             let outcome = scrape_candidate(candidate, &ctx).await;
 
@@ -7681,6 +7737,7 @@ mod tests {
                 outcome.failure_kind.as_deref(),
                 Some(SOURCE_LISTING_ID_CONFLICT_ERROR_KIND)
             );
+            assert!(outcome.capture.is_none());
         }
 
         #[test]
@@ -7765,6 +7822,7 @@ mod tests {
                 raw_input_sha256: vec![7; 32],
                 effective_url: url,
                 source_listing_id: IDENTITY.to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Chair".to_owned()),
             }
         }
@@ -7924,6 +7982,74 @@ mod tests {
         }
     }
 
+    mod page_identity_change {
+        use super::*;
+
+        const URL: &str = "https://example.com/products/chair";
+
+        fn candidate() -> ScraperCandidate {
+            let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+            candidate.last_source_listing_id = Some("SKU-1".to_owned());
+            candidate.last_extracted_source_listing_id = Some("SKU-1".to_owned());
+            candidate.last_scraped_schema_fingerprint = Some("schemas".to_owned());
+            candidate
+        }
+
+        fn scraped(extracted: Option<&str>, fingerprint: &str, url: &str) -> ScrapedProduct {
+            let effective_url = url::Url::parse(url).unwrap();
+            ScrapedProduct {
+                acquired_at: time::OffsetDateTime::now_utc(),
+                raw_input: crawler_verified_removal_input(&effective_url)
+                    .unwrap_or_else(|error| panic!("test raw input: {error}")),
+                hash: "hash".to_owned(),
+                schema_fingerprint: fingerprint.to_owned(),
+                raw_input_sha256: vec![7; 32],
+                effective_url,
+                source_listing_id: "SKU-1".to_owned(),
+                extracted_source_listing_id: extracted.map(str::to_owned),
+                title: Some("Chair".to_owned()),
+            }
+        }
+
+        #[test]
+        fn should_report_another_page_identity_under_unchanged_schemas() {
+            let candidate = candidate();
+            let scraped = scraped(Some("SKU-2"), "schemas", URL);
+
+            assert_eq!(
+                changed_page_identity(&candidate, &scraped),
+                Some(("SKU-1", "SKU-2"))
+            );
+        }
+
+        #[rstest::rstest]
+        #[case::same_identity(Some("SKU-1"), "schemas", URL)]
+        #[case::schemas_changed(Some("SKU-2"), "new schemas", URL)]
+        #[case::no_identity_on_the_page(None, "schemas", URL)]
+        #[case::redirected(Some("SKU-2"), "schemas", "https://example.com/products/table")]
+        fn should_report_nothing_without_evidence_of_another_product(
+            #[case] extracted: Option<&str>,
+            #[case] fingerprint: &str,
+            #[case] url: &str,
+        ) {
+            let candidate = candidate();
+            let scraped = scraped(extracted, fingerprint, url);
+
+            assert_eq!(changed_page_identity(&candidate, &scraped), None);
+        }
+
+        #[test]
+        fn should_report_nothing_before_the_page_identity_was_recorded() {
+            let mut candidate = candidate();
+            candidate.last_extracted_source_listing_id = None;
+
+            assert_eq!(
+                changed_page_identity(&candidate, &scraped(Some("SKU-2"), "schemas", URL)),
+                None
+            );
+        }
+    }
+
     mod scraper_metrics {
         use super::*;
         use crate::metrics::test_support::capture_metrics;
@@ -7939,6 +8065,7 @@ mod tests {
                 raw_input_sha256: vec![7; 32],
                 effective_url: url,
                 source_listing_id: "source-listing".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Chair".to_owned()),
             }
         }

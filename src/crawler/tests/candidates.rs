@@ -60,6 +60,7 @@ where
         schema_fingerprint: schema_fingerprint.into(),
         raw_input_sha256: raw_input_sha256.into(),
         source_listing_id: source_listing_id.into(),
+        extracted_source_listing_id: None,
         title: Some("Captured title".to_owned()),
         disposition,
         expected_last_captured_raw_input_sha256,
@@ -3344,6 +3345,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![4; 32],
                 source_listing_id: "stable-source-id".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
@@ -3400,6 +3402,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![5; 32],
             source_listing_id: "stable-source-id".to_owned(),
+            extracted_source_listing_id: None,
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
@@ -3584,6 +3587,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![6; 32],
                 source_listing_id: "stable-source-id".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
@@ -3652,6 +3656,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![7; 32],
             source_listing_id: "SKU-2".to_owned(),
+            extracted_source_listing_id: None,
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
@@ -3670,6 +3675,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
                 schema_fingerprint: "stale-schema".to_owned(),
                 raw_input_sha256: vec![8; 32],
                 source_listing_id: "SKU-1".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
@@ -5419,4 +5425,55 @@ async fn scraper_should_find_the_earliest_live_url_of_the_source_carrying_an_ide
     assert_eq!(carrier("7", &second).await, Some(first.clone()));
     assert_eq!(carrier("7", &first).await, Some(second.clone()));
     assert_eq!(carrier("8", &second).await, None);
+}
+
+/// After a schema change a captured URL keeps its captured identity while its page shows another
+/// one; a new spelling of the product derives the new one, and is found by it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_find_a_url_by_the_identity_its_page_showed_at_its_last_capture() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "pinned.example.com").await;
+    let captured = url::Url::parse("https://pinned.example.com/products/tea-bowl").unwrap();
+    let spelling = url::Url::parse("https://pinned.example.com/products/tea-bowl?ref=nav").unwrap();
+    insert_product_url(&pool, listing_source_id, captured.as_str()).await;
+    let mut completion = scrape_completion(
+        listing_source_id,
+        captured.clone(),
+        (
+            "hash",
+            "schemas",
+            vec![1_u8; 32],
+            "J054",
+            CrawlerDisposition::Active,
+            None,
+        ),
+    );
+    completion.extracted_source_listing_id = Some("HF-0054".to_owned());
+
+    let outcome = service.mark_as_scraped(completion).await.unwrap();
+
+    assert_eq!(outcome, CrawlerUrlWriteOutcome::Applied);
+    let stored: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT last_source_listing_id, last_extracted_source_listing_id FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(captured.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        (Some("J054".to_owned()), Some("HF-0054".to_owned()))
+    );
+    for identity in ["J054", "HF-0054"] {
+        assert_eq!(
+            service
+                .url_carrying_source_listing_id(&listing_source_id, identity, &spelling)
+                .await
+                .unwrap(),
+            Some(captured.clone()),
+            "{identity}"
+        );
+    }
 }

@@ -9,7 +9,10 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
-use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
+use crate::scraper::plausibility::capturable_identity;
+use crate::scraper::raw_input::{
+    capture_source_listing_id, crawler_raw_input, pinned_source_listing_id,
+};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
 };
@@ -505,8 +508,11 @@ fn capture_selection(
     }
     let schema_fingerprint = fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas)
         .map_err(ScraperError::SchemaFingerprint)?;
-    let source_listing_id =
-        capture_source_listing_id(&selection.raw.source_listing_id, &request.source_record_key)?;
+    let source_listing_id = pinned_source_listing_id(
+        request.last_source_listing_id.as_deref(),
+        page.effective_url != request.url,
+        capture_source_listing_id(&selection.raw.source_listing_id, &request.source_record_key)?,
+    )?;
     let raw_input = crawler_raw_input(
         &selection.raw,
         &selection.validated_image_urls,
@@ -531,6 +537,7 @@ fn capture_selection(
         raw_input,
         effective_url: page.effective_url,
         source_listing_id: source_listing_id.to_string(),
+        extracted_source_listing_id: capturable_identity(&selection.raw.source_listing_id),
         title: selection.raw.title().map(str::to_owned),
         hash,
         schema_fingerprint,

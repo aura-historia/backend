@@ -37,7 +37,11 @@ pub struct ScraperCandidate {
     pub url: Url,
     /// Stable raw-stream identity retained when the crawler URL moves.
     pub source_record_key: String,
+    /// The identity the URL's listing was first captured under, which its later scrapes keep.
     pub last_source_listing_id: Option<String>,
+    /// The identity the selected schema extracted at the URL's last capture, `None` when it
+    /// extracted none or before it was recorded.
+    pub last_extracted_source_listing_id: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -198,6 +202,8 @@ pub struct RedirectUrlMove {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
+    /// The identity the selected schema extracted, `None` when it extracted none.
+    pub extracted_source_listing_id: Option<String>,
     pub title: Option<String>,
     pub disposition: CrawlerDisposition,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -232,6 +238,8 @@ pub struct ScrapeCompletion {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
+    /// The identity the selected schema extracted, `None` when it extracted none.
+    pub extracted_source_listing_id: Option<String>,
     /// The title the capture recorded; `None` keeps the one recorded before, as the capture
     /// leaves the listing's title unchanged.
     pub title: Option<String>,
@@ -888,6 +896,7 @@ struct ScraperCandidateRow {
     next_scrape_at: Option<OffsetDateTime>,
     is_circuit_probe: bool,
     last_source_listing_id: Option<String>,
+    last_extracted_source_listing_id: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
     unsettled_redirect_target: Option<String>,
@@ -1008,6 +1017,7 @@ macro_rules! eligible_scraper_urls_cte {
                 AND s.next_scrape_at IS NOT NULL
                 AND s.next_scrape_at <= NOW()) AS is_circuit_probe
             , su.last_source_listing_id
+            , su.last_extracted_source_listing_id
             , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_waited_on END AS schema_review_waited_on
@@ -1088,7 +1098,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
-        last_source_listing_id, schema_review_waited_on,
+        last_source_listing_id, last_extracted_source_listing_id, schema_review_waited_on,
         schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
         removed_by_redirect_target,
         page_error_streak, last_error_kind,
@@ -1178,6 +1188,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 },
                 is_circuit_probe: row.is_circuit_probe,
                 last_source_listing_id: row.last_source_listing_id,
+                last_extracted_source_listing_id: row.last_extracted_source_listing_id,
                 schema_review_wait,
                 unsettled_redirect,
                 removed_by_redirect_target,
@@ -1257,6 +1268,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
             source_listing_id,
+            extracted_source_listing_id,
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
@@ -1271,6 +1283,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = $4,
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
+                 last_extracted_source_listing_id = $10,
                  last_captured_title = COALESCE($9, last_captured_title),
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
@@ -1301,6 +1314,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
+        .bind(&extracted_source_listing_id)
         .execute(&self.pool)
         .await?;
 
@@ -1322,7 +1336,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "SELECT url
              FROM listing_source_urls
              WHERE listing_source_id = $1
-               AND last_source_listing_id = $2
+               AND (last_source_listing_id = $2 OR last_extracted_source_listing_id = $2)
                AND url <> $3
                AND url_class = 'product'
                AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
@@ -1358,6 +1372,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
             source_listing_id,
+            extracted_source_listing_id,
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
@@ -1415,6 +1430,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE listing_source_urls
              SET url = $3,
                  last_source_listing_id = $4,
+                 last_extracted_source_listing_id = $11,
                  last_captured_title = COALESCE($10, last_captured_title),
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
@@ -1446,6 +1462,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
+        .bind(&extracted_source_listing_id)
         .execute(&mut *transaction)
         .await?;
         if moved.rows_affected() != 1 {
