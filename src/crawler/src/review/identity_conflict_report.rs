@@ -1,7 +1,9 @@
 //! The identity conflicts in the log: while product URLs of crawl-enabled ListingSources are in
 //! `SourceListingIdConflict`, the console warns on every report with how many sources and URLs
-//! are stuck, the most conflicted sources and since when, so a conflict nothing waits on, such as
-//! one an approved schema caused, still reaches an operator without the console. It is a log
+//! are stuck, the most conflicted sources and since when, so a conflict nothing waits on still
+//! reaches an operator without the console. A URL keeps its captured identity on its own page, so
+//! a conflict is a redirect to a page with another identity
+//! (`docs/crawler/scheduling-and-retries.md#identity-conflicts`). It is a log
 //! event and no metric, because every metric is billed. The event is in
 //! `docs/crawler/operations.md` (outcome events).
 
@@ -52,7 +54,7 @@ fn log(conflicts: &IdentityConflicts) {
         sources = conflicts.sources_total,
         urls = conflicts.urls_total,
         conflicted_sources = %reported_sources(conflicts),
-        "Product URLs are in an identity conflict and not captured; restore an identity rule that derives the captured identities"
+        "Product URLs redirect to a page with another identity and are not captured; check where they redirect"
     );
 }
 
