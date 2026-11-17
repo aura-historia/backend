@@ -170,8 +170,7 @@ name and logo. Operators stop abusive clients with a host denylist: an entry den
 domain and its subdomains, before any fetch and again at the token endpoint. Per
 environment, `OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED` (default `false`) turns the whole
 client kind on, and `OAUTH_METADATA_DOCUMENT_DENIED_HOSTS` lists the denied domains,
-comma-separated; [`infra/src/config.ts`](../infra/src/config.ts) sets both, and enables the
-kind in every environment. While disabled, URL client IDs are rejected and discovery does
+comma-separated; the API and MCP runtime configuration sets both, and enables the kind. While disabled, URL client IDs are rejected and discovery does
 not advertise them. A public client must never hold a non-expiring token, so enabling the
 kind requires the [refresh tokens](#refresh-tokens) below.
 

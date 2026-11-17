@@ -71,117 +71,99 @@ only their exact build or target scope and cannot be transferred between environ
 
 ## Infrastructure boundary
 
-The CDK app declares `dev` and `prod` in `eu-central-1`. AWS `dev` serves the
-staging API; it is not a stage named `stage`. Application stacks are composed in
-[`application-stack.ts`](../infra/src/application-stack.ts):
+The application runs on the self-hosted host. The CDK app declares only what stays on AWS,
+for `prod` in `eu-central-1`; there is no AWS staging copy. [`application-stack.ts`](../infra/src/application-stack.ts)
+composes three stacks:
 
-| Stack suffix under `application-<stage>` | Ownership |
+| Stack suffix under `application-prod` | Ownership |
 | --- | --- |
-| `network` | Private workload/database networking and outbound access |
-| `data` | PostgreSQL, CDC transport, durable queues, scoped worker policies and dev CDC alarms |
-| `identity` | Durable Cognito pool/client/domain/providers and SES configuration |
-| `initialize` | Protected bootstrap, read-only inspector and initial FX functions |
-| `migrate` | Candidate forward migrator; routine deployment publishes it before invocation |
-| `compute` | Application/worker Lambdas, eventing and scheduled work |
-| `api` | REST and MCP HTTP APIs, regional domains, CloudFront and WAF |
-| `observability` | Production alarms and alarm topic |
+| `host` | The host's IAM user, the versioned backup bucket and the CloudFront origin secret |
+| `identity` | Cognito pool, client, domains, identity providers and both Cognito triggers; the SES configuration set; the host user's Cognito admin grant |
+| `api` | CloudFront distributions and Web ACLs for `api.` and `mcp.`, both on the host origin |
 
-Network/data/identity/initialize are protected platform boundaries; routine order is
-migrate, reviewed SQL, compute, API and prod observability.
-The standalone container-repository setup stack is outside normal releases.
-OpenSearch host administration, external DNS, provider dashboards and native-worker
-process/identity deployment are externally owned; CDK does not reconcile them.
+The `assets.` distribution and its bucket, the SES identity, DNS and the host itself are
+externally owned; CDK does not reconcile them. The two consent-evidence log groups
+(`/aws/lambda/aura-historia-api-prod` and `/aws/lambda/cognito-post-confirmation-prod`) never
+expire and are retained when the stack that created them is deleted. The app only references
+them by name, in the host user's policy; never delete them.
 
-PostgreSQL is authoritative and private. Application/migration runtimes use scoped
-generated secrets and hostname-verifying TLS with the committed public RDS CA bundle.
-Never substitute plaintext, a raw-IP URL or disabled verification. CA refresh is
-a reviewed asset release. Per-process connection limits do not cap aggregate
-Lambda/ECS database usage. Inspect capacity before activating consumers.
+### Host access
 
-Production REST and MCP enable `PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED`
-for concurrent listing-search enrichment. Each process retains its existing PostgreSQL
-pool limit; other stages keep sequential enrichment.
+The `host` stack deploys independently of the others and before the host serves traffic.
 
-Production compute Lambdas reserve **151** concurrent executions in total: REST
-gets 50, the listing translation worker 15, the listing OpenSearch projector and
-embedding worker 10 each, and other functions get 1–5 according to their role.
-These are conservative initial limits for the small database and external
-providers, not throughput targets. The existing dev
-reservations total 10, leaving **839** unreserved executions when both stages
-share the granted **1,000** regional quota. Initialization, migration, delivery
-and CDK helper functions continue to use that shared pool. The
-[Lambda definitions](../infra/src/constructs/lambdas.ts) own individual limits;
-the [concurrency guard](../infra/test/lambda-guards.test.ts) checks both stages
-together and preserves AWS's minimum 100 unreserved executions.
+- **Backup bucket.** pgBackRest's repository lives under `pgbackrest/` and the encrypted copy of
+  the host's secret files under `secrets/`. The bucket is versioned, TLS-only and private, and is
+  retained on deletion. pgBackRest expires its own backups; a replaced or deleted object stays
+  recoverable as a noncurrent version for the configured number of days. The host user may read,
+  write and delete current objects under those prefixes; the bucket policy denies it removing
+  object versions or changing versioning, lifecycle or the policy itself.
+- **Host IAM user.** One user with least privilege: SES `SendEmail` through the managed
+  configuration set, the Amazon Location calls of the REST API and the geographic worker, the
+  Cognito admin calls of the REST API and the identity deletion worker (granted by `identity` on
+  the exact pool), `CreateLogStream`/`PutLogEvents` on the consent-evidence groups and the
+  container groups under `/aura-historia/prod/host/`, and `PutMetricData` in the
+  `AuraHistoria/Host` namespace. CloudFormation never creates its access key: an operator creates
+  it, installs it in the host's root-only secret files and rotates it by creating the new key
+  before deleting the old one.
+- **Origin secret.** `/aura-historia/prod/edge/origin-verify` is generated once and retained.
+  An operator installs its `value` in the host proxy's secret file. To rotate, put a new value,
+  let the proxy accept both, deploy `api` with the new version in `OriginVerifyCredentialVersion`,
+  then drop the old value from the proxy.
 
-Reserved concurrency guarantees capacity and caps active invocations across all
-versions and aliases of each function; it does not prewarm environments. SQS
-maximum concurrency follows the same reservation so pollers wait at the queue
-rather than repeatedly invoking a saturated function, so a saturated consumer
-shows as growing queue age and depth, not as `Throttles`. Existing two-execution
-ingestion and geographic worker limits remain in both stages. Before deployment,
-confirm the effective regional quota and other reservations with
-`aws lambda get-account-settings`. Tune limits using Lambda `ConcurrentExecutions`,
-`Throttles` and duration, queue age, PostgreSQL connections and provider throttling;
-account for all mappings if adding another SQS source to a function.
+### CloudFront origin lock
 
-Worker queue-age alarms share one short default threshold. Scopes fed in bulk, where a long
-queue is routine (embedding and translation are the current examples), override it in
-[`worker-queue-config.ts`](../infra/src/worker-queue-config.ts) with a threshold of hours,
-set from observed jams and kept well below source-queue retention, so a burst that drains
-by itself does not page. On those scopes a saturated or stopped consumer shows in queue age
-only after that threshold; the DLQ and Lambda error alarms remain the prompt signals, so
-judge consumer health from `ConcurrentExecutions`, queue depth and deleted-message rate as
-well. The ingestion backlog alarm likewise needs a count that persists across periods,
-because bursts drain within seconds.
+Both distributions use one HTTPS-only custom origin: a dedicated, unproxied DNS name for the
+host, read from the SSM `String` parameter `/origin/prod/host-domain-name`. Do not publish that
+name. CloudFront forwards the viewer `Host` (AllViewer), so the host's proxy serves and routes
+by the public hostnames and holds their certificates; the origin name only locates the host.
+CloudFront adds the `X-Origin-Verify` header to every origin request, overwriting any viewer
+value. The host accepts a request only with that header and only on port 443 from CloudFront's
+origin-facing IP ranges, refreshed daily. Cache policies, response headers, selective caching
+and Web ACLs are unchanged by the origin; see the [HTTP front door](http-api-front-door.md).
 
-MCP has its own Lambda reserved concurrency: **2 dev / 5 prod**, with one PostgreSQL
-connection per process, independently configured from REST. This bounds active MCP
-invocations and adds a configured steady-state pool budget of 2/5 connections when
-use cases open their pool. Frozen warm environments, old versions and deployments can retain
-idle connections beyond active concurrency, so this is not a database-enforced global connection ceiling. Confirm
-actual PostgreSQL/account headroom including REST, workers, migration/admin reserves
-and version/drain overlap before traffic or increasing either setting. Recycle/drain
-old environments and measure real connections during promotion; Gateway rate limits
-are not a database capacity guarantee. MCP receives private database/TLS and shared listing
-provider configuration and has no secret-store access. Its public
-catalogue requires no billing, newsletter or Cognito configuration. Add provider credentials only with their selected family.
-Certificate/DNS prerequisites and the generic stage smoke belong to the
-[MCP front-door procedure](http-api-front-door.md#mcp-deployment-and-stage-verification).
-
-The declared single NAT, Single-AZ database/CDC resources and single stage search
-host are outage dependencies, not a high-availability promise. Review current
-engine availability, backups, retention/removal policies, quotas and cost before
-execution; dev resources may be destructive on deletion. Retained resources still
-require ownership and recovery planning.
+The Cognito triggers run outside any VPC. Pre-sign-up uses only the Cognito API; the
+post-confirmation forwarder calls the host through the public API hostname, because the host
+accepts only CloudFront. Their code is pinned to completed release objects through each
+function's artifact key, version and SHA-256 parameters; Cognito invokes their `live` aliases.
 
 ### Production deletion protection
 
-CDK enforces termination protection on every production application stack. Production
-PostgreSQL and Cognito also enable native deletion protection. The database, user pool
-and all five PostgreSQL credential secrets retain their physical resources on deletion
-and replacement. Stack termination protection does not prevent destructive updates or
-direct service API calls; resource retention does not preserve application availability.
+CDK enforces termination protection on every stack. The user pool has native deletion
+protection, and the pool, SES configuration set, backup bucket and origin secret retain their
+physical resources on deletion and replacement. **Never replace the user pool**: it holds every
+account, and password hashes cannot be exported. Stack termination protection does not prevent
+destructive updates or direct service API calls.
 
-The production `network`, `data` and `identity` stacks require the checked-in
+The `identity` stack requires the checked-in
 [platform stack policy](../infra/stack-policies/protected-platform.json), which allows
-modification but denies resource replacement and removal during updates. Stack policies
-are separate CloudFormation settings; CDK template deployment does not install them.
-Apply the policy under approved platform maintenance, from the repository root:
+modification but denies resource replacement and removal during updates. Apply it under
+approved platform maintenance, from the repository root:
 
 ```sh
-for boundary in network data identity; do
-  aws cloudformation set-stack-policy --region eu-central-1 \
-    --stack-name "application-prod-${boundary}" \
-    --stack-policy-body file://infra/stack-policies/protected-platform.json
-done
+aws cloudformation set-stack-policy --region eu-central-1 \
+  --stack-name application-prod-identity \
+  --stack-policy-body file://infra/stack-policies/protected-platform.json
 ```
 
-Verify each policy with `get-stack-policy`, each stack's `EnableTerminationProtection`
-with `describe-stacks`, and the effective PostgreSQL/Cognito deletion-protection settings.
-Changes to protected data/identity templates require platform maintenance; routine
-application promotion rejects them. Intentional replacement or teardown requires a
-separately reviewed, resource-specific policy override and recovery plan.
+An update that intentionally replaces or removes an `identity` resource other than the pool
+(such as a trigger permission) needs a reviewed, resource-specific
+`--stack-policy-during-update-body`; never one that covers the pool.
+
+### Deploying the reduced app
+
+The reduced `identity` and `api` stacks reach prod only at the cutover, after the host serves
+the application; `host` may deploy earlier. Keep the retained stack names. Before the first
+reduced deployment:
+
+- `identity` keeps the exports the retired `compute` stack imports, so `compute` may stay until
+  teardown. Remove those exports only after `compute` is deleted.
+- The retired `observability` stack imports the API Gateway ID, which the reduced `api` stack
+  removes. Delete `observability` before deploying `api`.
+- The trigger move replaces the two Cognito invoke permissions in `identity`; review the
+  change set and allow exactly those replacements in the stack-policy override.
+
+Deleting a stack from the app does not delete it from AWS; retired stacks are torn down
+separately once nothing depends on them.
 
 ### Fresh database baseline
 
@@ -373,7 +355,7 @@ requests on a new environment:
    connection. Source polling, source webhooks, restart-on-update and automatic builds
    are disabled. Admission rejects bootstrap/default executions without authorization.
    Application bundles cannot update the control plane or its permissions boundaries.
-3. Use the outputs from [delivery-stack.ts](../infra/src/delivery-stack.ts) for the
+3. Use the outputs from the delivery stack for the
    repository variables below. Pin `DELIVERY_WORKFLOW_REVISION` to the approved control commit for helper
    checkouts and test evidence; actual invocation HEAD is recorded separately.
    Trusted helpers compare control-sensitive paths to that pin and reject changed
