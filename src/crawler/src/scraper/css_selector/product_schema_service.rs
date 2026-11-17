@@ -78,6 +78,10 @@ pub enum ProductListingSchemaServiceError {
 
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
+
+    /// The blocking task that projects the pages into the prompt panicked or was cancelled.
+    #[error("the schema generation prompt could not be built")]
+    PromptProjection(#[source] tokio::task::JoinError),
 }
 
 #[async_trait::async_trait]
@@ -213,13 +217,23 @@ fn validate_single_schema_response(res: &str) -> Result<(), String> {
         .map_err(|_| "response did not match single schema response".to_string())
 }
 
+/// Builds a schema generation prompt on a blocking thread: projecting a shop's page costs more
+/// than its size on deeply nested markup, which must not stall the async runtime.
+async fn prompt_on_blocking_thread(
+    build: impl FnOnce() -> String + Send + 'static,
+) -> Result<String, ProductListingSchemaServiceError> {
+    tokio::task::spawn_blocking(build)
+        .await
+        .map_err(ProductListingSchemaServiceError::PromptProjection)
+}
+
 fn create_schema_generation_request(
-    html_pages: &[String],
+    prompt: String,
 ) -> Result<StructuredGenerationRequest, ProductListingSchemaServiceError> {
     Ok(StructuredGenerationRequest {
         operation: LlmOperation::CrawlerProductSchemaGeneration,
         system_instruction: create_schema_generation_system_instruction(),
-        prompt: build_create_schemas_instruction(html_pages),
+        prompt,
         image_urls: Vec::new(),
         response_json_schema: response_json_schema(
             product_schema_generation_response_json_schema(),
@@ -233,12 +247,12 @@ fn create_schema_generation_request(
 }
 
 fn single_schema_generation_request(
-    html: &str,
+    prompt: String,
 ) -> Result<StructuredGenerationRequest, ProductListingSchemaServiceError> {
     Ok(StructuredGenerationRequest {
         operation: LlmOperation::CrawlerProductSchemaFreshGeneration,
         system_instruction: single_schema_generation_system_instruction(),
-        prompt: build_single_schema_instruction(html),
+        prompt,
         image_urls: Vec::new(),
         response_json_schema: response_json_schema(single_schema_generation_response_json_schema())?,
         options: GenerationOptions {
@@ -273,6 +287,9 @@ where
         &self,
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductListingSchemaServiceError> {
+        let pages = html_pages.to_vec();
+        let prompt =
+            prompt_on_blocking_thread(move || build_create_schemas_instruction(&pages)).await?;
         let generated = generate_validated_with_governor::<
             _,
             ProductListingSchemasGenerationResponse,
@@ -283,7 +300,7 @@ where
         >(
             &self.create_llm,
             self.governor.as_ref(),
-            create_schema_generation_request(html_pages)?,
+            create_schema_generation_request(prompt)?,
             3,
             ProductListingSchemasGenerationResponse::try_into_initial,
             ProductListingSchemaResponseValidationError::feedback_code,
@@ -305,6 +322,9 @@ where
         &self,
         html: &str,
     ) -> Result<GeneratedSingleSchema, ProductListingSchemaServiceError> {
+        let page = html.to_owned();
+        let prompt =
+            prompt_on_blocking_thread(move || build_single_schema_instruction(&page)).await?;
         let generated = generate_validated_with_governor::<
             _,
             ProductListingSchemaGenerationResponse,
@@ -315,7 +335,7 @@ where
         >(
             &self.single_schema_llm,
             self.governor.as_ref(),
-            single_schema_generation_request(html)?,
+            single_schema_generation_request(prompt)?,
             3,
             ProductListingSchemaGenerationResponse::try_into_single,
             ProductListingSchemaResponseValidationError::feedback_code,
@@ -571,16 +591,20 @@ mod tests {
 
     #[test]
     fn should_use_expanded_output_budget_for_product_schema_generation() {
-        let request = create_schema_generation_request(&["<main>product</main>".to_owned()])
-            .expect("schema generation request should build");
+        let request = create_schema_generation_request(build_create_schemas_instruction(&[
+            "<main>product</main>".to_owned(),
+        ]))
+        .expect("schema generation request should build");
 
         assert_eq!(request.options.max_output_tokens, 16_384);
     }
 
     #[test]
     fn should_mark_single_schema_generation_as_fresh_generation() {
-        let request = single_schema_generation_request("<main>product</main>")
-            .expect("fresh schema request should build");
+        let request = single_schema_generation_request(build_single_schema_instruction(
+            "<main>product</main>",
+        ))
+        .expect("fresh schema request should build");
 
         assert_eq!(
             request.operation,
