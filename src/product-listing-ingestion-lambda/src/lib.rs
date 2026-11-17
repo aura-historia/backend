@@ -15,7 +15,8 @@ use product_listing_postgres::{
 };
 use product_listing_service::use_cases::{
     ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
-    ProductListingIngestionCompletion, ProductListingIngestionFailureClass,
+    ProductListingIngestionCompletion, ProductListingIngestionEnvelope,
+    ProductListingIngestionFailureClass,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -139,21 +140,7 @@ async fn handler_with_budget(
         },
         |attempt| {
             let (disposition, category, failure) = match &attempt.outcome {
-                RecordOutcome::Completed(JobDisposition::Complete(category)) => {
-                    (AttemptDisposition::Completed, *category, None)
-                }
-                RecordOutcome::Completed(JobDisposition::Rejected(category)) => {
-                    (AttemptDisposition::Rejected, *category, None)
-                }
-                RecordOutcome::Completed(JobDisposition::Unprocessable(category)) => {
-                    (AttemptDisposition::Unprocessable, *category, None)
-                }
-                RecordOutcome::Completed(JobDisposition::Failed(failure)) => {
-                    (AttemptDisposition::Retained, failure.stage(), Some(failure))
-                }
-                RecordOutcome::Completed(JobDisposition::Contended(category)) => {
-                    (AttemptDisposition::Contended, *category, None)
-                }
+                RecordOutcome::Completed(job) => job.attempt(),
                 RecordOutcome::MissingBody => {
                     (AttemptDisposition::Retained, "missing_message_body", None)
                 }
@@ -369,18 +356,41 @@ enum JobDisposition {
     Contended(&'static str),
 }
 
+impl JobDisposition {
+    /// How the attempt leaves the queue, its diagnostic category and a retained failure's
+    /// safe cause facts.
+    fn attempt(&self) -> (AttemptDisposition, &'static str, Option<&FailureDiagnostic>) {
+        match self {
+            Self::Complete(category) => (AttemptDisposition::Completed, category, None),
+            Self::Rejected(category) => (AttemptDisposition::Rejected, category, None),
+            Self::Unprocessable(category) => (AttemptDisposition::Unprocessable, category, None),
+            Self::Failed(failure) => (AttemptDisposition::Retained, failure.stage(), Some(failure)),
+            Self::Contended(category) => (AttemptDisposition::Contended, category, None),
+        }
+    }
+}
+
 async fn process_ingestion_job(
     body: &str,
     use_case: &(dyn ProcessProductListingIngestionUseCase + Send + Sync),
     correlation: &RefCell<Option<CommandCorrelation>>,
 ) -> JobDisposition {
-    let envelope =
-        match codec::decode(body).and_then(codec::IngestionEnvelopeV2::into_service_envelope) {
-            Ok(envelope) => envelope,
-            Err(_) => return JobDisposition::Unprocessable("invalid_wire_command"),
-        };
+    let (envelope, command) = match decode_ingestion_job(body) {
+        Ok(decoded) => decoded,
+        Err(disposition) => return disposition,
+    };
+    correlation.replace(Some(command));
+    execute_ingestion_job(envelope, use_case).await
+}
+
+fn decode_ingestion_job(
+    body: &str,
+) -> Result<(ProductListingIngestionEnvelope, CommandCorrelation), JobDisposition> {
+    let envelope = codec::decode(body)
+        .and_then(codec::IngestionEnvelopeV2::into_service_envelope)
+        .map_err(|_| JobDisposition::Unprocessable("invalid_wire_command"))?;
     let metadata = &envelope.message.metadata;
-    correlation.replace(Some(CommandCorrelation {
+    let command = CommandCorrelation {
         command_id: metadata.command_id.as_str().to_owned(),
         submission_id: metadata.submission_id.as_str().to_owned(),
         listing_source_id: metadata.listing_source_id.to_string(),
@@ -388,7 +398,14 @@ async fn process_ingestion_job(
         correlation_id: safe_trace_id(metadata.correlation_id.as_str()).map(str::to_owned),
         operation: metadata.operation.as_str(),
         index: metadata.index,
-    }));
+    };
+    Ok((envelope, command))
+}
+
+async fn execute_ingestion_job(
+    envelope: ProductListingIngestionEnvelope,
+    use_case: &(dyn ProcessProductListingIngestionUseCase + Send + Sync),
+) -> JobDisposition {
     match use_case.execute(envelope).await {
         Ok(ProductListingIngestionCompletion::Applied(_)) => JobDisposition::Complete("applied"),
         Ok(ProductListingIngestionCompletion::AlreadyCompleted) => {
