@@ -186,16 +186,14 @@ there are no per-directory variants. Check new or changed tools against the
 - **OpenAI domain verification.** `GET`/`HEAD /.well-known/openai-apps-challenge` returns exactly
   the configured `MCP_OPENAI_APPS_CHALLENGE` token as `text/plain`, or `404` while none is
   configured. Host/Origin checks and `no-store` apply as for the protected-resource metadata.
-  The token is public by design; set it per stage as `mcp.openAiAppsChallenge` in the
-  [infrastructure configuration](../infra/src/config.ts) once OpenAI's portal issues it.
-  Synthesis rejects a token the server would refuse at startup.
+  The token is public by design; set it in the MCP server's runtime configuration once
+  OpenAI's portal issues it. The server refuses to start with a malformed token.
 - **Muse domain verification.** `GET`/`HEAD /.well-known/muse-challenge/<token>` returns
   `muse-challenge=<token>` as `text/plain` when `<token>` is exactly the configured
   `MCP_MUSE_CHALLENGE`, and `404` for any other token or while none is configured. Host/Origin
   checks and `no-store` apply as above. Muse issues a token per submission and expires it, so the
-  stage sets `mcp.museChallenge` in the [infrastructure configuration](../infra/src/config.ts)
-  when a submission needs it. The token names the path, so the gateway route is that exact
-  path, never a wildcard.
+  MCP server's runtime configuration sets it when a submission needs it. The token names the
+  path, so the server answers that exact path, never a wildcard.
 
 Apart from those argument types, schemas stay as generated. Models load at most each tool's name,
 title, description and input schema: the tool definitions of the Claude and OpenAI model APIs

@@ -9,14 +9,12 @@ must inspect them.
 
 ## Route and authentication boundary
 
-[`api.ts`](../infra/src/constructs/api.ts) owns a closed Gateway route catalog, checked
-against OpenAPI and Axum by [`api-route-matrix.test.ts`](../infra/test/api-route-matrix.test.ts).
-There is no proxy or `$default` route. Ordinary REST methods target the `live` alias
-of the single stage API Lambda; deploy its version/alias before the API stack uses it.
-Preserve deployed route logical IDs when changing path-parameter spelling so
-CloudFormation updates the existing routes rather than creating overlapping patterns.
+CloudFront forwards every path to the host; Axum owns the route boundary and answers
+unknown paths itself. [`api-route-parity.test.ts`](../infra/test/api-route-parity.test.ts)
+keeps the Axum routes identical to the OpenAPI operations: canonical `/v1` paths and exact
+well-known documents, with no aliases or catch-all routes.
 
-Gateway deliberately applies **no Cognito JWT authorizer**. Axum validates Cognito
+The edge deliberately applies **no Cognito JWT authorizer**. Axum validates Cognito
 access JWTs and Aura opaque access tokens, optional bearers, delegated scopes and
 required user/admin/partner authorization. Anonymous probes remain anonymous;
 optional-auth routes reject invalid supplied credentials. OAuth and signed-provider
@@ -57,11 +55,11 @@ administrator endpoint when immediate local session revocation is required. Data
 failures fail closed; opaque Aura tokens keep their existing persisted checks.
 
 Preserve request headers, cookies, query strings and exact signed bodies through the
-Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
-payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
-and Axum response CORS must retain required authorization/provider headers,
-`Idempotency-Key` admission/exposure and `WWW-Authenticate` and `Retry-After` exposure. REST Gateway CORS allows any Origin (`*`)
-in both stages, including preview hosts, for browser requests that do not use
+edge and the host proxy, including JSON bodies on DELETE. Do not rewrite webhook
+payloads or move one-time confirmation into GET/redirect processing. Axum answers
+preflight and sets response CORS; it must retain required authorization/provider headers,
+`Idempotency-Key` admission/exposure and `WWW-Authenticate` and `Retry-After` exposure. REST CORS allows any Origin (`*`),
+including preview hosts, for browser requests that do not use
 `credentials: "include"`. Clients supply bearer tokens explicitly in the
 `Authorization` header. CORS does not grant application authority; all existing
 authentication, provider proof, authorization, raw-body limits and application checks
@@ -71,22 +69,19 @@ explicit origin allowlist.
 
 ## Front-door controls
 
-- Public aliases are exactly `api.stage.aura-historia.com` for AWS **`dev`** and
-  `api.aura-historia.com` for prod, never `*.stage.aura-historia.com`.
-- Regional API Gateway uses TLS 1.2 and a default custom-domain mapping. The canonical
-  REST prefix is `/v1`, without a mapping key or origin-path rewrite. The Lambda adapter
-  normalizes a matching Gateway stage prefix; it must not strip arbitrary path segments.
-  Keep `AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH=true`.
-- CloudFront redirects viewers to HTTPS and uses an HTTPS-only regional Gateway
-  origin (`attrRegionalDomainName`), **not the public CloudFront-facing DNS record**.
-  AllViewer forwards `Host`; origin TLS and custom-domain mapping must accept it.
-  The default execute-api endpoint is disabled when the custom domain is configured.
+- The public alias is exactly `api.aura-historia.com`. The canonical REST prefix is `/v1`,
+  without an origin-path rewrite.
+- CloudFront redirects viewers to HTTPS and uses the HTTPS-only host origin, **not the
+  public CloudFront-facing DNS record**. AllViewer forwards `Host`, so the host proxy serves
+  the public hostname's certificate and routes by it. Every origin request carries the
+  secret `X-Origin-Verify` header, and the host accepts only CloudFront's origin-facing
+  ranges; see the [origin lock](infra.md#cloudfront-origin-lock).
 - Retain CloudFront-scoped AWS IP reputation, common-rule-set and known-bad-input
   rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
-  additional WAF rate rule. Gateway stage throttles shape requests, not database or
-  Lambda concurrency/capacity. Routes that make a paid provider call per request, such as
-  [address suggestions](geography.md#address-suggestions), carry their own lower route
-  throttle as a ceiling across all callers; per-user quotas stay in the application.
+  WAF rate rule. The application owns request-rate limits, which shape requests, not
+  database capacity. Routes that make a paid provider call per request, such as
+  [address suggestions](geography.md#address-suggestions), carry their own lower limit
+  as a ceiling across all callers; per-user quotas stay in the application.
 - Contract-valid loopback redirect URIs can match the common rule set's EC2 metadata
   SSRF body/query rules (`localhost`, such as the Shopify CLI `--use-localhost` callback
   `https://localhost:3458/oauth/callback`, or a native agent's `http://localhost:…/callback`)
@@ -112,7 +107,9 @@ explicit origin allowlist.
   the two limits together. WAF cannot inspect beyond its body-inspection window or
   bound undeclared lengths, so Axum remains the authoritative limit, and managed body
   rules evaluate only the inspected prefix. Typed request validation remains the
-  control for the rest of the body. Stay within the CloudFront plan's WAF rule quota.
+  control for the rest of the body. The rule covers every path, provider webhooks
+  included, so no route may admit a larger body than the edge. Stay within the
+  CloudFront plan's WAF rule quota.
 
 ## Selective anonymous discovery caching
 
@@ -154,8 +151,8 @@ them. Configured CloudFront error TTLs are zero; application errors are also no-
 
 ### OAuth authorization-server metadata
 
-The exact public `GET /.well-known/oauth-authorization-server` route belongs to the closed
-REST route catalog and requires neither bearer nor client credentials. It uses the
+The exact public `GET /.well-known/oauth-authorization-server` route is an OpenAPI operation
+and requires neither bearer nor client credentials. It uses the
 CloudFront default cache-disabled behavior and origin `no-store` headers. OAuth credential
 responses and protocol errors use `no-store` and `Pragma: no-cache`. The exact public
 `GET /.well-known/oauth-protected-resource` route is handled the same way; the
@@ -173,10 +170,10 @@ never an IP literal or callback, so they need no exception and keep those blocks
 
 ## MCP front door
 
-MCP uses a separate Gateway, Lambda `live` alias, CloudFront distribution and Web ACL.
-Its canonical endpoint is `https://mcp.aura-historia.com/v1`; AWS **`dev`** serves
-`https://mcp.stage.aura-historia.com/v1`. The existing REST host and route catalog are
-independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths only:
+MCP uses a separate server process, CloudFront distribution and Web ACL on the same locked
+host origin. Its canonical endpoint is `https://mcp.aura-historia.com/v1`. The REST host and
+routes are independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares the distribution;
+the MCP server answers exact paths only, and `404` for any other:
 `/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
 Four further exact `GET`/`HEAD` paths serve discovery documents:
@@ -189,24 +186,23 @@ While a stage configures a [Muse token](mcp.md#directory-metadata), the exact pa
 `/.well-known/muse-challenge/<token>` is a fifth. No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
-The regional custom-domain mapping has no path key or origin rewrite. CloudFront
+The origin has no path rewrite. CloudFront
 forwards all viewer headers, query strings and cookies using AllViewer, including
 `Host`, `Authorization`, `Origin`, `Accept`, `Content-Type`, `MCP-Protocol-Version`,
 `Mcp-Method`, `Mcp-Name`, `Mcp-Session-Id` and `X-Correlation-Id`. Preserve response
 status, `WWW-Authenticate`, `Allow`, content type and request/correlation IDs.
 Every other MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
-no-store` response policy, including Gateway-generated errors and preflight. No
+no-store` response policy, including proxy-generated errors and preflight. No
 headers or status codes are rewritten to hide authentication/protocol errors. The
 server card's exact-path behavior is the only cached one: it honors the card's
 five-minute origin TTL, keys on the path alone and neither keys nor forwards credentials,
-so discovery traffic stays off the bounded MCP Lambda. Its response policy adds `no-store`
-only where Gateway generated the response without one.
+so discovery traffic stays off the MCP server. Its response policy adds `no-store`
+only where the proxy generated the response without one.
 
-Gateway owns browser preflight; its exact origin list is also passed to the native
-Origin validator. The public server card is the exception: its behavior's CloudFront CORS
-policy replaces Gateway's CORS headers with `Access-Control-Allow-Origin: *`, and the native
-route skips the Origin check. Prod permits `https://aura-historia.com`; dev permits
-`https://stage.aura-historia.com` and `http://localhost:3000`. There are no wildcard
+The MCP server owns browser preflight and validates Origin against its exact list. The public
+server card is the exception: its behavior's CloudFront CORS policy replaces the server's CORS
+headers with `Access-Control-Allow-Origin: *`, and the native route skips the Origin check.
+Prod permits `https://aura-historia.com`. There are no wildcard
 or opaque `null` origins, cookies/credential-mode CORS is not enabled, and normal
 server clients may omit Origin. A browser uses bearer Authorization explicitly;
 CORS grants no application authority. Requests may use the forwarding headers above;
@@ -223,29 +219,21 @@ managed-body rule is relaxed for MCP. A declared body over 256 KiB receives JSON
 prefix and cannot bound undeclared/chunked lengths; the transport's streamed-byte
 limit is authoritative. This exception admits JSON-RPC above the managed threshold,
 without promising that arbitrary payload content bypasses managed rules. WAF request
-sampling and payload logging are disabled for MCP; Gateway logs only request ID,
-route key, status and integration latency. Review metrics without recording bearer
+sampling and payload logging are disabled for MCP. Review metrics without recording bearer
 headers or arguments/results. The [hosting tests](../infra/test/mcp-hosting.test.ts)
 pin these boundaries to the transport budgets.
 
 ### MCP deployment and stage verification
 
 Use the [existing Release workflow](infra.md#deployment-inputs-and-approvals).
-Before first traffic, verify ownership and available aliases, then provision issued
-ACM certificates covering the exact host in `eu-central-1` (regional Gateway) and
-`us-east-1` (CloudFront viewer). Supply their ARNs through these external SSM String
-parameters in the workload region:
-
-- `/certificates/{dev|prod}/mcp-regional-certificate-arn`
-- `/certificates/{dev|prod}/mcp-cloudfront-certificate-arn`
-
-`*.aura-historia.com` does not cover `mcp.stage.aura-historia.com`. Deployment creates
-the custom-domain mapping and distribution, but DNS remains operator-owned. Point
-the exact public hostname's CNAME (or provider alias) to the API stack's
-`McpCloudFrontDistributionDomainName` output, never to the public hostname itself or
-the disabled execute-api endpoint. Keep the previous DNS target/TTL and compatible
-release source for recovery. Inspect regional-origin TLS with the forwarded public
-Host, the MCP `live` alias and API-scoped invoke permission before DNS cutover.
+Before first traffic, verify ownership and available aliases, then provision an issued
+ACM certificate covering the exact host in `us-east-1` (CloudFront viewer). Supply its ARN
+through the external SSM String parameter `/certificates/prod/mcp-cloudfront-certificate-arn`
+in the workload region. The host proxy holds its own certificate for the same hostname.
+DNS remains operator-owned. Point the exact public hostname's CNAME (or provider alias) to
+the API stack's `McpCloudFrontDistributionDomainName` output, never to the public hostname
+itself or the origin name. Keep the previous DNS target/TTL for recovery. Inspect origin TLS
+with the forwarded public Host and the secret header before DNS cutover.
 
 After an approved dev deployment, exercise the **public CloudFront hostname** with a
 generic Streamable HTTP client. For a manual legacy protocol probe:
@@ -305,7 +293,6 @@ rolled back automatically, and rollback does not undo completed tool effects.
 
 | Environment | REST base URL |
 | --- | --- |
-| Development (AWS `dev`) | `https://api.stage.aura-historia.com/v1` |
 | Production | `https://api.aura-historia.com/v1` |
 
 Append operation suffixes exactly once, for example `/health` to the REST base URL.

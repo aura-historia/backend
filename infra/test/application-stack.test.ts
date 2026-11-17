@@ -1,52 +1,67 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { createApplicationStacks } from "../src/application-stack";
-import { API_ROUTE_CATALOG } from "../src/constructs/api";
-import { mcpRouteCatalog } from "../src/constructs/mcp";
-import { STAGES, isStageName, stageConfig, type StageName } from "../src/config";
+import { createApplicationStacks, type ApplicationStageStacks } from "../src/application-stack";
+import { isStageName, STAGES, stageConfig, type StageName } from "../src/config";
 
-function createStacks(stage: StageName) {
-  const app = new cdk.App({ analyticsReporting: false });
-  return createApplicationStacks(app, {
-    stage,
-    stackNamePrefix: `application-${stage}`,
-  });
+function createStacks(): ApplicationStageStacks {
+  return createApplicationStacks(new cdk.App({ analyticsReporting: false }), { stage: "prod" });
 }
 
+/** Resource types of the retired serverless runtime; none may come back into the app. */
+const RETIRED_RESOURCE_TYPE = new RegExp([
+  "AWS::EC2::", "AWS::RDS::", "AWS::DMS::", "AWS::Kinesis::", "AWS::SQS::",
+  "AWS::ApiGatewayV2::", "AWS::ECS::", "AWS::ECR::", "AWS::Scheduler::", "AWS::Events::",
+  "AWS::CodePipeline::", "AWS::CodeBuild::", "AWS::CodeDeploy::",
+  "AWS::Lambda::EventSourceMapping", "AWS::StepFunctions::",
+].map((prefix) => `^${prefix.replaceAll(":", "\\:")}`).join("|"));
+
 describe("Application stacks", () => {
-  test("rejects the removed ephemeral CDK stage", () => {
-    expect(isStageName("ephemeral")).toBe(false);
-    expect(() => stageConfig("ephemeral" as StageName)).toThrow("Unsupported CDK stage 'ephemeral'");
-    expect(STAGES).toEqual(["prod", "dev"]);
+  test("declares production only; the host has no staging copy", () => {
+    expect(STAGES).toEqual(["prod"]);
+    expect(isStageName("dev")).toBe(false);
+    expect(() => stageConfig("dev" as StageName)).toThrow("Unsupported CDK stage 'dev'");
   });
 
-  test.each(STAGES)("synthesizes the %s stack contract", (stage) => {
-    const stacks = createStacks(stage);
-
-    expect(Object.values(Template.fromStack(stacks.identity).findResources("AWS::Cognito::UserPool"))).toHaveLength(1);
-    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Api"))).toHaveLength(2);
-    expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(API_ROUTE_CATALOG.length + mcpRouteCatalog(stageConfig(stage).mcp).length);
-    expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::StepFunctions::StateMachine"))).toHaveLength(0);
-    expect(stacks.compute.dependencies).toContain(stacks.migration);
-    expect(stacks.initialization.dependencies).not.toContain(stacks.compute);
+  test("keeps the retained stack names and adds the host stack, all termination-protected", () => {
+    const stacks = createStacks();
+    expect(Object.values(stacks).map((stack) => stack.stackName)).toEqual([
+      "application-prod-host", "application-prod-identity", "application-prod-api",
+    ]);
+    for (const stack of Object.values(stacks)) expect(stack.terminationProtection).toBe(true);
   });
 
-  test.each(STAGES)("does not synthesize removed saved-filter matching or projection artifacts in %s", (stage) => {
-    const stacks = createStacks(stage);
-    for (const stack of Object.values(stacks)) {
-      if (stack) {
-        expect(JSON.stringify(Template.fromStack(stack).toJSON())).not.toMatch(
-          /SearchFilter(?:Projection|Percolator)|SEARCH_FILTER_(?:PROJECTION|PERCOLATOR)|search-filter-(?:projection|percolator)|filter-projector|\/percolator\/|user_search_filters/,
-        );
-      }
+  test("deploys the host stack first: the other stacks name its user and secret", () => {
+    const stacks = createStacks();
+    expect(stacks.host.dependencies).toEqual([]);
+    expect(stacks.identity.dependencies).toEqual([stacks.host]);
+    expect(stacks.api.dependencies).toEqual([stacks.host]);
+  });
+
+  test("declares no resource of the retired serverless runtime", () => {
+    for (const stack of Object.values(createStacks())) {
+      const types = Object.values(Template.fromStack(stack).toJSON().Resources as Record<string, { Type: string }>)
+        .map((resource) => resource.Type);
+      expect(types.filter((type) => RETIRED_RESOURCE_TYPE.test(type))).toEqual([]);
     }
   });
 
-  test.each(STAGES)("does not synthesize native worker or Sequin ingress in %s", (stage) => {
-    const stacks = createStacks(stage);
-    for (const stack of [stacks.data, stacks.compute, stacks.api]) {
-      const template = Template.fromStack(stack);
-      expect(JSON.stringify(template.toJSON())).not.toMatch(/aura-historia-worker|\/cdc\/sequin|AURA_HISTORIA_WORKER_/i);
+  test("runs only the Cognito triggers and the Web ACL providers as Lambda functions", () => {
+    const names = Object.values(createStacks()).flatMap((stack) =>
+      Object.values(Template.fromStack(stack).findResources("AWS::Lambda::Function"))
+        .map((resource) => resource.Properties.FunctionName as string));
+    expect(names.sort()).toEqual([
+      "api-cloudfront-web-acl-provider-prod",
+      "cognito-post-confirmation-forwarder-prod",
+      "cognito-pre-sign-up-trigger-prod",
+      "mcp-cloudfront-web-acl-provider-prod",
+    ]);
+  });
+
+  test("puts no function in a VPC", () => {
+    for (const stack of Object.values(createStacks())) {
+      for (const resource of Object.values(Template.fromStack(stack).findResources("AWS::Lambda::Function"))) {
+        expect(resource.Properties.VpcConfig).toBeUndefined();
+      }
     }
   });
 });

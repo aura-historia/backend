@@ -7,9 +7,9 @@ const app = new cdk.App({
   analyticsReporting: false,
 });
 
-const stageContext = app.node.tryGetContext("stage") ?? process.env.STAGE ?? "dev";
+const stageContext = app.node.tryGetContext("stage") ?? process.env.STAGE ?? "prod";
 if (!isStageName(stageContext)) {
-  throw new Error(`Unsupported stage '${stageContext}'. Expected one of: prod, dev.`);
+  throw new Error(`Unsupported stage '${stageContext}'. Expected: prod.`);
 }
 
 const defaultStackNamePrefix = `application-${stageContext}`;
