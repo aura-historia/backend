@@ -4149,6 +4149,7 @@ function renderCoverageSection(matrix) {
     return `<div class="section">
       <div class="section-head"><h3>Coverage</h3>${badge(`${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}${coverage.notEvaluated ? ` · ${coverage.notEvaluated} not evaluated` : ''}`, tone)}</div>
       <div class="small muted">${escapeHtml(coverageSentences(matrix, coverage))}</div>
+      ${capturedIdentityChanges(matrix).length ? `<div class="small tone-warn">${escapeHtml(identityChangeWarning(capturedIdentityChanges(matrix)))}</div>` : ''}
       <div class="actions">
         <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages" type="button">Evaluate on live pages</button>
         ${matrix.live_evaluation ? `<span class="small muted">evaluated ${evaluated ? timeBadge(evaluated, 'Evaluated') : 'never'}</span>` : ''}
@@ -5040,15 +5041,19 @@ function approveReview() {
     // reviewer confirms the counts; the approval names them, and the server refuses it without
     // them or once the review's coverage differs from them.
     const shownCoverage = incompleteApprovalCoverage();
+    // A candidate that derives another identity from a sampled captured listing is the agents'
+    // CAPTURED_IDENTITY_DIFFERS refusal; a human may mean it, so it only warns.
+    const identityChanges = capturedIdentityChanges(selectedMatrix);
+    const coverageMessage = shownCoverage
+        ? (shownCoverage.total === 0
+            ? 'This review has no pages, so nothing was tested. Approve anyway?'
+            : `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`)
+        : '';
     openActionPanel({
         title: 'Approve?',
-        message: shownCoverage
-            ? (shownCoverage.total === 0
-                ? 'This review has no pages, so nothing was tested. Approve anyway?'
-                : `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`)
-            : '',
+        message: [coverageMessage, identityChangeWarning(identityChanges)].filter(Boolean).join(' '),
         notes: 'optional',
-        confirmLabel: shownCoverage ? 'Approve anyway' : 'Approve',
+        confirmLabel: shownCoverage || identityChanges.length ? 'Approve anyway' : 'Approve',
         // The panel stays open while the reviewer works on: edits made since it opened, or a
         // coverage that changed, ask again instead of approving past them.
         run: notes => {
@@ -5063,6 +5068,23 @@ function approveReview() {
             return submitVerdict('approve', verdict);
         }
     });
+}
+
+// The sampled captured listings from which the candidate the matrix evaluated derives another
+// identity than the one the listing was captured under, from the matrix's live evaluation.
+function capturedIdentityChanges(matrix) {
+    const pages = matrix?.live_evaluation?.captured_identity_sample?.pages || [];
+    return pages.filter(page => page.outcome === 'DIFFERS');
+}
+
+// Why approving the candidate changes the shop's identity, naming up to three sampled listings,
+// or '' when it does not.
+function identityChangeWarning(changes) {
+    if (!changes.length) return '';
+    const named = changes.slice(0, 3)
+        .map(page => `${page.url}: captured as ${page.captured_identity}, now ${(page.identities || []).join(', ')}`)
+        .join('; ');
+    return `Identity change: the candidate derives another identity than ${changes.length} sampled captured listing${changes.length === 1 ? '' : 's'} (${named}). Their listings keep their captured identity, but new listings and new spellings of these products would take the new kind.`;
 }
 
 // The selected product-schema review's coverage while it is incomplete, or null.
