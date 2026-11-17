@@ -7,7 +7,9 @@ use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedProductSchemas;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::ScrapeMode;
-use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
+use crate::scraper::scraper_service::extraction::schema_review_gate::{
+    GeneratedSchemaReviewOutcome, GenerationPages,
+};
 use crate::scraper::scraper_service::pipeline::scrape_product::FetchedPage;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
@@ -138,7 +140,8 @@ impl ScraperServiceImpl {
                 "initial_schema_generation",
                 generated.schemas,
                 generated.evaluation,
-                pages,
+                // A source without cached schemas starts its identities with its next schema.
+                GenerationPages::uncaptured(pages),
                 validation_summary,
             )
             .await?

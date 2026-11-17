@@ -4,12 +4,15 @@ use crate::scraper::css_selector::product_schema::{
 };
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
+use crate::scraper::scraper_service::extraction::schema_review_gate::{
+    GeneratedSchemaReviewOutcome, GenerationPages,
+};
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::SelectedSchemaCandidate;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use serde_json::json;
+use std::collections::HashMap;
 use tracing::debug;
 use url::Url;
 
@@ -23,6 +26,9 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) html: &'a str,
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+    /// The identity the requested URL's listing was captured under, `None` before its first
+    /// capture: a generated schema that derives another one from the page is not auto-approved.
+    pub(crate) captured_identity: Option<&'a str>,
 }
 
 impl ScraperServiceImpl {
@@ -115,13 +121,23 @@ impl ScraperServiceImpl {
         let mut persisted_schemas = ctx.existing_schemas.to_vec();
         persisted_schemas.push(generated_schema.clone());
         let pages = vec![triggering_page(&ctx)];
+        // A redirected page is judged by its own identity, as its capture is.
+        let captured_identities: HashMap<String, String> = ctx
+            .captured_identity
+            .filter(|_| ctx.url == ctx.requested_url)
+            .map(|identity| (ctx.url.to_string(), identity.to_owned()))
+            .into_iter()
+            .collect();
         match self
             .handle_generated_schema_review(
                 ctx.listing_source_id,
                 "fresh_schema_generation",
                 persisted_schemas,
                 evaluation,
-                pages,
+                GenerationPages {
+                    pages,
+                    captured_identities,
+                },
                 json!({ "schema_applied": true, "fresh_generation": true }),
             )
             .await?

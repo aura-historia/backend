@@ -269,6 +269,9 @@ pub(crate) struct FetchedPage<'a> {
     pub(crate) redirect: RedirectTarget,
     pub(crate) html: &'a str,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+    /// The identity the requested URL's listing was captured under, `None` before its first
+    /// capture.
+    pub(crate) captured_identity: Option<&'a str>,
 }
 
 impl<'a> FetchedPage<'a> {
@@ -287,6 +290,7 @@ impl<'a> FetchedPage<'a> {
             html: self.html,
             existing_schemas,
             expected_last_captured_raw_input_sha256: self.expected_last_captured_raw_input_sha256,
+            captured_identity: self.captured_identity,
         }
     }
 }
@@ -643,6 +647,7 @@ impl ScraperServiceImpl {
             redirect: page.redirect,
             html: &page.html,
             expected_last_captured_raw_input_sha256,
+            captured_identity: request.last_source_listing_id.as_deref(),
         };
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.

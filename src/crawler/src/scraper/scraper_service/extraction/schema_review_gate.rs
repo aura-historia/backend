@@ -1,7 +1,7 @@
 use crate::CrawlerReviewId;
 use crate::authoring::CrawlerAuthoringMode;
 use crate::logging::SourceLogContext;
-use crate::review::model::{LinkIdentity, SchemaMatrix};
+use crate::review::model::{LinkIdentity, SchemaMatrix, SchemaPageReference};
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
@@ -15,11 +15,31 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::product_schema_service::{
     ProductListingSchemaServiceError, SchemaLlmEvaluation,
 };
+use crate::scraper::plausibility::capturable_identity;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use tracing::{info, warn};
+
+/// The pages a generated schema was evaluated on, with the identities their listings were
+/// captured under, keyed by page URL: the review's evidence and what auto-approval checks the
+/// schema's identity against.
+pub(crate) struct GenerationPages {
+    pub(crate) pages: Vec<SchemaReviewPageInput>,
+    pub(crate) captured_identities: HashMap<String, String>,
+}
+
+impl GenerationPages {
+    /// Pages whose listings were never captured, such as a new source's seed pages.
+    pub(crate) fn uncaptured(pages: Vec<SchemaReviewPageInput>) -> Self {
+        Self {
+            pages,
+            captured_identities: HashMap::new(),
+        }
+    }
+}
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
     Persisted(ListingSourceProductSchema),
@@ -34,9 +54,13 @@ impl ScraperServiceImpl {
         reason: &str,
         schemas: Vec<ProductCssSelectorSchema>,
         evaluation: SchemaLlmEvaluation,
-        pages: Vec<SchemaReviewPageInput>,
+        generation_pages: GenerationPages,
         validation_summary: Value,
     ) -> Result<GeneratedSchemaReviewOutcome, ScraperError> {
+        let GenerationPages {
+            pages,
+            captured_identities,
+        } = generation_pages;
         if let Err(error) = ProductCssSelectorSchema::validate_all(&schemas) {
             warn!(
                 listing_source_id = %listing_source_id,
@@ -58,7 +82,10 @@ impl ScraperServiceImpl {
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
         };
         let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
-        let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
+        let keeps_captured_identities =
+            derives_captured_identities(&matrix, &pages, &captured_identities);
+        let deterministic_approval_ok =
+            schema_matrix_deterministic_approval_ok(&matrix) && keeps_captured_identities;
         let mut validation_summary =
             with_schema_matrix_summary(validation_summary, &matrix, deterministic_approval_ok);
         let approved_by_llm = should_auto_approve_generated_schema(
@@ -117,6 +144,38 @@ impl ScraperServiceImpl {
 }
 
 pub(crate) const SCHEMA_GENERATED_EVENT: &str = "crawler.schema.generated";
+
+/// Whether every schema that applies to a page derives the identity the page's listing was
+/// captured under, where `captured_identities` names one for the page's URL. A captured listing
+/// keeps its identity whatever the schemas derive, but a schema with another identity rule gives
+/// the source's new listings, and the new spellings of its captured products, another kind of
+/// identity, so such a schema is not approved without a review. A page the schema derives no
+/// identity from shows nothing against it.
+fn derives_captured_identities(
+    matrix: &SchemaMatrix,
+    pages: &[SchemaReviewPageInput],
+    captured_identities: &HashMap<String, String>,
+) -> bool {
+    matrix.candidates.iter().all(|candidate| {
+        candidate.pages.iter().all(|evaluation| {
+            let SchemaPageReference::Input { page_index } = evaluation.page_reference else {
+                return true;
+            };
+            let Some(captured) = pages
+                .get(page_index)
+                .and_then(|page| captured_identities.get(&page.url))
+            else {
+                return true;
+            };
+            let derived = evaluation
+                .extracted
+                .as_ref()
+                .filter(|_| evaluation.apply_ok)
+                .and_then(|raw| capturable_identity(&raw.source_listing_id));
+            derived.is_none_or(|derived| &derived == captured)
+        })
+    })
+}
 
 /// The fields of the generated schemas that failed on a sample page (a rule that errs, or a title
 /// selector that finds no element), as `schema_index:field` without repeats: the fields that decide why a schema did not pass the deterministic gate.
@@ -670,7 +729,7 @@ mod tests {
                 "initial_schema_generation",
                 vec![schema],
                 SchemaLlmEvaluation::unavailable("not evaluated"),
-                Vec::new(),
+                GenerationPages::uncaptured(Vec::new()),
                 json!({}),
             )
             .await;
@@ -733,5 +792,33 @@ mod tests {
             true,
             &high,
         ));
+    }
+
+    mod captured_identities {
+        use super::*;
+
+        fn captured(path: &str, identity: &str) -> HashMap<String, String> {
+            HashMap::from([(format!("https://example.com/{path}"), identity.to_owned())])
+        }
+
+        fn kept(captured_identities: &HashMap<String, String>) -> bool {
+            let pages = vec![seed_page(PAGE_ROLE_PRIMARY, "chair", None)];
+            let matrix = evaluate_schema_matrix_for_inputs(&[optional_miss_schema()], &pages);
+            derives_captured_identities(&matrix, &pages, captured_identities)
+        }
+
+        #[test]
+        fn should_keep_a_schema_that_derives_the_captured_identity_or_finds_none() {
+            assert!(kept(&captured("chair", "chair")));
+            assert!(kept(&HashMap::new()));
+            assert!(kept(&captured("table", "SKU-9")));
+        }
+
+        /// In `auto` mode a generated schema that derives another identity from a page whose
+        /// listing was captured would otherwise go live without a review.
+        #[test]
+        fn should_not_keep_a_schema_that_derives_another_identity_than_the_captured_one() {
+            assert!(!kept(&captured("chair", "SKU-1")));
+        }
     }
 }
