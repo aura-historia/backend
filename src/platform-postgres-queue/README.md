@@ -4,7 +4,7 @@
 ProductListing ingestion and marketing-consent FIFO queues and their dead-letter queues. It
 keeps the delivery and custody rules of [architecture §12.2–12.4](../../docs/arch.md#122-routing-acknowledgment-and-durable-custody);
 the [worker runbook](../../docs/durable-worker-runbook.md) owns operator procedures. The
-[migration](../../migrations/20261117120000_job_queue.sql) owns the schema.
+[migration](../../migrations/20261117130000_job_queue.sql) owns the schema.
 
 ## Scopes
 
