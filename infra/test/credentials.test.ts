@@ -24,7 +24,7 @@ function dynamicReferences(template: unknown): string[] {
 test("operators provision exactly these runtime credential secrets and JSON fields", () => {
   expect(Object.values(credentialSecrets("prod")).map(({ secretName, fields }) => [secretName, fields])).toEqual([
     ["/aura-historia/prod/postgres/runtime", ["username", "password"]],
-    ["/aura-historia/prod/app/stripe", ["apiKey"]],
+    ["/aura-historia/prod/app/stripe", ["apiKey", "webhookSigningSecret"]],
     ["/aura-historia/prod/app/loops", ["apiKey", "webhookSigningSecret"]],
     ["/aura-historia/prod/app/opensearch", ["readerPassword", "productProjectorPassword"]],
     ["/aura-historia/prod/app/anthropic", ["apiKey"]],

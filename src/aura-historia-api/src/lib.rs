@@ -47,8 +47,8 @@ use crate::state::{
     ContentNoticesState, ListingSourcesState, LoopsWebhooksState, NewsletterState,
     NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
     PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, UsersState,
-    WatchlistState, WebhooksState,
+    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, StripeWebhooksState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -82,7 +82,10 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use billing_stripe::{StripeBillingClient, StripeBillingConfig};
+use billing_stripe::{
+    StripeBillingClient, StripeBillingConfig, StripeSubscriptionReader,
+    StripeSubscriptionWebhookVerifier,
+};
 use content_notice_postgres::{
     SqlxContentNoticeRepositoryFactory, SqlxContentNoticeSubmissionHistoryFactory,
     SqlxContentNoticeTargetReaderFactory,
@@ -202,12 +205,12 @@ use user_postgres::{
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
     SqlxCognitoUserIdentityReader, SqlxLoopsWebhookReceiptRepository,
     SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
-    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
-    SqlxUserAuthenticationReader, SqlxUserCognitoIdentityRegistryFactory,
-    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
+    SqlxNewsletterProfileReader, SqlxStripeSubscriptionEventStoreFactory,
+    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserAuthenticationReader,
+    SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory,
+    SqlxUserTierEntitlementsFactory,
 };
 use user_service::ports::NewsletterWebhookMailingListId;
-use user_service::use_cases::ApplyLoopsPreferenceEventHandler;
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
@@ -224,6 +227,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
+use user_service::use_cases::{ApplyLoopsPreferenceEventHandler, ApplyStripeSubscriptionHandler};
 use user_service::use_cases::{
     AuthenticateAccessTokenHandler, AuthenticateUserHandler, ConfirmNewsletterSubscriptionHandler,
     RequestNewsletterSubscriptionHandler, ResolveCognitoUserHandler, RevokeUserSessionsHandler,
@@ -242,6 +246,9 @@ pub const STRIPE_PRO_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_PRO_MONTHLY_PRICE_ID";
 pub const STRIPE_PRO_YEARLY_PRICE_ID_ENV: &str = "STRIPE_PRO_YEARLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_MONTHLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PRICE_ID";
+pub const STRIPE_PRO_PRODUCT_ID_ENV: &str = "STRIPE_PRO_PRODUCT_ID";
+pub const STRIPE_ULTIMATE_PRODUCT_ID_ENV: &str = "STRIPE_ULTIMATE_PRODUCT_ID";
+pub const STRIPE_WEBHOOK_SIGNING_SECRET_ENV: &str = "STRIPE_WEBHOOK_SIGNING_SECRET";
 pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
@@ -280,6 +287,13 @@ const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
 
+/// The Stripe products whose entitled subscriptions grant each paid tier.
+#[derive(Clone, PartialEq, Eq)]
+struct StripeSubscriptionProducts {
+    pro: String,
+    ultimate: String,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
@@ -292,6 +306,8 @@ pub struct ApiConfig {
     saved_search_previews: SavedSearchPreviewConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
+    stripe_subscription_products: StripeSubscriptionProducts,
+    stripe_webhook_signing_secret: String,
     loops: LoopsNewsletterConfig,
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
@@ -349,6 +365,14 @@ impl ApiConfig {
             ultimate_monthly: required_config(&mut get, STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV)?,
             ultimate_yearly: required_config(&mut get, STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV)?,
         };
+        let stripe_subscription_products = StripeSubscriptionProducts {
+            pro: required_config(&mut get, STRIPE_PRO_PRODUCT_ID_ENV)?,
+            ultimate: required_config(&mut get, STRIPE_ULTIMATE_PRODUCT_ID_ENV)?,
+        };
+        let stripe_webhook_signing_secret =
+            required_config(&mut get, STRIPE_WEBHOOK_SIGNING_SECRET_ENV)?;
+        StripeSubscriptionWebhookVerifier::new(&stripe_webhook_signing_secret)
+            .map_err(|_| ApiConfigError::InvalidStripeWebhookSigningSecret)?;
 
         let product_listings = ProductListingConfig::from_getter(&mut get)?;
         let saved_search_previews = SavedSearchPreviewConfig::from_getter(&mut get)
@@ -405,6 +429,8 @@ impl ApiConfig {
             saved_search_previews,
             stripe_billing,
             billing_prices,
+            stripe_subscription_products,
+            stripe_webhook_signing_secret,
             loops,
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
@@ -456,6 +482,14 @@ impl ApiConfig {
 
     fn billing_prices(&self) -> &BillingPriceIds {
         &self.billing_prices
+    }
+
+    fn stripe_subscription_products(&self) -> &StripeSubscriptionProducts {
+        &self.stripe_subscription_products
+    }
+
+    fn stripe_webhook_signing_secret(&self) -> &str {
+        &self.stripe_webhook_signing_secret
     }
 
     fn loops(&self) -> &LoopsNewsletterConfig {
@@ -656,6 +690,8 @@ pub enum ApiConfigError {
     ),
     #[error("invalid Loops webhook signing-secret configuration")]
     InvalidLoopsWebhookSigningSecret,
+    #[error("invalid Stripe webhook signing-secret configuration")]
+    InvalidStripeWebhookSigningSecret,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -715,6 +751,21 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     post(webhooks::post_loops::post_loops).layer(
                         tower_http::limit::RequestBodyLimitLayer::new(
                             crate::transport::MAX_LOOPS_WEBHOOK_BODY_BYTES,
+                        ),
+                    ),
+                )
+                .with_state(webhooks),
+        );
+    }
+
+    if let Some(webhooks) = state.stripe_webhooks {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/v1/webhooks/stripe",
+                    post(webhooks::post_stripe::post_stripe).layer(
+                        tower_http::limit::RequestBodyLimitLayer::new(
+                            crate::transport::MAX_STRIPE_WEBHOOK_BODY_BYTES,
                         ),
                     ),
                 )
@@ -1424,6 +1475,26 @@ async fn app_state_from_config_and_runtime(
     let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
         .map_err(ApiStateError::StripeBilling)?;
     let billing_prices = config.billing_prices().clone();
+    let stripe_webhooks = StripeWebhooksState::new(
+        Arc::new(
+            StripeSubscriptionWebhookVerifier::new(config.stripe_webhook_signing_secret())
+                .map_err(|_| {
+                    ApiStateError::Config(ApiConfigError::InvalidStripeWebhookSigningSecret)
+                })?,
+        ),
+        Arc::new(ApplyStripeSubscriptionHandler::new(
+            unit_of_work.clone(),
+            SqlxUserRepositoryFactory::new(),
+            SqlxUserTierEntitlementsFactory::new(),
+            SqlxStripeSubscriptionEventStoreFactory,
+            StripeSubscriptionReader::new(
+                config.stripe_billing().api_key.clone(),
+                config.stripe_subscription_products().pro.clone(),
+                config.stripe_subscription_products().ultimate.clone(),
+            )
+            .map_err(ApiStateError::StripeSubscriptionReader)?,
+        )),
+    );
     let admin_get_user = AdminGetUserHandler::new(
         unit_of_work.clone(),
         SqlxUserAccountReaderFactory::new(),
@@ -2134,6 +2205,7 @@ async fn app_state_from_config_and_runtime(
             Arc::new(LoopsNewsletterWebhookVerifier),
             Arc::new(apply_loops_preference_event),
         ))
+        .with_stripe_webhooks(stripe_webhooks)
         .with_oauth(oauth_state)
         .with_agent_discovery(agent_discovery::AgentDiscoveryState::new(
             config.oauth_resource_policy(),
@@ -2202,6 +2274,10 @@ where
 pub enum ApiStateError {
     #[error("failed to initialize Stripe billing client")]
     StripeBilling(#[source] billing_stripe::StripeBillingClientInitError),
+    #[error("failed to initialize Stripe subscription reader")]
+    StripeSubscriptionReader(
+        #[source] user_service::ports::stripe_subscription_sync::StripeSubscriptionSyncError,
+    ),
     #[error(transparent)]
     Runtime(#[from] aura_historia_runtime::RuntimeError),
     #[error(transparent)]
@@ -2314,6 +2390,12 @@ mod tests {
             (
                 STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
                 "ultimate-yearly".to_owned(),
+            ),
+            (STRIPE_PRO_PRODUCT_ID_ENV, "prod_pro".to_owned()),
+            (STRIPE_ULTIMATE_PRODUCT_ID_ENV, "prod_ultimate".to_owned()),
+            (
+                STRIPE_WEBHOOK_SIGNING_SECRET_ENV,
+                "whsec_test_stripe_webhook".to_owned(),
             ),
             (LOOPS_API_KEY_ENV, "test-loops-key".to_owned()),
             (
@@ -2654,6 +2736,30 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn should_require_a_stripe_webhook_signing_secret_without_revealing_it() {
+        let mut missing = valid_api_config_values();
+        missing.remove(STRIPE_WEBHOOK_SIGNING_SECRET_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| missing.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: STRIPE_WEBHOOK_SIGNING_SECRET_ENV
+            })
+        ));
+
+        let sentinel = "stripe-secret-sentinel";
+        let mut invalid = valid_api_config_values();
+        invalid.insert(STRIPE_WEBHOOK_SIGNING_SECRET_ENV, sentinel.to_owned());
+        let Err(error) = ApiConfig::from_getter(|name| invalid.get(name).cloned()) else {
+            panic!("invalid Stripe webhook secret unexpectedly accepted");
+        };
+        assert!(matches!(
+            error,
+            ApiConfigError::InvalidStripeWebhookSigningSecret
+        ));
+        assert!(!format!("{error} {error:?}").contains(sentinel));
     }
 
     #[test]

@@ -117,7 +117,7 @@ test("worker immutable version advances on the same function while redirect and 
       Rule: {
         Properties: {
           EventBusName:
-            "{{resolve:ssm:/eventbridge/prod/stripe-event-bus-name}}",
+            "{{resolve:ssm:/eventbridge/prod/shopify-event-bus-name}}",
         },
       },
     },
@@ -128,7 +128,7 @@ test("worker immutable version advances on the same function while redirect and 
       rule,
       { logicalId: "Rule" },
       (_ctx, _service, _op, args) => {
-        assert.equal(args[1], "/eventbridge/prod/stripe-event-bus-name");
+        assert.equal(args[1], "/eventbridge/prod/shopify-event-bus-name");
         return { Parameter: { Type: "String", Value: "partner-bus" } };
       },
     ),

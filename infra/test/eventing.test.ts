@@ -56,12 +56,12 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     expect(shopify?.Properties).toMatchObject({ BatchSize: 10, MaximumBatchingWindowInSeconds: 1 });
 
     const rules = resources(compute, "AWS::Events::Rule");
-    for (const marker of ["customer.subscription.created", "X-Shopify-Topic"]) {
-      const rule = rules.find((candidate) => JSON.stringify(candidate.Properties.EventPattern).includes(marker));
-      expect(rule).toBeDefined();
-      expect(rule?.Properties.State ?? "ENABLED").toBe("ENABLED");
-    }
+    // Stripe delivers subscription events to the API's signed webhook, not to a partner bus.
+    expect(rules.some((candidate) => JSON.stringify(candidate.Properties.EventPattern).includes("customer.subscription")))
+      .toBe(false);
     const listingRule = rules.find((candidate) => JSON.stringify(candidate.Properties.EventPattern).includes("X-Shopify-Topic"));
+    expect(listingRule).toBeDefined();
+    expect(listingRule?.Properties.State ?? "ENABLED").toBe("ENABLED");
     expect(listingRule?.Properties.EventPattern.detail.metadata["X-Shopify-Topic"])
       .toEqual(["product_listings/add", "product_listings/update", "product_listings/remove"]);
     expect(resources(compute, "AWS::CloudFormation::CustomResource")).toHaveLength(0);
