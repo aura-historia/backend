@@ -1,3 +1,4 @@
+use super::streamed_segments::place_streamed_segments;
 use crate::scraper::css_selector::rule::{has_known_image_extension, srcset_descriptor_width};
 use crate::scraper::css_selector::srcset::srcset_candidates;
 use kuchiki::traits::*;
@@ -61,18 +62,27 @@ pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
     project_children(&parsed_page(input))
 }
 
-/// The parsed page `input` without the elements of [`REMOVED_DSL_TAGS`] and comments, which every
-/// view of the page leaves out; an element named with a prefix of [`REMOVED_DSL_TAG_PREFIXES`]
-/// is still in it, for the walker to skip with [`is_removed_dsl_tag`].
+/// The parsed page `input` as a browser shows it once its streamed segments are in place
+/// ([`place_streamed_segments`]), without the elements of [`REMOVED_DSL_TAGS`] and comments, which
+/// every view of the page leaves out; an element named with a prefix of
+/// [`REMOVED_DSL_TAG_PREFIXES`] is still in it, for the walker to skip with
+/// [`has_removed_tag_prefix`]. An `aside` inside `main` or an `article` stays: it is part of the
+/// page's content, often a product page's price and cart panel, where an `aside` outside them is
+/// the page's sidebar.
 pub(super) fn parsed_page(input: &str) -> NodeRef {
     let document = parse_html().one(input);
+    place_streamed_segments(&document);
 
-    for selector in REMOVED_DSL_TAGS {
-        if let Ok(nodes) = document.select(selector) {
-            for node in nodes {
-                node.as_node().detach();
-            }
-        }
+    // Collected before detaching: detaching the node a selection stands on ends its traversal.
+    let removed: Vec<NodeRef> = REMOVED_DSL_TAGS
+        .iter()
+        .filter_map(|selector| document.select(selector).ok())
+        .flatten()
+        .map(|node| node.as_node().clone())
+        .filter(|node| !is_content_aside(node))
+        .collect();
+    for node in removed {
+        node.detach();
     }
     remove_comments(&document);
     document
@@ -153,7 +163,7 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
     };
 
     let tag = element.name.local.to_string();
-    if is_removed_dsl_tag(&tag) {
+    if has_removed_tag_prefix(&tag) {
         return Vec::new();
     }
 
@@ -180,11 +190,12 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
     }]
 }
 
-pub(super) fn is_removed_dsl_tag(tag: &str) -> bool {
-    REMOVED_DSL_TAGS.contains(&tag)
-        || REMOVED_DSL_TAG_PREFIXES
-            .iter()
-            .any(|prefix| tag.starts_with(prefix))
+/// Whether every view leaves out the element named `tag` by its prefix, such as a theme's
+/// `header-drawer`. [`parsed_page`] has already removed the elements of [`REMOVED_DSL_TAGS`].
+pub(super) fn has_removed_tag_prefix(tag: &str) -> bool {
+    REMOVED_DSL_TAG_PREFIXES
+        .iter()
+        .any(|prefix| tag.starts_with(prefix))
 }
 
 /// A layout wrapper the projection leaves out, showing its children in its place: a grouping
@@ -569,6 +580,17 @@ fn truncate_chars(value: &str, limit: usize) -> String {
     let mut truncated = value.chars().take(limit).collect::<String>();
     truncated.push('…');
     truncated
+}
+
+fn is_content_aside(node: &NodeRef) -> bool {
+    let is_named = |node: &NodeRef, tags: &[&str]| {
+        node.as_element()
+            .is_some_and(|element| tags.contains(&&*element.name.local))
+    };
+    is_named(node, &["aside"])
+        && node
+            .ancestors()
+            .any(|ancestor| is_named(&ancestor, &["main", "article"]))
 }
 
 fn remove_comments(node: &NodeRef) {

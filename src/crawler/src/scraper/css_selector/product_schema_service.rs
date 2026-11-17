@@ -32,6 +32,8 @@ mod projection;
 mod prompt;
 #[path = "schema_generation/response.rs"]
 mod response;
+#[path = "schema_generation/streamed_segments.rs"]
+mod streamed_segments;
 
 pub use markdown::html_to_agent_page_markdown;
 pub use outline::html_to_agent_page_outline;
