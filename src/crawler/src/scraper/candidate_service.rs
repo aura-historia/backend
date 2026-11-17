@@ -39,8 +39,8 @@ pub struct ScraperCandidate {
     pub source_record_key: String,
     /// The identity the URL's listing was first captured under, which its later scrapes keep.
     pub last_source_listing_id: Option<String>,
-    /// The identity the selected schema extracted at the URL's last capture, `None` when it
-    /// extracted none or before it was recorded.
+    /// The identity the selected schema extracted at the URL's last capture that extracted one,
+    /// `None` before it was recorded.
     pub last_extracted_source_listing_id: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
@@ -202,7 +202,9 @@ pub struct RedirectUrlMove {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
-    /// The identity the selected schema extracted, `None` when it extracted none.
+    /// The identity the selected schema extracted; `None` when it extracted none, such as a sold
+    /// page without the element, keeps the one recorded before, so a later swap to another
+    /// product is still seen and the URL still [carries](IdentityCarrier) its identity.
     pub extracted_source_listing_id: Option<String>,
     pub title: Option<String>,
     pub disposition: CrawlerDisposition,
@@ -238,7 +240,9 @@ pub struct ScrapeCompletion {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
-    /// The identity the selected schema extracted, `None` when it extracted none.
+    /// The identity the selected schema extracted; `None` when it extracted none, such as a sold
+    /// page without the element, keeps the one recorded before, so a later swap to another
+    /// product is still seen and the URL still [carries](IdentityCarrier) its identity.
     pub extracted_source_listing_id: Option<String>,
     /// The page showed another identity than at its previous capture under unchanged schemas,
     /// which records when (`page_identity_changed_at`).
@@ -1287,7 +1291,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = $4,
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
-                 last_extracted_source_listing_id = $10,
+                 last_extracted_source_listing_id = COALESCE($10, last_extracted_source_listing_id),
                  page_identity_changed_at = CASE WHEN $11 THEN NOW()
                                                  ELSE page_identity_changed_at END,
                  last_captured_title = COALESCE($9, last_captured_title),
@@ -1437,7 +1441,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE listing_source_urls
              SET url = $3,
                  last_source_listing_id = $4,
-                 last_extracted_source_listing_id = $11,
+                 last_extracted_source_listing_id = COALESCE($11, last_extracted_source_listing_id),
                  last_captured_title = COALESCE($10, last_captured_title),
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
