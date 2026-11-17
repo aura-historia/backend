@@ -2,7 +2,7 @@ use super::SelectorFieldEvaluation;
 use crate::CrawlerReviewPageId;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::plausibility::{
-    CrossPageFindings, IdentityAgreementFindings, PlausibilityFindings,
+    CrossPageFindings, IdentityAgreementFindings, PlausibilityFindings, names_image_file,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -132,18 +132,8 @@ impl SchemaPageEvaluation {
         matches!(target.scheme(), "http" | "https")
             && host_of(&target).is_some()
             && host_of(&target) == host_of(&page)
-            && !names_image(target.path())
+            && !names_image_file(target.path())
     }
-}
-
-/// Whether a URL path ends in an image file name.
-fn names_image(path: &str) -> bool {
-    path.rsplit_once('.').is_some_and(|(_, extension)| {
-        matches!(
-            extension.to_ascii_lowercase().as_str(),
-            "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "avif" | "bmp" | "ico"
-        )
-    })
 }
 
 #[cfg(test)]

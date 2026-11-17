@@ -15,6 +15,7 @@ use regex::regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::LazyLock;
 
 mod cross_page;
 mod identity_agreement;
@@ -418,21 +419,9 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
 }
 
 /// Whether an identity is one URL or path, as a rule on the page URL, its canonical link or an
-/// image `src` reads it: an absolute, protocol-relative or relative URL, a host name with a path
-/// (`shop.example/products/x`), a `javascript:` or `mailto:` link, or a file name that comes with
-/// a path or a query (`product.php?id=9685`). Unlike a `state` label, a product code may carry a
-/// colon or a file-like suffix (`Tel:0123`, `12.JPG`, `A12.htm`), so those stay identities.
+/// image `src` reads it ([`is_link_or_path`] with [`LinkReading::Identity`]).
 pub(crate) fn is_link_or_path_identity(identity: &str) -> bool {
-    let link_start =
-        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto):\S)");
-    let host_with_path = regex!(r"(?i)^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::[0-9]+)?/");
-    let file_name =
-        regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
-    let value = identity.trim();
-    !value.contains(char::is_whitespace)
-        && (link_start.is_match(value)
-            || host_with_path.is_match(value)
-            || (file_name.is_match(value) && value.contains(['/', '?'])))
+    is_link_or_path(identity, LinkReading::Identity)
 }
 
 /// Whether `value` is a list of names rather than one identifier: at least
@@ -582,21 +571,74 @@ fn is_availability_value(state: &str) -> bool {
         )
 }
 
-/// A value that is one URL, path or `javascript:` link, as a rule reads from an image's `src`,
-/// a link's `href` or a page's canonical link: `https://shop.example/img/cart.png`,
-/// `/images/add_to_order.gif` or `javascript:LoadIntoBasket()`. A label or code has no scheme,
-/// leading slash or file extension; a scheme counts only with something after its colon, so a
-/// `Tel:` label is none. A `state` caller exempts availability values such as
+/// The `state` finding of a value that is one URL, path or link ([`is_link_or_path`] with
+/// [`LinkReading::State`]). A `state` caller exempts availability values such as
 /// `https://schema.org/InStock`.
 fn link_or_path_check(value: &str) -> Option<PlausibilityCheck> {
-    let scheme_or_path_start =
-        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto|tel|data):\S)");
-    let file_extension =
-        regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
+    is_link_or_path(value, LinkReading::State).then_some(PlausibilityCheck::LinkOrPath)
+}
+
+/// The file extensions of an image a link or path may name.
+const IMAGE_FILE_EXTENSIONS: &str = "png|jpe?g|gif|svg|webp|avif|bmp|ico";
+
+/// A link or path that ends in an image's or a web page's file name, before a query or fragment.
+static FILE_NAME: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(&format!(
+        r"(?i)\.(?:{IMAGE_FILE_EXTENSIONS}|html?|php|aspx?|jsp)(?:[?#]\S*)?$"
+    ))
+    .expect("file name regex")
+});
+
+static IMAGE_FILE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(&format!(r"(?i)\.(?:{IMAGE_FILE_EXTENSIONS})$")).expect("image file regex")
+});
+
+/// Whether a URL path ends in an image file name.
+pub(crate) fn names_image_file(path: &str) -> bool {
+    IMAGE_FILE.is_match(path)
+}
+
+/// What a value that may be a link or path stands for, which decides what counts as one.
+#[derive(Clone, Copy)]
+enum LinkReading {
+    /// A `state` label has words and no scheme, leading slash or file extension, so any of them
+    /// makes it a link, `tel:` and `data:` links included; a scheme counts only with something
+    /// after its colon, so a `Tel:` label is none.
+    State,
+    /// A product code may carry a colon or a file-like suffix (`Tel:0123`, `12.JPG`, `A12.htm`),
+    /// and a dot and a slash (`Inv.nr/17`, `Ref.no/123`), so an identity is a link only as an
+    /// absolute, protocol-relative or relative URL, a `javascript:` or `mailto:` link, a host
+    /// name with a path (`shop.example/products/x`, `www.shop.de/x`: a top-level domain of at
+    /// least three letters or at least three labels), or a file name that comes with a path or
+    /// a query (`product.php?id=9685`).
+    Identity,
+}
+
+/// Whether `value` is one URL, path or link, as a rule reads it from an image's `src`, a link's
+/// `href` or a page's canonical link: `https://shop.example/img/cart.png`,
+/// `/images/add_to_order.gif` or `javascript:LoadIntoBasket()`, read as `reading` says.
+fn is_link_or_path(value: &str, reading: LinkReading) -> bool {
+    let link_start =
+        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto):\S)");
     let value = value.trim();
-    let is_link_or_path = !value.contains(char::is_whitespace)
-        && (scheme_or_path_start.is_match(value) || file_extension.is_match(value));
-    is_link_or_path.then_some(PlausibilityCheck::LinkOrPath)
+    if value.contains(char::is_whitespace) {
+        return false;
+    }
+    match reading {
+        LinkReading::State => {
+            link_start.is_match(value)
+                || regex!(r"(?i)^(?:tel|data):\S").is_match(value)
+                || FILE_NAME.is_match(value)
+        }
+        LinkReading::Identity => {
+            let host_with_path = regex!(
+                r"(?i)^(?:(?:[a-z0-9-]+\.){2,}[a-z]{2,}|[a-z0-9-]+\.[a-z]{3,})(?::[0-9]+)?/"
+            );
+            link_start.is_match(value)
+                || host_with_path.is_match(value)
+                || (FILE_NAME.is_match(value) && value.contains(['/', '?']))
+        }
+    }
 }
 
 /// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
@@ -924,6 +966,8 @@ mod tests {
         #[case::code_with_a_scheme_like_prefix("DATA:42")]
         #[case::code_with_an_image_suffix("12.JPG")]
         #[case::code_with_a_page_suffix("A12.htm")]
+        #[case::dotted_inventory_number_with_slash("Inv.nr/17")]
+        #[case::dotted_reference_with_slash("Ref.no/123")]
         #[case::labelled_with_nbsp("Artikel-Nr:\u{a0}02092")]
         #[case::labelled_stock_number("Stock Number: 38088")]
         #[case::labelled_reference("Ref. 12432")]
@@ -1355,6 +1399,8 @@ mod tests {
         #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
         #[case::page_file("product.php?id=9685")]
         #[case::host_without_scheme("shop.example/products/j054-tea-bowl")]
+        #[case::subdomain_without_scheme("shop.example.com/p/1")]
+        #[case::two_letter_domain_with_www("www.shop.de/p/1")]
         #[case::image_src("https://cdn.shop.example/images/j054.jpg")]
         fn should_report_an_identity_that_is_a_link_or_path_and_block_its_approval(
             #[case] identity: &str,
@@ -1534,5 +1580,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// One list of image extensions serves the identity, `state` and review checks.
+    #[rstest::rstest]
+    #[case::jpeg("/images/j054.JPEG", true)]
+    #[case::svg("/a/b.svg", true)]
+    #[case::page("/products/j054.html", false)]
+    #[case::no_extension("/products/j054", false)]
+    fn should_tell_an_image_file_name_from_another_path(#[case] path: &str, #[case] image: bool) {
+        assert_eq!(names_image_file(path), image);
+    }
+
+    /// A `state` keeps reading a `tel:` link or a file name as a link, while an identity keeps
+    /// them as codes.
+    #[rstest::rstest]
+    #[case::tel_link("tel:0123", true, false)]
+    #[case::image_file("12.JPG", true, false)]
+    #[case::dotted_code("Inv.nr/17", false, false)]
+    #[case::path("/images/add_to_order.gif", true, true)]
+    fn should_read_a_value_as_a_link_as_its_field_does(
+        #[case] value: &str,
+        #[case] as_state: bool,
+        #[case] as_identity: bool,
+    ) {
+        assert_eq!(is_link_or_path(value, LinkReading::State), as_state);
+        assert_eq!(is_link_or_path(value, LinkReading::Identity), as_identity);
     }
 }
