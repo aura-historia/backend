@@ -15,8 +15,8 @@ flowchart LR
     Scraper --> Raw[Immutable raw observation]
     Raw --> Queue[Ingestion FIFO queue]
     Queue --> Capture[Ingestion consumer: transactional raw capture]
-    Capture --> CDC[DMS / Kinesis router after approved start]
-    CDC --> SQS[Normalization SQS queue]
+    Capture --> CDC[Delivery outbox and dispatcher]
+    CDC --> SQS[Normalization job scope]
     SQS --> Normalizer[ProductListing normalization Lambda]
 ```
 
