@@ -1216,7 +1216,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 0.4.6",
  "hyper 0.14.32",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-rustls 0.24.2",
  "hyper-rustls 0.27.9",
  "hyper-util",
@@ -1411,7 +1411,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "itoa 1.0.18",
  "matchit",
@@ -1663,7 +1663,7 @@ dependencies = [
  "home",
  "http 1.5.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-named-pipe",
  "hyper-rustls 0.27.9",
  "hyper-util",
@@ -2255,7 +2255,7 @@ dependencies = [
  "google-cloud-auth",
  "html-escape",
  "httpdate",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "imagesize",
  "indexmap 2.14.2",
  "kuchiki",
@@ -3050,7 +3050,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4061,9 +4061,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.11.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27b501faa50e7a26c3d3560ca625132f4078a17771f4810baf70475ae48cbe43"
+checksum = "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -4088,7 +4088,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fab3637d6b04a8037af8a266fdf6cf92ea957e8c53981a2bf6136572531025bf"
 dependencies = [
  "hex",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -4117,7 +4117,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ca68d021ef39cf6463ab54c1d0f5daf03377b70561305bb89a8f83aab66e0f"
 dependencies = [
  "http 1.5.0",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "rustls 0.23.46",
  "rustls-native-certs",
@@ -4133,7 +4133,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b90d566bffbce6a75bd8b09a05aa8c2cb1fabb6cb348f8840c9e4c90a0d83b0"
 dependencies = [
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -4153,7 +4153,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "httparse",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "ipnet",
  "libc",
  "percent-encoding",
@@ -4174,7 +4174,7 @@ checksum = "986c5ce3b994526b3cd75578e62554abd09f0899d6206de48b3e96ab34ccc8c7"
 dependencies = [
  "hex",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -4671,7 +4671,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "lambda_runtime",
  "mime",
  "percent-encoding",
@@ -4696,7 +4696,7 @@ dependencies = [
  "http 1.5.0",
  "http-body-util",
  "http-serde",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "lambda_runtime_api_client",
  "pin-project",
  "serde",
@@ -4720,7 +4720,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "tower",
  "tracing",
@@ -7335,7 +7335,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7622,7 +7622,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-rustls 0.27.9",
  "hyper-util",
  "js-sys",
@@ -7663,7 +7663,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-rustls 0.27.9",
  "hyper-util",
  "js-sys",
@@ -7829,7 +7829,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7900,7 +7900,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9774,7 +9774,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",
@@ -10335,9 +10335,9 @@ dependencies = [
 
 [[package]]
 name = "want"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
+checksum = "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b"
 dependencies = [
  "try-lock",
 ]
@@ -10604,7 +10604,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10786,7 +10786,7 @@ dependencies = [
  "futures",
  "http 1.5.0",
  "http-body-util",
- "hyper 1.11.1",
+ "hyper 1.12.0",
  "hyper-util",
  "log",
  "once_cell",
