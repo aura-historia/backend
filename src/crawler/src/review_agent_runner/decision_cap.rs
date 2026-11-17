@@ -115,6 +115,7 @@ mod tests {
             candidate_version: 1,
             notes: None,
             approved_url_pattern_state: None,
+            classifier_rejection: false,
             created: NOW - Duration::minutes(minutes_ago),
         }
     }

@@ -385,6 +385,10 @@ pub struct ReviewEventEntry {
     /// The URL-pattern state an approval of a URL-pattern review made live, such as `NO_PATTERN`.
     #[serde(default)]
     pub approved_url_pattern_state: Option<String>,
+    /// Whether a `REJECTED` event rests on the page classifier's verdicts; the digest lists those
+    /// in the classifier's section, apart from the reviewer's verdicts.
+    #[serde(default)]
+    pub classifier_rejection: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
@@ -822,6 +826,7 @@ mod tests {
             candidate_version: 2,
             notes: None,
             approved_url_pattern_state: None,
+            classifier_rejection: false,
             created,
         }
     }

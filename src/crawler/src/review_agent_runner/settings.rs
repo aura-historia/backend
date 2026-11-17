@@ -50,6 +50,17 @@ const REVIEWER_DEFAULTS: RoleDefaults = RoleDefaults {
     effort: ClaudeEffort::Medium,
     max_turns: NonZeroU32::new(50).unwrap(),
 };
+/// The page classifier reads one or two pages and answers one verdict each, a judgement the
+/// one-shot prototype of #3013 made at 59 of 60 hand-labelled pages with a Haiku-class model at
+/// `low` effort.
+const CLASSIFIER_DEFAULTS: RoleDefaults = RoleDefaults {
+    model: "claude-haiku-5-5",
+    effort: ClaudeEffort::Low,
+    max_turns: NonZeroU32::new(15).unwrap(),
+};
+/// The name the page classifier's settings carry, `CRAWLER_REVIEW_AGENT_CLASSIFIER_<SETTING>`. The
+/// classifier is no role of `review-mcp`: it runs with the reviewer's tools that only read.
+pub const CLASSIFIER_SETTINGS_NAME: &str = "classifier";
 const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(60).unwrap();
 /// The console's default cap on live jobs: a further process would only wait for one, since each
 /// agent process holds at most one live job at a time.
@@ -105,6 +116,9 @@ pub struct RunnerSettings {
     pub reviewer: AgentProcessSettings,
     /// The model of a reviewer process on a URL-pattern review when it is not the reviewer's.
     pub reviewer_url_pattern_model: Option<String>,
+    /// The page classifier's process, which judges a fresh `manual_schema_required` review's
+    /// pages before an author works it.
+    pub classifier: AgentProcessSettings,
     pub max_reviews_per_run: NonZeroU32,
     /// How many agent processes run at once.
     pub max_processes: NonZeroU32,
@@ -234,6 +248,7 @@ impl RunnerSettings {
             author_url_pattern_model: read.url_pattern_model(AgentRole::Author)?,
             reviewer: read.agent(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
             reviewer_url_pattern_model: read.url_pattern_model(AgentRole::Reviewer)?,
+            classifier: read.process(CLASSIFIER_SETTINGS_NAME, &CLASSIFIER_DEFAULTS)?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -266,11 +281,12 @@ impl RunnerSettings {
     }
 }
 
-/// The names of a role's settings: `CRAWLER_REVIEW_AGENT_<ROLE>_<SETTING>`.
-pub fn role_setting(role: AgentRole, setting: &str) -> String {
+/// The names of the settings of the agent process named `name`, a role or the classifier:
+/// `CRAWLER_REVIEW_AGENT_<NAME>_<SETTING>`.
+fn process_setting(name: &str, setting: &str) -> String {
     format!(
         "CRAWLER_REVIEW_AGENT_{}_{setting}",
-        role.as_str().to_ascii_uppercase()
+        name.to_ascii_uppercase()
     )
 }
 
@@ -291,10 +307,19 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
         role: AgentRole,
         defaults: &RoleDefaults,
     ) -> Result<AgentProcessSettings, RunnerSettingsError> {
+        self.process(role.as_str(), defaults)
+    }
+
+    /// The model, effort and turn cap of the agent process named `name`.
+    fn process(
+        &self,
+        name: &str,
+        defaults: &RoleDefaults,
+    ) -> Result<AgentProcessSettings, RunnerSettingsError> {
         let model = self
-            .model(&role_setting(role, "MODEL"))?
+            .model(&process_setting(name, "MODEL"))?
             .unwrap_or_else(|| defaults.model.to_owned());
-        let effort_name = role_setting(role, "EFFORT");
+        let effort_name = process_setting(name, "EFFORT");
         let effort = match (self.setting)(&effort_name) {
             Some(effort) => parse_effort(&effort).ok_or_else(|| {
                 invalid(effort_name, effort, "one of low, medium, high, xhigh, max")
@@ -305,7 +330,7 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
             model,
             effort,
             max_turns: self
-                .positive(&role_setting(role, "MAX_TURNS"))?
+                .positive(&process_setting(name, "MAX_TURNS"))?
                 .unwrap_or(defaults.max_turns),
         })
     }
@@ -536,6 +561,14 @@ mod tests {
                 max_turns: NonZeroU32::new(50).unwrap_or(NonZeroU32::MIN),
             }
         );
+        assert_eq!(
+            read.classifier,
+            AgentProcessSettings {
+                model: "claude-haiku-5-5".to_owned(),
+                effort: ClaudeEffort::Low,
+                max_turns: NonZeroU32::new(15).unwrap_or(NonZeroU32::MIN),
+            }
+        );
         assert_eq!(read.max_reviews_per_run.get(), 60);
         assert_eq!(read.max_processes.get(), 20);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
@@ -562,6 +595,9 @@ mod tests {
                 ("CRAWLER_REVIEW_AGENT_AUTHOR_MODEL", "claude-sonnet-5-5"),
                 ("CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT", "xhigh"),
                 ("CRAWLER_REVIEW_AGENT_REVIEWER_MAX_TURNS", "12"),
+                ("CRAWLER_REVIEW_AGENT_CLASSIFIER_MODEL", "claude-sonnet-5-5"),
+                ("CRAWLER_REVIEW_AGENT_CLASSIFIER_EFFORT", "medium"),
+                ("CRAWLER_REVIEW_AGENT_CLASSIFIER_MAX_TURNS", "6"),
                 (MAX_REVIEWS_PER_RUN_ENV, "9"),
                 (MAX_PROCESSES_ENV, "1"),
                 (COOLDOWN_MINUTES_ENV, "5"),
@@ -593,6 +629,9 @@ mod tests {
         assert_eq!(read.author.effort, ClaudeEffort::XHigh);
         assert_eq!(read.reviewer.model, "claude-haiku-5-5");
         assert_eq!(read.reviewer.max_turns.get(), 12);
+        assert_eq!(read.classifier.model, "claude-sonnet-5-5");
+        assert_eq!(read.classifier.effort, ClaudeEffort::Medium);
+        assert_eq!(read.classifier.max_turns.get(), 6);
         assert_eq!(read.max_reviews_per_run.get(), 9);
         assert_eq!(read.max_processes.get(), 1);
         assert_eq!(read.cooldown, Duration::from_secs(300));
@@ -655,7 +694,7 @@ mod tests {
         );
         assert_eq!(
             [AgentRole::Author, AgentRole::Reviewer]
-                .map(|role| role_setting(role, "URL_PATTERN_MODEL")),
+                .map(|role| process_setting(role.as_str(), "URL_PATTERN_MODEL")),
             [AUTHOR_URL_PATTERN_MODEL_ENV, REVIEWER_URL_PATTERN_MODEL_ENV]
         );
     }

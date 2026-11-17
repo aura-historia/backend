@@ -126,6 +126,8 @@ pub struct Digest {
     rolling: RollingCost,
     /// The qualification pass's section, which its own ledger feeds; empty without one.
     qualifications: String,
+    /// The classification pass's section, which its own ledger feeds; empty without one.
+    classifications: String,
 }
 
 impl Digest {
@@ -143,6 +145,8 @@ impl Digest {
             .events
             .into_iter()
             .filter(|event| event.created <= to)
+            // The page classifier's rejections are listed in its own section.
+            .filter(|event| !event.classifier_rejection)
             .filter(|event| {
                 matches!(
                     event.action.as_str(),
@@ -201,6 +205,7 @@ impl Digest {
             decisions,
             events_truncated: events.truncated,
             qualifications: String::new(),
+            classifications: String::new(),
             refusals_by_check: BTreeMap::new(),
             refusals_by_kind: BTreeMap::new(),
             processes_by_end: BTreeMap::new(),
@@ -287,9 +292,18 @@ impl Digest {
         self.write_processes(&mut out);
         self.context_use.write_markdown(&mut out);
         self.write_reports(&mut out);
+        out.push_str(&self.classifications);
         out.push_str(&self.qualifications);
         self.write_rolling_cost(&mut out);
         out
+    }
+
+    /// The digest with the classification pass's Markdown `section` before the qualifications.
+    pub fn with_classifications(self, section: String) -> Self {
+        Self {
+            classifications: section,
+            ..self
+        }
     }
 
     /// The digest with the qualification pass's Markdown `section` before its usage.
@@ -733,6 +747,7 @@ mod tests {
             candidate_version: 3,
             notes: Some("price | empty on\n/item/2".to_owned()),
             approved_url_pattern_state: None,
+            classifier_rejection: false,
             created: TO - Duration::hours(hours_before),
         }
     }

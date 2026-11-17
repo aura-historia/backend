@@ -22,6 +22,7 @@ mod envelope;
 mod invocation;
 mod ledger;
 mod login;
+mod page_classification;
 mod pass;
 mod process;
 mod qualification;
@@ -175,6 +176,20 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
             "Cannot prune the qualification ledger; the next run tries again"
         );
     }
+    if let Err(error) = page_classification::prune(&settings.state_dir, started - LEDGER_RETENTION)
+    {
+        warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Cannot prune the classification ledger; the next run tries again"
+        );
+    }
+
+    // A fresh manual_schema_required review holds its source's failing pages, and its author
+    // waits for the page classifier, so the classifier comes first; a failed classification pass
+    // leaves its reviews to the next run.
+    classify_due_reviews(settings, &console, stop, &mut state).await;
+    save_state(&settings.state_dir, &state)?;
 
     // New sources are not crawled until they are qualified, so they come before the reviews; a
     // failed qualification pass leaves them waiting for the next run and does not hold up the
@@ -203,35 +218,94 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
-    let qualifications = qualification::records_since(&settings.state_dir, now - LEDGER_RETENTION);
-    log_pass_finished(&summary, &ledger, &qualifications, now);
+    let side_ledgers = SideLedgers::read(&settings.state_dir, now);
+    log_pass_finished(&summary, &ledger, &side_ledgers, now);
     if stop.is_requested() {
         return Ok(RunOutcome::Ran {
             summary,
             digest: None,
         });
     }
-    let digest = write_digest(
-        settings,
-        &console,
-        &mut state,
-        &ledger,
-        &qualifications,
-        now,
-    )
-    .await;
+    let digest = write_digest(settings, &console, &mut state, &ledger, &side_ledgers, now).await;
     if digest.is_some() {
         save_state(&settings.state_dir, &state)?;
     }
     Ok(RunOutcome::Ran { summary, digest })
 }
 
+/// Runs the classification pass with the reviewer's token for the rejections, and logs how it
+/// went; a pass that fails, or a reviewer token that cannot be read, is logged, and its reviews
+/// wait for the next run.
+async fn classify_due_reviews(
+    settings: &RunnerSettings,
+    console: &ConsoleClient,
+    stop: &RunnerStop,
+    state: &mut RunnerState,
+) {
+    let reviewer = match ConsoleClient::new(
+        &settings.console.console_url,
+        RoleTokenFile::new(settings.console.token_file.clone(), AgentRole::Reviewer),
+    ) {
+        Ok(reviewer) => reviewer,
+        Err(error) => {
+            warn!(
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Cannot read the reviewer's token for the page classifier; its reviews wait for the next run"
+            );
+            return;
+        }
+    };
+    match page_classification::classify_due_reviews(settings, console, &reviewer, stop, state).await
+    {
+        Ok(summary) if summary.processes > 0 || summary.rejected > 0 => info!(
+            event = "crawler.review_agent.classification_pass_completed",
+            due = summary.due,
+            processes = summary.processes,
+            rejected = summary.rejected,
+            to_author = summary.to_author,
+            stopped = summary.stopped,
+            "Classification pass finished"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Classification pass failed; its reviews wait for the next run"
+        ),
+    }
+}
+
+/// The ledgers of the passes besides the review pass, whose costs the rolling sums add and whose
+/// sections the digest writes.
+struct SideLedgers {
+    qualifications: Vec<qualification::QualificationRecord>,
+    classifications: Vec<page_classification::ClassificationRecord>,
+}
+
+impl SideLedgers {
+    /// The records of the ledger's retention before `now`.
+    fn read(state_dir: &std::path::Path, now: OffsetDateTime) -> Self {
+        Self {
+            qualifications: qualification::records_since(state_dir, now - LEDGER_RETENTION),
+            classifications: page_classification::records_since(state_dir, now - LEDGER_RETENTION),
+        }
+    }
+
+    /// The cost of their processes that finished within `window` before `now`.
+    fn cost_within(&self, window: time::Duration, now: OffsetDateTime) -> f64 {
+        qualification::cost_within(&self.qualifications, window, now)
+            + page_classification::cost_within(&self.classifications, window, now)
+    }
+}
+
 /// Logs how a pass ended: at INFO when it started a process, at DEBUG when it only looked at the
-/// queue, which is most passes of an idle runner. The cost sums count the qualifier processes too.
+/// queue, which is most passes of an idle runner. The cost sums count the qualifier and
+/// classifier processes too.
 fn log_pass_finished(
     summary: &PassSummary,
     ledger: &ProcessLedger,
-    qualifications: &[qualification::QualificationRecord],
+    side_ledgers: &SideLedgers,
     now: OffsetDateTime,
 ) {
     macro_rules! log_pass_finished {
@@ -250,9 +324,9 @@ fn log_pass_finished(
                 decided = summary.decided,
                 stopped = %PassStop::describe(summary.stopped),
                 five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now)
-                    + qualification::cost_within(qualifications, FIVE_HOURS, now),
+                    + side_ledgers.cost_within(FIVE_HOURS, now),
                 weekly_cost_usd = ledger.cost_within(ONE_WEEK, now)
-                    + qualification::cost_within(qualifications, ONE_WEEK, now),
+                    + side_ledgers.cost_within(ONE_WEEK, now),
                 "Review agents pass finished"
             )
         };
@@ -310,7 +384,7 @@ async fn write_digest(
     console: &ConsoleClient,
     state: &mut RunnerState,
     ledger: &ProcessLedger,
-    qualifications: &[qualification::QualificationRecord],
+    side_ledgers: &SideLedgers,
     now: OffsetDateTime,
 ) -> Option<PathBuf> {
     let from = match settings.mode {
@@ -334,9 +408,9 @@ async fn write_digest(
     };
     let rolling = RollingCost {
         five_hour_cost_usd: ledger.cost_within(FIVE_HOURS, now)
-            + qualification::cost_within(qualifications, FIVE_HOURS, now),
+            + side_ledgers.cost_within(FIVE_HOURS, now),
         weekly_cost_usd: ledger.cost_within(ONE_WEEK, now)
-            + qualification::cost_within(qualifications, ONE_WEEK, now),
+            + side_ledgers.cost_within(ONE_WEEK, now),
         paused_until: state.pause_at(now).map(|pause| {
             let limit = usage_limit_name(pause.limit);
             let name = if pause.paced {
@@ -356,8 +430,17 @@ async fn write_digest(
         queue,
         rolling,
     )
+    .with_classifications(page_classification::digest_section(
+        &side_ledgers
+            .classifications
+            .iter()
+            .filter(|record| record.finished >= from)
+            .cloned()
+            .collect::<Vec<_>>(),
+    ))
     .with_qualifications(qualification::digest_section(
-        &qualifications
+        &side_ledgers
+            .qualifications
             .iter()
             .filter(|record| record.finished >= from)
             .cloned()
@@ -522,44 +605,54 @@ mod tests {
                             .lines()
                             .any(|line| line == format!("authorization: Bearer {AUTHOR_TOKEN}"));
                         let path = request.split_whitespace().nth(1).unwrap_or_default();
-                        let (status, body) = if !authorized {
-                            (401, "{\"error\":\"unauthorized\"}".to_owned())
-                        } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
-                            (200, pending_page(&reviews, query, &claude_dir))
-                        } else if path.starts_with("/api/review-events?since=") {
-                            let decided_log = claude_dir.join("decided.log");
-                            (200, with_decisions(&events, &decided_log).to_string())
-                        } else if let Some(review) = path
+                        let reviewer_authorized = request
+                            .lines()
+                            .any(|line| line == format!("authorization: Bearer {REVIEWER_TOKEN}"));
+                        let rejected_review = path
                             .strip_prefix("/api/reviews/")
-                            .and_then(|rest| rest.strip_suffix("/hand-to-human"))
-                            .filter(|_| request.starts_with("POST "))
-                        {
-                            hand_over(review, &body, &claude_dir)
-                        } else if let Some(review) = path
-                            .strip_prefix("/api/reviews/")
-                            .and_then(|rest| rest.strip_suffix("/approval-checks"))
-                            .and_then(|id| {
-                                reviews
-                                    .iter()
-                                    .find(|review| review.review_id.to_string() == id)
-                            })
-                        {
-                            approval_checks(review, &claude_dir)
-                        } else if let Some(review) =
-                            path.strip_prefix("/api/reviews/").and_then(|id| {
-                                reviews
-                                    .iter()
-                                    .find(|review| review.review_id.to_string() == id)
-                            })
-                        {
-                            review_detail(review, &claude_dir)
-                        } else if path == AGENT_LIMITS_ROUTE
-                            && !claude_dir.join("limits_unreadable").exists()
-                        {
-                            (200, json!(AgentLimits::default()).to_string())
-                        } else {
-                            (404, "{\"error\":\"not found\"}".to_owned())
-                        };
+                            .and_then(|rest| rest.strip_suffix("/reject"))
+                            .filter(|_| request.starts_with("POST "));
+                        let (status, body) =
+                            if let Some(review) = rejected_review.filter(|_| reviewer_authorized) {
+                                reject(review, &body, &claude_dir)
+                            } else if !authorized {
+                                (401, "{\"error\":\"unauthorized\"}".to_owned())
+                            } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
+                                (200, pending_page(&reviews, query, &claude_dir))
+                            } else if path.starts_with("/api/review-events?since=") {
+                                let decided_log = claude_dir.join("decided.log");
+                                (200, with_decisions(&events, &decided_log).to_string())
+                            } else if let Some(review) = path
+                                .strip_prefix("/api/reviews/")
+                                .and_then(|rest| rest.strip_suffix("/hand-to-human"))
+                                .filter(|_| request.starts_with("POST "))
+                            {
+                                hand_over(review, &body, &claude_dir)
+                            } else if let Some(review) = path
+                                .strip_prefix("/api/reviews/")
+                                .and_then(|rest| rest.strip_suffix("/approval-checks"))
+                                .and_then(|id| {
+                                    reviews
+                                        .iter()
+                                        .find(|review| review.review_id.to_string() == id)
+                                })
+                            {
+                                approval_checks(review, &claude_dir)
+                            } else if let Some(review) =
+                                path.strip_prefix("/api/reviews/").and_then(|id| {
+                                    reviews
+                                        .iter()
+                                        .find(|review| review.review_id.to_string() == id)
+                                })
+                            {
+                                review_detail(review, &claude_dir)
+                            } else if path == AGENT_LIMITS_ROUTE
+                                && !claude_dir.join("limits_unreadable").exists()
+                            {
+                                (200, json!(AgentLimits::default()).to_string())
+                            } else {
+                                (404, "{\"error\":\"not found\"}".to_owned())
+                            };
                         let response = format!(
                             "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                             body.len()
@@ -592,6 +685,10 @@ mod tests {
                 let run_started = std::fs::read_to_string(claude_dir.join("order.log"))
                     .is_ok_and(|order| order.contains("start author"));
                 !late || run_started
+            })
+            .filter(|review| {
+                !std::fs::read_to_string(claude_dir.join("rejected.log"))
+                    .is_ok_and(|rejected| rejected.contains(&review.review_id.to_string()))
             })
             .collect();
         let waits = |review: &CrawlerReview| {
@@ -655,7 +752,10 @@ mod tests {
                     )
                     .ok()
                 }),
-                classification_due: false,
+                classification_due: claude_dir
+                    .join("classify")
+                    .join(review.review_id.to_string())
+                    .exists(),
                 created: review.created,
                 updated: review.updated,
             })
@@ -685,6 +785,23 @@ mod tests {
         log.push_str(&format!("{review_id} {reason} {category} {notes}\n"));
         let _ = std::fs::write(claude_dir.join("handovers.log"), log);
         let _ = std::fs::write(claude_dir.join("human").join(review_id), "");
+        (200, "{\"ok\":true}".to_owned())
+    }
+
+    /// `POST /api/reviews/{id}/reject` with the reviewer's token, as the runner sends the page
+    /// classifier's rejection: logs `<review id> <body>` to `rejected.log`, after which the review
+    /// leaves the queue, or answers `reject_answer/<review id>`, a status line and a body, without
+    /// taking it.
+    fn reject(review_id: &str, body: &str, claude_dir: &Path) -> (u16, String) {
+        if let Ok(answer) =
+            std::fs::read_to_string(claude_dir.join("reject_answer").join(review_id))
+        {
+            let (status, body) = answer.split_once('\n').unwrap_or((&answer, "{}"));
+            return (status.trim().parse().unwrap_or(500), body.to_owned());
+        }
+        let mut log = std::fs::read_to_string(claude_dir.join("rejected.log")).unwrap_or_default();
+        log.push_str(&format!("{review_id} {body}\n"));
+        let _ = std::fs::write(claude_dir.join("rejected.log"), log);
         (200, "{\"ok\":true}".to_owned())
     }
 
@@ -808,6 +925,7 @@ dir="$(dirname "$0")"
 if [ "$1" = auth ]; then cat "$dir/auth.json"; exit 0; fi
 role=reviewer
 case "$*" in *'"--role","author"'*) role=author;; esac
+case "$*" in *--disallowedTools*) role=classifier;; esac
 prompt="$(cat)"
 review="$(printf '%s' "$prompt" | grep -o 'cr_[0-9a-z]*' | head -n 1)"
 call="$dir/calls/$(date +%s%N)-$$-$role"
@@ -858,6 +976,8 @@ echo "end $role $review" >> "$dir/order.log"
                 "handover_refused",
                 "guard_refused",
                 "late",
+                "classify",
+                "reject_answer",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -1045,6 +1165,23 @@ echo "end $role $review" >> "$dir/order.log"
                 .unwrap_or_default();
         }
 
+        /// Marks `review_id` as due for the page classifier in the fake console's queue.
+        fn classification_due(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("classify")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// The rejections the fake console took from the reviewer's token, one line each.
+        fn rejected(&self) -> String {
+            std::fs::read_to_string(self.directory.path().join("rejected.log")).unwrap_or_default()
+        }
+
         fn order(&self) -> Vec<String> {
             std::fs::read_to_string(self.directory.path().join("order.log"))
                 .unwrap_or_default()
@@ -1091,6 +1228,23 @@ echo "end $role $review" >> "$dir/order.log"
             "structured_output": {
                 "review_id": "__REVIEW_ID__", "action": action, "candidate_version": 2,
                 "summary": "Staged and tested on /item/1.", "risks": [],
+            },
+        })
+    }
+
+    /// The page classifier's envelope with `verdict` on one page.
+    fn classifier_envelope(verdict: &str) -> Value {
+        json!({
+            "type": "result", "subtype": "success", "is_error": false, "num_turns": 3,
+            "duration_ms": 400, "total_cost_usd": 0.002,
+            "usage": { "input_tokens": 40, "output_tokens": 10 },
+            "structured_output": {
+                "review_id": "__REVIEW_ID__",
+                "pages": [{
+                    "review_page_id": crate::CrawlerReviewPageId::new().to_string(),
+                    "verdict": verdict,
+                    "reason": format!("The page reads as {verdict}."),
+                }],
             },
         })
     }
@@ -1360,6 +1514,136 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(digest.contains("| Restored | – | 1 |"), "{digest}");
         assert!(digest.contains(&first_id.to_string()), "{digest}");
         assert!(digest.contains("4 processes (4 reported)"), "{digest}");
+    }
+
+    /// A review due for the page classifier gets the classifier first; when every page is a
+    /// listing, the runner rejects it with the reviewer's token and the verdicts, and no author or
+    /// reviewer starts for it.
+    #[tokio::test]
+    async fn should_reject_a_review_the_classifier_reads_as_a_listing_without_an_author() {
+        let classified = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![classified.clone()]).await;
+        fixture.claude.classification_due(classified.review_id);
+        fixture
+            .claude
+            .answer("classifier", classifier_envelope("LISTING"));
+
+        run_with(&fixture.settings(&["--once"], &[])).await;
+
+        let id = classified.review_id;
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start classifier {id}"),
+                format!("end classifier {id}")
+            ]
+        );
+        let rejected = fixture.claude.rejected();
+        assert!(rejected.starts_with(&id.to_string()), "{rejected}");
+        assert!(rejected.contains("\"verdict\":\"LISTING\""), "{rejected}");
+        let classifications = std::fs::read_to_string(
+            fixture
+                .state
+                .path()
+                .join(page_classification::CLASSIFICATION_LEDGER_FILE),
+        )
+        .unwrap_or_default();
+        assert!(
+            classifications.contains("\"outcome\":\"REJECTED\""),
+            "{classifications}"
+        );
+        assert!(fixture.ledger().is_empty());
+    }
+
+    /// A verdict that leaves a product or a removal possible hands the review to the author, whose
+    /// prompt carries the verdicts; a REMOVED page points it to a removed-page template.
+    #[tokio::test]
+    async fn should_give_the_author_the_classifier_s_verdicts_when_a_page_may_be_a_removal() {
+        let classified = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![classified.clone()]).await;
+        fixture.claude.classification_due(classified.review_id);
+        fixture
+            .claude
+            .answer("classifier", classifier_envelope("REMOVED"));
+
+        run_with(&fixture.settings(&["--once"], &[])).await;
+
+        let id = classified.review_id;
+        assert_eq!(
+            fixture.claude.order()[..3],
+            [
+                format!("start classifier {id}"),
+                format!("end classifier {id}"),
+                format!("start author {id}"),
+            ]
+        );
+        assert!(fixture.claude.rejected().is_empty());
+        let author_prompt = fixture
+            .claude
+            .calls()
+            .into_iter()
+            .find(|call| call["argv"].contains("\"--role\",\"author\""))
+            .map(|call| call["stdin"].clone())
+            .unwrap_or_default();
+        assert!(
+            author_prompt.contains("REMOVED: The page reads as REMOVED."),
+            "{author_prompt}"
+        );
+        assert!(
+            author_prompt.contains("declare_removed_page"),
+            "{author_prompt}"
+        );
+    }
+
+    /// A review whose classifier keeps failing waits for it, cooling down between runs, and its
+    /// author starts only once the failures are spent.
+    #[tokio::test]
+    async fn should_hold_the_author_back_while_the_classifier_has_failures_left() {
+        let classified = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![classified.clone()]).await;
+        fixture.claude.classification_due(classified.review_id);
+        fixture.claude.answer(
+            "classifier",
+            json!({ "type": "result", "subtype": "error_during_execution", "is_error": true }),
+        );
+
+        run_with(&fixture.settings(&["--once"], &[])).await;
+
+        let id = classified.review_id;
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start classifier {id}"),
+                format!("end classifier {id}")
+            ]
+        );
+        let mut state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            state
+                .classification_failures
+                .get(&id)
+                .map(|failures| failures.in_a_row),
+            Some(1)
+        );
+
+        state.classification_failures.insert(
+            id,
+            state::QualificationFailures {
+                in_a_row: page_classification::MAX_CLASSIFIER_FAILURES,
+                until: OffsetDateTime::now_utc() - Duration::minutes(1),
+            },
+        );
+        save_state(fixture.state.path(), &state).unwrap_or_else(|e| panic!("{e}"));
+        run_with(&fixture.settings(&["--once"], &[])).await;
+
+        assert!(
+            fixture
+                .claude
+                .order()
+                .contains(&format!("start author {id}")),
+            "{:?}",
+            fixture.claude.order()
+        );
     }
 
     /// A review that waits for a human is no agent work: no process starts for it, it does not cool

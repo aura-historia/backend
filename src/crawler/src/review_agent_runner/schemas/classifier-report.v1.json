@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["review_id", "pages"],
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "description": "The id of the review whose pages you classified, such as cr_01..."
+    },
+    "pages": {
+      "type": "array",
+      "description": "One verdict per review page whose role is not REVIEWER_ADDED or WAITING_PAGE, each page once.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["review_page_id", "verdict", "reason"],
+        "properties": {
+          "review_page_id": {
+            "type": "string",
+            "description": "The review_page_id get_review names for the page."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["PRODUCT", "REMOVED", "LISTING", "OTHER", "UNSURE"],
+            "description": "What the page is, by the rules of the prompt."
+          },
+          "reason": {
+            "type": "string",
+            "description": "One sentence of at most 300 characters naming what on the page decides the verdict."
+          }
+        }
+      }
+    }
+  }
+}
