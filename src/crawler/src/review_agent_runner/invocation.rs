@@ -396,6 +396,7 @@ mod tests {
             handed_back: None,
             created: time::OffsetDateTime::UNIX_EPOCH,
             repair_requested: false,
+            classification_due: false,
         }
     }
 

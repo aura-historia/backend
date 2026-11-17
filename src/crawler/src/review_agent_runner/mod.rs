@@ -655,6 +655,7 @@ mod tests {
                     )
                     .ok()
                 }),
+                classification_due: false,
                 created: review.created,
                 updated: review.updated,
             })

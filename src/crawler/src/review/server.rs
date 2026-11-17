@@ -12,8 +12,8 @@ use crate::review::identity_conflict_report;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason, RawAttributeKey,
-    ReviewActor, ReviewDetail, SampleLabelInput, SourceProductUrl,
+    CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason, PageClassification,
+    RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput, SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -578,13 +578,19 @@ impl ReviewServer {
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/reject")
         {
-            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/reject") {
-                Ok(verdict) => verdict,
-                Err(response) => return response,
-            };
+            let (review_id, payload) =
+                match verdict_request::<RejectionPayload>(&request, "/reject") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
             return verdict_answer(
                 self.repository
-                    .reject_review(review_id, actor, payload.notes.as_deref())
+                    .reject_review(
+                        review_id,
+                        actor,
+                        payload.notes.as_deref(),
+                        payload.classification.as_ref(),
+                    )
                     .await,
             );
         }
@@ -1022,6 +1028,15 @@ struct ActionPayload {
     notes: Option<String>,
 }
 
+/// A rejection of `POST /api/reviews/{id}/reject`: its `notes`, and the page classifier's
+/// verdicts it rests on as `classification`, which only the review agent runner sends with the
+/// reviewer agent's token (`docs/crawler/extraction-and-review.md#page-classifier`).
+#[derive(Deserialize)]
+struct RejectionPayload {
+    notes: Option<String>,
+    classification: Option<PageClassification>,
+}
+
 /// A hand-over of `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning as `notes` and
 /// its cause as `reason` and `category`. A runner older than the cause names neither, so a
 /// missing `reason` is taken as `NEEDS_HUMAN` and a missing `category` as `NONE` rather than
@@ -1298,6 +1313,17 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::RestoreNeedsHuman => forbidden(&error, "RESTORE_NEEDS_HUMAN"),
         ReviewRepositoryError::RevocationNeedsHuman => forbidden(&error, "REVOKE_NEEDS_HUMAN"),
+        ReviewRepositoryError::ClassificationNeedsReviewerAgent => {
+            forbidden(&error, "CLASSIFICATION_NEEDS_REVIEWER_AGENT")
+        }
+        ReviewRepositoryError::ClassifierRejectionRefused { refusal, .. } => HttpResponse::json(
+            409,
+            &json!({
+                "error": error.to_string(),
+                "reason": "CLASSIFIER_REJECTION_REFUSED",
+                "refusal": refusal,
+            }),
+        ),
         ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
             review_changed(&error, current)
         }

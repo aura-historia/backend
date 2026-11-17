@@ -59,6 +59,8 @@ pub struct QueuedReview {
     /// Whether the review waits on a needs-repair verdict, so its author process is a repair
     /// round.
     pub repair_requested: bool,
+    /// Whether the page classifier judges the review before an author works it.
+    pub classification_due: bool,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -159,6 +161,7 @@ impl ReviewQueue {
                         handed_back: review.handed_back,
                         created: review.created,
                         repair_requested: review.repair_request.is_some(),
+                        classification_due: review.classification_due,
                     })
                 })
                 .collect(),
@@ -459,6 +462,7 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 listing_source_name: None,
                 handed_back: None,
+                classification_due: false,
                 created: OffsetDateTime::UNIX_EPOCH,
                 repair_requested: false,
             })
@@ -665,6 +669,7 @@ mod tests {
             agent_rounds: if human_required { 3 } else { 0 },
             human_required,
             handed_back: None,
+            classification_due: false,
             created: now,
             updated: now,
         }

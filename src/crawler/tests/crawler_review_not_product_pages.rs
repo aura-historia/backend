@@ -346,7 +346,7 @@ async fn should_refuse_the_reviewer_and_a_decided_review_a_mark() {
         Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates)
     ));
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("no product"))
+        .reject_review(review_id, ReviewActor::Human, Some("no product"), None)
         .await
         .unwrap();
     assert!(matches!(
