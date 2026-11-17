@@ -8,6 +8,7 @@ use crate::network::policy::{
     public_http_client, redirect_target,
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
+use crate::network::response_body::{ShopBodyError, read_complete_body};
 use crate::network::robots::RobotsRefusal;
 use crate::network::robots_directives::{DirectiveRefusal, PageDirectives};
 use crate::scraper::scraper_service::auto_throttle::{
@@ -749,36 +750,32 @@ fn bot_challenge_fetch_error(
     }
 }
 
-async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, FetchAttemptError> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > HTML_MAX_BYTES as u64)
-    {
-        return Err(FetchAttemptError {
-            error: unsafe_fetch_error("HTML response exceeds size limit"),
-        });
-    }
+async fn read_bounded_html(response: reqwest::Response) -> Result<String, FetchAttemptError> {
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let mut bytes = Vec::with_capacity(
-        response
-            .content_length()
-            .unwrap_or_default()
-            .min(HTML_MAX_BYTES as u64) as usize,
-    );
-    while let Some(chunk) = response.chunk().await.map_err(reqwest_fetch_error)? {
-        let remaining = HTML_MAX_BYTES.saturating_sub(bytes.len());
-        if chunk.len() > remaining {
-            return Err(FetchAttemptError {
-                error: unsafe_fetch_error("HTML response exceeds size limit"),
-            });
-        }
-        bytes.extend_from_slice(&chunk);
-    }
+    let bytes =
+        read_complete_body(response, HTML_MAX_BYTES)
+            .await
+            .map_err(|error| match error {
+                ShopBodyError::TooLarge { .. } => FetchAttemptError {
+                    error: unsafe_fetch_error("HTML response exceeds size limit"),
+                },
+                error => body_fetch_error(error),
+            })?;
     Ok(decode_html(&bytes, content_type.as_deref()))
+}
+
+/// The failure a shop body that could not be read is, classified like the request it ends.
+fn body_fetch_error(error: ShopBodyError<reqwest::Error>) -> FetchAttemptError {
+    match error {
+        ShopBodyError::Transport(error) => reqwest_fetch_error(error),
+        error @ ShopBodyError::TooLarge { .. } => FetchAttemptError {
+            error: unsafe_fetch_error(error.to_string()),
+        },
+    }
 }
 
 /// How many leading bytes the HTML encoding prescan reads for a `<meta>` charset declaration.

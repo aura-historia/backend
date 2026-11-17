@@ -11,6 +11,7 @@ use crate::network::policy::{
     NetworkErrorKind, classify_reqwest_error, is_same_or_www_host,
     network_error_kind_for_public_target_error,
 };
+use crate::network::response_body::{ShopBodyError, read_body_prefix};
 use crate::network::robots::{
     DenyList, MAX_CRAWL_DELAY, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep,
     RobotsPolicy, RobotsRules, robots_txt_url,
@@ -297,7 +298,7 @@ async fn robots_txt_step(
                 (kind, Box::new(error) as application::error::BoxError)
             })?
     };
-    let mut response = client
+    let response = client
         .get(robots_url.clone())
         .send()
         .await
@@ -305,13 +306,9 @@ async fn robots_txt_step(
     let status = response.status();
     debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt for spider");
     if status.is_success() {
-        let mut body = Vec::new();
-        while body.len() < MAX_ROBOTS_TXT_BYTES {
-            match response.chunk().await.map_err(request_error)? {
-                Some(chunk) => body.extend_from_slice(&chunk),
-                None => break,
-            }
-        }
+        let body = read_body_prefix(response, MAX_ROBOTS_TXT_BYTES)
+            .await
+            .map_err(body_error)?;
         return Ok(RobotsStep::Fetched(RobotsFetchStep::Policy(
             RobotsPolicy::from_body(&body),
         )));
@@ -332,6 +329,13 @@ async fn robots_txt_step(
 
 fn request_error(error: spider::reqwest::Error) -> RobotsRequestError {
     (classify_reqwest_error(&error), Box::new(error))
+}
+
+fn body_error(error: ShopBodyError<spider::reqwest::Error>) -> RobotsRequestError {
+    match error {
+        ShopBodyError::Transport(error) => request_error(error),
+        error @ ShopBodyError::TooLarge { .. } => (NetworkErrorKind::Unknown, Box::new(error)),
+    }
 }
 
 fn robots_unreachable_error(source: Option<application::error::BoxError>) -> SpiderDiscoveryError {

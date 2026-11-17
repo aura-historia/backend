@@ -1,5 +1,6 @@
 use application::error::BoxError;
 use bloomfilter::Bloom;
+use hyper::body::Bytes;
 use regex::{Regex, RegexSet};
 use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
 use spider::CaseInsensitiveString;
@@ -28,6 +29,7 @@ use crate::network::policy::{
     location_text, network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
+use crate::network::response_body::{ShopResponse, read_body_prefix};
 use crate::network::robots::RobotsPolicy;
 use crate::network::robots_directives::PageDirectives;
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
@@ -934,6 +936,19 @@ impl ReqwestErrorLike for spider::reqwest::Error {
     }
 }
 
+/// The crawler reads robots.txt and the crawl root's page through the shared shop-body reader.
+impl ShopResponse for spider::reqwest::Response {
+    type Error = spider::reqwest::Error;
+
+    fn headers(&self) -> &HeaderMap {
+        spider::reqwest::Response::headers(self)
+    }
+
+    fn chunk(&mut self) -> impl Future<Output = Result<Option<Bytes>, Self::Error>> + Send {
+        spider::reqwest::Response::chunk(self)
+    }
+}
+
 /// reqwest reports TLS handshake failures as connect errors; the certificate
 /// detail only survives in the messages of the underlying error chain. Only
 /// the sources are inspected: the top-level message embeds the request URL,
@@ -1283,18 +1298,10 @@ async fn follow_crawl_root(
 /// A body that cannot be read asks for none: Spider fetches the root page again anyway.
 async fn root_page_reroot(
     root: &Url,
-    mut response: spider::reqwest::Response,
+    response: spider::reqwest::Response,
     max_body_bytes: usize,
 ) -> Option<RootReroot> {
-    let mut body = Vec::new();
-    while body.len() < max_body_bytes {
-        match response.chunk().await {
-            Ok(Some(chunk)) => body.extend_from_slice(&chunk),
-            Ok(None) => break,
-            Err(_) => return None,
-        }
-    }
-    body.truncate(max_body_bytes);
+    let body = read_body_prefix(response, max_body_bytes).await.ok()?;
     dominant_twin(root, &body)
 }
 

@@ -3,6 +3,7 @@
 
 use super::{FetchAttemptError, FetchError, ReqwestHtmlFetcher};
 use crate::network::policy::{NetworkErrorKind, is_same_or_www_host};
+use crate::network::response_body::read_body_prefix;
 use crate::network::robots::{
     MAX_CRAWL_DELAY, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy,
     robots_txt_url,
@@ -185,7 +186,9 @@ impl ReqwestHtmlFetcher {
         let status = response.status();
         debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt");
         if status.is_success() {
-            let body = read_robots_body(response).await?;
+            let body = read_body_prefix(response, MAX_ROBOTS_TXT_BYTES)
+                .await
+                .map_err(super::body_fetch_error)?;
             return Ok((
                 RobotsFetchStep::Policy(RobotsPolicy::from_body(&body)),
                 status.as_u16(),
@@ -218,15 +221,4 @@ fn shop_robots_failure(error: FetchAttemptError) -> FetchAttemptError {
         },
         error => FetchAttemptError { error },
     }
-}
-
-async fn read_robots_body(mut response: reqwest::Response) -> Result<Vec<u8>, FetchAttemptError> {
-    let mut bytes = Vec::new();
-    while bytes.len() < MAX_ROBOTS_TXT_BYTES {
-        let Some(chunk) = response.chunk().await.map_err(super::reqwest_fetch_error)? else {
-            break;
-        };
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(bytes)
 }

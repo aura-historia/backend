@@ -152,3 +152,80 @@ pub(crate) mod logged_events {
         }
     }
 }
+
+/// A local TLS peer for crawler client tests: the untrusted `localhost` certificate under
+/// `network/testdata`, and a client configuration that accepts it.
+pub(crate) mod local_tls {
+    use std::sync::Arc;
+
+    /// A server configuration presenting the untrusted `localhost` certificate.
+    pub(crate) fn server_config() -> Arc<rustls::ServerConfig> {
+        let certificate = rustls::pki_types::CertificateDer::from(
+            include_bytes!("network/testdata/untrusted-localhost-cert.der").to_vec(),
+        );
+        let key = rustls::pki_types::PrivatePkcs8KeyDer::from(
+            include_bytes!("network/testdata/untrusted-localhost-key.der").to_vec(),
+        );
+        Arc::new(
+            rustls::ServerConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], key.into())
+            .unwrap(),
+        )
+    }
+
+    /// A client configuration that accepts any server certificate, since a test server
+    /// certificate is no trust anchor.
+    pub(crate) fn client_config() -> rustls::ClientConfig {
+        let provider = rustls::crypto::ring::default_provider();
+        let algorithms = provider.signature_verification_algorithms;
+        rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AcceptAnyCertificate(algorithms)))
+            .with_no_client_auth()
+    }
+
+    #[derive(Debug)]
+    struct AcceptAnyCertificate(rustls::crypto::WebPkiSupportedAlgorithms);
+
+    impl rustls::client::danger::ServerCertVerifier for AcceptAnyCertificate {
+        fn verify_server_cert(
+            &self,
+            _: &rustls::pki_types::CertificateDer<'_>,
+            _: &[rustls::pki_types::CertificateDer<'_>],
+            _: &rustls::pki_types::ServerName<'_>,
+            _: &[u8],
+            _: rustls::pki_types::UnixTime,
+        ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            certificate: &rustls::pki_types::CertificateDer<'_>,
+            signature: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls12_signature(message, certificate, signature, &self.0)
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            certificate: &rustls::pki_types::CertificateDer<'_>,
+            signature: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls13_signature(message, certificate, signature, &self.0)
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+            self.0.supported_schemes()
+        }
+    }
+}
