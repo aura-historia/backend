@@ -79,7 +79,7 @@ serde_path_to_error = { workspace = true }
 serde_qs = { workspace = true }
 sqlx = { workspace = true }
 product-listing-core = { workspace = true }
-product-listing-ingestion-sqs = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-normalization = { workspace = true }

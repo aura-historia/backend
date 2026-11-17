@@ -7,7 +7,7 @@ use product_listing_core::{
     product_listing_id::ProductListingKey, source_listing_id::SourceListingId,
 };
 use product_listing_ingestion_lambda::{compose_ingestion_use_case, handler};
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_service::{
     ports::{ProductListingIngestionPublishError, ProductListingIngestionPublisher},
     use_cases::{
@@ -85,7 +85,7 @@ impl ProductListingIngestionPublisher for CapturingPublisher {
 
 fn fixture_bodies() -> Vec<String> {
     let values: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-        "../../product-listing-ingestion-sqs/tests/fixtures/ingestion_v2.json"
+        "../../product-listing-ingestion-queue/tests/fixtures/ingestion_v2.json"
     ))
     .unwrap();
     values.into_iter().map(|value| value.to_string()).collect()

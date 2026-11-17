@@ -5,7 +5,7 @@ use partnership_service::use_cases::commands::put_listing_source_ingestion_confi
     PutListingSourceIngestionConfigurationHandler, PutListingSourceIngestionConfigurationUseCase,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::{
+use product_listing_ingestion_queue::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
 };
 use product_listing_service::ports::{
@@ -19,7 +19,7 @@ use product_listing_service::use_cases::{
 use sqlx::PgPool;
 use std::sync::Arc;
 
-pub use product_listing_ingestion_sqs::with_publication_deadline;
+pub use product_listing_ingestion_queue::with_publication_deadline;
 
 #[derive(Clone)]
 pub struct PartnerProductListingIngestion {

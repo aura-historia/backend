@@ -11,7 +11,7 @@ use axum::{
 };
 use listing_source_core::ListingSourceId;
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
-use product_listing_ingestion_sqs::delivery::encode_command;
+use product_listing_ingestion_queue::delivery::encode_command;
 use product_listing_service::{
     ports::{
         ProductListingIngestionPublishError, ProductListingIngestionPublisher,

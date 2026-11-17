@@ -23,7 +23,7 @@ use aws_smithy_runtime_api::{
 use aws_smithy_types::body::SdkBody;
 use axum::{Router, body::to_bytes, http::StatusCode};
 use lambda_http::{RequestExt, lambda_runtime::Context};
-use product_listing_ingestion_sqs::{
+use product_listing_ingestion_queue::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
 };
 use product_listing_service::use_cases::SubmitPartnerProductListingIngestionHandler;

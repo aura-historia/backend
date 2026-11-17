@@ -7,7 +7,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use listing_source_core::ListingSourceId;
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_normalization::{
     ProductListingNormalizationInput, RawProductListingProvenance,
 };

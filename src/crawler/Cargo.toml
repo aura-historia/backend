@@ -14,7 +14,7 @@ public-network-policy = { workspace = true }
 
 product-listing-core = { workspace = true }
 product-listing-normalization = { workspace = true }
-product-listing-ingestion-sqs = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
 product-listing-service = { workspace = true }
 aws-config = { workspace = true, features = ["credentials-login"] }
 aws-sdk-cloudwatchlogs = { workspace = true }

@@ -7,7 +7,7 @@ use platform_lambda_sqs::{
     safe_message_id,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingCommandReceiptStoreFactory,
     SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
@@ -442,7 +442,7 @@ mod tests {
     };
 
     const GOLDEN: &str =
-        include_str!("../../product-listing-ingestion-sqs/tests/fixtures/ingestion_v2.json");
+        include_str!("../../product-listing-ingestion-queue/tests/fixtures/ingestion_v2.json");
 
     #[derive(Clone, Copy)]
     enum Mode {

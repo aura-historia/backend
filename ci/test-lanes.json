@@ -104,7 +104,7 @@
     "platform-google-adc",
     "platform-observability",
     "product-listing-core",
-    "product-listing-ingestion-sqs",
+    "product-listing-ingestion-queue",
     "product-listing-normalization",
     "product-listing-normalization-replay",
     "product-listing-shopify",

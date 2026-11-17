@@ -7,7 +7,7 @@ use axum::{
 };
 use lambda_http::{RequestExt, request::RequestContext};
 use platform_lambda_bootstrap::{LambdaInvocationBudget, log_invocation_start};
-use product_listing_ingestion_sqs::with_publication_deadline;
+use product_listing_ingestion_queue::with_publication_deadline;
 use std::{future::Future, time::Duration};
 use tower::ServiceExt;
 

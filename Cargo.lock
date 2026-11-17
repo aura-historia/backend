@@ -368,7 +368,7 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "product-listing-core",
- "product-listing-ingestion-sqs",
+ "product-listing-ingestion-queue",
  "product-listing-normalization",
  "product-listing-opensearch",
  "product-listing-postgres",
@@ -616,7 +616,7 @@ dependencies = [
  "party-service",
  "platform-postgres",
  "product-listing-core",
- "product-listing-ingestion-sqs",
+ "product-listing-ingestion-queue",
  "product-listing-opensearch",
  "product-listing-postgres",
  "product-listing-service",
@@ -2269,7 +2269,7 @@ dependencies = [
  "once_cell",
  "platform-postgres",
  "product-listing-core",
- "product-listing-ingestion-sqs",
+ "product-listing-ingestion-queue",
  "product-listing-normalization",
  "product-listing-postgres",
  "product-listing-service",
@@ -6853,7 +6853,7 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "product-listing-core",
- "product-listing-ingestion-sqs",
+ "product-listing-ingestion-queue",
  "product-listing-postgres",
  "product-listing-service",
  "serde_json",
@@ -6867,7 +6867,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-listing-ingestion-sqs"
+name = "product-listing-ingestion-queue"
 version = "0.1.0"
 dependencies = [
  "application",
@@ -7057,7 +7057,7 @@ dependencies = [
  "party-core",
  "platform-postgres",
  "product-listing-core",
- "product-listing-ingestion-sqs",
+ "product-listing-ingestion-queue",
  "product-listing-normalization",
  "product-listing-service",
  "product-service",

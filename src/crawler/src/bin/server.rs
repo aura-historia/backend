@@ -78,7 +78,7 @@ use crawler::service::listing_source_api::{
 use crawler::service::raw_capture::{
     ProductListingRawCaptureService, ProductListingRawCaptureServiceImpl,
 };
-use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
+use product_listing_ingestion_queue::SqsProductListingIngestionPublisher;
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
 use std::sync::Arc;
 use std::time::Duration;

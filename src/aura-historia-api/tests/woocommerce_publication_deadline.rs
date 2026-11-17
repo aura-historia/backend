@@ -31,7 +31,7 @@ use listing_source_service::ports::{
 use localization::Language;
 use money::Currency;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
-use product_listing_ingestion_sqs::{
+use product_listing_ingestion_queue::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher, codec,
 };
 use product_listing_service::use_cases::{
