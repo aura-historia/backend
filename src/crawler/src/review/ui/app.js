@@ -4190,7 +4190,7 @@ const plausibilityCheckDescriptions = {
     PRICE_TEXT: 'is a price, not an availability label',
     AVAILABILITY_TEXT: 'is an availability label, not a price',
     NO_LETTER: 'has no letter',
-    LINK_OR_PATH: 'is a link or file path, not a label',
+    LINK_OR_PATH: 'is a link or file path',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',

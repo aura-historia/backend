@@ -137,7 +137,10 @@ pub enum PlausibilityCheck {
     /// expected, or punctuation and symbols alone, without a digit either, where a `state` is.
     NoLetter,
     /// An absolute or relative URL, a file path or a `javascript:` link where a `state` label is
-    /// expected: a rule that reads a cart image's `src` or a link's `href`.
+    /// expected, as a rule that reads a cart image's `src` or a link's `href`; or where a
+    /// `source_listing_id` is, as a rule that reads the page URL, its canonical link or
+    /// `og:url`, which changes when the shop moves the product and adds nothing to the URL-hash
+    /// fallback.
     LinkOrPath,
 }
 
@@ -171,7 +174,7 @@ impl PlausibilityCheck {
             Self::PriceText => "is a price, not an availability label",
             Self::AvailabilityText => "is an availability label, not a price",
             Self::NoLetter => "has no letter",
-            Self::LinkOrPath => "is a link or file path, not a label",
+            Self::LinkOrPath => "is a link or file path",
         }
     }
 }
@@ -218,6 +221,9 @@ impl PlausibilityFinding {
             (Price | PriceEstimateMin | PriceEstimateMax | Images, _) => {
                 PlausibilityImpact::LowersRank
             }
+            // Every identity finding but an uncapturable one is report-only: listings already
+            // captured under a URL identity keep updating, while `blocks_approval` keeps new
+            // schemas from introducing one.
             (SourceListingId | Description | RawAttribute(_), _) => PlausibilityImpact::ReportOnly,
         }
     }
@@ -392,7 +398,7 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
     } else if is_word_list(source_listing_id) {
         vec![PlausibilityCheck::WordList]
     } else {
-        Vec::new()
+        link_or_path_check(source_listing_id).into_iter().collect()
     }
 }
 
@@ -401,7 +407,7 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
 /// A whole class attribute reads like this, as Vauclair's `<body class>`
 /// ("portfolio-template-default single single-portfolio postid-13892 …") does: it holds
 /// the post id but changes with the page template and the product's tags. So does a
-/// phrase such as "Price on application". An identifier is one code, number or URL, and
+/// phrase such as "Price on application". An identifier is one code or number, and
 /// a label in front of it brings punctuation or a number ("Stock Number: 38088",
 /// "Ref. 12432", "SKU #42/Blue"), so it never reads as such a list.
 fn is_word_list(value: &str) -> bool {
@@ -879,8 +885,8 @@ mod tests {
         #[case::dated_code("2025-0219-03")]
         #[case::range("22234-22238")]
         #[case::marhamchurch_reference("#Marh3682")]
-        #[case::canonical_url("https://galerie-vauclair.fr/portfolio-item/atelier-grenet/")]
-        #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
+        #[case::inventory_number_with_slash("17/203")]
+        #[case::labelled_inventory_number("Inventarnr. 17/203")]
         #[case::labelled_with_nbsp("Artikel-Nr:\u{a0}02092")]
         #[case::labelled_stock_number("Stock Number: 38088")]
         #[case::labelled_reference("Ref. 12432")]
@@ -1300,6 +1306,29 @@ mod tests {
             assert_eq!(findings.as_slice(), [finding(SourceListingId, WordList)]);
             assert!(!findings.rejects_candidate());
             assert_eq!(findings.rank_penalty(), 0);
+        }
+
+        /// A rule on the canonical link or `og:url` yields the page URL, as Vauclair's and
+        /// HaresFur's did: listings captured under it keep updating, but no new schema may
+        /// introduce it.
+        #[rstest::rstest]
+        #[case::canonical_url("https://galerie-vauclair.fr/portfolio-item/atelier-grenet/")]
+        #[case::og_url("https://shop.example/products/j054-tea-bowl")]
+        #[case::protocol_relative("//shop.example/products/j054-tea-bowl")]
+        #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
+        #[case::page_file("product.php?id=9685")]
+        fn should_report_an_identity_that_is_a_link_or_path_and_block_its_approval(
+            #[case] identity: &str,
+        ) {
+            let mut raw = plausible();
+            raw.source_listing_id = identity.to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(SourceListingId, LinkOrPath)]);
+            assert!(!findings.rejects_candidate());
+            assert_eq!(findings.rank_penalty(), 0);
+            assert!(findings.blocks_approval());
         }
 
         /// A `first` attribute rule whose every match is blank yields its blank, which the
