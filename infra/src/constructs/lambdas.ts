@@ -109,15 +109,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 5,
     environment: providerSignupEnvironment,
   },
-  shopify: {
-    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
-    id: "ShopifyLambda",
-    binaryName: "shopify-lambda",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 30,
-    environment: (context) => ({ PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl }),
-  },
 
   productListingOpenSearch: {
     reservedConcurrency: (config) => config.isProd ? 10 : undefined,
@@ -558,12 +549,10 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
       resources: [logGroupArnPattern],
     }),
   );
-  for (const producer of [functions.auraHistoriaApi, functions.shopify]) {
-    producer.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["sqs:SendMessage"],
-      resources: [props.queues.productListingIngestion.queue.queueArn],
-    }));
-  }
+  functions.auraHistoriaApi.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["sqs:SendMessage"],
+    resources: [props.queues.productListingIngestion.queue.queueArn],
+  }));
   props.search.grantIndexDocumentWrite(functions.productListingOpenSearch, "product-listings");
   functions.notificationDelivery.addToRolePolicy(new iam.PolicyStatement({
     actions: ["s3:GetObject"],

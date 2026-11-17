@@ -106,7 +106,6 @@ members = [
     "src/content-notice-core",
     "src/content-notice-service",
     "src/content-notice-postgres",
-    "src/shopify-lambda",
     "src/user-core",
     "src/user-service",
     "src/user-cognito",

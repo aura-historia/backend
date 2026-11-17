@@ -8,7 +8,12 @@ use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
 };
+use product_listing_service::ports::{
+    ProductListingIngestionPublishError, ProductListingIngestionPublisher,
+};
 use product_listing_service::use_cases::{
+    ProductListingIngestionItemOutcome, ProductListingIngestionMessage,
+    SubmitInternalProductListingIngestionHandler, SubmitInternalProductListingIngestionUseCase,
     SubmitPartnerProductListingIngestionHandler, SubmitPartnerProductListingIngestionUseCase,
 };
 use sqlx::PgPool;
@@ -19,19 +24,24 @@ pub use product_listing_ingestion_sqs::with_publication_deadline;
 #[derive(Clone)]
 pub struct PartnerProductListingIngestion {
     pub submit: Arc<dyn SubmitPartnerProductListingIngestionUseCase>,
+    /// Trusted provider intake, such as verified Shopify webhooks, through the same publisher.
+    pub submit_internal: Arc<dyn SubmitInternalProductListingIngestionUseCase>,
     pub put_configuration: Arc<dyn PutListingSourceIngestionConfigurationUseCase>,
 }
 
 pub struct ProductListingIngestionDependencies {
     submit: Arc<dyn SubmitPartnerProductListingIngestionUseCase>,
+    submit_internal: Arc<dyn SubmitInternalProductListingIngestionUseCase>,
 }
 impl ProductListingIngestionDependencies {
     /// Compose against the application publisher port, including controlled local publishers.
-    pub fn new(
-        publisher: impl product_listing_service::ports::ProductListingIngestionPublisher + 'static,
-    ) -> Self {
+    pub fn new(publisher: impl ProductListingIngestionPublisher + 'static) -> Self {
+        let publisher = SharedPublisher(Arc::new(publisher));
         Self {
-            submit: Arc::new(SubmitPartnerProductListingIngestionHandler::new(publisher)),
+            submit: Arc::new(SubmitPartnerProductListingIngestionHandler::new(
+                publisher.clone(),
+            )),
+            submit_internal: Arc::new(SubmitInternalProductListingIngestionHandler::new(publisher)),
         }
     }
 
@@ -49,12 +59,27 @@ impl PartnerProductListingIngestion {
     ) -> Self {
         Self {
             submit: dependencies.submit,
+            submit_internal: dependencies.submit_internal,
             put_configuration: Arc::new(PutListingSourceIngestionConfigurationHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxListingSourceRepositoryFactory::new(),
                 SqlxListingSourceAuthorization::new(pool.clone()),
             )),
         }
+    }
+}
+
+/// Partner and internal admission share one publisher and its warm client.
+#[derive(Clone)]
+struct SharedPublisher(Arc<dyn ProductListingIngestionPublisher>);
+
+#[async_trait::async_trait]
+impl ProductListingIngestionPublisher for SharedPublisher {
+    async fn publish(
+        &self,
+        commands: Vec<ProductListingIngestionMessage>,
+    ) -> Result<Vec<ProductListingIngestionItemOutcome>, ProductListingIngestionPublishError> {
+        self.0.publish(commands).await
     }
 }
 
@@ -83,6 +108,7 @@ mod tests {
         let first = runtime.partner_product_listing_ingestion(dependencies());
         let second = runtime.partner_product_listing_ingestion(dependencies());
         assert!(Arc::ptr_eq(&first.submit, &second.submit));
+        assert!(Arc::ptr_eq(&first.submit_internal, &second.submit_internal));
         assert!(Arc::ptr_eq(
             &first.put_configuration,
             &second.put_configuration

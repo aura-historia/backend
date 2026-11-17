@@ -296,13 +296,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(data.toJSON().Outputs.ProductListingIngestionDeadLetterQueueUrl).toEqual({ Value: dlq.url });
   });
 
-  test("limits command ingress IAM to two publishers and one consumer that parks only into its DLQ", () => {
+  test("limits command ingress IAM to one publisher and one consumer that parks only into its DLQ", () => {
     const sourceName = `product-listing-ingestion-queue-${stage}.fifo`;
     const sourceArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: sourceName }));
     const dlqName = `product-listing-ingestion-dlq-${stage}.fifo`;
     const dlqArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: dlqName }));
     const custodyGrant = { Action: "sqs:SendMessage", Effect: "Allow", Resource: dlqArn };
-    const producerNames = [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`];
+    const producerNames = [`aura-historia-api-${stage}`];
     const consumer = ingressFunction(compute, `product-listing-ingestion-lambda-${stage}`);
     const expectedQueueUrl = { "Fn::Sub": [
       "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
@@ -313,13 +313,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       expect(producer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL)
         .toEqual(expectedQueueUrl);
       expect(producer.statements.filter((statement) => JSON.stringify(statement.Action).includes("sqs:")))
-        .toEqual(name === `shopify-lambda-${stage}`
-          ? [
-              { Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn },
-              { Action: ["sqs:ReceiveMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueUrl", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
-                Effect: "Allow", Resource: stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: `shopify-lambda-queue-${stage}` })) },
-            ]
-          : [{ Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn }]);
+        .toEqual([{ Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn }]);
     }
     expect(consumer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeUndefined();
     expect(consumer.resource.Properties.Environment.Variables.DEAD_LETTER_QUEUE_URL).toEqual({ "Fn::Sub": [
@@ -335,7 +329,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .flatMap(([id, policy]) => policy.Properties.PolicyDocument.Statement
         .filter((statement: { Resource: unknown }) => JSON.stringify(statement.Resource) === JSON.stringify(sourceArn))
         .map((statement: { Action: unknown }) => ({ id, action: statement.Action })));
-    expect(ingressGrants).toHaveLength(3);
+    expect(ingressGrants).toHaveLength(2);
     expect(ingressGrants).toEqual(expect.arrayContaining([
       ...producerNames.map((name) => ({ id: ingressFunction(compute, name).policyId, action: "sqs:SendMessage" })),
       { id: consumer.policyId, action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"] },
@@ -378,9 +372,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       ScalingConfig: { MaximumConcurrency: 2 },
     });
     expect(mapping.DependsOn).toContain(consumer.policyId);
-    for (const name of [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`]) {
-      expect(ingressFunction(compute, name).resource.DependsOn).toContain(mappingId);
-    }
+    expect(ingressFunction(compute, `aura-historia-api-${stage}`).resource.DependsOn).toContain(mappingId);
     const mcp = Object.values(compute.findResources("AWS::Lambda::Function"))
       .find((resource) => resource.Properties.FunctionName === `aura-historia-mcp-${stage}`);
     expect(mcp).toBeDefined();
@@ -392,7 +384,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(consumer.resource.Properties.LoggingConfig.LogGroup).toEqual({ Ref: logGroups[0][0] });
   });
 
-  test("keeps Shopify queues and Lambda identity while wiring its consumer", () => {
+  test("keeps the retained Shopify queues and rule without a consumer", () => {
     const source = queueResource(data, `shopify-lambda-queue-${stage}`);
     const dlq = queueResource(data, `shopify-lambda-dlq-${stage}`);
     expect(source.id).toBe("QueuesShopifyLambdaQueue117CAC9C");
@@ -411,43 +403,21 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(data.toJSON().Outputs.ShopifyLambdaQueueUrl).toEqual({ Value: source.url });
     expect(data.toJSON().Outputs.ShopifyLambdaDeadLetterQueueUrl).toEqual({ Value: dlq.url });
 
-    const lambda = compute.toJSON().Resources.LambdasShopifyLambda9FCE3162;
-    expect(lambda.Properties).toMatchObject({
-      FunctionName: `shopify-lambda-${stage}`, Runtime: "provided.al2023", Handler: "lib.handler",
-      MemorySize: 256, Timeout: 30, Architectures: ["x86_64"], EphemeralStorage: { Size: 512 },
-      Role: { "Fn::GetAtt": ["LambdasShopifyLambdaServiceRoleDDA039B4", "Arn"] },
-      Code: {
-        S3Bucket: "aura-historia-release-bundles-eu-central-1",
-        S3Key: { Ref: "ShopifyLambdaArtifactKey" },
-      },
-    });
-    expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
-      ["LOG_LEVEL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
-    );
-    expect(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual({ "Fn::Sub": [
-      "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
-      { QueueName: `product-listing-ingestion-queue-${stage}.fifo` },
-    ] });
-    const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
-    expect(lambda.Properties.VpcConfig).toBeDefined();
-    expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue")).toEqual([]);
+    // Shopify delivers over HTTPS to the API; the Lambda consumer is gone.
+    expect(compute.toJSON().Resources.LambdasShopifyLambda9FCE3162).toBeUndefined();
+    const functionNames = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .map((resource) => resource.Properties.FunctionName);
+    expect(functionNames).not.toContain(`shopify-lambda-${stage}`);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(16);
-    const shopifyMapping = mappings.find((mapping) =>
-      JSON.stringify(mapping.Properties.FunctionName).includes("LambdasShopifyLambda"),
-    );
-    expect(shopifyMapping?.Properties).toMatchObject({
-      FunctionName: { Ref: "LambdasShopifyLambda9FCE3162" },
-      FunctionResponseTypes: ["ReportBatchItemFailures"],
-      MaximumBatchingWindowInSeconds: 1,
-    });
-    expect(JSON.stringify(shopifyMapping?.Properties.EventSourceArn)).toContain(`shopify-lambda-queue-${stage}`);
+    expect(mappings).toHaveLength(15);
+    expect(mappings.some((mapping) => JSON.stringify(mapping.Properties.EventSourceArn).includes(`shopify-lambda-queue-${stage}`)))
+      .toBe(false);
     expect(compute.toJSON().Resources.EventingShopifyEventRule401F6A4E).toBeDefined();
   });
 
   test("starts the ProductListing OpenSearch consumer with its dedicated queue", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(16);
+    expect(mappings).toHaveLength(15);
     const productListingMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingOpenSearchVersion"),
     );
@@ -494,7 +464,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
 
   test("retains the ProductListing normalization Lambda handoff with scoped PostgreSQL-only configuration", () => {
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
-    expect(mappings).toHaveLength(16);
+    expect(mappings).toHaveLength(15);
     const normalizationMapping = mappings.find((mapping) =>
       JSON.stringify(mapping.Properties.FunctionName).includes("ProductListingNormalizationVersion"),
     );

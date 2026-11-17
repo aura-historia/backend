@@ -42,6 +42,7 @@ export function credentialSecrets(stage: StageName) {
     postgresRuntime: secret("PostgresRuntime", `/aura-historia/${stage}/postgres/runtime`, ["username", "password"]),
     stripe: secret("Stripe", app("stripe"), ["apiKey", "webhookSigningSecret"]),
     loops: secret("Loops", app("loops"), ["apiKey", "webhookSigningSecret"]),
+    shopify: secret("Shopify", app("shopify"), ["clientSecret"]),
     openSearch: secret("OpenSearch", app("opensearch"), ["readerPassword", "productProjectorPassword"]),
     anthropic: secret("Anthropic", app("anthropic"), ["apiKey"]),
     google: secret("Google", app("google"), ["applicationCredentials"]),

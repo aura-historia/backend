@@ -115,6 +115,20 @@ pub trait SubmitInternalProductListingIngestionUseCase: Send + Sync {
     ) -> Result<ProductListingIngestionSubmissionResult, ProductListingIngestionSubmissionError>;
 }
 
+#[async_trait::async_trait]
+impl<T: SubmitInternalProductListingIngestionUseCase + ?Sized>
+    SubmitInternalProductListingIngestionUseCase for Arc<T>
+{
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        submission: ProductListingIngestionSubmission,
+    ) -> Result<ProductListingIngestionSubmissionResult, ProductListingIngestionSubmissionError>
+    {
+        (**self).execute(context, submission).await
+    }
+}
+
 /// Partner-facing intake: accepts users and delegated users with ProductListingsWrite capability.
 pub struct SubmitPartnerProductListingIngestionHandler<P> {
     publisher: P,

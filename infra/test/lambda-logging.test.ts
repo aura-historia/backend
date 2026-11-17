@@ -47,7 +47,7 @@ describe.each(STAGES)("%s Lambda logging", (stage) => {
         checked += 1;
       }
     }
-    expect(checked).toBeGreaterThan(25);
+    expect(checked).toBeGreaterThanOrEqual(25);
   });
 
   // Lambda assigns INFO to every JSON line without an RFC 3339 timestamp and to plain-text panic

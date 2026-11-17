@@ -49,7 +49,6 @@
     "search-filter-periodic-match",
     "search-filter-postgres",
     "shipping-postgres",
-    "shopify-lambda",
     "test-api",
     "test-api-macros",
     "user-email-aws",
