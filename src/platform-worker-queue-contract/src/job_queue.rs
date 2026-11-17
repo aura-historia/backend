@@ -31,6 +31,79 @@ pub fn product_listing_ingestion_job_scope() -> JobScope {
     )
 }
 
+/// Where a full ProductListing reprojection sends its projector jobs.
+///
+/// The live projector consumes `product-listing-opensearch` and writes the index that readers
+/// serve. A separate generation has its own scope, `product-listing-opensearch-<generation>`,
+/// whose projector consumer writes only the index `product-listings-<generation>`; the live
+/// index never sees its jobs. Targeting the live index is an explicit choice, used to rebuild
+/// search after the index was lost.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProjectionTarget {
+    Live,
+    Generation(ProjectionGeneration),
+}
+
+impl ProjectionTarget {
+    pub fn job_scope(&self) -> JobScope {
+        let live = worker_job_scope(WorkerScope::ProductListingOpenSearch);
+        match self {
+            Self::Live => live,
+            Self::Generation(generation) => JobScope::new(
+                generation.scope_name(),
+                live.ordering(),
+                live.lease(),
+                live.max_attempts(),
+                live.retry_delay(),
+            )
+            .expect("the live projector policy is valid"),
+        }
+    }
+}
+
+const MAX_GENERATION_BYTES: usize = 16;
+
+/// An isolated OpenSearch index generation: 1 to 16 lower-case ASCII letters or digits, so its
+/// scope name stays a valid job scope.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectionGeneration(String);
+
+impl ProjectionGeneration {
+    pub fn new(generation: impl Into<String>) -> Result<Self, InvalidProjectionGeneration> {
+        let generation = generation.into();
+        let valid = !generation.is_empty()
+            && generation.len() <= MAX_GENERATION_BYTES
+            && generation
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+        valid
+            .then_some(Self(generation))
+            .ok_or(InvalidProjectionGeneration)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The index this generation's projector consumer writes.
+    pub fn index_name(&self) -> String {
+        format!("product-listings-{}", self.0)
+    }
+
+    fn scope_name(&self) -> ScopeName {
+        ScopeName::new(format!(
+            "{}-{}",
+            WorkerScope::ProductListingOpenSearch.as_str(),
+            self.0
+        ))
+        .expect("a validated generation yields a valid scope name")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("projection generation must be 1 to 16 lower-case ASCII letters or digits")]
+pub struct InvalidProjectionGeneration;
+
 /// Every scope the job queue serves.
 pub fn all_job_scopes() -> Vec<JobScope> {
     WorkerScope::ALL
@@ -83,6 +156,61 @@ mod tests {
         assert_eq!(Duration::from_secs(270), scope.lease());
         assert_eq!(Duration::from_secs(270), scope.retry_delay());
         assert_eq!(5, scope.max_attempts());
+    }
+
+    #[test]
+    fn should_send_live_reprojection_to_the_live_projector_scope() {
+        assert_eq!(
+            worker_job_scope(WorkerScope::ProductListingOpenSearch),
+            ProjectionTarget::Live.job_scope()
+        );
+    }
+
+    #[test]
+    fn should_isolate_a_generation_in_its_own_scope_with_the_live_policy() {
+        let generation = ProjectionGeneration::new("g7").unwrap();
+        let live = ProjectionTarget::Live.job_scope();
+
+        let scope = ProjectionTarget::Generation(generation.clone()).job_scope();
+
+        assert_eq!("product-listing-opensearch-g7", scope.name().as_str());
+        assert_eq!("product-listings-g7", generation.index_name());
+        assert_eq!(
+            (
+                live.ordering(),
+                live.lease(),
+                live.max_attempts(),
+                live.retry_delay()
+            ),
+            (
+                scope.ordering(),
+                scope.lease(),
+                scope.max_attempts(),
+                scope.retry_delay()
+            )
+        );
+    }
+
+    #[test]
+    fn should_accept_only_short_lower_case_alphanumeric_generations() {
+        for generation in ["a", "g7", "2026", &"z".repeat(16)] {
+            let generation = ProjectionGeneration::new(generation).unwrap();
+            assert!(
+                ProjectionTarget::Generation(generation)
+                    .job_scope()
+                    .name()
+                    .as_str()
+                    .len()
+                    <= 48
+            );
+        }
+        for generation in ["", "G7", "g-7", "g_7", "g 7", &"z".repeat(17)] {
+            assert_eq!(
+                Err(InvalidProjectionGeneration),
+                ProjectionGeneration::new(generation),
+                "{generation}"
+            );
+        }
     }
 
     #[test]

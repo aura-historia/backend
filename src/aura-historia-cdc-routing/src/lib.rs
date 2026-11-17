@@ -1460,6 +1460,35 @@ pub enum CdcRouteError {
     MissingColumn(&'static str),
 }
 
+impl CdcRouteError {
+    /// A bounded label for failure custody and diagnostics; never row content.
+    pub const fn class(&self) -> &'static str {
+        match self {
+            Self::UnsupportedTableForWorker(_) => "unsupported_source",
+            Self::UnsupportedProductListingEvent { .. } => "unsupported_event",
+            Self::UnsupportedProductListingEventSchemaVersion { .. } => "unsupported_event_version",
+            Self::MissingProductListingEventField { .. }
+            | Self::InvalidProductListingEventField { .. }
+            | Self::NonCanonicalProductListingEventField { .. }
+            | Self::UnknownProductListingEventField { .. }
+            | Self::InconsistentProductListingEvent { .. }
+            | Self::InvalidProductListingEventPayload => "invalid_event_payload",
+            Self::InvalidEventId
+            | Self::InvalidProductListingId
+            | Self::InvalidProductListingRawStreamId
+            | Self::InvalidProductListingRawRevisionId
+            | Self::InvalidProductListingRawRevision
+            | Self::InvalidObjectId(_)
+            | Self::InvalidMarketingConsentSyncIntentId
+            | Self::NonCanonicalMarketingConsentSyncIntentId
+            | Self::InvalidMarketingConsentRecipientKey => "invalid_identity",
+            Self::InvalidSourceContract(_) | Self::MissingRow | Self::MissingColumn(_) => {
+                "invalid_source_row"
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

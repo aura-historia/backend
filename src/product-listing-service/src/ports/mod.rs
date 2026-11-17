@@ -21,6 +21,7 @@ pub mod product_listing_ingestion_publisher;
 pub mod product_listing_lifecycle_guard;
 
 pub mod product_listing_price_filter_plan;
+pub mod product_listing_projection_trigger_reader;
 pub mod product_listing_raw_capture_writer;
 pub mod product_listing_repository;
 pub mod product_listing_search_filter_match_source_reader;
@@ -118,6 +119,10 @@ pub use product_listing_lifecycle_guard::{
 };
 
 pub use product_listing_price_filter_plan::{NativePriceRange, ProductListingPriceFilterPlan};
+pub use product_listing_projection_trigger_reader::{
+    ProductListingProjectionTrigger, ProductListingProjectionTriggerReadError,
+    ProductListingProjectionTriggerReader,
+};
 pub use product_listing_raw_capture_writer::{
     MAX_PROVIDER_RECEIPT_DELIVERY_ID_UTF8_BYTES, MAX_PROVIDER_RECEIPT_SCOPE_UTF8_BYTES,
     ProductListingRawCaptureWrite, ProductListingRawCaptureWriteError,

@@ -135,7 +135,7 @@ approved activation plan, not on every deployment.
 | Failure location | What to inspect |
 | --- | --- |
 | DMS / Kinesis | Task/slot health, retained WAL, capture lag, iterator age, checkpoint and transport retention |
-| Router | Earliest failed sequence, publication outcome and private S3 invocation archive; not a worker DLQ |
+| Delivery outbox | Pending count and oldest age, and `delivery_outbox_failures` with its error classes; not a worker DLQ. See [delivery outbox recovery](#delivery-outbox-recovery) |
 | Worker source / DLQ | Oldest age, depth, receive/retry history, domain identity and PostgreSQL completion state |
 | Provider ingress | Upstream delivery history and its queue/DLQ as well as downstream command custody |
 | Scheduled work | Target-delivery DLQ **and** actual invocation/task exit/report; successful launch is not completed work |
@@ -200,6 +200,30 @@ For recovery:
 4. Preserve receipts and fences. Never fabricate success, reset an applied receipt,
    skip poison input, blindly resend historic mail, or purge to clear alarms. Runtime
    roles do not have operator replay/redrive/purge authority.
+
+## Delivery outbox recovery
+
+The [delivery outbox](../src/delivery-outbox/README.md) holds captured source inserts until
+the dispatcher has enqueued their jobs. A growing pending count or oldest age means the
+dispatcher is not running or its transactions fail; capture continues, and nothing is lost
+while PostgreSQL keeps the rows. Restarting the dispatcher drains them in outbox order.
+
+A snapshot in `delivery_outbox_failures` could not be decoded, routed or encoded. Its
+`error_class` names the step: `unsupported_source` and `unsupported_snapshot_version` mean a
+capture trigger and the dispatcher's codec disagree, `invalid_snapshot` and
+`invalid_source_row` a shape the source contract does not allow, `invalid_identity` an ID or
+key that fails its type, and `unsupported_event`, `unsupported_event_version` and
+`invalid_event_payload` a ProductListing event the route does not accept. Read the row's
+source and IDs, not its whole snapshot, into evidence.
+
+Repair the cause first: deploy a codec or route that accepts the reviewed shape, or repair the
+source row and let its writer capture a fresh insert. Then redrive selected rows; redrive
+restores each under its original outbox ID, ahead of every later snapshot still waiting, and
+the dispatcher treats it like a fresh capture. Custody is never deleted to clear an alarm.
+
+The outbox replaces DMS capture only on the host. Its cutover migration drops the
+`dms_heartbeat` schema and, when it runs as an administrator, the `aura_replication` role. If
+it warns that the role was kept, drop the role as an administrator after the migration.
 
 ## ProductListing ingestion FIFO command recovery
 
@@ -292,7 +316,17 @@ ProductListing withdrawals use content-free, externally versioned
 
 Rebuild into an isolated index generation: fence old writers, reconstruct authoritative
 facts, catch up commits, verify IDs/source versions/deletion visibility, then switch the
-approved reader/alias target. Withdrawn listings retain authoritative source state.
+approved reader/alias target.
+
+`reproject-all` reconstructs the facts: it enqueues one projector job per existing listing,
+withdrawn ones included, naming the listing's current event, so the projector writes current
+state or the versioned tombstone. A separate generation `<g>` receives its jobs in the scope
+`product-listing-opensearch-<g>`, consumed by a projector bound to the index
+`product-listings-<g>`; the live index and its scope are untouched. Target the live scope only
+to rebuild search after the index was lost. Each page commits on its own and the run reports
+the last listing, so an interrupted run resumes after it. Catch up by rerunning once old
+writers are fenced: jobs still waiting deduplicate, and listings whose current event changed
+are added. Withdrawn listings retain authoritative source state.
 Index reset, expired queues and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
 

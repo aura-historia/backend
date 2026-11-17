@@ -1843,40 +1843,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cdc-router-lambda"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aura-historia-cdc-routing",
- "aura-historia-jobs",
- "aws-config",
- "aws-sdk-sqs",
- "aws-smithy-types",
- "aws_lambda_events",
- "domain-primitives",
- "futures-util",
- "fxrate-core",
- "lambda_runtime",
- "localization",
- "money",
- "notification-core",
- "platform-aws",
- "platform-observability",
- "platform-worker-queue-contract",
- "product-listing-core",
- "search-filter-core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "tracing",
- "url",
- "user-core",
- "uuid",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2673,6 +2639,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "delivery-outbox"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aura-historia-cdc-routing",
+ "aura-historia-jobs",
+ "domain-primitives",
+ "notification-core",
+ "platform-postgres-queue",
+ "platform-worker-queue-contract",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
+ "serde_json",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "uuid",
 ]
 
 [[package]]
