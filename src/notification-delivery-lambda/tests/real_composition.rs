@@ -198,7 +198,13 @@ async fn content_notice_receipt_is_claimed_rendered_and_delivered_to_the_notifie
         let pool = get_postgres_client().await;
         let use_case = composition(pool.clone(), false).await?;
         let notice = content_notice()?;
-        let recipient = notice.submitter().email.as_str().to_owned();
+        let recipient = notice
+            .submitter()
+            .email
+            .as_ref()
+            .expect("fixture email")
+            .as_str()
+            .to_owned();
         let mut tx = platform_postgres::SqlxUnitOfWork::new(pool.clone()).begin().await?;
         let message = SqlxExternalEmailOutboxFactory::new()
             .in_transaction(&mut tx)
@@ -322,11 +328,11 @@ fn content_notice() -> Result<ContentNotice, Box<dyn std::error::Error + Send + 
             "https://marker-url.example/photo",
         )?])?,
         submitter: Submitter {
-            name: SubmitterName::try_from("MarkerName")?,
-            email: SubmitterEmail::try_from(format!(
+            name: Some(SubmitterName::try_from("MarkerName")?),
+            email: Some(SubmitterEmail::try_from(format!(
                 "notifier-{}@example.test",
                 id.as_uuid().simple()
-            ))?,
+            ))?),
             language: localization::Language::It,
         },
         good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,

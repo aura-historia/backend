@@ -65,6 +65,10 @@ pub enum ContentNoticeInvariantError {
         submitter_role.as_str()
     )]
     ProviderOptOutRequiresProvider { submitter_role: SubmitterRole },
+    #[error("submitter role {} requires the submitter's name", submitter_role.as_str())]
+    SubmitterNameRequired { submitter_role: SubmitterRole },
+    #[error("submitter role {} requires the submitter's email address", submitter_role.as_str())]
+    SubmitterEmailRequired { submitter_role: SubmitterRole },
     #[error("target snapshot does not describe the kind of target the notice is about")]
     TargetSnapshotMismatch,
 }
@@ -93,10 +97,11 @@ impl ContentNotice {
         if !state.target_snapshot.matches(state.target) {
             return Err(ContentNoticeInvariantError::TargetSnapshotMismatch);
         }
-        Self::check_reason(
+        Self::check_submission(
             state.submitter_role,
             state.reason_category,
             state.explanation.as_ref(),
+            &state.submitter,
         )?;
         Ok(Self {
             id: state.id,
@@ -112,12 +117,14 @@ impl ContentNotice {
         })
     }
 
-    /// Checks the rules that tie the reason to the submitter role and the explanation. They do
-    /// not depend on the target, so a submission can be checked before its target is resolved.
-    pub fn check_reason(
+    /// Checks the rules that tie the reason and the submitter's identification to the submitter
+    /// role. They do not depend on the target, so a submission can be checked before its target
+    /// is resolved.
+    pub fn check_submission(
         submitter_role: SubmitterRole,
         reason_category: ReasonCategory,
         explanation: Option<&NoticeExplanation>,
+        submitter: &Submitter,
     ) -> Result<(), ContentNoticeInvariantError> {
         if reason_category == ReasonCategory::ProviderOptOut
             && submitter_role != SubmitterRole::Provider
@@ -128,6 +135,14 @@ impl ContentNotice {
         }
         if explanation.is_none() && reason_category.requires_explanation() {
             return Err(ContentNoticeInvariantError::ExplanationRequired { reason_category });
+        }
+        if submitter_role.requires_identification() {
+            if submitter.name.is_none() {
+                return Err(ContentNoticeInvariantError::SubmitterNameRequired { submitter_role });
+            }
+            if submitter.email.is_none() {
+                return Err(ContentNoticeInvariantError::SubmitterEmailRequired { submitter_role });
+            }
         }
         Ok(())
     }
@@ -209,8 +224,8 @@ mod tests {
             explanation: explanation.map(|value| NoticeExplanation::try_from(value).unwrap()),
             additional_urls: AdditionalUrls::default(),
             submitter: Submitter {
-                name: SubmitterName::try_from("Jane Doe").unwrap(),
-                email: SubmitterEmail::try_from("jane@shop.example").unwrap(),
+                name: Some(SubmitterName::try_from("Jane Doe").unwrap()),
+                email: Some(SubmitterEmail::try_from("jane@shop.example").unwrap()),
                 language: Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
@@ -290,6 +305,45 @@ mod tests {
                     ReasonCategory::ProviderOptOut,
                     Some("Please remove us."),
                 ))
+            );
+        }
+    }
+
+    #[test]
+    fn should_accept_an_anonymous_report_of_illegal_content() {
+        let mut input = listing_source_notice(
+            SubmitterRole::IllegalContentReporter,
+            ReasonCategory::IllegalContent,
+            Some("Prohibited symbol."),
+        );
+        input.submitter.name = None;
+        input.submitter.email = None;
+
+        let notice = ContentNotice::submit(input).unwrap();
+
+        assert_eq!(None, notice.submitter().name);
+        assert_eq!(None, notice.submitter().email);
+    }
+
+    #[test]
+    fn should_require_name_and_email_from_every_other_role() {
+        for submitter_role in
+            SubmitterRole::iter().filter(|role| *role != SubmitterRole::IllegalContentReporter)
+        {
+            let mut without_name =
+                listing_source_notice(submitter_role, ReasonCategory::Other, Some("Reason."));
+            without_name.submitter.name = None;
+            let mut without_email = without_name.clone();
+            without_email.submitter.name = Some(SubmitterName::try_from("Jane Doe").unwrap());
+            without_email.submitter.email = None;
+
+            assert_eq!(
+                Err(ContentNoticeInvariantError::SubmitterNameRequired { submitter_role }),
+                ContentNotice::submit(without_name)
+            );
+            assert_eq!(
+                Err(ContentNoticeInvariantError::SubmitterEmailRequired { submitter_role }),
+                ContentNotice::submit(without_email)
             );
         }
     }

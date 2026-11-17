@@ -15,7 +15,7 @@ use content_notice_postgres::{
 };
 use content_notice_service::{
     ports::ContentNoticeClock,
-    submission_policy::{MAX_NOTICES_PER_ADDRESS, SUBMISSION_WINDOW},
+    submission_policy::{MAX_NOTICES_PER_GROUP, SUBMISSION_WINDOW},
     use_cases::commands::submit_content_notice::{
         ContentNoticeTargetReference, SubmitContentNoticeCommand, SubmitContentNoticeError,
         SubmitContentNoticeHandler, SubmitContentNoticeResult, SubmitContentNoticeUseCase,
@@ -83,12 +83,25 @@ fn command(
         explanation: Some(NoticeExplanation::try_from(explanation).unwrap()),
         additional_urls: AdditionalUrls::default(),
         submitter: Submitter {
-            name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-            email: SubmitterEmail::try_from(email).unwrap(),
+            name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+            email: Some(SubmitterEmail::try_from(email).unwrap()),
             language: Language::De,
         },
         good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
     }
+}
+
+/// A report of illegal content about the listing source without name and email address.
+fn anonymous_command(
+    listing_source_id: ListingSourceId,
+    explanation: &str,
+) -> SubmitContentNoticeCommand {
+    let mut command = command(listing_source_id, "unused@example.com", explanation);
+    command.submitter_role = SubmitterRole::IllegalContentReporter;
+    command.reason_category = ReasonCategory::IllegalContent;
+    command.submitter.name = None;
+    command.submitter.email = None;
+    command
 }
 
 /// Runs the submissions concurrently, each in its own transaction. A gate holds back every
@@ -202,7 +215,7 @@ async fn should_never_store_more_than_the_budget_for_concurrent_distinct_submiss
     let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
     let handler = handler(&pool);
     let remaining = 2;
-    for index in 0..MAX_NOTICES_PER_ADDRESS - remaining {
+    for index in 0..MAX_NOTICES_PER_GROUP - remaining {
         handler
             .execute(
                 &context(),
@@ -238,12 +251,9 @@ async fn should_never_store_more_than_the_budget_for_concurrent_distinct_submiss
         count(&outcomes, rate_limited),
         "{outcomes:?}"
     );
-    assert_eq!(MAX_NOTICES_PER_ADDRESS as i64, stored_notices(&pool).await);
-    assert_eq!(
-        MAX_NOTICES_PER_ADDRESS as i64,
-        pending_receipts(&pool).await
-    );
-    assert_eq!(MAX_NOTICES_PER_ADDRESS as i64, external_emails(&pool).await);
+    assert_eq!(MAX_NOTICES_PER_GROUP as i64, stored_notices(&pool).await);
+    assert_eq!(MAX_NOTICES_PER_GROUP as i64, pending_receipts(&pool).await);
+    assert_eq!(MAX_NOTICES_PER_GROUP as i64, external_emails(&pool).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -251,7 +261,7 @@ async fn should_share_one_budget_and_one_duplicate_check_across_address_case() {
     let pool = get_postgres_client().await;
     let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
     let handler = handler(&pool);
-    for index in 0..MAX_NOTICES_PER_ADDRESS {
+    for index in 0..MAX_NOTICES_PER_GROUP {
         handler
             .execute(
                 &context(),
@@ -286,7 +296,7 @@ async fn should_share_one_budget_and_one_duplicate_check_across_address_case() {
 
     assert!(duplicate(&resubmitted), "{resubmitted:?}");
     assert_eq!(
-        MAX_NOTICES_PER_ADDRESS as i64 + 1,
+        MAX_NOTICES_PER_GROUP as i64 + 1,
         external_emails(&pool).await,
         "neither the resubmission nor the rate-limited notice enqueues a receipt"
     );
@@ -322,4 +332,82 @@ async fn should_store_an_identical_submission_again_once_the_stored_one_left_the
     assert!(duplicate(&inside), "{inside:?}");
     assert!(stored(&outside), "{outside:?}");
     assert_eq!(2, stored_notices(&pool).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_store_exactly_one_notice_for_concurrent_identical_anonymous_submissions() {
+    let pool = get_postgres_client().await;
+    let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
+    let submissions = 8;
+
+    let outcomes = submit_concurrently(
+        &pool,
+        (0..submissions)
+            .map(|_| anonymous_command(source, "Verbotenes Symbol."))
+            .collect(),
+    )
+    .await;
+
+    assert_eq!(1, count(&outcomes, stored), "{outcomes:?}");
+    assert_eq!(submissions - 1, count(&outcomes, duplicate), "{outcomes:?}");
+    assert_eq!(1, stored_notices(&pool).await);
+    assert_eq!(
+        0,
+        external_emails(&pool).await,
+        "an anonymous notice gets no receipt"
+    );
+}
+
+/// Anonymous notices about one target share one budget. Notices with an address about the same
+/// target and anonymous notices about another target do not count against it.
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_never_store_more_than_the_budget_for_concurrent_anonymous_notices_about_one_target()
+{
+    let pool = get_postgres_client().await;
+    let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
+    let other_source = seed_listing_source(&pool, "Andere Antik", None, None).await;
+    let product_listing_id =
+        seed_product_listing(&pool, source, ListingLifecycle::Active, Some("Vase")).await;
+    let handler = handler(&pool);
+    let remaining = 2;
+    for index in 0..MAX_NOTICES_PER_GROUP - remaining {
+        handler
+            .execute(
+                &context(),
+                anonymous_command(source, &format!("Symbol {index}.")),
+            )
+            .await
+            .unwrap();
+    }
+    let mut about_listing = anonymous_command(source, "Symbol auf der Vase.");
+    about_listing.target = ContentNoticeTargetReference::ProductListing { product_listing_id };
+    for unrelated in [
+        command(source, "erika@example.com", "Das Foto ist meins."),
+        anonymous_command(other_source, "Symbol 0."),
+        about_listing,
+    ] {
+        let outcome = handler.execute(&context(), unrelated).await;
+        assert!(stored(&outcome), "{outcome:?}");
+    }
+    let submissions = 6;
+
+    let outcomes = submit_concurrently(
+        &pool,
+        (0..submissions)
+            .map(|index| anonymous_command(source, &format!("Neues Symbol {index}.")))
+            .collect(),
+    )
+    .await;
+
+    assert_eq!(remaining, count(&outcomes, stored), "{outcomes:?}");
+    assert_eq!(
+        submissions - remaining,
+        count(&outcomes, rate_limited),
+        "{outcomes:?}"
+    );
+    assert_eq!(
+        MAX_NOTICES_PER_GROUP as i64 + 3,
+        stored_notices(&pool).await
+    );
+    assert_eq!(1, external_emails(&pool).await);
 }

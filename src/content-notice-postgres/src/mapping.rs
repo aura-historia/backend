@@ -40,8 +40,8 @@ pub(crate) struct ContentNoticeRow {
     reason_category: String,
     explanation: Option<String>,
     additional_urls: Vec<String>,
-    submitter_name: String,
-    submitter_email: String,
+    submitter_name: Option<String>,
+    submitter_email: Option<String>,
     submitter_language: String,
     good_faith_statement_version: String,
     business_state: String,
@@ -61,8 +61,8 @@ pub(crate) struct ContentNoticeSummaryRow {
     product_listing_title: Option<String>,
     submitter_role: String,
     reason_category: String,
-    submitter_name: String,
-    submitter_email: String,
+    submitter_name: Option<String>,
+    submitter_email: Option<String>,
     business_state: String,
     created: OffsetDateTime,
 }
@@ -140,10 +140,8 @@ pub(crate) fn content_notice(
             .map_err(MappingError::Explanation)?,
         additional_urls: additional_urls(row.additional_urls)?,
         submitter: Submitter {
-            name: SubmitterName::try_from(row.submitter_name)
-                .map_err(MappingError::SubmitterName)?,
-            email: SubmitterEmail::try_from(row.submitter_email)
-                .map_err(MappingError::SubmitterEmail)?,
+            name: submitter_name(row.submitter_name)?,
+            email: submitter_email(row.submitter_email)?,
             language: Language::from_code(&row.submitter_language)
                 .ok_or(MappingError::SubmitterLanguage)?,
         },
@@ -212,11 +210,23 @@ pub(crate) fn content_notice_summary(
             .ok_or(MappingError::SubmitterRole)?,
         reason_category: ReasonCategory::from_code(&row.reason_category)
             .ok_or(MappingError::ReasonCategory)?,
-        submitter_name: SubmitterName::try_from(row.submitter_name)
-            .map_err(MappingError::SubmitterName)?,
-        submitter_email: SubmitterEmail::try_from(row.submitter_email)
-            .map_err(MappingError::SubmitterEmail)?,
+        submitter_name: submitter_name(row.submitter_name)?,
+        submitter_email: submitter_email(row.submitter_email)?,
     })
+}
+
+fn submitter_name(value: Option<String>) -> Result<Option<SubmitterName>, MappingError> {
+    value
+        .map(SubmitterName::try_from)
+        .transpose()
+        .map_err(MappingError::SubmitterName)
+}
+
+fn submitter_email(value: Option<String>) -> Result<Option<SubmitterEmail>, MappingError> {
+    value
+        .map(SubmitterEmail::try_from)
+        .transpose()
+        .map_err(MappingError::SubmitterEmail)
 }
 
 fn target_snapshot(row: &ContentNoticeRow) -> Result<TargetSnapshot, MappingError> {

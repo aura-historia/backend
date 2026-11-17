@@ -9,8 +9,10 @@ use sha2::{Digest, Sha256};
 /// language.
 ///
 /// Every value is length-prefixed and optional values carry a presence marker, so no two
-/// different submissions share an encoding. The values are the validated domain values, so
-/// their trimming and URL normalization apply. Changing the encoding changes every
+/// different submissions share an encoding. The name and email address became optional after
+/// fingerprints were stored, so a present one keeps its plain length-prefixed encoding and an
+/// absent one is encoded as a length no value has. The values are the validated domain values,
+/// so their trimming and URL normalization apply. Changing the encoding changes every
 /// fingerprint; stored fingerprints are not recomputed.
 pub fn submission_fingerprint(notice: &ContentNotice) -> ContentNoticeSubmissionFingerprint {
     let submitter = notice.submitter();
@@ -24,7 +26,13 @@ pub fn submission_fingerprint(notice: &ContentNotice) -> ContentNoticeSubmission
     additional_urls.sort_unstable();
 
     let mut encoder = CanonicalEncoder::default();
-    encoder.value(&submitter.email.as_str().to_lowercase());
+    encoder.value_or_absent(
+        submitter
+            .email
+            .as_ref()
+            .map(|email| email.as_str().to_lowercase())
+            .as_deref(),
+    );
     encoder.value(target.type_code());
     encoder.value(&target.listing_source_id().to_string());
     encoder.optional(
@@ -40,7 +48,7 @@ pub fn submission_fingerprint(notice: &ContentNotice) -> ContentNoticeSubmission
     for url in additional_urls {
         encoder.value(url);
     }
-    encoder.value(submitter.name.as_str());
+    encoder.value_or_absent(submitter.name.as_ref().map(|name| name.as_str()));
     encoder.value(submitter.language.as_str());
     ContentNoticeSubmissionFingerprint::from_sha256(encoder.finish())
 }
@@ -56,6 +64,15 @@ impl CanonicalEncoder {
     fn value(&mut self, value: &str) {
         self.count(value.len());
         self.0.update(value.as_bytes());
+    }
+
+    /// A value that was required when fingerprints were first stored: present, it is encoded
+    /// exactly as [`Self::value`]; absent, as the length `u64::MAX`, which no value has.
+    fn value_or_absent(&mut self, value: Option<&str>) {
+        match value {
+            Some(value) => self.value(value),
+            None => self.0.update(u64::MAX.to_be_bytes()),
+        }
     }
 
     fn optional(&mut self, value: Option<&str>) {
@@ -113,8 +130,8 @@ mod tests {
             explanation: Some(NoticeExplanation::try_from("My photograph.").unwrap()),
             additional_urls: urls(&["https://a.example/1", "https://b.example/2"]),
             submitter: Submitter {
-                name: SubmitterName::try_from("Jane Doe").unwrap(),
-                email: SubmitterEmail::try_from("jane@example.com").unwrap(),
+                name: Some(SubmitterName::try_from("Jane Doe").unwrap()),
+                email: Some(SubmitterEmail::try_from("jane@example.com").unwrap()),
                 language: Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
@@ -129,6 +146,10 @@ mod tests {
                 .collect::<Vec<_>>(),
         )
         .unwrap()
+    }
+
+    fn hex(digest: [u8; 32]) -> String {
+        digest.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     fn fingerprint(input: NewContentNotice) -> [u8; 32] {
@@ -151,7 +172,8 @@ mod tests {
         let mut normalized_alike = first.clone();
         normalized_alike.additional_urls =
             urls(&["HTTPS://B.example:443/2", "https://a.example/1"]);
-        normalized_alike.submitter.email = SubmitterEmail::try_from("Jane@Example.COM").unwrap();
+        normalized_alike.submitter.email =
+            Some(SubmitterEmail::try_from("Jane@Example.COM").unwrap());
         normalized_alike.explanation =
             Some(NoticeExplanation::try_from("  My photograph.\n").unwrap());
 
@@ -181,7 +203,7 @@ mod tests {
         fewer_urls.additional_urls = urls(&["https://a.example/1"]);
         variants.push(fewer_urls);
         let mut other_name = base.clone();
-        other_name.submitter.name = SubmitterName::try_from("John Doe").unwrap();
+        other_name.submitter.name = Some(SubmitterName::try_from("John Doe").unwrap());
         variants.push(other_name);
         let mut other_language = base.clone();
         other_language.submitter.language = Language::En;
@@ -196,13 +218,52 @@ mod tests {
             url: Url::parse("https://shop.example/vase").unwrap(),
         });
         variants.push(product_listing);
-        let mut other_email = base;
-        other_email.submitter.email = SubmitterEmail::try_from("john@example.com").unwrap();
+        let mut other_email = base.clone();
+        other_email.submitter.email = Some(SubmitterEmail::try_from("john@example.com").unwrap());
         variants.push(other_email);
+        let mut anonymous = base;
+        anonymous.submitter_role = SubmitterRole::IllegalContentReporter;
+        let mut without_name = anonymous.clone();
+        without_name.submitter.name = None;
+        variants.push(without_name);
+        let mut without_email = anonymous.clone();
+        without_email.submitter.email = None;
+        variants.push(without_email);
+        anonymous.submitter.name = None;
+        anonymous.submitter.email = None;
+        variants.push(anonymous);
 
         for variant in variants {
             assert_ne!(base_fingerprint, fingerprint(variant));
         }
+    }
+
+    #[test]
+    fn should_give_the_same_fingerprint_for_the_same_anonymous_submission() {
+        let mut first = input();
+        first.submitter_role = SubmitterRole::IllegalContentReporter;
+        first.submitter.name = None;
+        first.submitter.email = None;
+        let mut repeated = first.clone();
+        repeated.id = ContentNoticeId::new();
+
+        assert_eq!(fingerprint(first), fingerprint(repeated));
+    }
+
+    /// An absent name must not encode like a name that happens to be the absence marker's
+    /// bytes, nor like the language that follows it.
+    #[test]
+    fn should_keep_an_absent_name_apart_from_any_present_one() {
+        let mut named = input();
+        named.submitter_role = SubmitterRole::IllegalContentReporter;
+        let mut unnamed = named.clone();
+        unnamed.submitter.name = None;
+        let mut named_like_language = named.clone();
+        named_like_language.submitter.name = Some(SubmitterName::try_from("de").unwrap());
+
+        let unnamed = fingerprint(unnamed);
+        assert_ne!(fingerprint(named), unnamed);
+        assert_ne!(fingerprint(named_like_language), unnamed);
     }
 
     #[test]
@@ -247,14 +308,28 @@ mod tests {
             url: Url::parse("https://shop.example/vase").unwrap(),
         });
 
-        let hex = fingerprint(fixed)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-
         assert_eq!(
             "2515cb27c328b0f9c9cb977d25b441eb845f08a8ae96ebe358e9bd1b9955268a",
-            hex
+            hex(fingerprint(fixed))
+        );
+    }
+
+    #[test]
+    fn should_keep_the_canonical_encoding_of_an_anonymous_submission_stable() {
+        let mut fixed = input();
+        fixed.target = ContentNoticeTarget::ListingSource {
+            listing_source_id: ListingSourceId::try_from(uuid::Uuid::from_u128(
+                0x0189_0a5d_ac96_7000_8000_0000_0000_0001,
+            ))
+            .unwrap(),
+        };
+        fixed.submitter_role = SubmitterRole::IllegalContentReporter;
+        fixed.submitter.name = None;
+        fixed.submitter.email = None;
+
+        assert_eq!(
+            "9caa236946009f5fabdc7dabcc361dddbbb63428a39101d6bd8fd7f5e2c6bcfd",
+            hex(fingerprint(fixed))
         );
     }
 }

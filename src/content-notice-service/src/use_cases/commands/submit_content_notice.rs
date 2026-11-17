@@ -4,10 +4,12 @@ use crate::{
         ContentNoticeRepositoryFactory, ContentNoticeSubmissionFingerprint,
         ContentNoticeSubmissionHistory, ContentNoticeSubmissionHistoryError,
         ContentNoticeSubmissionHistoryFactory, ContentNoticeTargetReadError,
-        ContentNoticeTargetReader, ContentNoticeTargetReaderFactory,
+        ContentNoticeTargetReader, ContentNoticeTargetReaderFactory, SubmissionGroup,
     },
     submission_fingerprint::submission_fingerprint,
-    submission_policy::{RetryAfter, SubmissionDecision, decide, window_start},
+    submission_policy::{
+        RetryAfter, SUBMISSION_WINDOW, SubmissionDecision, decide, submission_group, window_start,
+    },
 };
 use application::{
     error::{BoxError, box_error},
@@ -76,7 +78,7 @@ pub enum SubmitContentNoticeResult {
     Stored {
         content_notice_id: ContentNoticeId,
     },
-    /// The same submission from the same address is already stored within the submission
+    /// The same submission is already stored in its submission group within the submission
     /// window. Nothing was stored.
     Duplicate,
 }
@@ -87,8 +89,9 @@ pub enum SubmitContentNoticeError {
     InvalidNotice(#[source] ContentNoticeInvariantError),
     #[error("content notice target not found")]
     TargetNotFound,
-    /// The submitter's address has used its notice budget for the submission window.
-    #[error("too many content notices from one address")]
+    /// The submission's group, normally the submitter's address, has used its notice budget
+    /// for the submission window.
+    #[error("too many content notices in one submission group")]
     RateLimited { retry_after: RetryAfter },
     #[error("temporary content notice failure")]
     TemporarilyUnavailable {
@@ -172,10 +175,11 @@ where
         context: &OperationContext,
         command: SubmitContentNoticeCommand,
     ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError> {
-        ContentNotice::check_reason(
+        ContentNotice::check_submission(
             command.submitter_role,
             command.reason_category,
             command.explanation.as_ref(),
+            &command.submitter,
         )
         .map_err(SubmitContentNoticeError::InvalidNotice)?;
 
@@ -200,12 +204,14 @@ where
             source: box_error(source),
         })?;
         let fingerprint = submission_fingerprint(&notice);
+        let group = submission_group(&notice);
         let (decision, submitted) = self
-            .check_submission_limits(&mut tx, &notice.submitter().email, fingerprint)
+            .check_submission_limits(&mut tx, group, fingerprint)
             .await?;
         let result = match decision {
             SubmissionDecision::RateLimited { retry_after } => {
-                log_rate_limited(context, retry_after);
+                let retry_after = disclosed_retry_after(group, retry_after);
+                log_rate_limited(context, group, retry_after);
                 return Err(SubmitContentNoticeError::RateLimited { retry_after });
             }
             SubmissionDecision::Duplicate => SubmitContentNoticeResult::Duplicate,
@@ -234,25 +240,26 @@ where
     O: ExternalEmailOutboxFactory<U::Tx>,
     C: ContentNoticeClock,
 {
-    /// Serializes the address's submissions for the rest of the transaction, then decides the
-    /// submission from the address's notices within the window. Returns the decision and the
+    /// Serializes the group's submissions for the rest of the transaction, then decides the
+    /// submission from the group's notices within the window. Returns the decision and the
     /// submission time, read once the lock is held, so a stored notice is dated by the same
     /// clock its window was checked with.
     async fn check_submission_limits(
         &self,
         tx: &mut U::Tx,
-        email: &SubmitterEmail,
+        group: SubmissionGroup<'_>,
         fingerprint: ContentNoticeSubmissionFingerprint,
     ) -> Result<(SubmissionDecision, OffsetDateTime), SubmitContentNoticeError> {
         let mut history = self.history.in_transaction(tx);
-        history.lock_address(email).await?;
+        history.lock_group(group).await?;
         let now = self.clock.now_utc();
-        let submissions = history.submissions_after(email, window_start(now)).await?;
+        let submissions = history.submissions_after(group, window_start(now)).await?;
         Ok((decide(now, fingerprint, &submissions), now))
     }
 
-    /// Stores the notice and the intent to send its receipt in the submission transaction.
-    /// Everything that must commit or roll back together with the notice belongs here.
+    /// Stores the notice and, when the notifier gave an email address, the intent to send its
+    /// receipt in the submission transaction. Everything that must commit or roll back together
+    /// with the notice belongs here.
     async fn record(
         &self,
         tx: &mut U::Tx,
@@ -264,10 +271,13 @@ where
             .in_transaction(tx)
             .insert(notice, fingerprint, submitted)
             .await?;
+        let Some(email) = &notice.submitter().email else {
+            return Ok(());
+        };
         // The notice ID is new, so the outbox finds no earlier receipt to return instead.
         self.receipts
             .in_transaction(tx)
-            .enqueue(receipt_request(notice, submitted)?)
+            .enqueue(receipt_request(notice, email, submitted)?)
             .await?;
         Ok(())
     }
@@ -277,18 +287,17 @@ where
 /// they chose (`docs/content-notices.md`, Receipt email).
 fn receipt_request(
     notice: &ContentNotice,
+    email: &SubmitterEmail,
     received_at: OffsetDateTime,
 ) -> Result<ExternalEmailRequest, SubmitContentNoticeError> {
-    let submitter = notice.submitter();
-    let recipient =
-        ExternalEmailRecipient::try_from(submitter.email.as_str()).map_err(|source| {
-            SubmitContentNoticeError::Internal {
-                source: box_error(source),
-            }
-        })?;
+    let recipient = ExternalEmailRecipient::try_from(email.as_str()).map_err(|source| {
+        SubmitContentNoticeError::Internal {
+            source: box_error(source),
+        }
+    })?;
     Ok(ExternalEmailRequest {
         recipient,
-        language: submitter.language,
+        language: notice.submitter().language,
         content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt::for_notice(
             notice,
             received_at,
@@ -331,11 +340,29 @@ fn log_accepted(
     }
 }
 
+/// The wait a rate-limited submitter is told. For anonymous notices about a target the exact
+/// wait would tell anyone when others reported it, so they are told the whole window, which is
+/// never too early.
+fn disclosed_retry_after(group: SubmissionGroup<'_>, retry_after: RetryAfter) -> RetryAfter {
+    match group {
+        SubmissionGroup::Address(_) => retry_after,
+        SubmissionGroup::TargetWithoutAddress(_) => RetryAfter::rounded_up(SUBMISSION_WINDOW),
+    }
+}
+
 /// Logs a rejected submission without personal data and without the target, which can
-/// indicate who complained about what.
-fn log_rate_limited(context: &OperationContext, retry_after: RetryAfter) {
+/// indicate who complained about what. Only the kind of group that was limited is named.
+fn log_rate_limited(
+    context: &OperationContext,
+    group: SubmissionGroup<'_>,
+    retry_after: RetryAfter,
+) {
     tracing::warn!(
         event = "content_notice.rate_limited",
+        submission_group = match group {
+            SubmissionGroup::Address(_) => "address",
+            SubmissionGroup::TargetWithoutAddress(_) => "target_without_address",
+        },
         retry_after_seconds = retry_after.seconds(),
         actor_type = context.principal.kind(),
         request_id = %context.request_id,
@@ -446,7 +473,7 @@ mod tests {
         ContentNoticeStorageVersion, ListingSourceTarget, ProductListingTarget, RecentSubmission,
         VersionedContentNotice,
     };
-    use crate::submission_policy::{MAX_NOTICES_PER_ADDRESS, SUBMISSION_WINDOW};
+    use crate::submission_policy::{MAX_NOTICES_PER_GROUP, SUBMISSION_WINDOW};
     use application::{
         error::static_error,
         operation_context::{CorrelationId, Principal, RequestId},
@@ -489,7 +516,7 @@ mod tests {
         enqueue_error: Option<ExternalEmailOutboxError>,
         inserted: Vec<(ContentNotice, ContentNoticeSubmissionFingerprint)>,
         enqueued: Vec<ExternalEmailRequest>,
-        /// Stored submissions per lowercased address, as the history port groups them.
+        /// Stored submissions per group key (see `group_key`), as the history port groups them.
         history: Vec<(String, RecentSubmission)>,
         /// The limit steps in the order they ran.
         steps: Vec<String>,
@@ -515,8 +542,16 @@ mod tests {
     struct FakeOutbox(Shared);
     struct FixedClock;
 
-    fn address_key(email: &SubmitterEmail) -> String {
-        email.as_str().to_lowercase()
+    /// A lowercased address, or the target of a notice without one.
+    fn group_key(group: SubmissionGroup<'_>) -> String {
+        match group {
+            SubmissionGroup::Address(email) => email.as_str().to_lowercase(),
+            SubmissionGroup::TargetWithoutAddress(target) => format!(
+                "target {} {:?}",
+                target.listing_source_id(),
+                target.product_listing_id()
+            ),
+        }
     }
 
     #[async_trait::async_trait]
@@ -613,7 +648,7 @@ mod tests {
             state.steps.push("insert".to_owned());
             state.inserted.push((notice.clone(), fingerprint));
             state.history.push((
-                address_key(&notice.submitter().email),
+                group_key(submission_group(notice)),
                 RecentSubmission {
                     fingerprint,
                     created,
@@ -644,26 +679,32 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ContentNoticeSubmissionHistory for FakeHistory {
-        async fn lock_address(
+        async fn lock_group(
             &mut self,
-            email: &SubmitterEmail,
+            group: SubmissionGroup<'_>,
         ) -> Result<(), ContentNoticeSubmissionHistoryError> {
             let mut state = lock(&self.0);
             if let Some(error) = state.history_error.take() {
                 return Err(error);
             }
-            state.steps.push(format!("lock {}", email.as_str()));
+            let step = match group {
+                SubmissionGroup::Address(email) => format!("lock {}", email.as_str()),
+                SubmissionGroup::TargetWithoutAddress(_) => {
+                    format!("lock {}", group_key(group))
+                }
+            };
+            state.steps.push(step);
             Ok(())
         }
 
         async fn submissions_after(
             &mut self,
-            email: &SubmitterEmail,
+            group: SubmissionGroup<'_>,
             after: OffsetDateTime,
         ) -> Result<Vec<RecentSubmission>, ContentNoticeSubmissionHistoryError> {
             let mut state = lock(&self.0);
             state.steps.push(format!("read after {after}"));
-            let key = address_key(email);
+            let key = group_key(group);
             Ok(state
                 .history
                 .iter()
@@ -724,12 +765,12 @@ mod tests {
         )
     }
 
-    /// `count` distinct notices from `email`, stored within the window.
-    fn stored_from(email: &str, count: usize) -> Vec<(String, RecentSubmission)> {
+    /// `count` distinct notices in the group with `key`, stored within the window.
+    fn stored_from(key: &str, count: usize) -> Vec<(String, RecentSubmission)> {
         (0..count)
             .map(|index| {
                 (
-                    email.to_lowercase(),
+                    key.to_owned(),
                     RecentSubmission {
                         fingerprint: ContentNoticeSubmissionFingerprint::from_sha256(
                             [index as u8; 32],
@@ -780,12 +821,22 @@ mod tests {
             explanation: Some(NoticeExplanation::try_from("My photograph.").unwrap()),
             additional_urls: AdditionalUrls::default(),
             submitter: Submitter {
-                name: SubmitterName::try_from("Jane Doe").unwrap(),
-                email: SubmitterEmail::try_from("jane@example.com").unwrap(),
+                name: Some(SubmitterName::try_from("Jane Doe").unwrap()),
+                email: Some(SubmitterEmail::try_from("jane@example.com").unwrap()),
                 language: Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
         }
+    }
+
+    /// A report of illegal content without name and email address.
+    fn anonymous_command(target: ContentNoticeTargetReference) -> SubmitContentNoticeCommand {
+        let mut command = command(target);
+        command.submitter_role = SubmitterRole::IllegalContentReporter;
+        command.reason_category = ReasonCategory::IllegalContent;
+        command.submitter.name = None;
+        command.submitter.email = None;
+        command
     }
 
     fn source_reference(source: &ListingSourceTarget) -> ContentNoticeTargetReference {
@@ -904,6 +955,8 @@ mod tests {
         missing_explanation.explanation = None;
         let mut opt_out_by_rights_holder = command(source_reference(&source));
         opt_out_by_rights_holder.reason_category = ReasonCategory::ProviderOptOut;
+        let mut rights_holder_without_email = command(source_reference(&source));
+        rights_holder_without_email.submitter.email = None;
         let state = state(|state| state.listing_sources.push(source.clone()));
 
         for (command, expected) in [
@@ -916,6 +969,12 @@ mod tests {
             (
                 opt_out_by_rights_holder,
                 ContentNoticeInvariantError::ProviderOptOutRequiresProvider {
+                    submitter_role: SubmitterRole::RightsHolder,
+                },
+            ),
+            (
+                rights_holder_without_email,
+                ContentNoticeInvariantError::SubmitterEmailRequired {
                     submitter_role: SubmitterRole::RightsHolder,
                 },
             ),
@@ -1079,7 +1138,7 @@ mod tests {
     async fn should_lock_the_address_and_read_its_window_before_storing() {
         let source = listing_source(false);
         let mut submission = command(source_reference(&source));
-        submission.submitter.email = SubmitterEmail::try_from("Jane@Example.com").unwrap();
+        submission.submitter.email = Some(SubmitterEmail::try_from("Jane@Example.com").unwrap());
         let state = state(|state| state.listing_sources.push(source.clone()));
 
         handler(&state)
@@ -1096,6 +1155,118 @@ mod tests {
             ],
             lock(&state).steps
         );
+    }
+
+    #[tokio::test]
+    async fn should_store_an_anonymous_notice_without_enqueuing_a_receipt() {
+        let listing = product_listing(ListingLifecycle::Active);
+        let state = state(|state| state.product_listings.push(listing.clone()));
+
+        let result = handler(&state)
+            .execute(&context(), anonymous_command(listing_reference(&listing)))
+            .await
+            .unwrap();
+
+        let state = lock(&state);
+        let notice = &state.inserted[0].0;
+        assert_eq!(
+            SubmitContentNoticeResult::Stored {
+                content_notice_id: notice.id()
+            },
+            result
+        );
+        assert_eq!(None, notice.submitter().name);
+        assert_eq!(None, notice.submitter().email);
+        assert!(state.enqueued.is_empty());
+        assert_eq!(
+            vec![
+                format!(
+                    "lock {}",
+                    group_key(SubmissionGroup::TargetWithoutAddress(notice.target()))
+                ),
+                format!("read after {}", NOW - SUBMISSION_WINDOW),
+                "insert".to_owned(),
+            ],
+            state.steps
+        );
+        assert_eq!(1, state.commits);
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_a_receipt_for_an_unnamed_reporter_who_gave_an_email() {
+        let source = listing_source(false);
+        let mut unnamed = anonymous_command(source_reference(&source));
+        unnamed.submitter.email = Some(SubmitterEmail::try_from("jane@example.com").unwrap());
+        let state = state(|state| state.listing_sources.push(source.clone()));
+
+        handler(&state).execute(&context(), unnamed).await.unwrap();
+
+        let state = lock(&state);
+        assert_eq!(1, state.enqueued.len());
+        assert_eq!(
+            ExternalEmailRecipient::try_from("jane@example.com").unwrap(),
+            state.enqueued[0].recipient
+        );
+        assert_eq!("lock jane@example.com", state.steps[0]);
+    }
+
+    /// Anonymous notices about one target share a budget and a duplicate check; notices about
+    /// another target and notices with an address are counted apart.
+    #[tokio::test]
+    async fn should_limit_anonymous_notices_per_target() {
+        let source = listing_source(false);
+        let other_source = listing_source(false);
+        let target = SubmissionGroup::TargetWithoutAddress(ContentNoticeTarget::ListingSource {
+            listing_source_id: source.listing_source_id,
+        });
+        let state = state(|state| {
+            state.listing_sources.push(source.clone());
+            state.listing_sources.push(other_source.clone());
+            state.history = stored_from(&group_key(target), MAX_NOTICES_PER_GROUP - 1);
+        });
+
+        let last = handler(&state)
+            .execute(&context(), anonymous_command(source_reference(&source)))
+            .await
+            .unwrap();
+        let resubmitted = handler(&state)
+            .execute(&context(), anonymous_command(source_reference(&source)))
+            .await
+            .unwrap();
+        let mut changed = anonymous_command(source_reference(&source));
+        changed.explanation = Some(NoticeExplanation::try_from("Another symbol.").unwrap());
+        let limited = handler(&state).execute(&context(), changed).await;
+        let other_target = handler(&state)
+            .execute(
+                &context(),
+                anonymous_command(source_reference(&other_source)),
+            )
+            .await
+            .unwrap();
+        let with_address = handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap();
+
+        assert!(matches!(last, SubmitContentNoticeResult::Stored { .. }));
+        assert_eq!(SubmitContentNoticeResult::Duplicate, resubmitted);
+        let Err(SubmitContentNoticeError::RateLimited { retry_after }) = limited else {
+            panic!("expected rate limit, got {limited:?}");
+        };
+        assert_eq!(
+            SUBMISSION_WINDOW.whole_seconds() as u64,
+            retry_after.seconds(),
+            "an anonymous submitter is not told when others reported the target"
+        );
+        assert!(matches!(
+            other_target,
+            SubmitContentNoticeResult::Stored { .. }
+        ));
+        assert!(matches!(
+            with_address,
+            SubmitContentNoticeResult::Stored { .. }
+        ));
+        assert_eq!(3, lock(&state).inserted.len());
     }
 
     #[tokio::test]
@@ -1125,7 +1296,7 @@ mod tests {
         let source = listing_source(false);
         let state = state(|state| {
             state.listing_sources.push(source.clone());
-            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_ADDRESS - 1);
+            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_GROUP - 1);
         });
 
         let result = handler(&state)
@@ -1142,7 +1313,7 @@ mod tests {
         let source = listing_source(false);
         let state = state(|state| {
             state.listing_sources.push(source.clone());
-            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_ADDRESS);
+            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_GROUP);
         });
 
         let error = handler(&state)
@@ -1169,7 +1340,7 @@ mod tests {
         let source = listing_source(false);
         let state = state(|state| {
             state.listing_sources.push(source.clone());
-            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_ADDRESS);
+            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_GROUP);
         });
         let (logs, _guard) = test_api::CapturedLogs::start();
 
@@ -1181,6 +1352,7 @@ mod tests {
         let events = logs.events_where("event", "content_notice.rate_limited");
         assert_eq!(1, events.len(), "{}", logs.text());
         assert_eq!("rate_limited", events[0]["outcome"]);
+        assert_eq!("address", events[0]["submission_group"]);
         assert_eq!("request", events[0]["request_id"]);
         assert_eq!("correlation", events[0]["correlation_id"]);
         let text = logs.text();

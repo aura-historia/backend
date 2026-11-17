@@ -178,8 +178,8 @@ async fn should_commit_submitted_notice_with_resolved_target() {
                 explanation: Some(NoticeExplanation::try_from("Das Foto ist meins.").unwrap()),
                 additional_urls: AdditionalUrls::default(),
                 submitter: Submitter {
-                    name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-                    email: SubmitterEmail::try_from("erika@example.com").unwrap(),
+                    name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+                    email: Some(SubmitterEmail::try_from("erika@example.com").unwrap()),
                     language: Language::De,
                 },
                 good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,

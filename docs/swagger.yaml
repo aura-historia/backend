@@ -10617,22 +10617,28 @@ paths:
         in `source.field`, such as `/explanation` or `/additionalUrls/2`, and never repeat the submitted
         value.
 
-        Submission limits, per email address (compared case-insensitively) within the 24 hours before the
-        submission:
+        Anonymity: a submitter with role `ILLEGAL_CONTENT_REPORTER` may omit `name`, `email` or both
+        (DSA Recital 50 and Art. 16(2)(c)). Every other role must give both; a missing or `null` value
+        returns `400 CONTENT_NOTICE_CONTACT_REQUIRED` pointing at the field. Without `email` the notifier
+        gets no receipt and cannot be told the decision.
+
+        Submission limits, within the 24 hours before the submission, per email address (compared
+        case-insensitively) or, for a notice without `email`, per target among the notices without one:
         - An identical resubmission (the same target, role, category, explanation, additional URLs, name,
           email and language) stores nothing and returns the same `202` as a new notice.
-        - Once 10 notices from the address are stored, a further notice returns `429` with `Retry-After`.
-          Identical resubmissions do not count.
+        - Once 10 notices from the address, or without an address about the target, are stored, a further
+          notice returns `429` with `Retry-After`. Identical resubmissions do not count.
 
         Retries: retrying the identical submission within 24 hours, for example after a `503`, a lost response
         or a double click, is safe and stores the notice at most once. A changed submission is a new notice.
 
-        Receipt: every stored notice gets exactly one receipt email to `email`, sent asynchronously after the
-        `202`, in `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It confirms the
+        Receipt: every stored notice with an `email` gets exactly one receipt email to it, sent asynchronously
+        after the `202`, in `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It
+        confirms the
         receipt time, a reference (the ContentNotice ID), the provider, what the notice covers (the listing and
         its title for `PRODUCT_LISTING` targets, the whole provider with all of its listings for
         `LISTING_SOURCE` targets) and the reason category. It never repeats anything the submitter typed. An
-        identical resubmission and a `429` send no receipt.
+        identical resubmission, a `429` and a notice without `email` send no receipt.
       operationId: submitContentNotice
       tags:
         - ContentNotices
@@ -10674,11 +10680,22 @@ paths:
                   email: max@antik.example
                   language: de
                   goodFaithConfirmed: true
+              anonymous_illegal_content:
+                summary: An anonymous report of illegal content
+                value:
+                  target:
+                    type: PRODUCT_LISTING
+                    productListingId: pl_01h455vb4pex5vy7enb1p677vn
+                  submitterRole: ILLEGAL_CONTENT_REPORTER
+                  reasonCategory: ILLEGAL_CONTENT
+                  explanation: The listing shows a prohibited symbol without any historical context.
+                  language: de
+                  goodFaithConfirmed: true
       responses:
         "202":
           description: |
-            The notice was stored for review, or the identical submission from the same address was already
-            stored within the last 24 hours. The two cases are indistinguishable. The response has no body.
+            The notice was stored for review, or the identical submission was already stored within the last
+            24 hours. The two cases are indistinguishable. The response has no body.
           headers:
             Cache-Control:
               description: Caching is disabled for the response.
@@ -10747,6 +10764,16 @@ paths:
                       field: /reasonCategory
                       type: BODY
                     detail: Only submitter role PROVIDER may choose PROVIDER_OPT_OUT.
+                contact_required:
+                  summary: The submitter role requires a name and an email address
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: CONTENT_NOTICE_CONTACT_REQUIRED
+                    source:
+                      field: /email
+                      type: BODY
+                    detail: An email address is required unless the submitter role is ILLEGAL_CONTENT_REPORTER.
                 good_faith_not_confirmed:
                   summary: The good-faith statement is missing or not confirmed
                   value:
@@ -10796,12 +10823,14 @@ paths:
                 detail: The product listing or listing source was not found.
         "429":
           description: |
-            10 notices from this email address were stored within the last 24 hours. Nothing was stored. Retry
-            after the `Retry-After` seconds, once enough of them are 24 hours old (normally the oldest), or use
-            another contact channel.
+            10 notices from this email address, or without an email address about this target, were stored
+            within the last 24 hours. Nothing was stored. Retry after the `Retry-After` seconds, once enough of
+            them are 24 hours old (normally the oldest), or use another contact channel. Without an email
+            address `Retry-After` is always the full 24 hours, so it does not reveal when others reported the
+            target.
           headers:
             Retry-After:
-              description: Whole seconds until the address can store a notice again; at least 1.
+              description: Whole seconds until the address or target can store a notice again; at least 1.
               schema:
                 type: integer
                 minimum: 1
@@ -10819,7 +10848,7 @@ paths:
                 status: 429
                 title: Too Many Requests
                 error: CONTENT_NOTICE_RATE_LIMITED
-                detail: Too many content notices were submitted from this email address. Try again later.
+                detail: Too many content notices were submitted from this email address, or anonymously about this target. Try again later.
         "503":
           description: The notice could not be stored right now. Retrying the identical submission is safe.
           headers:
@@ -25775,8 +25804,6 @@ components:
         - target
         - submitterRole
         - reasonCategory
-        - name
-        - email
         - language
         - goodFaithConfirmed
       properties:
@@ -25807,22 +25834,29 @@ components:
             description: An absolute `http` or `https` URL without credentials.
         name:
           type: string
+          nullable: true
           minLength: 1
           maxLength: 200
-          description: The notifier's name.
+          description: >-
+            The notifier's name. Required unless `submitterRole` is `ILLEGAL_CONTENT_REPORTER`, which
+            may omit it or send `null`; otherwise a missing or `null` name is rejected with
+            `CONTENT_NOTICE_CONTACT_REQUIRED`.
         email:
           type: string
+          nullable: true
           format: email
           maxLength: 320
           description: >-
-            The notifier's bare email address, without display text. An international domain is
-            accepted and stored in its punycode form; a local part (before the `@`) with non-ASCII
-            characters is rejected with `CONTENT_NOTICE_INVALID_FIELD`, because the receipt email
-            cannot be sent to it.
+            The notifier's bare email address, without display text. Required unless `submitterRole`
+            is `ILLEGAL_CONTENT_REPORTER`, which may omit it or send `null` and then gets no receipt;
+            otherwise a missing or `null` email is rejected with `CONTENT_NOTICE_CONTACT_REQUIRED`. An
+            international domain is accepted and stored in its punycode form; a local part (before the
+            `@`) with non-ASCII characters is rejected with `CONTENT_NOTICE_INVALID_FIELD`, because the
+            receipt email cannot be sent to it.
         language:
           allOf:
             - $ref: "#/components/schemas/LanguageData"
-          description: The language for correspondence about the notice.
+          description: The language for correspondence about the notice. Required even without `email`.
         goodFaithConfirmed:
           type: boolean
           enum:
@@ -25875,9 +25909,12 @@ components:
         - PROVIDER
         - RIGHTS_HOLDER
         - ILLEGAL_CONTENT_REPORTER
+        - OTHER
       description: |
         Who submits the notice, as the submitter declares: the operator of the listing source, a holder of rights
-        in the listed content, or anyone reporting content they consider illegal.
+        in the listed content, anyone reporting content they consider illegal, or anyone else, for example a
+        visitor reporting incorrect information. Only `ILLEGAL_CONTENT_REPORTER` may stay anonymous, and only
+        `PROVIDER` may choose `PROVIDER_OPT_OUT`.
     ContentNoticeReasonCategoryData:
       type: string
       enum:
@@ -27159,8 +27196,6 @@ components:
         - partner
         - submitterRole
         - reasonCategory
-        - submitterName
-        - submitterEmail
       properties:
         contentNoticeId:
           type: string
@@ -27189,11 +27224,15 @@ components:
           $ref: "#/components/schemas/ContentNoticeReasonCategoryData"
         submitterName:
           type: string
-          description: The name the submitter gave.
+          description: >-
+            The name the submitter gave. Omitted when they gave none, which only an
+            `ILLEGAL_CONTENT_REPORTER` may; a notice without name and email is anonymous.
         submitterEmail:
           type: string
           format: email
-          description: The submitter's email address.
+          description: >-
+            The submitter's email address. Omitted when they gave none, which only an
+            `ILLEGAL_CONTENT_REPORTER` may; such a notifier gets no receipt and cannot be answered.
     AdminContentNoticeDetailsData:
       type: object
       description: One content notice for admin review. Contains personal data.
@@ -27211,7 +27250,6 @@ components:
         - additionalUrls
         - submitter
         - goodFaithStatement
-        - receipt
       properties:
         contentNoticeId:
           type: string
@@ -27260,8 +27298,9 @@ components:
           enum:
             - GOOD_FAITH_V1
         receipt:
-          description: The delivery of the receipt email to the submitter. `null` only when no receipt was enqueued.
-          nullable: true
+          description: >-
+            The delivery of the receipt email to the submitter. Omitted only when no receipt was enqueued,
+            which is always the case for a notice without an email address.
           allOf:
             - $ref: "#/components/schemas/AdminContentNoticeReceiptData"
     AdminContentNoticeReceiptData:
@@ -27364,17 +27403,20 @@ components:
           $ref: "#/components/schemas/ListingLifecycleData"
     AdminContentNoticeSubmitterData:
       type: object
-      description: The notifier's contact as submitted.
+      description: >-
+        The notifier's contact as submitted. Only an `ILLEGAL_CONTENT_REPORTER` may leave out the
+        name or email; a notice without both is anonymous, and without an email the notifier gets no
+        receipt and cannot be answered.
       required:
-        - name
-        - email
         - language
       properties:
         name:
           type: string
+          description: Omitted when the notifier gave none.
         email:
           type: string
           format: email
+          description: Omitted when the notifier gave none.
         language:
           $ref: "#/components/schemas/LanguageData"
     AdminContentNoticeTargetData:

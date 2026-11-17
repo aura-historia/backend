@@ -2,6 +2,14 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-16 — Anonymous illegal-content notices and submitter role `OTHER` (#3011)
+
+- **Anonymous reports:** `POST /v1/content-notices` (`submitContentNotice`) no longer requires `name` and `email` when `submitterRole` is `ILLEGAL_CONTENT_REPORTER`; either or both may be omitted or `null` (DSA Recital 50 and Art. 16(2)(c)). A present value is validated as before. `language` stays required. `PROVIDER`, `RIGHTS_HOLDER` and `OTHER` must still give both: a missing or `null` value now returns `400 CONTENT_NOTICE_CONTACT_REQUIRED` with `source.field` `/name` or `/email` instead of `400 BAD_BODY_VALUE`.
+- **New role:** `submitterRole` accepts `OTHER` for anyone who is neither provider, rights holder nor reporter of illegal content, for example a visitor reporting incorrect information. It accepts every `reasonCategory` except `PROVIDER_OPT_OUT`, which returns `400 CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER`. The admin list filter `submitterRole` accepts `OTHER` too.
+- **Receipt:** a notice without `email` gets no receipt email (and cannot be told the decision); every other stored notice still gets exactly one.
+- **Submission limits:** a notice without `email` is limited per target, among the other notices without an email about the same ProductListing or ListingSource: an identical resubmission within 24 hours stores nothing and returns the same `202`, and once 10 are stored a further one returns `429 CONTENT_NOTICE_RATE_LIMITED` with `Retry-After` of the full 24 hours, which does not reveal when others reported the target. No IP address is stored. Limits for notices with an email address are unchanged; the `429` detail text now covers both cases.
+- **Admin reads:** `submitterName` and `submitterEmail` in `GET /v1/admin/content-notices` and `name` and `email` in the `submitter` of `GET /v1/admin/content-notices/{contentNoticeId}` are no longer required: each is omitted when the notifier gave none. A notice without both is anonymous; without an email the notifier cannot be answered and there is no receipt. `receipt` in the detail is now omitted instead of `null` when no receipt was enqueued, and is no longer required.
+
 ## 2026-11-16 — Address suggestions
 
 - **Suggestions:** new `POST /v1/address-suggestions` (`suggestAddresses`, tag `Users`) returns up to five search-as-you-type address suggestions, worldwide, for a body of exactly `query` (3 to 200 characters after trimming) and `language`. Each suggestion has a `placeId`, a display `label` and a `kind` (`ADDRESS`, `STREET`, `LOCALITY`, `POSTAL_CODE`, `REGION` or `OTHER`); the response carries an `attribution` to show with them. Only signed-in people may call it: delegated credentials get `403` and it is not an MCP tool. Responses are `no-store`, and suggestions are never stored.

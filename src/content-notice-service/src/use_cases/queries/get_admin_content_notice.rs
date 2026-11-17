@@ -444,8 +444,8 @@ mod tests {
             explanation: None,
             additional_urls: AdditionalUrls::default(),
             submitter: Submitter {
-                name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-                email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+                name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+                email: Some(SubmitterEmail::try_from("erika@antik.example").unwrap()),
                 language: Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,

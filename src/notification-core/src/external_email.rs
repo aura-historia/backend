@@ -92,7 +92,7 @@ impl std::fmt::Debug for ExternalEmailRecipient {
 /// The typed template variables of an external email. Each variant is one template kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExternalEmailContent {
-    /// Confirms to a notifier that their content notice was received (DSA Art. 16(5)).
+    /// Confirms to a notifier that their content notice was received (DSA Art. 16(4)).
     ContentNoticeReceipt(ContentNoticeReceipt),
 }
 
@@ -330,8 +330,8 @@ mod tests {
                 "https://submitter.example/",
             )?])?,
             submitter: Submitter {
-                name: SubmitterName::try_from("Submitter Name")?,
-                email: SubmitterEmail::try_from("submitter@example.test")?,
+                name: Some(SubmitterName::try_from("Submitter Name")?),
+                email: Some(SubmitterEmail::try_from("submitter@example.test")?),
                 language: localization::Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,

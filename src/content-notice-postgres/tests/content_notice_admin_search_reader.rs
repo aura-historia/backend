@@ -58,6 +58,7 @@ struct Seed {
     target: ContentNoticeTarget,
     role: SubmitterRole,
     category: ReasonCategory,
+    anonymous: bool,
     created: OffsetDateTime,
 }
 
@@ -67,6 +68,7 @@ impl Seed {
             target: ContentNoticeTarget::ListingSource { listing_source_id },
             role: SubmitterRole::Provider,
             category: ReasonCategory::ProviderOptOut,
+            anonymous: false,
             created,
         }
     }
@@ -83,6 +85,7 @@ impl Seed {
             },
             role: SubmitterRole::RightsHolder,
             category: ReasonCategory::RightsInfringement,
+            anonymous: false,
             created,
         }
     }
@@ -90,6 +93,14 @@ impl Seed {
     fn reported(mut self, role: SubmitterRole, category: ReasonCategory) -> Self {
         self.role = role;
         self.category = category;
+        self
+    }
+
+    /// A report of illegal content without name and email address.
+    fn anonymous(mut self) -> Self {
+        self.role = SubmitterRole::IllegalContentReporter;
+        self.category = ReasonCategory::IllegalContent;
+        self.anonymous = true;
         self
     }
 
@@ -121,8 +132,10 @@ impl Seed {
                 .then(|| NoticeExplanation::try_from("Bitte prüfen.").unwrap()),
             additional_urls: AdditionalUrls::default(),
             submitter: Submitter {
-                name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-                email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+                name: (!self.anonymous)
+                    .then(|| SubmitterName::try_from("Erika Mustermann").unwrap()),
+                email: (!self.anonymous)
+                    .then(|| SubmitterEmail::try_from("erika@antik.example").unwrap()),
                 language: Language::De,
             },
             good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
@@ -416,11 +429,35 @@ async fn should_map_summary_from_the_submission_snapshot() {
     );
     assert!(listing_summary.listing_source_partner);
     assert_eq!(SubmitterRole::RightsHolder, listing_summary.submitter_role);
-    assert_eq!("Erika Mustermann", listing_summary.submitter_name.as_str());
+    assert_eq!(
+        "Erika Mustermann",
+        listing_summary.submitter_name.as_ref().unwrap().as_str()
+    );
     assert_eq!(
         "erika@antik.example",
-        listing_summary.submitter_email.as_str()
+        listing_summary.submitter_email.as_ref().unwrap().as_str()
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_map_an_anonymous_notice_without_name_and_email() {
+    let pool = get_postgres_client().await;
+    let ids = seed(
+        &pool,
+        &[Seed::source(ListingSourceId::new(), datetime!(2026-11-13 10:00 UTC)).anonymous()],
+    )
+    .await;
+
+    let result = search(&pool, &ListAdminContentNoticesRequest::default()).await;
+
+    let summary = &result.items[0];
+    assert_eq!(ids[0], summary.id);
+    assert_eq!(
+        SubmitterRole::IllegalContentReporter,
+        summary.submitter_role
+    );
+    assert_eq!(None, summary.submitter_name);
+    assert_eq!(None, summary.submitter_email);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

@@ -31,8 +31,10 @@ pub(super) struct ContentNoticeSummaryData {
     partner: bool,
     submitter_role: &'static str,
     reason_category: &'static str,
-    submitter_name: String,
-    submitter_email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitter_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    submitter_email: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -78,8 +80,10 @@ impl From<ContentNoticeSummary> for ContentNoticeSummaryData {
             partner: summary.listing_source_partner,
             submitter_role: summary.submitter_role.as_str(),
             reason_category: summary.reason_category.as_str(),
-            submitter_name: summary.submitter_name.as_str().to_owned(),
-            submitter_email: summary.submitter_email.as_str().to_owned(),
+            submitter_name: summary.submitter_name.map(|name| name.as_str().to_owned()),
+            submitter_email: summary
+                .submitter_email
+                .map(|email| email.as_str().to_owned()),
         }
     }
 }
@@ -107,7 +111,8 @@ pub(super) struct AdminContentNoticeDetailsData {
     additional_urls: Vec<String>,
     submitter: SubmitterData,
     good_faith_statement: &'static str,
-    /// `null` only when no receipt was enqueued.
+    /// Omitted only when no receipt was enqueued, as for a notice without an email address.
+    #[serde(skip_serializing_if = "Option::is_none")]
     receipt: Option<ReceiptData>,
 }
 
@@ -177,10 +182,14 @@ struct CurrentProductListingData {
     lifecycle: &'static str,
 }
 
+/// A notice without name and email is anonymous; without an email the notifier gets no
+/// receipt and cannot be answered.
 #[derive(Serialize)]
 struct SubmitterData {
-    name: String,
-    email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email: Option<String>,
     language: &'static str,
 }
 
@@ -279,8 +288,11 @@ impl From<CurrentProductListing> for CurrentProductListingData {
 impl From<&Submitter> for SubmitterData {
     fn from(submitter: &Submitter) -> Self {
         Self {
-            name: submitter.name.as_str().to_owned(),
-            email: submitter.email.as_str().to_owned(),
+            name: submitter.name.as_ref().map(|name| name.as_str().to_owned()),
+            email: submitter
+                .email
+                .as_ref()
+                .map(|email| email.as_str().to_owned()),
             language: submitter.language.as_str(),
         }
     }
@@ -313,8 +325,8 @@ mod tests {
             listing_source_partner: false,
             submitter_role: SubmitterRole::Provider,
             reason_category: ReasonCategory::ProviderOptOut,
-            submitter_name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-            submitter_email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+            submitter_name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+            submitter_email: Some(SubmitterEmail::try_from("erika@antik.example").unwrap()),
         }
     }
 
@@ -364,6 +376,29 @@ mod tests {
             data["target"]
         );
         assert!(data.get("productListingTitle").is_none());
+    }
+
+    #[test]
+    fn should_omit_name_and_email_of_an_anonymous_notice() {
+        let mut anonymous = summary(ContentNoticeTarget::ListingSource {
+            listing_source_id: ListingSourceId::new(),
+        });
+        anonymous.submitter_role = SubmitterRole::IllegalContentReporter;
+        anonymous.reason_category = ReasonCategory::IllegalContent;
+        anonymous.submitter_name = None;
+        anonymous.submitter_email = None;
+        let submitter = Submitter {
+            name: None,
+            email: None,
+            language: localization::Language::De,
+        };
+
+        let summary = serde_json::to_value(ContentNoticeSummaryData::from(anonymous)).unwrap();
+        let submitter = serde_json::to_value(SubmitterData::from(&submitter)).unwrap();
+
+        assert!(summary.get("submitterName").is_none(), "{summary}");
+        assert!(summary.get("submitterEmail").is_none(), "{summary}");
+        assert_eq!(json!({ "language": "de" }), submitter);
     }
 
     mod details {
@@ -429,8 +464,8 @@ mod tests {
                 ])
                 .unwrap(),
                 submitter: Submitter {
-                    name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-                    email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+                    name: Some(SubmitterName::try_from("Erika Mustermann").unwrap()),
+                    email: Some(SubmitterEmail::try_from("erika@antik.example").unwrap()),
                     language: Language::De,
                 },
                 good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
@@ -516,7 +551,6 @@ mod tests {
                         "language": "de",
                     },
                     "goodFaithStatement": "GOOD_FAITH_V1",
-                    "receipt": null,
                 }),
                 serialize(details)
             );
