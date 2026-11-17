@@ -9,6 +9,16 @@
 -- the ProductListing event payload. Raw evidence, addresses, email addresses, provider data
 -- and lease state never enter the outbox. Neither table is a capture source itself.
 
+-- Fail closed on RDS: there DMS still captures and no dispatcher drains the outbox. Only RDS
+-- defines the rds_superuser role.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_superuser') THEN
+        RAISE EXCEPTION '% must only run on the self-hosted host', 'the delivery outbox';
+    END IF;
+END
+$$;
+
 ---------------------------------------------------------------------------------------------
 -- Pending snapshots
 ---------------------------------------------------------------------------------------------

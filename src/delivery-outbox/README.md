@@ -32,8 +32,9 @@ Publication is never partial: a crash or error before commit leaves every snapsh
 to be dispatched again with the same effect, and the jobs and the deletion commit together.
 `dispatch_within` runs the same steps inside a caller's transaction.
 
-`OutboxWakeups` listens for captures; the dispatcher also polls, since redriven snapshots arrive
-without a notification.
+`OutboxWakeups` listens for captures and redrives; the dispatcher also polls, since a
+reconnecting listener can miss a notification. Every transaction that writes a selected source
+therefore notifies on commit, and PostgreSQL serializes the commits of notifying transactions.
 
 ## Ordering
 
@@ -56,10 +57,12 @@ selected or all custody rows back under their original outbox ID.
 `reproject_all` enqueues one projector job per existing listing, active or withdrawn, in keyset
 pages by listing ID, each page in its own transaction. Each job names the listing's current
 event, so the projector writes only current state and turns withdrawn listings into their
-versioned tombstones. Jobs are deduplicated by event against unclaimed ones, so a rerun adds
-only listings that changed. `ProjectionTarget::Live` enqueues into the live projector scope;
-`ProjectionTarget::Generation` enqueues into that generation's own scope, whose projector
-consumer writes only the generation's index. An interrupted run resumes after the last listing
+versioned tombstones. Jobs are deduplicated by event against jobs not yet claimed, so a rerun
+skips listings whose earlier job is still waiting and enqueues every other listing again; the
+projector completes those that are already current as stale. `ProjectionTarget::Live` enqueues
+into the live projector scope. `ProjectionTarget::Generation` enqueues into that generation's
+own scope, which the worker runtime consumes with a projector that writes only the generation's
+index. An interrupted run resumes after the last listing
 it reported.
 
 ## Tests

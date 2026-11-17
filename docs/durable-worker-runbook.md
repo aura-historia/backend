@@ -217,7 +217,9 @@ key that fails its type, and `unsupported_event`, `unsupported_event_version` an
 source and IDs, not its whole snapshot, into evidence.
 
 Repair the cause first: deploy a codec or route that accepts the reviewed shape, or repair the
-source row and let its writer capture a fresh insert. Then redrive selected rows; redrive
+source row and let its writer capture a fresh insert. Resolve custody promptly: it holds compact IDs of the source rows, including user IDs of
+search-filter matches and identity deletions, and ProductListing event payloads. Then redrive
+selected rows; redrive
 restores each under its original outbox ID, ahead of every later snapshot still waiting, and
 the dispatcher treats it like a fresh capture. Custody is never deleted to clear an alarm.
 
@@ -325,8 +327,8 @@ state or the versioned tombstone. A separate generation `<g>` receives its jobs 
 `product-listings-<g>`; the live index and its scope are untouched. Target the live scope only
 to rebuild search after the index was lost. Each page commits on its own and the run reports
 the last listing, so an interrupted run resumes after it. Catch up by rerunning once old
-writers are fenced: jobs still waiting deduplicate, and listings whose current event changed
-are added. Withdrawn listings retain authoritative source state.
+writers are fenced: listings whose job is still waiting are skipped, every other listing is
+enqueued again, and the projector completes the ones already current as stale. Withdrawn listings retain authoritative source state.
 Index reset, expired queues and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
 

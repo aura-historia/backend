@@ -46,7 +46,7 @@ pub enum ReprojectionError {
 /// completes as stale and its new event's own job projects it), and a withdrawn listing is
 /// written as its versioned tombstone rather than skipped. Each job is deduplicated against an
 /// unclaimed job of the same event in the target scope, so a rerun, the catch-up after old
-/// writers are fenced, adds only what changed or already ran.
+/// writers are fenced, skips listings whose earlier job is still waiting.
 pub async fn reproject_all(
     reader: &dyn ProductListingProjectionTriggerReader,
     pool: &PgPool,

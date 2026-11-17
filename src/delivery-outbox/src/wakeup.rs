@@ -9,10 +9,10 @@ pub const OUTBOX_CHANNEL: &str = "delivery_outbox";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutboxWakeup {
-    /// A transaction that captured snapshots committed.
+    /// A transaction that captured or redrove snapshots committed.
     Captured,
     /// The poll interval elapsed, or the listener reconnected and may have missed a
-    /// notification. Dispatch anyway: redriven snapshots arrive without a notification.
+    /// notification. Dispatch anyway.
     Poll,
 }
 
