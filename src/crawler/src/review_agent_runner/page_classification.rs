@@ -141,6 +141,18 @@ pub enum ClassificationOutcome {
 }
 
 impl ClassificationOutcome {
+    /// The persisted and logged name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rejected => "REJECTED",
+            Self::ToAuthor => "TO_AUTHOR",
+            Self::RejectionRefused => "REJECTION_REFUSED",
+            Self::RejectionPending => "REJECTION_PENDING",
+            Self::Failed => "FAILED",
+            Self::NotCounted => "NOT_COUNTED",
+        }
+    }
+
     /// Whether the review's classification is over, so the author may work it.
     const fn settles(self) -> bool {
         matches!(
@@ -654,7 +666,7 @@ fn log_record(record: &ClassificationRecord) {
         model = %record.model,
         prompt_sha256 = %record.prompt_sha256,
         end = ?record.end,
-        outcome = ?record.outcome,
+        outcome = record.outcome.as_str(),
         verdicts = verdicts.as_deref(),
         refusal = record.refusal.as_deref(),
         failure = record.failure.as_deref(),
@@ -764,9 +776,9 @@ pub fn digest_section(records: &[ClassificationRecord]) -> String {
     {
         *verdicts.entry(page.verdict.as_str()).or_default() += 1;
     }
-    let mut outcomes: BTreeMap<String, usize> = BTreeMap::new();
+    let mut outcomes: BTreeMap<&str, usize> = BTreeMap::new();
     for record in records {
-        *outcomes.entry(format!("{:?}", record.outcome)).or_default() += 1;
+        *outcomes.entry(record.outcome.as_str()).or_default() += 1;
     }
     let _ = writeln!(out, "| Verdict | Pages |\n|---|---|");
     for (verdict, count) in &verdicts {
@@ -855,6 +867,23 @@ mod tests {
             usage: TokenUsage::default(),
             total_cost_usd: 0.002,
             cost_charged: false,
+        }
+    }
+
+    #[test]
+    fn should_name_each_outcome_as_the_ledger_persists_it() {
+        for outcome in [
+            ClassificationOutcome::Rejected,
+            ClassificationOutcome::ToAuthor,
+            ClassificationOutcome::RejectionRefused,
+            ClassificationOutcome::RejectionPending,
+            ClassificationOutcome::Failed,
+            ClassificationOutcome::NotCounted,
+        ] {
+            assert_eq!(
+                serde_json::to_value(outcome).ok(),
+                Some(json!(outcome.as_str()))
+            );
         }
     }
 
@@ -1050,6 +1079,7 @@ mod tests {
 
         assert!(section.contains("| LISTING | 1 |"), "{section}");
         assert!(section.contains("| PRODUCT | 1 |"), "{section}");
+        assert!(section.contains("| REJECTED | 1 |"), "{section}");
         assert!(section.contains(&review_id.to_string()), "{section}");
         assert!(
             section.contains("2 classifier processes, $0.0040"),
