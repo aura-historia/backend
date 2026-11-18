@@ -276,7 +276,7 @@ pub async fn handler<R: ResolveFederatedAccountUseCase, L: FederatedIdentityLink
                 request_id,
                 trigger_kind = "external_provider",
                 provider_name = %provider.provider_name,
-                result_category = "linked_to_postgres_identity",
+                result_category = "linked_to_existing_identity",
                 duration_ms = started_at.elapsed().as_millis() as u64,
             );
             Ok(payload)

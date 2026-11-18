@@ -57,7 +57,7 @@ export const POST_CONFIRMATION_TRIGGER: TriggerDefinition = {
 
 /** Both triggers sign their host requests with one key, each under its own purpose label. */
 function triggerSigningKey(scope: Construct, config: StageConfig): string {
-  return credentialValue(scope, credentialSecrets(config.stage).postConfirmationSigning, "value").unsafeUnwrap();
+  return credentialValue(scope, credentialSecrets(config.stage).cognitoTriggerSigning, "value").unsafeUnwrap();
 }
 
 export interface CognitoTriggersProps {

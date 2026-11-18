@@ -268,9 +268,8 @@ pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
 pub const LOOPS_WEBHOOK_SIGNING_SECRET_ENV: &str = "LOOPS_WEBHOOK_SIGNING_SECRET";
-pub const COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV: &str = "COGNITO_POST_CONFIRMATION_SIGNING_KEY";
-pub const COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV: &str =
-    "COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY";
+pub const COGNITO_TRIGGER_SIGNING_KEY_ENV: &str = "COGNITO_TRIGGER_SIGNING_KEY";
+pub const COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV: &str = "COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY";
 pub const SHOPIFY_APP_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_CLIENT_SECRET";
 pub const SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_PREVIOUS_CLIENT_SECRET";
 pub const NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV: &str =
@@ -339,7 +338,7 @@ pub struct ApiConfig {
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
     shopify_webhook_secrets: ShopifyWebhookSecrets,
-    post_confirmation_signature: SignatureVerifier,
+    cognito_trigger_signature: SignatureVerifier,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -446,7 +445,7 @@ impl ApiConfig {
         )
         .map_err(|_| ApiConfigError::InvalidLoopsWebhookSigningSecret)?;
         let shopify_webhook_secrets = shopify_webhook_secrets(&mut get)?;
-        let post_confirmation_signature = post_confirmation_signature(&mut get)?;
+        let cognito_trigger_signature = cognito_trigger_signature(&mut get)?;
         let rate_limit = rate_limit_config(
             &mut get,
             API_RATE_LIMIT_PER_SECOND_ENV,
@@ -481,7 +480,7 @@ impl ApiConfig {
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
             shopify_webhook_secrets,
-            post_confirmation_signature,
+            cognito_trigger_signature,
             public_listing_source_read_max_in_flight,
             public_listing_source_read_request_timeout,
         })
@@ -747,7 +746,7 @@ pub enum ApiConfigError {
     #[error("invalid Shopify app client-secret configuration")]
     InvalidShopifyAppClientSecret,
     #[error("{name} must hold at least 32 bytes")]
-    WeakPostConfirmationSigningKey { name: &'static str },
+    WeakCognitoTriggerSigningKey { name: &'static str },
     #[error("invalid Stripe webhook signing-secret configuration")]
     InvalidStripeWebhookSigningSecret,
 }
@@ -763,21 +762,21 @@ where
         .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret)
 }
 
-/// The forwarder's current signing key is required; the previous one is accepted next to it only
-/// while the key rotates.
-fn post_confirmation_signature<F>(get: &mut F) -> Result<SignatureVerifier, ApiConfigError>
+/// The Cognito triggers' current signing key is required; the previous one is accepted next to it
+/// only while the key rotates.
+fn cognito_trigger_signature<F>(get: &mut F) -> Result<SignatureVerifier, ApiConfigError>
 where
     F: FnMut(&'static str) -> Option<String>,
 {
     let key = |name: &'static str, value: String| {
-        SigningKey::new(value).map_err(|_| ApiConfigError::WeakPostConfirmationSigningKey { name })
+        SigningKey::new(value).map_err(|_| ApiConfigError::WeakCognitoTriggerSigningKey { name })
     };
     let current = key(
-        COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV,
-        required_config(get, COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV)?,
+        COGNITO_TRIGGER_SIGNING_KEY_ENV,
+        required_config(get, COGNITO_TRIGGER_SIGNING_KEY_ENV)?,
     )?;
-    let previous = get(COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV)
-        .map(|value| key(COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV, value))
+    let previous = get(COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV)
+        .map(|value| key(COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV, value))
         .transpose()?;
     Ok(SignatureVerifier::new(current, previous))
 }
@@ -2363,7 +2362,7 @@ async fn app_state_from_config_and_runtime(
             Arc::new(process_shopify_product),
         ))
         .with_cognito_post_confirmation(CognitoPostConfirmationState::new(
-            config.post_confirmation_signature.clone(),
+            config.cognito_trigger_signature.clone(),
             config.cognito_jwt().issuer.clone(),
             Arc::new(user_service::use_cases::RegisterCognitoUserHandler::new(
                 unit_of_work.clone(),
@@ -2373,7 +2372,7 @@ async fn app_state_from_config_and_runtime(
             )),
         ))
         .with_cognito_pre_sign_up(CognitoPreSignUpState::new(
-            config.post_confirmation_signature.clone(),
+            config.cognito_trigger_signature.clone(),
             config.cognito_jwt().issuer.clone(),
             resolve_federated_account,
         ))
@@ -2568,8 +2567,8 @@ mod tests {
                 "test-shopify-client-secret".to_owned(),
             ),
             (
-                COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV,
-                "test-post-confirmation-signing-key-0123".to_owned(),
+                COGNITO_TRIGGER_SIGNING_KEY_ENV,
+                "test-cognito-trigger-signing-key-0123".to_owned(),
             ),
             (
                 MAIL_TEMPLATE_DIR_ENV,
@@ -2977,20 +2976,20 @@ mod tests {
     }
 
     #[test]
-    fn should_require_a_strong_post_confirmation_signing_key_without_revealing_it() {
+    fn should_require_a_strong_cognito_trigger_signing_key_without_revealing_it() {
         let mut missing = valid_api_config_values();
-        missing.remove(COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV);
+        missing.remove(COGNITO_TRIGGER_SIGNING_KEY_ENV);
         assert!(matches!(
             ApiConfig::from_getter(|name| missing.get(name).cloned()),
             Err(ApiConfigError::MissingRequiredConfig {
-                name: COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV
+                name: COGNITO_TRIGGER_SIGNING_KEY_ENV
             })
         ));
 
         let sentinel = "short-key-sentinel";
         for name in [
-            COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV,
-            COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV,
+            COGNITO_TRIGGER_SIGNING_KEY_ENV,
+            COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV,
         ] {
             let mut weak = valid_api_config_values();
             weak.insert(name, sentinel.to_owned());
@@ -2999,7 +2998,7 @@ mod tests {
             };
             assert!(matches!(
                 error,
-                ApiConfigError::WeakPostConfirmationSigningKey { name: rejected } if rejected == name
+                ApiConfigError::WeakCognitoTriggerSigningKey { name: rejected } if rejected == name
             ));
             assert!(!format!("{error} {error:?}").contains(sentinel));
         }

@@ -196,7 +196,7 @@ describe.each(STAGES)("%s Cognito federation", (stage) => {
     ]);
     expect(variables.PRE_SIGN_UP_ENDPOINT_URL).toBe("https://api.aura-historia.com/internal/cognito/pre-sign-up");
     expect(variables.PRE_SIGN_UP_SIGNING_KEY).toEqual(
-      credentialReference(credentialSecrets(stage).postConfirmationSigning, "value"),
+      credentialReference(credentialSecrets(stage).cognitoTriggerSigning, "value"),
     );
     const providerPolicies = JSON.parse(variables.COGNITO_PROVIDER_SIGNUP_POLICY as string) as Array<Record<string, string>>;
     expect(providerPolicies).toEqual([
@@ -230,7 +230,7 @@ describe.each(STAGES)("%s Cognito federation", (stage) => {
     expect(forwarder.Properties.Environment.Variables).toEqual({
       LOG_LEVEL: expect.any(String),
       POST_CONFIRMATION_ENDPOINT_URL: "https://api.aura-historia.com/internal/cognito/post-confirmation",
-      POST_CONFIRMATION_SIGNING_KEY: credentialReference(credentialSecrets(stage).postConfirmationSigning, "value"),
+      POST_CONFIRMATION_SIGNING_KEY: credentialReference(credentialSecrets(stage).cognitoTriggerSigning, "value"),
     });
   });
 

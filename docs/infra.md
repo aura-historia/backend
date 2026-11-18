@@ -110,14 +110,14 @@ The `host` stack deploys independently of the others and before the host serves 
   let the proxy accept both, deploy `api` with the new version in `OriginVerifyCredentialVersion`,
   then drop the old value from the proxy.
 - **Cognito trigger signing key.** `/aura-historia/prod/edge/post-confirmation-signing` is
-  generated once and retained. Both triggers sign their requests to the host with it, each under
-  its own purpose label, so a request signed for one internal endpoint never verifies at the
-  other. A second key would add no isolation: both triggers' configurations hold the key in
-  plaintext and are readable by the same principals. An operator installs its `value` as the
-  API's `COGNITO_POST_CONFIRMATION_SIGNING_KEY`, which verifies both endpoints; `identity`
-  resolves it into both triggers at deployment through `PostConfirmationSigningCredentialVersion`.
-  To rotate, put a new value, set the old one as the API's
-  `COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY` and the new one as its current key, deploy
+  generated once and retained; its name predates the pre-sign-up trigger. Both triggers sign
+  their requests to the host with it, each under its own purpose label, so a request signed for
+  one internal endpoint never verifies at the other. A second key would add no isolation: both
+  triggers' configurations hold the key in plaintext and are readable by the same principals. An
+  operator installs its `value` as the API's `COGNITO_TRIGGER_SIGNING_KEY`, which verifies both
+  endpoints; `identity` resolves it into both triggers at deployment through
+  `PostConfirmationSigningCredentialVersion`. To rotate, put a new value, set the old one as the
+  API's `COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY` and the new one as its current key, deploy
   `identity` with the new version, which updates both triggers, then remove the previous key.
 
 ### Host runtime credentials
