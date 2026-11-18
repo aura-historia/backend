@@ -179,15 +179,24 @@ pub fn page_links(html: &str, page_url: &Url, offset: usize) -> PageLinks {
 /// Whether `anchor` sits in the page's navigation, header or footer, by tag or by a theme's
 /// prefixed custom element such as `header-drawer`.
 fn is_in_page_chrome(anchor: &scraper::ElementRef) -> bool {
-    anchor
+    let is_named = |element: &scraper::ElementRef, tag: &str| {
+        let name = element.value().name();
+        name == tag || name.starts_with(&format!("{tag}-"))
+    };
+    let ancestors: Vec<scraper::ElementRef> = anchor
         .ancestors()
         .filter_map(scraper::ElementRef::wrap)
-        .any(|element| {
-            let name = element.value().name();
-            ["nav", "header", "footer"]
+        .collect();
+    ancestors.iter().enumerate().any(|(position, element)| {
+        // A header or footer inside the content, such as an article's title block, is content.
+        let in_content = || {
+            ancestors[position + 1..]
                 .iter()
-                .any(|chrome| name == *chrome || name.starts_with(&format!("{chrome}-")))
-        })
+                .any(|outer| is_named(outer, "main") || is_named(outer, "article"))
+        };
+        is_named(element, "nav")
+            || ((is_named(element, "header") || is_named(element, "footer")) && !in_content())
+    })
 }
 
 /// What a page's `html` shows the review agents: its projection in one view, and whether its
@@ -258,8 +267,9 @@ mod tests {
     }
 
     /// Butchoff (#3008): a category page lists its item pages after a menu of more links than one
-    /// answer lists. The content's links come first; a menu that is no `nav`, `header` or
-    /// `footer` is paged past with the offset, and the total says that more links follow.
+    /// answer lists. The content's links come first, an item's link in its article's header
+    /// included; a menu that is no `nav`, `header` or `footer` is paged past with the offset, and
+    /// the total says that more links follow.
     #[test]
     fn should_list_the_content_s_links_first_and_page_through_the_rest() {
         let menu = |prefix: &str| -> String {
@@ -271,7 +281,8 @@ mod tests {
         };
         let html = format!(
             r#"<html><body><nav><ul>{}</ul></nav><div class="mega-menu"><ul>{}</ul></div>
-            <main><a href="/item/1">Clock</a></main></body></html>"#,
+            <main><article><header><a href="/item/1">Clock</a></header></article></main>
+            </body></html>"#,
             menu("category"),
             menu("theme"),
         );

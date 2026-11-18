@@ -100,9 +100,13 @@ impl ElementsById {
         Self(elements)
     }
 
-    /// The element with `id` while it is still in the page.
+    /// The element with `id` while it is still in the page: a move may have taken it out with
+    /// a removed fallback, as a browser's `getElementById` then no longer finds it.
     fn attached(&self, id: &str) -> Option<&NodeRef> {
-        self.0.get(id).filter(|node| node.parent().is_some())
+        self.0.get(id).filter(|node| {
+            node.ancestors()
+                .any(|ancestor| ancestor.as_document().is_some())
+        })
     }
 }
 
@@ -271,6 +275,20 @@ mod tests {
             ),
             placed(html)
         );
+    }
+
+    /// A placeholder inside a fallback that an earlier move removed is gone, as it is for a
+    /// browser's `getElementById`: its segment is dropped, not moved into the removed fallback.
+    #[test]
+    fn should_drop_a_segment_whose_placeholder_left_the_page_with_a_removed_fallback() {
+        let html = concat!(
+            r#"<body><main><!--$?--><template id="B:0"></template><div><template id="P:1">"#,
+            r#"</template></div><!--/$--></main><div hidden id="S:0"><p>Chair</p></div>"#,
+            r#"<div hidden id="S:1"><p>Loading detail</p></div>"#,
+            r#"<script>$RC("B:0","S:0");$RS("S:1","P:1")</script></body>"#,
+        );
+
+        assert_eq!("<main><!--$?--><p>Chair</p><!--/$--></main>", placed(html));
     }
 
     #[test]

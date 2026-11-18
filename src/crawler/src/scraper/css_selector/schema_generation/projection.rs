@@ -605,21 +605,42 @@ fn is_content_aside(node: &NodeRef) -> bool {
         && !is_link_list(node)
 }
 
-/// Whether most of `node`'s text is the text of its links: a list of other pages, such as a
-/// category menu or related items, rather than the page's own content. A price and cart panel
-/// holds a few links at most.
+/// The fewest distinct pages a list of links names: a product's buy, enquiry or bidding panel
+/// links a few actions (enquire, place a bid, register, watch), a menu or a related items list
+/// more.
+const LINK_LIST_MIN_PAGES: usize = 5;
+
+/// Whether `node` is a list of other pages, such as a category menu or related items, rather than
+/// the page's own content: it links at least [`LINK_LIST_MIN_PAGES`] distinct pages and most of
+/// its text is their links' text.
 fn is_link_list(node: &NodeRef) -> bool {
     let visible_chars = |text: String| {
         text.split_whitespace()
             .map(|word| word.chars().count())
             .sum::<usize>()
     };
-    let linked = node.select("a").map_or(0, |links| {
-        links
-            .map(|link| visible_chars(link.as_node().text_contents()))
-            .sum()
-    });
-    linked * 2 > visible_chars(node.text_contents())
+    let Ok(links) = node.select("a[href]") else {
+        return false;
+    };
+    let mut pages = std::collections::HashSet::new();
+    let mut linked = 0;
+    for link in links {
+        let href = link
+            .attributes
+            .borrow()
+            .get("href")
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let names_a_page = !href.is_empty()
+            && !href.starts_with('#')
+            && !href.to_ascii_lowercase().starts_with("javascript:");
+        if names_a_page {
+            pages.insert(href);
+            linked += visible_chars(link.as_node().text_contents());
+        }
+    }
+    pages.len() >= LINK_LIST_MIN_PAGES && linked * 2 > visible_chars(node.text_contents())
 }
 
 fn remove_comments(node: &NodeRef) {

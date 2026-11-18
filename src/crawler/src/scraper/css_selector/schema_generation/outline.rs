@@ -213,7 +213,9 @@ mod tests {
             r#"<html><body><aside class="filters">Era</aside><main><h1>Chair</h1>"#,
             r#"<aside class="panel"><span class="price">£50</span><button>Add to cart</button>"#,
             r#"<a href="/ship">Shipping</a>"#,
-            r#"</aside><aside class="related"><a href="/stool">Oak stool</a> £20</aside>"#,
+            r#"</aside><aside class="related"><a href="/stool">Oak stool</a> £20"#,
+            r#"<a href="/desk">Desk</a> £90<a href="/lamp">Lamp</a> £30<a href="/vase">Vase</a> £15"#,
+            r#"<a href="/mirror">Mirror</a> £60</aside>"#,
             r#"<!--$?--><template id="B:0"></template><!--/$--></main>"#,
             r#"<div hidden id="S:0"><p class="sold">Sold</p></div>"#,
             r#"<script>$RC("B:0","S:0")</script></body></html>"#,
@@ -230,6 +232,24 @@ mod tests {
              \x20p.sold | Sold\n",
             html_to_agent_page_outline(html)
         );
+    }
+
+    /// An enquiry dealer's or an auction's panel links its actions rather than buttoning them,
+    /// and stays: a few links are actions, not a list of other pages.
+    #[test]
+    fn should_keep_an_enquiry_or_bidding_panel_whose_actions_are_links() {
+        let html = concat!(
+            r#"<html><body><main><h1>Clock</h1><aside class="enquiry">Price on request "#,
+            r#"<a href="/contact?item=1">Enquire about this item</a></aside>"#,
+            r#"<aside class="bid">Estimate €800–1,200 <a href="/lot/1/bid">Place bid</a>"#,
+            r#"<a href="/register">Register to bid</a><a href="/watch/1">Add to watchlist</a>"#,
+            r#"</aside></main></body></html>"#,
+        );
+
+        let outline = html_to_agent_page_outline(html);
+
+        assert!(outline.contains("aside.enquiry"), "{outline}");
+        assert!(outline.contains("aside.bid"), "{outline}");
     }
 
     #[test]
