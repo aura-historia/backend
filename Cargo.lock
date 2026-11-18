@@ -938,60 +938,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-eventbridge"
-version = "1.129.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8b2067bab445a52b507400f47326c38d19ccf45761753640e8210aa134feb61"
-dependencies = [
- "arc-swap",
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-observability",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-schema",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand",
- "http 1.5.0",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
 name = "aws-sdk-geoplaces"
 version = "1.76.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3033fa697b6813343d6699ebf51be0ca76e1167576c7566566338d2b884765a"
-dependencies = [
- "arc-swap",
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-observability",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-schema",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand",
- "http 1.5.0",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
-name = "aws-sdk-opensearch"
-version = "1.159.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a4ecf3361d9bed53f26d3646248041fd0a114c05976b178f9958f7890f089a4"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1053,31 +1003,6 @@ name = "aws-sdk-sesv2"
 version = "1.147.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efbfdfcb6064947c80c92a31f0a2abefbaf68eddf7d9b013f8ccd0eaf3ddaf1a"
-dependencies = [
- "arc-swap",
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-observability",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-schema",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand",
- "http 1.5.0",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
-name = "aws-sdk-sqs"
-version = "1.121.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ac6b037404612693fdea5af7b93f1db74ad565a93fda0af0ace16473d89ce7b"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1451,11 +1376,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e330109825f18d3456c636be055b59f737ef880820918a78d4ca08df1f7d027"
 dependencies = [
  "base64 0.22.1",
- "bytes",
- "http 1.5.0",
- "http-body 1.1.0",
- "http-serde",
- "query_map",
  "serde",
  "serde_json",
 ]
@@ -6268,11 +6188,8 @@ name = "platform-worker-queue-contract"
 version = "0.1.0"
 dependencies = [
  "aura-historia-jobs",
- "aws-sdk-sqs",
  "platform-postgres-queue",
- "serde_json",
  "thiserror 2.0.21",
- "url",
 ]
 
 [[package]]
@@ -6772,17 +6689,6 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
-
-[[package]]
-name = "query_map"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eab6b8b1074ef3359a863758dae650c7c0c6027927a085b7af911c8e0bf3a15"
-dependencies = [
- "form_urlencoded",
- "serde",
- "serde_derive",
-]
 
 [[package]]
 name = "quick-error"
@@ -8853,12 +8759,8 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-account",
- "aws-sdk-eventbridge",
- "aws-sdk-opensearch",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
- "aws-sdk-sqs",
- "aws_lambda_events",
  "axum",
  "ctrlc",
  "derive_builder",

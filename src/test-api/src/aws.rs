@@ -1,30 +1,11 @@
 mod topology;
 
-// These library regressions share one process-owned fixture under unmanaged libtest.
-#[cfg(all(
-    test,
-    any(
-        feature = "opensearch",
-        all(feature = "sqs", feature = "ses", feature = "s3")
-    )
-))]
-pub(crate) const RUNTIME_TEST_SERVICES: &[&str] = &[
-    #[cfg(feature = "opensearch")]
-    "opensearch",
-    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
-    "sqs",
-    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
-    "sesv2",
-    #[cfg(all(feature = "sqs", feature = "ses", feature = "s3"))]
-    "s3",
-];
-
 use self::topology::AwsEmulatorTopology;
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use testcontainers::core::{IntoContainerPort, Mount, WaitFor};
+use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio::sync::OnceCell;
@@ -34,7 +15,7 @@ const CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-floci-test";
 const IMAGE_TAG: &str = "2.3.0";
 pub const AWS_EMULATOR_CONTAINER_PORT: u16 = 4566;
 
-pub(crate) fn aws_emulator_container_name() -> String {
+fn aws_emulator_container_name() -> String {
     format!("{CONTAINER_NAME_PREFIX}-{}", std::process::id())
 }
 
@@ -132,31 +113,7 @@ fn docker_remove(name: &str) {
 }
 
 extern "C" fn cleanup() {
-    let name = aws_emulator_container_name();
-    docker_remove(&name);
-
-    // Force-removing the emulator skips its shutdown hooks. Reap only this process's children.
-    let namespace_filter = format!("label=floci_namespace={name}");
-    if let Ok(out) = Command::new("docker")
-        .args(["ps", "-aq", "--filter", &namespace_filter])
-        .output()
-    {
-        for id in String::from_utf8_lossy(&out.stdout).lines() {
-            docker_remove(id);
-        }
-    }
-    if let Ok(out) = Command::new("docker")
-        .args(["volume", "ls", "-q", "--filter", &namespace_filter])
-        .output()
-    {
-        for id in String::from_utf8_lossy(&out.stdout).lines() {
-            let _ = Command::new("docker")
-                .args(["volume", "rm", id])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-        }
-    }
+    docker_remove(&aws_emulator_container_name());
 }
 
 fn install_cleanup() {
@@ -176,7 +133,7 @@ fn find_free_port() -> u16 {
 }
 
 /// Starts Floci with its real service implementations and a random host port.
-/// Docker-backed resources are namespaced by PID and removed on exit or interruption.
+/// The container is named by PID and removed on exit or interruption.
 pub async fn spin_up_aws_emulator(
     extra_env_vars: &[(&str, &str)],
 ) -> (ContainerAsync<GenericImage>, u16) {
@@ -201,22 +158,13 @@ pub async fn spin_up_aws_emulator(
         .with_container_name(aws_emulator_container_name())
         .with_env_var("FLOCI_STORAGE_MODE", "memory")
         .with_env_var("FLOCI_DEFAULT_REGION", "eu-central-1")
-        .with_env_var("FLOCI_BASE_URL", format!("http://localhost:{port}"))
-        .with_env_var("FLOCI_SERVICES_OPENSEARCH_MOCK", "false");
+        .with_env_var("FLOCI_BASE_URL", format!("http://localhost:{port}"));
     let request = extra_env_vars
         .iter()
         .fold(request, |request, (key, value)| {
             request.with_env_var(*key, *value)
         });
     let container = request
-        .with_env_var(
-            "FLOCI_DOCKER_RESOURCE_NAMESPACE",
-            aws_emulator_container_name(),
-        )
-        .with_mount(Mount::bind_mount(
-            "/var/run/docker.sock",
-            "/var/run/docker.sock",
-        ))
         .with_mapped_port(port, AWS_EMULATOR_CONTAINER_PORT.tcp())
         .start()
         .await
@@ -224,7 +172,7 @@ pub async fn spin_up_aws_emulator(
     (container, port)
 }
 
-#[cfg(all(test, feature = "sqs", feature = "ses", feature = "s3"))]
+#[cfg(all(test, feature = "ses", feature = "s3"))]
 mod runtime_tests {
     use super::*;
     use crate::{Isolation, TestContext};
@@ -247,38 +195,21 @@ mod runtime_tests {
         )
     }
 
+    const RUNTIME_TEST_SERVICES: &[&str] = &["s3", "sesv2"];
+
     struct AwsResources {
-        queue: String,
         bucket: String,
         sender: String,
         configuration_set: String,
     }
 
     async fn create_resources(context: &TestContext) -> AwsResources {
-        let queue = context.queue_name("runtime", false).await.unwrap();
         let bucket = context.bucket_name("runtime").await.unwrap();
         let sender = context.register_sender("runtime").await.unwrap();
         let configuration_set = context.configuration_set_name("runtime").await.unwrap();
-        let sqs = crate::get_sqs_client().await;
-        let queue_url = sqs
-            .create_queue()
-            .queue_name(&queue)
-            .send()
-            .await
-            .unwrap()
-            .queue_url()
-            .unwrap()
-            .to_owned();
-        sqs.send_message()
-            .queue_url(queue_url)
-            .message_body("runtime marker")
-            .send()
-            .await
-            .unwrap();
         write_s3_marker(&bucket).await;
         send_ses_marker(&sender, &configuration_set).await;
         AwsResources {
-            queue,
             bucket,
             sender,
             configuration_set,
@@ -344,29 +275,7 @@ mod runtime_tests {
     }
 
     async fn read_resources(resources: &AwsResources) {
-        let AwsResources {
-            queue,
-            bucket,
-            sender,
-            ..
-        } = resources;
-        let sqs = crate::get_sqs_client().await;
-        let queue_url = sqs
-            .get_queue_url()
-            .queue_name(queue)
-            .send()
-            .await
-            .unwrap()
-            .queue_url()
-            .unwrap()
-            .to_owned();
-        let received = sqs
-            .receive_message()
-            .queue_url(queue_url)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(Some("runtime marker"), received.messages()[0].body());
+        let AwsResources { bucket, sender, .. } = resources;
         let object = s3_client()
             .await
             .get_object()
@@ -396,24 +305,10 @@ mod runtime_tests {
 
     async fn assert_resources_removed(resources: AwsResources) {
         let AwsResources {
-            queue,
             bucket,
             sender,
             configuration_set,
         } = resources;
-        let queue_error = crate::get_sqs_client()
-            .await
-            .get_queue_url()
-            .queue_name(queue)
-            .send()
-            .await
-            .unwrap_err();
-        assert!(
-            queue_error
-                .as_service_error()
-                .unwrap()
-                .is_queue_does_not_exist()
-        );
         let bucket_error = s3_client()
             .await
             .head_bucket()

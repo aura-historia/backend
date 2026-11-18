@@ -1,12 +1,6 @@
 use super::{Result, failure};
 
-pub(super) fn resource(
-    run: &str,
-    test: &str,
-    label: &str,
-    maximum: usize,
-    suffix: &str,
-) -> Result<String> {
+pub(super) fn resource(run: &str, test: &str, label: &str, maximum: usize) -> Result<String> {
     if label.is_empty()
         || !label
             .bytes()
@@ -19,43 +13,32 @@ pub(super) fn resource(
         ));
     }
     let prefix = format!("a{run}-{}-", &test[..16]);
-    if prefix.len() + label.len() + suffix.len() > maximum {
+    if prefix.len() + label.len() > maximum {
         return Err(failure(
             "scoped resource name exceeds the service limit; use a shorter label",
         ));
     }
-    Ok(format!("{prefix}{label}{suffix}"))
+    Ok(format!("{prefix}{label}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn should_preserve_fifo_suffix_and_bound_bucket_queue_and_ses_names() {
+    fn should_bound_bucket_and_ses_names() {
         let run = "0".repeat(32);
         let test = "1".repeat(32);
         assert_eq!(
-            80,
-            resource(&run, &test, &"q".repeat(24), 80, ".fifo")
-                .unwrap()
-                .len()
-        );
-        assert!(resource(&run, &test, &"q".repeat(25), 80, ".fifo").is_err());
-        assert_eq!(
             63,
-            resource(&run, &test, &"b".repeat(12), 63, "")
-                .unwrap()
-                .len()
+            resource(&run, &test, &"b".repeat(12), 63).unwrap().len()
         );
-        assert!(resource(&run, &test, "bucket.too-long", 63, "").is_err());
-        assert!(resource(&run, &test, "-invalid", 64, "").is_err());
+        assert!(resource(&run, &test, "bucket.too-long", 63).is_err());
+        assert!(resource(&run, &test, "-invalid", 64).is_err());
         assert_eq!(
             64,
-            resource(&run, &test, &"s".repeat(13), 64, "")
-                .unwrap()
-                .len()
+            resource(&run, &test, &"s".repeat(13), 64).unwrap().len()
         );
-        assert!(resource(&run, &test, &"s".repeat(14), 64, "").is_err());
-        assert!(resource(&run, &test, "sender@example.test", 64, "").is_err());
+        assert!(resource(&run, &test, &"s".repeat(14), 64).is_err());
+        assert!(resource(&run, &test, "sender@example.test", 64).is_err());
     }
 }

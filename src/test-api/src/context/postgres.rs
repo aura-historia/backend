@@ -108,7 +108,7 @@ impl TestContext {
             lock,
         )
         .await?;
-        let database = self.own(Kind::Database, self.name("db", 63, "")?)?;
+        let database = self.own(Kind::Database, self.name("db", 63)?)?;
         self.persist_resources().await?;
         // A new generation fences old connections/writers. Recovery drops the previous database first.
         drop_database(&mut administrator, &database).await?;

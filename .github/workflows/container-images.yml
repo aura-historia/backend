@@ -16,6 +16,8 @@ on:
       - "rust-toolchain.toml"
       - "src/**"
       - "mjml/**"
+      - "migrations/**"
+      - "infra/sql/**"
       - "infra/assets/rds-ca-layer/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
@@ -23,6 +25,7 @@ on:
       - "ci/container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/mjml-templates.yml"
   push:
     branches: [develop]
     paths:
@@ -33,6 +36,8 @@ on:
       - "rust-toolchain.toml"
       - "src/**"
       - "mjml/**"
+      - "migrations/**"
+      - "infra/sql/**"
       - "infra/assets/rds-ca-layer/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
@@ -40,6 +45,7 @@ on:
       - "ci/container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/mjml-templates.yml"
 
 permissions:
   contents: read

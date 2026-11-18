@@ -10,8 +10,8 @@ cargo test --locked -p product-listing-core --all-features
 ```
 
 Use the repository toolchain. Integration and some library tests need Linux,
-Docker and the Docker CLI; fixtures start local PostgreSQL, Floci and OpenSearch
-with fake credentials. No deployed service or AWS login is required.
+Docker and the Docker CLI; fixtures start local PostgreSQL and OpenSearch, and
+Floci for the S3 and SES clients, with fake credentials. No deployed service or AWS login is required.
 The [fixture guide](../src/test-api/README.md) explains ownership and cleanup.
 
 Broader validation: `cargo test --locked --workspace --all-features` includes
@@ -34,7 +34,7 @@ test lanes on relevant PRs and `develop` pushes. Nextest uses four slots.
 | --- | --- | --- |
 | API | API package, including acceptance tests | `api` |
 | CRAWLER | Crawler | `postgres` |
-| INFRASTRUCTURE | Other packages using integration fixtures | `api` |
+| INFRASTRUCTURE | Other packages using integration fixtures | `all` |
 | REMAINING | Packages without shared infrastructure requirements | `none` |
 
 [The manifest](../ci/test-lanes.json) assigns every workspace package exactly
@@ -65,13 +65,13 @@ bash ci/install-test-tools.sh "$PWD/target/ci-tools"
 export PATH="$PWD/target/ci-tools:$PATH"
 cargo build --locked -p test-api --all-features --bin aura-test-env
 python3 ci/run-test-lane.py --lane API --slots 4 --profile api \
-  --features test-api/supervisor,test-api/s3,test-api/ses \
-  --features test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge \
+  --features test-api/supervisor,test-api/aura-historia-api \
   --supervisor "$CARGO_TARGET_DIR/debug/aura-test-env" \
   --state-dir /tmp/aura-test-env-local --output /tmp/aura-api-results
 ```
 
-Select the lane/profile from the table. The remaining lane needs no services.
+Select the lane/profile from the table; the [fixture guide](../src/test-api/README.md)
+lists what each profile starts. The remaining lane needs no services.
 Give concurrent runs separate output directories.
 
 ## Exact-source release eligibility
