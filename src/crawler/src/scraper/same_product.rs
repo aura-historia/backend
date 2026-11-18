@@ -3,9 +3,8 @@
 //! (`docs/crawler/scheduling-and-retries.md#captured-identity`). A shop may reuse one identity
 //! for different products, such as a stock code after a sale, so a shared identity alone never
 //! makes two URLs one product: the crawler retires a URL as the duplicate of another only with
-//! one of the signals below, and otherwise leaves both URLs as they are. The one-off migration
-//! `20261117100002_retire_duplicate_identity_urls.sql` applies the signals SQL can express to the
-//! stored URLs; `tests/fixtures/same_product.json` holds the cases both must answer alike.
+//! one of the signals below, and otherwise parks it in an identity conflict.
+//! `tests/fixtures/same_product.json` holds shop-shaped cases the rule must answer as recorded.
 
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::without_language_segment;
@@ -515,7 +514,7 @@ mod tests {
         );
     }
 
-    /// The rows `tests/fixtures/same_product.json` holds, as migration 20261117100002 reads them.
+    /// The rows `tests/fixtures/same_product.json` holds.
     #[derive(serde::Deserialize)]
     struct FixtureRow {
         path: String,
@@ -537,10 +536,10 @@ mod tests {
         groups: Vec<FixtureGroup>,
     }
 
-    /// The cases the migration test runs through the SQL: the rule answers each row as the
-    /// fixture expects, so the runtime and the migration agree on them.
+    /// Each row that is no survivor is retired with the recorded evidence, or kept without any,
+    /// when judged against the survivor that carries its page identity.
     #[test]
-    fn should_answer_the_shared_fixtures_as_the_migration_does() {
+    fn should_answer_the_recorded_same_product_cases() {
         let fixtures: Fixtures =
             serde_json::from_str(include_str!("../../tests/fixtures/same_product.json")).unwrap();
         let root = Url::parse("https://www.shop.example.com/").unwrap();
