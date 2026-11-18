@@ -51,8 +51,8 @@ passphrase so that each value agrees across the files that share it; it never ov
 file. Fill in the rest, then `sudo host/prod/secrets.sh check` must pass. Sources:
 
 - `aws.env` and `pgbackrest.env`: the host IAM user's access key ([host access](../../docs/infra.md#host-access)); rotate both files together.
-- `caddy.env`: a Cloudflare API token limited to *Zone.DNS edit* on the zone, and the
-  [origin secret](../../docs/infra.md#cloudfront-origin-lock).
+- `caddy.env`: a Cloudflare API token limited to *Zone.Zone read* and *Zone.DNS edit* on
+  the zone, and the [origin secret](../../docs/infra.md#cloudfront-origin-lock).
 - `cognito-trigger.env`: the [trigger signing key](../../docs/infra.md#host-access).
 - `opensearch-*.env` and `opensearch-root-ca.pem`: the OpenSearch stable checkout's
   `.private/` directory.
