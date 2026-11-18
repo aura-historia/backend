@@ -575,7 +575,8 @@ Startup uses the shared PostgreSQL configuration of the
 composition fails; on SIGTERM the server stops accepting connections and drains in-flight
 requests. Token authentication still reads authoritative state on every request. Infrastructure injects the
 same explicit `OAUTH_ISSUER_URL` into REST and MCP; native startup must supply it too. Listing startup additionally requires
-`OPENSEARCH_ENDPOINT_URL`, and `OPENSEARCH_USERNAME`/`OPENSEARCH_PASSWORD` outside `STAGE=ephemeral`.
+`OPENSEARCH_ENDPOINT_URL`, and `OPENSEARCH_USERNAME`/`OPENSEARCH_PASSWORD` outside `STAGE=ephemeral`;
+there the optional `OPENSEARCH_CA_CERT` (usually `OPENSEARCH_CA_CERT_FILE`) adds the node's private CA to the trusted roots.
 `VERTEX_AI_PROJECT_ID`/`VERTEX_AI_LOCATION` and the existing `PRODUCT_LISTING_SEARCH_*` cache/read
 settings use the [shared runtime configuration](../src/aura-historia-runtime/src/product_listing_config.rs).
 ADC construction remains lazy until an embedding is requested; the process reads Google

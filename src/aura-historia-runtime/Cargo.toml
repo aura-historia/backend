@@ -23,6 +23,7 @@ partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }
 party-postgres = { workspace = true }
 party-service = { workspace = true }
+platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
 platform-process = { workspace = true }
 product-listing-core = { workspace = true }

@@ -7,6 +7,9 @@
 #             OpenSearch CPU reservation
 #   ssh       accept SSH keys only (refuses while a recent SSH user has no key)
 #   firewall  ufw: deny inbound except SSH and 443; the same for Docker-published ports
+#   prod      the prod Compose project's socket directory, external volumes and units; run
+#             from the stable checkout the units should use (host/prod/README.md)
+#   prod-timers  enable the prod ops, backup and secrets-copy timers once the stack runs
 #   check     print the effective state without changing anything
 #
 # Every step is idempotent; rerun it after a partial failure.
@@ -24,6 +27,9 @@ readonly DOCKER_DEFAULT_PARENT=user.slice
 readonly SSH_DROP_IN=/etc/ssh/sshd_config.d/10-aura-keys-only.conf
 readonly UFW_BLOCK_BEGIN='# BEGIN aura-historia docker ingress'
 readonly UFW_BLOCK_END='# END aura-historia docker ingress'
+readonly PROD_VOLUMES=(aura-historia-prod-postgres-data aura-historia-prod-caddy-data)
+readonly PROD_TIMERS=(aura-prod-backend-cleanup.timer aura-prod-fx-refresh.timer aura-prod-periodic-match.timer
+  aura-prod-backup-full.timer aura-prod-backup-diff.timer aura-prod-secrets-copy.timer)
 
 log() { printf '==> %s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -194,6 +200,31 @@ stale_ufw_rules() {
   ufw show added | grep '^ufw ' | grep -v -E "^ufw allow (${port}/tcp|443/tcp|443/udp)( comment .*)?$" || true
 }
 
+install_prod() {
+  local prod_dir="${HOST_DIR}/prod" unit
+  install -m 0644 "${prod_dir}/tmpfiles/aura-prod.conf" /etc/tmpfiles.d/aura-prod.conf
+  systemd-tmpfiles --create /etc/tmpfiles.d/aura-prod.conf
+  # External, so no `compose down -v` can remove the database or the certificates.
+  for volume in "${PROD_VOLUMES[@]}"; do
+    docker volume inspect "${volume}" >/dev/null 2>&1 || docker volume create "${volume}" >/dev/null
+  done
+  for unit in "${prod_dir}"/systemd/*; do
+    sed "s|@PROD_DIR@|${prod_dir}|g" "${unit}" | install -m 0644 /dev/stdin "${SYSTEMD_DIR}/$(basename -- "${unit}")"
+  done
+  systemctl daemon-reload
+  log "prod units run ${prod_dir}; rerun 'prod' from another checkout to move them"
+}
+
+# Enabled only once the stack runs, so no job fails for want of a database, secret or key.
+enable_prod_timers() {
+  [[ -n "$(docker ps -q --filter label=com.docker.compose.project=aura-prod --filter label=com.docker.compose.service=postgres)" ]] ||
+    fail "start the prod stack first (host/prod/README.md#first-start)"
+  [[ -s /etc/aura-historia/prod/backup-recipient.asc ]] ||
+    fail "install the operators' OpenPGP public key as /etc/aura-historia/prod/backup-recipient.asc first"
+  systemctl enable --now "${PROD_TIMERS[@]}"
+  log "prod timers enabled"
+}
+
 print_check() {
   echo "## CPUs (online $(cat /sys/devices/system/cpu/online))"
   for pid in 1 "$(pgrep -o dockerd || true)" "$(pgrep -o -x sshd || true)" $$; do
@@ -216,18 +247,22 @@ print_check() {
   echo "## Firewall"
   ufw status verbose
   iptables -S DOCKER-USER || true
+  echo "## Prod timers"
+  systemctl list-timers --all --no-pager 'aura-prod-*'
   echo "## Listening on non-loopback addresses"
   ss -Htlnu | awk '$5 !~ /^(127\.|\[::1\]|\[::ffff:127\.)/ {print $1, $5}' | sort -u
 }
 
 main() {
-  [[ $# -gt 0 ]] || { sed -n '2,11p' "$0"; exit 2; }
+  [[ $# -gt 0 ]] || { sed -n '2,14p' "$0"; exit 2; }
   require_root "$@"
   for step in "$@"; do
     case ${step} in
       cgroups) install_cgroups ;;
       ssh) install_ssh ;;
       firewall) install_firewall ;;
+      prod) install_prod ;;
+      prod-timers) enable_prod_timers ;;
       check) print_check ;;
       *) fail "unknown step ${step}" ;;
     esac

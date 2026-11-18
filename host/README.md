@@ -9,7 +9,8 @@ leaves its share to the others.
 
 The files here are installed by [`install.sh`](install.sh) and checked by
 [`stress-test.sh`](stress-test.sh). Both need root, cgroup v2 and Docker's systemd
-cgroup driver.
+cgroup driver. The prod Compose project, its secrets, scheduled jobs and backups are in
+[`prod/`](prod/README.md).
 
 ## Tiers
 
@@ -46,7 +47,7 @@ The starting plan for 64 GB; tune it from observed usage after go-live.
 | PostgreSQL (`shared_buffers=4GB`) | serving | `mem_limit: 14g`, `mem_reservation: 12g`, `oom_score_adj: -900` |
 | OpenSearch (8 GiB heap) | serving | `mem_limit: 20g`, `mem_reservation: 16g`, `oom_score_adj: -500` ([compose](../opensearch/prod/compose.yaml)) |
 | API, MCP, Caddy | serving | 3 GiB together |
-| Worker and `ops` | pipeline | 3 GiB together |
+| Worker and `ops` | pipeline | worker 2 GiB; each `ops` run 768 MiB (cleanup can overlap periodic matching); the occasional restore check 4 GiB ([prod](prod/README.md)) |
 | Crawler stack | batch | 6 GiB slice cap; its database `mem_limit: 3g` ([compose](../src/crawler/docker-compose.yml)) |
 | Interactive sessions | user | 10 GiB slice cap |
 | Host and page cache | — | the rest |
@@ -75,7 +76,7 @@ From a checkout of a reviewed ref:
 2. In one short search outage, update OpenSearch's stable checkout to this ref, run
    `sudo systemctl restart docker` so the default parent applies, then recreate the
    containers in their tiers, keeping their external volumes: OpenSearch from that
-   checkout with `docker compose -f opensearch/prod/compose.yaml --profile public up -d`,
+   checkout with `docker compose -f opensearch/prod/compose.yaml up -d`,
    and the crawler database with `CRAWLER_POSTGRES_CGROUP_PARENT=aura_batch.slice`
    set before `db-up`. Restart the crawler units when convenient.
 3. Rerun `sudo host/install.sh cgroups`. It retires the old OpenSearch slice once
@@ -101,10 +102,10 @@ listeners without changing anything.
   refuses while ufw holds an older rule it did not create, because enabling ufw
   would activate it unreviewed.
 - **Only Caddy publishes a public port (443).** PostgreSQL, OpenSearch and every other
-  service bind to loopback or a Compose network. The OpenSearch gateway renews its
-  certificate through the TLS-ALPN challenge, so port 80 stays closed; that needs
-  443 reachable from the certificate authority, so restricting 443 to CloudFront
-  first needs a DNS challenge or the public OpenSearch site retired.
+  service bind to loopback or a Compose network. The [prod project's](prod/README.md#caddy)
+  Caddy obtains its certificates through the DNS challenge, so port 80 stays closed and
+  restricting 443 to CloudFront does not affect renewal; until the cutover it also serves the
+  public OpenSearch site that the AWS runtime uses.
 
 ## Disks
 

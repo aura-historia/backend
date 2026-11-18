@@ -11,6 +11,7 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use platform_opensearch::failure::OpenSearchFailure;
+use platform_opensearch::transport::{CA_CERTIFICATE_ENV, trust_private_ca};
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_queue::Disposition;
 use platform_process::{Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE, config::required};
@@ -254,6 +255,7 @@ fn compose_index(
 struct OpenSearchConfig {
     endpoint: Url,
     basic_auth: Option<(String, String)>,
+    private_ca: Option<String>,
 }
 
 impl OpenSearchConfig {
@@ -273,13 +275,15 @@ impl OpenSearchConfig {
         Ok(Self {
             endpoint,
             basic_auth,
+            private_ca: std::env::var(CA_CERTIFICATE_ENV).ok(),
         })
     }
 }
 
 fn open_search_client(config: OpenSearchConfig) -> Result<OpenSearch, CompositionError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint);
-    let builder = TransportBuilder::new(pool);
+    let builder = trust_private_ca(TransportBuilder::new(pool), config.private_ca.as_deref())
+        .map_err(|error| CompositionError::new(SCOPE, error))?;
     let transport = match config.basic_auth {
         Some((username, password)) => builder.auth(Credentials::Basic(username, password)),
         None => builder,

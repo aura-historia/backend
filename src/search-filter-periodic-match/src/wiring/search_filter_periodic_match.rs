@@ -6,6 +6,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_opensearch::transport::{CA_CERTIFICATE_ENV, InvalidCaCertificate, trust_private_ca};
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 use platform_process::postgres::{PostgresConfigError, pool_config_from_env};
 use product_listing_opensearch::OpenSearchProductListingSearchReader;
@@ -99,6 +100,7 @@ struct PeriodicMatchConfig {
     postgres: PostgresPoolConfig,
     endpoint: url::Url,
     auth: Option<(String, String)>,
+    opensearch_private_ca: Option<String>,
     cloudflare_account_id: String,
     cloudflare_api_token: String,
     classifier_model: CloudflareModel,
@@ -153,6 +155,7 @@ impl PeriodicMatchConfig {
             postgres,
             endpoint,
             auth,
+            opensearch_private_ca: std::env::var(CA_CERTIFICATE_ENV).ok(),
             cloudflare_account_id: required("CLOUDFLARE_ACCOUNT_ID")?,
             cloudflare_api_token: required("CLOUDFLARE_API_TOKEN")?,
             classifier_model,
@@ -252,7 +255,11 @@ fn positive_duration(name: &'static str, default: u64) -> Result<Duration, Wirin
 
 fn opensearch_client(config: &PeriodicMatchConfig) -> Result<OpenSearch, WiringError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint.clone());
-    let builder = TransportBuilder::new(pool);
+    let builder = trust_private_ca(
+        TransportBuilder::new(pool),
+        config.opensearch_private_ca.as_deref(),
+    )
+    .map_err(WiringError::OpenSearchCa)?;
     let builder = match &config.auth {
         Some((username, password)) => {
             builder.auth(Credentials::Basic(username.to_owned(), password.to_owned()))
@@ -285,6 +292,8 @@ pub enum WiringError {
     Postgres(#[source] PostgresConnectError),
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
+    #[error("failed to configure OpenSearch's private CA")]
+    OpenSearchCa(#[source] InvalidCaCertificate),
     #[error("classifier provider configuration is invalid")]
     ClassifierConfig,
     #[error("search intent translator configuration is invalid")]

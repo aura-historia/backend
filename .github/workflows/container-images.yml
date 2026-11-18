@@ -26,6 +26,9 @@ on:
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
       - ".github/workflows/mjml-templates.yml"
+      - "host/**"
+      - "opensearch/prod/**"
+      - "ci/host-prod/**"
   push:
     branches: [develop]
     paths:
@@ -46,6 +49,9 @@ on:
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
       - ".github/workflows/mjml-templates.yml"
+      - "host/**"
+      - "opensearch/prod/**"
+      - "ci/host-prod/**"
 
 permissions:
   contents: read
@@ -67,6 +73,18 @@ jobs:
       - name: Read container image catalog
         id: catalog
         run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
+
+  host-scripts:
+    name: Lint host scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Shellcheck
+        run: |
+          shellcheck --version
+          git ls-files -z -- 'host/*.sh' 'host/**/*.sh' 'ci/host-prod/*.sh' | xargs -0 shellcheck --severity=warning
 
   image:
     name: Build and test ${{ matrix.id }}
@@ -116,3 +134,10 @@ jobs:
             -t "$IMAGE" .
           test -x "ci/container-images/${IMAGE_ID}/smoke.sh"
           bash ci/container-images/${IMAGE_ID}/smoke.sh "$IMAGE"
+      - name: Smoke-test the prod Compose project with this image
+        if: matrix.id == 'aura-historia'
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
+          IMAGE_ID: ${{ matrix.id }}
+        run: bash ci/host-prod/smoke.sh "local/${IMAGE_ID}:${CANDIDATE_SHA}"
