@@ -1876,6 +1876,7 @@ dependencies = [
  "localization",
  "openssl",
  "platform-postgres",
+ "reqwest 0.12.28",
  "serde-email",
  "serde_json",
  "serial_test",
@@ -1885,6 +1886,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "url",
  "user-core",
  "user-postgres",
  "user-service",
@@ -1904,7 +1906,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]

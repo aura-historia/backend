@@ -14,6 +14,7 @@ use user_service::use_cases::{
 };
 
 pub mod signature;
+pub mod signed_request;
 
 /// The event cannot be registered. Messages name the field, never its value.
 #[derive(Debug, thiserror::Error)]
