@@ -1,0 +1,80 @@
+# The prod host's only public listener (443). CloudFront fronts api. and mcp. and forwards the
+# viewer Host, so Caddy serves the public names and holds their certificates. See
+# host/prod/README.md#caddy.
+{
+	# The public names resolve to CloudFront, so certificates come through the DNS challenge;
+	# no HTTP listener is needed and port 80 stays closed.
+	acme_dns cloudflare {env.CLOUDFLARE_DNS_API_TOKEN}
+	auto_https disable_redirects
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+	}
+}
+
+# CloudFront sets X-Origin-Verify on every origin request, overwriting any viewer value. A
+# request without the current (or, during rotation, the previous) secret is refused, and an
+# unset secret refuses everything. The header never reaches the application.
+(cloudfront_only) {
+	@from_cloudfront expression <<CEL
+		({env.ORIGIN_VERIFY} != "" && {header.X-Origin-Verify} == {env.ORIGIN_VERIFY})
+		|| ({env.ORIGIN_VERIFY_PREVIOUS} != "" && {header.X-Origin-Verify} == {env.ORIGIN_VERIFY_PREVIOUS})
+		CEL
+}
+
+api.aura-historia.com {
+	import cloudfront_only
+	handle @from_cloudfront {
+		reverse_proxy api-a:8080 api-b:8080 {
+			header_up -X-Origin-Verify
+			lb_policy round_robin
+			# Retries a request on the other replica only when it could not be delivered.
+			lb_try_duration 5s
+			lb_try_interval 250ms
+			health_uri /v1/health
+			health_interval 5s
+			health_timeout 2s
+			fail_duration 30s
+		}
+	}
+	handle {
+		respond 403
+	}
+}
+
+mcp.aura-historia.com {
+	import cloudfront_only
+	handle @from_cloudfront {
+		reverse_proxy mcp:8080 {
+			header_up -X-Origin-Verify
+			flush_interval -1
+			lb_try_duration 5s
+			health_uri /health
+			health_interval 5s
+			health_timeout 2s
+		}
+	}
+	handle {
+		respond 403
+	}
+}
+
+# Until the cutover (#3037) the AWS runtime still searches through this site; remove the block
+# then. The host's own processes reach OpenSearch directly on the search network.
+opensearch.aura-historia.com {
+	@runtime path /product-listings/_search /product-listings/_doc/*
+	handle @runtime {
+		reverse_proxy https://opensearch:9200 {
+			transport http {
+				tls_trust_pool file /etc/caddy/opensearch-root-ca.pem
+				tls_server_name opensearch
+			}
+		}
+	}
+	handle {
+		respond 403
+	}
+}

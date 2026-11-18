@@ -24,9 +24,10 @@ Keep that checkout in place for Docker's configuration and certificate bind moun
 switch development branches in a separate checkout. Production uses
 `https://opensearch.aura-historia.com` on HTTPS 443, which already matches the AWS
 application egress policy. Point its DNS A record directly at the approved host,
-with Cloudflare proxying disabled, and keep TCP 443 reachable for Caddy's
-automatic public certificate issuance and renewal through the TLS-ALPN challenge;
-port 80 stays closed. Administration is available
+with Cloudflare proxying disabled. The [prod project's Caddy](../host/prod/README.md#caddy)
+serves it on 443 until the cutover and renews its certificate through the DNS challenge;
+port 80 stays closed. The host's own processes connect to the node directly on the
+`search` network and trust its private CA. Administration is available
 only at `https://localhost:19201` with the private operator client certificate.
 Transport/node/admin keys and runtime credentials are generated independently of
 dev; production does not load demo certificates or demo users.
@@ -61,7 +62,8 @@ From the repository root:
 
 ```sh
 python3 opensearch/prod/bootstrap.py
-docker compose -f opensearch/prod/compose.yaml --profile public up -d
+docker compose -f opensearch/prod/compose.yaml up -d
+# Start the prod project's Caddy, which serves the public site (host/prod/README.md#caddy).
 # Wait for public TLS issuance, then verify and publish only runtime credentials:
 python3 opensearch/prod/bootstrap.py --verify-public --publish-runtime-configuration
 ```
@@ -79,8 +81,8 @@ Keep it in access-controlled operator backups; never commit or print its content
 For local administration use `curl --config opensearch/prod/.private/admin-curl`
 with the loopback URL, without disabling TLS verification. Check private certificate
 expiry before the 825-day node/admin lifetime and rotate certificates through a
-reviewed restart; Caddy renews its public certificate independently. The private
-admin key is not mounted into the running search node or public gateway.
+reviewed restart; the prod project's Caddy renews the public certificate independently. The
+private admin key is not mounted into the running search node or the proxy.
 
 The verifier checks trusted local/public TLS, reader search, denied reader writes,
 denied projector reads and blocked public administration. Initialization exercises
