@@ -204,6 +204,7 @@ impl ReviewServer {
                 links: links.links,
                 links_offset,
                 links_total: links.total,
+                other_hosts: links.other_hosts,
             },
         ))
     }

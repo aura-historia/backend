@@ -384,6 +384,18 @@ pub(super) struct SourcePageAnswer {
     links_offset: usize,
     #[serde(default)]
     links_total: usize,
+    #[serde(default)]
+    other_hosts: Vec<SourcePageOtherHost>,
+}
+
+/// The links of a page to another host than the shop's.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SourcePageOtherHost {
+    pub host: String,
+    /// How many distinct pages on the host the page links.
+    pub links: usize,
+    /// One of them.
+    pub example: String,
 }
 
 /// A page of the shop a page links, with the link's text.
@@ -414,6 +426,9 @@ pub struct SourcePage {
     /// How many shop pages the page links; when more than `links_offset` plus `links` count, read
     /// the page again with a later `links_offset` for the rest.
     pub links_total: usize,
+    /// The other hosts the page links, the most linked first: when the item pages lie on one of
+    /// them, the crawler cannot reach them from this crawl root.
+    pub other_hosts: Vec<SourcePageOtherHost>,
 }
 
 impl From<SourcePageAnswer> for SourcePage {
@@ -429,6 +444,7 @@ impl From<SourcePageAnswer> for SourcePage {
             links: answer.links,
             links_offset: answer.links_offset,
             links_total: answer.links_total,
+            other_hosts: answer.other_hosts,
         }
     }
 }

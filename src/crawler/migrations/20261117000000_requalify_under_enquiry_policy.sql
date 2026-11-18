@@ -10,10 +10,13 @@
 -- - an agent's qualification of such a source, and an agent's NEEDS_HUMAN without a label, is
 --   cleared, which keeps the source uncrawled until it is decided again.
 --
--- What a human decided stays: a human's label is kept, and so is a human's qualification, whose
--- source is crawled again once the scope refresh sees it without the agent's label. Every clear
--- is appended to the source's label or qualification history as SYSTEM, so the decision it
--- replaced stays readable.
+-- What a human decided and still stands stays: a label a human set is kept, and so is a human's
+-- qualification, whose source is crawled again once the scope refresh sees it without the agent's
+-- label. A human's label that an agent's decision already replaced in the qualification backfill
+-- is not restored; it stays in the label history. Every clear is appended to the source's label or
+-- qualification history as SYSTEM, so the decision it replaced stays readable. A SYSTEM clear does
+-- not reset the agents' NEEDS_HUMAN retries, which count since a human's last decision: a source
+-- that already spent them gets this one decision and then waits for a human.
 WITH requalified AS (
     SELECT listing_source_id,
            COALESCE(source_label IN ('NOT_AN_ESHOP', 'OTHER')
