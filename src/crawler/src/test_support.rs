@@ -152,3 +152,129 @@ pub(crate) mod logged_events {
         }
     }
 }
+
+/// A local TLS peer for crawler client tests: the untrusted `localhost` certificate under
+/// `network/testdata`, and a client configuration that accepts it.
+pub(crate) mod local_tls {
+    use std::sync::Arc;
+
+    /// A server configuration presenting the untrusted `localhost` certificate.
+    pub(crate) fn server_config() -> Arc<rustls::ServerConfig> {
+        let certificate = rustls::pki_types::CertificateDer::from(
+            include_bytes!("network/testdata/untrusted-localhost-cert.der").to_vec(),
+        );
+        let key = rustls::pki_types::PrivatePkcs8KeyDer::from(
+            include_bytes!("network/testdata/untrusted-localhost-key.der").to_vec(),
+        );
+        Arc::new(
+            rustls::ServerConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], key.into())
+            .unwrap(),
+        )
+    }
+
+    /// Serves `connections` connections over TLS, as `localhost`. Each request is answered with
+    /// `response`, then the TCP connection is closed without TLS `close_notify`, the way some
+    /// shops end a body. Answers the server's address.
+    pub(crate) fn serve_without_close_notify(
+        response: Vec<u8>,
+        connections: usize,
+    ) -> std::net::SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for _ in 0..connections {
+                let Ok((mut socket, _)) = listener.accept() else {
+                    return;
+                };
+                answer_without_close_notify(&mut socket, &response);
+            }
+        });
+        addr
+    }
+
+    fn answer_without_close_notify(socket: &mut std::net::TcpStream, response: &[u8]) {
+        use std::io::{Read, Write};
+        let _ = socket.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let mut connection = rustls::ServerConnection::new(server_config()).unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            if connection.complete_io(socket).is_err() {
+                return;
+            }
+            match connection.reader().read(&mut buffer) {
+                Ok(0) => return,
+                Ok(read) => request.extend_from_slice(&buffer[..read]),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => return,
+            }
+        }
+        connection.writer().write_all(response).unwrap();
+        while connection.wants_write() {
+            if connection.write_tls(socket).is_err() {
+                return;
+            }
+        }
+        // A TCP close, with no `close_notify` alert before it; the client closes its side once
+        // it has read up to the close.
+        let _ = socket.shutdown(std::net::Shutdown::Write);
+        let _ = socket.read_to_end(&mut Vec::new());
+    }
+
+    /// A client configuration that accepts any server certificate, since a test server
+    /// certificate is no trust anchor.
+    pub(crate) fn client_config() -> rustls::ClientConfig {
+        let provider = rustls::crypto::ring::default_provider();
+        let algorithms = provider.signature_verification_algorithms;
+        rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AcceptAnyCertificate(algorithms)))
+            .with_no_client_auth()
+    }
+
+    #[derive(Debug)]
+    struct AcceptAnyCertificate(rustls::crypto::WebPkiSupportedAlgorithms);
+
+    impl rustls::client::danger::ServerCertVerifier for AcceptAnyCertificate {
+        fn verify_server_cert(
+            &self,
+            _: &rustls::pki_types::CertificateDer<'_>,
+            _: &[rustls::pki_types::CertificateDer<'_>],
+            _: &rustls::pki_types::ServerName<'_>,
+            _: &[u8],
+            _: rustls::pki_types::UnixTime,
+        ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            certificate: &rustls::pki_types::CertificateDer<'_>,
+            signature: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls12_signature(message, certificate, signature, &self.0)
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            certificate: &rustls::pki_types::CertificateDer<'_>,
+            signature: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls13_signature(message, certificate, signature, &self.0)
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+            self.0.supported_schemes()
+        }
+    }
+}

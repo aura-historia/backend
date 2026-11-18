@@ -4,6 +4,7 @@ pub mod bot_challenge;
 pub mod page_head;
 pub mod policy;
 pub mod politeness;
+pub mod response_body;
 pub mod robots;
 pub mod robots_directives;
 mod tls;

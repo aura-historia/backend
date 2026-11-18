@@ -1,5 +1,6 @@
 //! The page as markdown, the review agents' other view of a page beside its outline
-//! ([`super::outline`]): the readable content of the same parsed page, without the scripts,
+//! ([`super::outline`]): the readable content of the same parsed page, with React's streamed
+//! segments moved into the places a browser shows them ([`super::streamed_segments`]), without the scripts,
 //! styles, navigation, header, footer and comments the outline leaves out, as headings (`#`),
 //! paragraphs, list items, table rows (`| a | b |`), the text of links and buttons, and image alt
 //! text (`![alt]`). It carries no tags, attributes or URLs, so it is for reading what a page shows,
@@ -8,7 +9,7 @@
 //! form selects are left out as well; texts are whole, not shortened.
 
 use super::outline::within_limits;
-use super::projection::{is_removed_dsl_tag, parsed_page};
+use super::projection::{has_removed_tag_prefix, parsed_page_as_shown};
 use kuchiki::NodeRef;
 
 /// The most lines one markdown view holds, the first in document order.
@@ -28,7 +29,7 @@ const INLINE_TAGS: &[&str] = &[
 /// The markdown of the page `input`.
 pub fn html_to_agent_page_markdown(input: &str) -> String {
     let mut writer = MarkdownWriter::default();
-    writer.children(&parsed_page(input));
+    writer.children(&parsed_page_as_shown(input));
     writer.flush();
     within_limits(
         writer.lines,
@@ -64,7 +65,7 @@ impl MarkdownWriter {
             return;
         };
         let tag = element.name.local.to_string();
-        if is_removed_dsl_tag(&tag) || SKIPPED_TAGS.contains(&tag.as_str()) || is_hidden(node) {
+        if has_removed_tag_prefix(&tag) || SKIPPED_TAGS.contains(&tag.as_str()) || is_hidden(node) {
             return;
         }
         match tag.as_str() {
@@ -256,6 +257,27 @@ mod tests {
             <aside>Related</aside><footer>Imprint</footer></body></html>"#;
 
         assert_eq!(html_to_agent_page_markdown(html), "# Chair\n£50\n");
+    }
+
+    /// The pages of #3008: a Next.js shop streams its product panel, an `aside` in `main`, in a
+    /// hidden segment that a script moves into place, and another shop puts its price and cart in
+    /// the product article's `aside`. Both show as a browser shows them; the page's sidebar
+    /// stays out.
+    #[test]
+    fn should_show_streamed_segments_in_place_and_an_article_s_aside_but_not_the_sidebar() {
+        let html = concat!(
+            r#"<html><body><aside>Filter by era</aside><main><article><h1>Map of Egypt</h1>"#,
+            r#"<aside class="product-aside"><p>480,00 €</p><button>In den Warenkorb</button>"#,
+            r#"</aside></article><!--$?--><template id="B:0"></template><p>Loading…</p><!--/$-->"#,
+            r#"</main><div hidden id="S:0"><aside><p>£1,200</p><button>Buy now</button></aside>"#,
+            r#"</div>"#,
+            r#"<script>$RC("B:0","S:0")</script></body></html>"#,
+        );
+
+        assert_eq!(
+            "# Map of Egypt\n480,00 €\nIn den Warenkorb\n£1,200\nBuy now\n",
+            html_to_agent_page_markdown(html)
+        );
     }
 
     #[test]

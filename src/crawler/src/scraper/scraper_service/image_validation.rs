@@ -3,6 +3,7 @@ use crate::network::policy::{
     error_with_sources, public_http_client, redirect_target, resolve_public_http_target,
     validate_public_http_url,
 };
+use crate::network::response_body::{ShopBodyError, read_body_prefix};
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::scraper_service::domain::product::count_image_probe;
 use regex::regex;
@@ -315,13 +316,17 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
         }
     };
 
-    let bytes = match read_probe_bytes(response).await {
+    let bytes = match read_body_prefix(response, PROBE_READ_LIMIT).await {
         Ok(bytes) => bytes,
-        Err(err) => {
+        Err(ShopBodyError::Transport(err)) => {
             tracing::debug!(
                 kind = ?classify_reqwest_error(&err),
                 "Image dimension probe body read failed"
             );
+            return ImageValidation::Unknown;
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "Image dimension probe body read failed");
             return ImageValidation::Unknown;
         }
     };
@@ -361,17 +366,9 @@ fn image_validation_for_target_error(error: PublicTargetError) -> ImageValidatio
     }
 }
 
-async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
-    let mut bytes = Vec::with_capacity(32 * 1024);
-    while bytes.len() < 32 * 1024 {
-        let Some(chunk) = response.chunk().await? else {
-            break;
-        };
-        let remaining = 32 * 1024 - bytes.len();
-        bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-    }
-    Ok(bytes)
-}
+/// How much of an image a dimension probe reads, the bytes its range asks for, through the
+/// [shop-body reader](crate::network::response_body) like every shop body.
+const PROBE_READ_LIMIT: usize = 32 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -475,7 +472,7 @@ mod tests {
                 .unwrap();
             String::from_utf8(request).unwrap().to_ascii_lowercase()
         });
-        let client = crate::network::policy::crawler_client_builder(RequestTimeouts::uniform(
+        let client = crate::network::policy::shop_client_builder(RequestTimeouts::uniform(
             std::time::Duration::from_secs(5),
         ))
         .unwrap()

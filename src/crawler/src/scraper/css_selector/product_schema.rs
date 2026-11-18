@@ -83,7 +83,7 @@ pub struct ProductCssSelectorSchema {
     pub description: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Visible product price text. Prefer the actual price element for this product and extract human-visible text, not attributes. Struck-through descendants are dropped from extracted text, so a price element that also holds a struck-through comparison price yields the current price. Avoid page-level wrapper containers, totals for other products, shipping costs, and unrelated price widgets."
+        description = "Visible product price text. Prefer the actual price element for this product and extract human-visible text, not attributes. Struck-through descendants are dropped from extracted text, so a price element that also holds a struck-through comparison price yields the current price. Avoid page-level wrapper containers, totals for other products, shipping costs, and unrelated price widgets. On an auction lot, never a current, opening, starting or hammer bid or a sold-for amount: the lot's estimate goes into price_estimate_min and price_estimate_max, and price stays empty when the lot shows only an estimate."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<ExtractionRule>,

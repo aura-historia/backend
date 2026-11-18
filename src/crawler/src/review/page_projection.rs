@@ -17,6 +17,7 @@ use crate::scraper::css_selector::product_schema_service::{
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use url::Url;
 
 /// Which view of a page a projection shows: its outline, from which selectors are written, or its
@@ -97,11 +98,41 @@ pub struct SourcePageProjection {
     /// Whether the page's structured data describes exactly one product. Information only.
     pub describes_one_product: bool,
     /// The pages of the shop the page links, which the projection leaves out: where to read on.
+    /// At most [`MAX_PAGE_LINKS`], from `links_offset` on.
     pub links: Vec<PageLink>,
+    /// The position in the page's links of the first of `links`.
+    pub links_offset: usize,
+    /// How many distinct shop pages the page links, `links` and the others.
+    pub links_total: usize,
+    /// The other hosts the page links, the most linked first.
+    pub other_hosts: Vec<OtherHostLinks>,
 }
 
-/// The most links of a page the qualification reads.
+/// The most links of a page one answer of the qualification lists.
 pub const MAX_PAGE_LINKS: usize = 80;
+
+/// The most other hosts a page's links are summarized by.
+pub const MAX_OTHER_HOSTS: usize = 10;
+
+/// One window of a page's links, as [`page_links`] lists them, how many there are, and the other
+/// hosts the page links.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageLinks {
+    pub links: Vec<PageLink>,
+    pub total: usize,
+    pub other_hosts: Vec<OtherHostLinks>,
+}
+
+/// The links of a page to a host other than the shop's, such as a separate auction or shop
+/// subdomain that holds the item pages: the crawler crawls only the crawl root's host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OtherHostLinks {
+    pub host: String,
+    /// How many distinct pages on the host the page links.
+    pub links: usize,
+    /// The first of them in page order.
+    pub example: String,
+}
 
 /// The longest link text kept, in characters.
 const MAX_LINK_TEXT_CHARS: usize = 80;
@@ -114,26 +145,40 @@ pub struct PageLink {
 }
 
 /// The distinct http(s) pages on `page_url`'s host or its www twin that `html` links, resolved as
-/// Spider resolves them, without fragments, in page order, at most [`MAX_PAGE_LINKS`]; the page
-/// itself is left out. A shop's own navigation names its category and item pages, which the
-/// projection's views drop.
-pub fn page_links(html: &str, page_url: &Url) -> Vec<PageLink> {
+/// Spider resolves them, without fragments, at most [`MAX_PAGE_LINKS`] from position `offset`,
+/// with their total; the page itself is left out. A shop's own navigation names its category and
+/// item pages, which the projection's views drop. The links of the page's content come first and
+/// those in its navigation, header and footer after them, each in page order: a dealer's menu can
+/// hold more links than one answer lists, ahead of the item pages a category page lists, and a
+/// menu built without those elements is paged past with `offset`. The http(s) pages on other hosts
+/// are summarized per host, the most linked first, at most [`MAX_OTHER_HOSTS`].
+pub fn page_links(html: &str, page_url: &Url, offset: usize) -> PageLinks {
     static LINKS: std::sync::LazyLock<scraper::Selector> =
         std::sync::LazyLock::new(|| scraper::Selector::parse("a[href]").expect("link selector"));
     let base = crate::spider::discovery::link_base(page_url, html.as_bytes());
     let document = scraper::Html::parse_document(html);
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     let mut page = page_url.clone();
     page.set_fragment(None);
     seen.insert(page.to_string());
-    document
+    let (content, chrome): (Vec<_>, Vec<_>) = document
         .select(&LINKS)
+        .partition(|anchor| !is_in_page_chrome(anchor));
+    let mut other_hosts: Vec<OtherHostLinks> = Vec::new();
+    let links: Vec<PageLink> = content
+        .into_iter()
+        .chain(chrome)
         .filter_map(|anchor| {
             let mut url = base.join(anchor.value().attr("href")?.trim()).ok()?;
             url.set_fragment(None);
-            let on_shop = matches!(url.scheme(), "http" | "https")
-                && crate::network::policy::is_same_or_www_host(&url, page_url);
-            (on_shop && seen.insert(url.to_string())).then(|| PageLink {
+            if !matches!(url.scheme(), "http" | "https") {
+                return None;
+            }
+            if !crate::network::policy::is_same_or_www_host(&url, page_url) {
+                count_other_host(&mut other_hosts, &mut seen, &url);
+                return None;
+            }
+            seen.insert(url.to_string()).then(|| PageLink {
                 text: anchor
                     .text()
                     .collect::<String>()
@@ -146,8 +191,60 @@ pub fn page_links(html: &str, page_url: &Url) -> Vec<PageLink> {
                 url: url.to_string(),
             })
         })
-        .take(MAX_PAGE_LINKS)
-        .collect()
+        .collect();
+    other_hosts.sort_by_key(|other| std::cmp::Reverse(other.links));
+    other_hosts.truncate(MAX_OTHER_HOSTS);
+    PageLinks {
+        total: links.len(),
+        links: links
+            .into_iter()
+            .skip(offset)
+            .take(MAX_PAGE_LINKS)
+            .collect(),
+        other_hosts,
+    }
+}
+
+/// Counts `url` once for its host among `other_hosts`, which keep the order hosts first appear
+/// in.
+fn count_other_host(other_hosts: &mut Vec<OtherHostLinks>, seen: &mut HashSet<String>, url: &Url) {
+    let Some(host) = url.host_str() else {
+        return;
+    };
+    if !seen.insert(url.to_string()) {
+        return;
+    }
+    match other_hosts.iter_mut().find(|other| other.host == host) {
+        Some(other) => other.links += 1,
+        None => other_hosts.push(OtherHostLinks {
+            host: host.to_owned(),
+            links: 1,
+            example: url.to_string(),
+        }),
+    }
+}
+
+/// Whether `anchor` sits in the page's navigation, header or footer, by tag or by a theme's
+/// prefixed custom element such as `header-drawer`.
+fn is_in_page_chrome(anchor: &scraper::ElementRef) -> bool {
+    let is_named = |element: &scraper::ElementRef, tag: &str| {
+        let name = element.value().name();
+        name == tag || name.starts_with(&format!("{tag}-"))
+    };
+    let ancestors: Vec<scraper::ElementRef> = anchor
+        .ancestors()
+        .filter_map(scraper::ElementRef::wrap)
+        .collect();
+    ancestors.iter().enumerate().any(|(position, element)| {
+        // A header or footer inside the content, such as an article's title block, is content.
+        let in_content = || {
+            ancestors[position + 1..]
+                .iter()
+                .any(|outer| is_named(outer, "main") || is_named(outer, "article"))
+        };
+        is_named(element, "nav")
+            || ((is_named(element, "header") || is_named(element, "footer")) && !in_content())
+    })
 }
 
 /// What a page's `html` shows the review agents: its projection in one view, and whether its
@@ -196,10 +293,16 @@ mod tests {
             <a href="#cart">cart</a>
         </body></html>"##;
 
-        let links = page_links(html, &Url::parse("https://www.shop.example/de/").unwrap());
+        let links = page_links(
+            html,
+            &Url::parse("https://www.shop.example/de/").unwrap(),
+            0,
+        );
 
+        assert_eq!(3, links.total);
         assert_eq!(
             links
+                .links
                 .iter()
                 .map(|link| (link.url.as_str(), link.text.as_str()))
                 .collect::<Vec<_>>(),
@@ -208,6 +311,83 @@ mod tests {
                 ("https://www.shop.example/de/moebel/", "Möbel und Lampen"),
                 ("https://shop.example/artikel/1", "Art. 1"),
             ]
+        );
+    }
+
+    /// Butchoff (#3008): a category page lists its item pages after a menu of more links than one
+    /// answer lists. The content's links come first, an item's link in its article's header
+    /// included; a menu that is no `nav`, `header` or `footer` is paged past with the offset, and
+    /// the total says that more links follow.
+    #[test]
+    fn should_list_the_content_s_links_first_and_page_through_the_rest() {
+        let menu = |prefix: &str| -> String {
+            (0..MAX_PAGE_LINKS)
+                .map(|index| {
+                    format!(r#"<li><a href="/{prefix}-{index}">{prefix} {index}</a></li>"#)
+                })
+                .collect()
+        };
+        let html = format!(
+            r#"<html><body><nav><ul>{}</ul></nav><div class="mega-menu"><ul>{}</ul></div>
+            <main><article><header><a href="/item/1">Clock</a></header></article></main>
+            </body></html>"#,
+            menu("category"),
+            menu("theme"),
+        );
+        let page = Url::parse("https://shop.example/clocks").unwrap();
+        let urls = |links: &PageLinks| -> Vec<String> {
+            links.links.iter().map(|link| link.url.clone()).collect()
+        };
+
+        let first = page_links(&html, &page, 0);
+        let last = page_links(&html, &page, 2 * MAX_PAGE_LINKS);
+
+        assert_eq!(2 * MAX_PAGE_LINKS + 1, first.total);
+        assert_eq!(MAX_PAGE_LINKS, first.links.len());
+        assert_eq!(
+            vec![
+                "https://shop.example/theme-0",
+                "https://shop.example/theme-1"
+            ],
+            urls(&first)[..2]
+        );
+        assert_eq!(
+            "https://shop.example/item/1",
+            urls(&page_links(&html, &page, MAX_PAGE_LINKS))[0]
+        );
+        assert_eq!(vec!["https://shop.example/category-79"], urls(&last));
+    }
+
+    /// Dreweatts (#3008): the auction house's pages link its lots on an auction subdomain the
+    /// crawler does not crawl from the crawl root, so the answer names that host with its count
+    /// and an example, the most linked host first, each page counted once.
+    #[test]
+    fn should_summarize_the_links_to_other_hosts_by_host() {
+        let html = r#"<html><body><a href="/auctions/">Auctions</a>
+            <a href="https://twitter.com/shop">Twitter</a>
+            <a href="https://auctions.shop.example/lot/1">Lot 1</a>
+            <a href="https://auctions.shop.example/lot/2">Lot 2</a>
+            <a href="https://auctions.shop.example/lot/1">Lot 1 again</a>
+            <a href="https://www.shop.example/about">About</a>
+            <a href="mailto:info@shop.example">Mail</a></body></html>"#;
+
+        let links = page_links(html, &Url::parse("https://shop.example/").unwrap(), 0);
+
+        assert_eq!(2, links.total);
+        assert_eq!(
+            vec![
+                OtherHostLinks {
+                    host: "auctions.shop.example".to_owned(),
+                    links: 2,
+                    example: "https://auctions.shop.example/lot/1".to_owned(),
+                },
+                OtherHostLinks {
+                    host: "twitter.com".to_owned(),
+                    links: 1,
+                    example: "https://twitter.com/shop".to_owned(),
+                },
+            ],
+            links.other_hosts
         );
     }
 

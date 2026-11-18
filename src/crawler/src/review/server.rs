@@ -6189,7 +6189,7 @@ Origin: http://127.0.0.1:7878/x
             let route = format!("POST /api/reviews/{review_id}/source-label");
             let labelled = json!({
                 "label": "NOT_AN_ESHOP",
-                "note": "/werke/1 and /werke/2 show prices on request and an enquiry form only"
+                "note": "/werke/1 and /werke/2 show past exhibitions only, no work offered for sale"
             })
             .to_string();
 
@@ -6258,7 +6258,7 @@ Origin: http://127.0.0.1:7878/x
                 &server,
                 AUTHOR_TOKEN,
                 &format!("POST /api/reviews/{review_id}/source-label"),
-                &json!({ "label": "NOT_AN_ESHOP", "note": "/ shows an enquiry form only" })
+                &json!({ "label": "NOT_AN_ESHOP", "note": "/ describes the business only, no items for sale" })
                     .to_string(),
             )
             .await;
