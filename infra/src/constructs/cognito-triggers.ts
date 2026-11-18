@@ -3,13 +3,17 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { ARTIFACT_BUCKET_NAME, type StageConfig } from "../config";
+import { LAMBDA_ARTIFACT_BUCKET_NAME, type StageConfig } from "../config";
 import { credentialSecrets, credentialValue } from "../credentials";
-import { lambdaArtifactParameters, releaseLambdaCode } from "../release-artifacts";
 import { LAMBDA_LOG_LEVEL, LAMBDA_LOGGING, lambdaLogGroup } from "./lambda-logging";
 
 /** Cognito invokes the stable alias, so a code update publishes a version before it takes effect. */
 export const COGNITO_TRIGGER_ALIAS_NAME = "live";
+
+/** The object the Deploy workflow publishes for one trigger binary built from one commit. */
+export function triggerArtifactKey(binaryName: string, stage: string, commit: string): string {
+  return `${binaryName}-${stage}-${commit}.zip`;
+}
 
 interface TriggerDefinition {
   readonly id: string;
@@ -74,9 +78,15 @@ export class CognitoTriggers extends Construct {
 
   constructor(scope: Construct, id: string, props: CognitoTriggersProps) {
     super(scope, id);
-    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
-    this.preSignUp = triggerFunction(this, props.config, artifactBucket, PRE_SIGN_UP_TRIGGER);
-    this.postConfirmation = triggerFunction(this, props.config, artifactBucket, POST_CONFIRMATION_TRIGGER);
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", LAMBDA_ARTIFACT_BUCKET_NAME);
+    // A commit the Deploy workflow deployed, which published both triggers' zips for it.
+    const revision = new cdk.CfnParameter(cdk.Stack.of(this), "CognitoTriggersRevision", {
+      type: "String",
+      allowedPattern: "^[0-9a-f]{40}$",
+      description: "Commit whose Cognito trigger zips the Deploy workflow published.",
+    }).valueAsString;
+    this.preSignUp = triggerFunction(this, props.config, artifactBucket, revision, PRE_SIGN_UP_TRIGGER);
+    this.postConfirmation = triggerFunction(this, props.config, artifactBucket, revision, POST_CONFIRMATION_TRIGGER);
     grantFederatedLinking(this.preSignUp);
   }
 }
@@ -85,17 +95,18 @@ function triggerFunction(
   scope: Construct,
   config: StageConfig,
   artifactBucket: s3.IBucket,
+  revision: string,
   definition: TriggerDefinition,
 ): lambda.Alias {
-  const stack = cdk.Stack.of(scope);
   const functionName = definition.functionName(config.stage);
   const fn = new lambda.Function(scope, `${definition.id}Function`, {
     functionName,
     runtime: lambda.Runtime.PROVIDED_AL2023,
     architecture: lambda.Architecture.X86_64,
     handler: "lib.handler",
-    code: releaseLambdaCode(stack, artifactBucket, definition.binaryName),
-    currentVersionOptions: { description: lambdaArtifactParameters(stack, definition.binaryName).sha256 },
+    code: lambda.Code.fromBucket(artifactBucket, triggerArtifactKey(definition.binaryName, config.stage, revision)),
+    // A new commit publishes a new version, which the alias then points to.
+    currentVersionOptions: { description: revision },
     memorySize: 256,
     // Cognito waits at most five seconds for a trigger.
     timeout: cdk.Duration.seconds(5),

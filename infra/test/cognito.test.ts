@@ -234,22 +234,22 @@ describe.each(STAGES)("%s Cognito federation", (stage) => {
     });
   });
 
-  test("pins each trigger's code to a completed release object and its version to the code digest", () => {
+  test("pins each trigger's code and version to the zip the Deploy workflow published for one commit", () => {
     const template = identityTemplate(stage);
-    for (const [functionName, stem] of [
-      [`cognito-pre-sign-up-trigger-${stage}`, "CognitoPreSignUp"],
-      [`cognito-post-confirmation-forwarder-${stage}`, "CognitoPostConfirmationForwarder"],
+    template.hasParameter("CognitoTriggersRevision", { Type: "String", AllowedPattern: "^[0-9a-f]{40}$" });
+    for (const [binary, functionName] of [
+      ["cognito-pre-sign-up", `cognito-pre-sign-up-trigger-${stage}`],
+      ["cognito-post-confirmation-forwarder", `cognito-post-confirmation-forwarder-${stage}`],
     ]) {
       const fn = resourceByFunctionName(template, functionName);
       expect(fn.Properties.Code).toEqual({
-        S3Bucket: "aura-historia-release-bundles-eu-central-1",
-        S3Key: { Ref: `${stem}ArtifactKey` },
-        S3ObjectVersion: { Ref: `${stem}ArtifactVersion` },
+        S3Bucket: "aura-historia-binary-artifacts-eu-central-1",
+        S3Key: { "Fn::Join": ["", [`${binary}-${stage}-`, { Ref: "CognitoTriggersRevision" }, ".zip"]] },
       });
       const functionId = resourceByType(template, "AWS::Lambda::Function").find(([, resource]) => resource === fn)![0];
       const [[versionId, version]] = resourceByType(template, "AWS::Lambda::Version")
         .filter(([, resource]) => resource.Properties.FunctionName.Ref === functionId);
-      expect(version.Properties.Description).toEqual({ Ref: `${stem}ArtifactSha256` });
+      expect(version.Properties.Description).toEqual({ Ref: "CognitoTriggersRevision" });
       const [alias] = resourceByType(template, "AWS::Lambda::Alias")
         .filter(([, resource]) => resource.Properties.FunctionName.Ref === functionId).map(([, resource]) => resource);
       expect(alias.Properties).toMatchObject({ Name: "live", FunctionVersion: { "Fn::GetAtt": [versionId, "Version"] } });

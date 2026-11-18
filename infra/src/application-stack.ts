@@ -9,6 +9,7 @@ import { Identity } from "./constructs/cognito";
 import { CognitoTriggers } from "./constructs/cognito-triggers";
 import { HostAccess } from "./constructs/host-access";
 import { McpCloudFront } from "./constructs/mcp";
+import { TriggerArtifactPublisher } from "./constructs/trigger-artifact-publisher";
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
@@ -41,7 +42,10 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   return { host, identity, api };
 }
 
-/** Backups, the host's IAM user and the origin secret; deployable before the host serves traffic. */
+/**
+ * Backups, the host's IAM user, the origin secret and the role that publishes the Cognito trigger
+ * code; deployable before the host serves traffic.
+ */
 export class ApplicationHostStack extends cdk.Stack {
   readonly access: HostAccess;
 
@@ -49,10 +53,12 @@ export class ApplicationHostStack extends cdk.Stack {
     super(scope, id, stackProps(props));
     this.templateOptions.description = "Aura Historia host access stack";
     this.access = new HostAccess(this, "HostAccess", { config: stageConfig(props.stage) });
+    const publisher = new TriggerArtifactPublisher(this, "TriggerArtifactPublisher", { config: stageConfig(props.stage) });
 
     new cdk.CfnOutput(this, "HostUserName", { value: this.access.user.userName });
     new cdk.CfnOutput(this, "BackupBucketName", { value: this.access.backupBucket.bucketName });
     new cdk.CfnOutput(this, "OriginVerifySecretArn", { value: this.access.originVerifySecret.secretArn });
+    new cdk.CfnOutput(this, "TriggerArtifactPublisherRoleArn", { value: publisher.role.roleArn });
   }
 }
 

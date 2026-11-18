@@ -4,8 +4,11 @@ import * as cdk from "aws-cdk-lib";
 export const STAGES = ["prod"] as const;
 export type StageName = (typeof STAGES)[number];
 
-/** Completed release objects that the Cognito trigger code versions are pinned to. */
-export const ARTIFACT_BUCKET_NAME = "aura-historia-release-bundles-eu-central-1";
+/**
+ * The Cognito trigger zips the Deploy workflow publishes, one immutable object per binary and
+ * commit. The bucket is versioned and owned outside the app.
+ */
+export const LAMBDA_ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
 export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
 export const WORKLOAD_REGION = "eu-central-1";
 

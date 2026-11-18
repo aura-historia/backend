@@ -141,8 +141,10 @@ epic branch, named by branch, tag or SHA:
    A separate job, the only one allowed to write the package, publishes it as
    `ghcr.io/aura-historia/aura-historia:<commit>`. A commit already published reuses its image.
    The package is public, so the host pulls without a credential.
-2. A reviewer of the `prod` environment approves the deploy.
-3. It connects as the `deploy` user, whose only command is the installed deploy script,
+2. It builds the Cognito trigger zips, which it publishes for the
+   [identity stack](../../docs/infra.md#deploying-the-reduced-app) once approved.
+3. A reviewer of the `prod` environment approves the deploy.
+4. It connects as the `deploy` user, whose only command is the installed deploy script,
    [`deploy.sh`](deploy.sh). The script runs the deploy as the transient unit
    `aura-prod-deploy.service` and streams its log; the unit finishes even if the connection
    drops, and a second deploy is refused while it runs. The deploy:
