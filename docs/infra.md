@@ -116,6 +116,41 @@ The `host` stack deploys independently of the others and before the host serves 
   the old one as the API's `COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY` and the new one as
   its current key, deploy `identity` with the new version, then remove the previous key.
 
+### Host runtime credentials
+
+**AWS.** Every AWS call of the host (SES, Amazon Location, the Cognito admin calls, the
+consent-evidence groups) uses the host IAM user through the SDK's default credential chain. The
+processes need `AWS_REGION=eu-central-1`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in
+their environment, from a root-only env file. Pass the key itself, not a `_FILE` variable or a
+shared credentials file: the Google client below reads only the environment.
+
+### Vertex AI credentials
+
+Vertex AI stays keyless. `GOOGLE_APPLICATION_CREDENTIALS` names a Workload Identity Federation
+configuration of type `external_account` with an AWS credential source: the Google client signs an
+STS `GetCallerIdentity` request with the host user's keys and exchanges it for a Google token.
+On the Google side, in the project that runs Vertex AI:
+
+- The workload identity pool's AWS provider trusts the workload account and maps
+  `google.subject=assertion.arn`. If it has an attribute condition, the condition must admit
+  `arn:aws:iam::<account>:user/aura-historia-prod-host`.
+- The host user's principal,
+  `principal://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/subject/arn:aws:iam::<account>:user/aura-historia-prod-host`,
+  holds the Vertex AI role the Lambda roles held, directly or through
+  `roles/iam.workloadIdentityUser` on the service account they impersonated.
+- Remove the retired Lambda roles' bindings at teardown.
+
+On the host, generate the configuration with
+`gcloud iam workload-identity-pools create-cred-config <provider resource> --aws` (plus
+`--service-account` when impersonating) and delete `region_url` and `url` from its
+`credential_source`: without them the client reads the region and keys from the environment
+instead of an EC2 metadata server. Install it read-only and root-owned, and mount it into every
+container that calls Vertex AI.
+
+Fallback, only if federation is unavailable: point `GOOGLE_APPLICATION_CREDENTIALS` at a
+service-account key file installed the same way, and rotate it by creating the new key before
+deleting the old one.
+
 ### CloudFront origin lock
 
 Both distributions use one HTTPS-only custom origin: a dedicated, unproxied DNS name for the

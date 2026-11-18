@@ -28,3 +28,32 @@ pub fn google_application_default_credentials()
         .build_access_token_credentials()
         .map_err(|_| GoogleCredentialsError::Build)
 }
+
+#[cfg(test)]
+mod tests {
+    use google_cloud_auth::credentials::external_account;
+
+    /// The host's keyless Vertex AI configuration (docs/infra.md#vertex-ai-credentials): an AWS
+    /// external account without metadata-server URLs, so the client signs with the host IAM
+    /// user's keys from the environment instead of looking for an EC2 instance role.
+    #[tokio::test]
+    async fn should_accept_the_hosts_keyless_aws_external_account_configuration() {
+        let configuration = serde_json::json!({
+            "type": "external_account",
+            "audience": "//iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/aura-historia/providers/aws",
+            "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+            "token_url": "https://sts.googleapis.com/v1/token",
+            "credential_source": {
+                "environment_id": "aws1",
+                "regional_cred_verification_url": "https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
+            }
+        });
+
+        assert!(
+            external_account::Builder::new(configuration)
+                .with_scopes([super::GOOGLE_CLOUD_PLATFORM_SCOPE])
+                .build_access_token_credentials()
+                .is_ok()
+        );
+    }
+}
