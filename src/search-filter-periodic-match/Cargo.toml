@@ -10,6 +10,7 @@ fxrate-postgres = { workspace = true }
 classifier-model = { workspace = true }
 notification-postgres = { workspace = true }
 opensearch = { workspace = true }
+platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
 platform-process = { workspace = true }
 product-listing-opensearch = { workspace = true }

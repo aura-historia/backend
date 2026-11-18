@@ -43,7 +43,9 @@ used to rebuild into an isolated index with `ops reproject-all --generation <g>`
 Each scope also reads its providers' settings, unchanged from its Lambda function (for example
 `ANTHROPIC_API_KEY`, `VERTEX_AI_PROJECT_ID`, `LOOPS_API_KEY`, `OPENSEARCH_ENDPOINT_URL`, the
 notification email settings and `AURA_HISTORIA_COGNITO_USER_POOL_ID`). Composition reads and
-validates them at startup; a missing setting stops the worker and names the scope. Google
+validates them at startup; a missing setting stops the worker and names the scope. The optional
+`OPENSEARCH_CA_CERT` (usually `OPENSEARCH_CA_CERT_FILE`) holds the PEM of a private CA that
+OpenSearch's certificate chains to, trusted in addition to the public roots. Google
 credentials come from the file `GOOGLE_APPLICATION_CREDENTIALS` names. Notification emails are
 rendered from the compiled templates under `MAIL_TEMPLATE_DIR`, which the image sets to its
 baked-in [templates](../../mjml/README.md); every template is loaded at startup.

@@ -12,6 +12,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_opensearch::transport::{CA_CERTIFICATE_ENV, trust_private_ca};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::OnceCell;
 
@@ -62,6 +63,12 @@ where
     let transport = if stage == "ephemeral" {
         builder.build()
     } else {
+        let builder =
+            trust_private_ca(builder, get(CA_CERTIFICATE_ENV).as_deref()).map_err(|source| {
+                ProductListingProviderError::OpenSearch {
+                    source: Box::new(source),
+                }
+            })?;
         let mut required = |name| get(name).ok_or(ProductListingProviderError::MissingEnv { name });
         builder
             .auth(Credentials::Basic(
@@ -214,6 +221,26 @@ mod tests {
         assert!(result.is_err_and(|error| error.is_timeout()));
         assert!(started.elapsed() >= PRODUCT_LISTING_OPENSEARCH_TIMEOUT);
         Ok(())
+    }
+
+    #[test]
+    fn should_fail_closed_on_a_private_ca_setting_without_a_certificate() {
+        use std::error::Error;
+        let error = match opensearch_client(|name| match name {
+            "OPENSEARCH_ENDPOINT_URL" => Some("https://opensearch:9200".to_owned()),
+            "OPENSEARCH_CA_CERT" => Some("not a certificate".to_owned()),
+            "OPENSEARCH_USERNAME" | "OPENSEARCH_PASSWORD" => Some("fixture".to_owned()),
+            _ => None,
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid private CA accepted"),
+        };
+        assert!(
+            error
+                .source()
+                .unwrap()
+                .is::<platform_opensearch::transport::InvalidCaCertificate>()
+        );
     }
 
     #[test]
