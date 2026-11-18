@@ -10,6 +10,8 @@
 #   prod      the prod Compose project's socket directory, external volumes and units; run
 #             from the stable checkout the units should use (host/prod/README.md)
 #   prod-timers  enable the prod ops, backup and secrets-copy timers once the stack runs
+#   deploy    the deploy user, which may only run the prod deploy, and the deploy script; reads
+#             the deploy key's public half from stdin (host/prod/README.md#deploys)
 #   check     print the effective state without changing anything
 #
 # Every step is idempotent; rerun it after a partial failure.
@@ -30,6 +32,13 @@ readonly UFW_BLOCK_END='# END aura-historia docker ingress'
 readonly PROD_VOLUMES=(aura-historia-prod-postgres-data aura-historia-prod-caddy-data)
 readonly PROD_TIMERS=(aura-prod-backend-cleanup.timer aura-prod-fx-refresh.timer aura-prod-periodic-match.timer
   aura-prod-backup-full.timer aura-prod-backup-diff.timer aura-prod-secrets-copy.timer)
+readonly DEPLOY_USER=deploy
+readonly DEPLOY_HOME=/var/lib/aura-historia/deploy
+readonly DEPLOY_KEYS=/etc/aura-historia/deploy/authorized_keys
+readonly DEPLOY_SCRIPT=/usr/local/sbin/aura-prod-deploy
+readonly DEPLOY_LIB_DIR=/usr/local/lib/aura-prod-deploy
+readonly DEPLOY_SUDOERS=/etc/sudoers.d/aura-prod-deploy
+readonly DEPLOY_SSH_DROP_IN=/etc/ssh/sshd_config.d/20-aura-deploy.conf
 
 log() { printf '==> %s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -225,6 +234,49 @@ enable_prod_timers() {
   log "prod timers enabled"
 }
 
+# The deploy key's public half, read from stdin, replaces the installed one; without input the
+# installed key stays.
+install_deploy_key() {
+  local key
+  [[ -t 0 ]] || key="$(cat)"
+  if [[ -n ${key:-} ]]; then
+    [[ ${key} =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+(\ [^[:cntrl:]]*)?$ ]] ||
+      fail "the deploy key must be one ssh-ed25519 public key line without options"
+    ssh-keygen -l -f /dev/stdin <<<"${key}" >/dev/null || fail "ssh-keygen cannot read the deploy key"
+    install -d -m 0755 "$(dirname -- "${DEPLOY_KEYS}")"
+    printf 'restrict %s\n' "${key}" | install -m 0644 /dev/stdin "${DEPLOY_KEYS}"
+  fi
+  [[ -s ${DEPLOY_KEYS} ]] || fail "pass the deploy key's public half on stdin: sudo host/install.sh deploy < deploy.pub"
+  log "deploy key: $(ssh-keygen -l -f "${DEPLOY_KEYS}")"
+}
+
+install_deploy() {
+  local checkout candidate
+  checkout="$(cd -- "${HOST_DIR}/.." && pwd)"
+  install_deploy_key
+  if ! id -u "${DEPLOY_USER}" >/dev/null 2>&1; then
+    # No password: sshd admits the user by key only, and sudo asks for none.
+    useradd --system --user-group --shell /bin/sh --home-dir "${DEPLOY_HOME}" --no-create-home "${DEPLOY_USER}"
+  fi
+  install -d -m 0755 "${DEPLOY_HOME}"
+
+  sed "s|@CHECKOUT@|${checkout}|g" "${HOST_DIR}/prod/deploy.sh" | install -m 0755 /dev/stdin "${DEPLOY_SCRIPT}"
+  install -D -m 0644 "${HOST_DIR}/prod/migration_plan.py" "${DEPLOY_LIB_DIR}/migration_plan.py"
+
+  candidate="$(mktemp)"
+  install -m 0440 "${HOST_DIR}/deploy/sudoers" "${candidate}"
+  visudo -cqf "${candidate}" || { rm -f -- "${candidate}"; fail "visudo rejected host/deploy/sudoers"; }
+  mv -f -- "${candidate}" "${DEPLOY_SUDOERS}"
+
+  install -m 0644 "${HOST_DIR}/deploy/sshd.conf" "${DEPLOY_SSH_DROP_IN}"
+  if ! sshd -t; then
+    rm -f -- "${DEPLOY_SSH_DROP_IN}"
+    fail "sshd rejected the configuration; drop-in removed"
+  fi
+  systemctl try-reload-or-restart ssh.service
+  log "the deploy user may only run ${DEPLOY_SCRIPT}, which deploys from ${checkout}"
+}
+
 print_check() {
   echo "## CPUs (online $(cat /sys/devices/system/cpu/online))"
   for pid in 1 "$(pgrep -o dockerd || true)" "$(pgrep -o -x sshd || true)" $$; do
@@ -247,6 +299,10 @@ print_check() {
   echo "## Firewall"
   ufw status verbose
   iptables -S DOCKER-USER || true
+  echo "## Deploy"
+  sshd -T -C "user=${DEPLOY_USER},host=check,addr=192.0.2.1" | grep -E '^(forcecommand|authorizedkeysfile|allowtcpforwarding|permittty) '
+  [[ -s ${DEPLOY_KEYS} ]] && ssh-keygen -l -f "${DEPLOY_KEYS}"
+  [[ -x ${DEPLOY_SCRIPT} ]] && "${DEPLOY_SCRIPT}" status
   echo "## Prod timers"
   systemctl list-timers --all --no-pager 'aura-prod-*'
   echo "## Listening on non-loopback addresses"
@@ -254,7 +310,7 @@ print_check() {
 }
 
 main() {
-  [[ $# -gt 0 ]] || { sed -n '2,14p' "$0"; exit 2; }
+  [[ $# -gt 0 ]] || { sed -n '2,16p' "$0"; exit 2; }
   require_root "$@"
   for step in "$@"; do
     case ${step} in
@@ -263,6 +319,7 @@ main() {
       firewall) install_firewall ;;
       prod) install_prod ;;
       prod-timers) enable_prod_timers ;;
+      deploy) install_deploy ;;
       check) print_check ;;
       *) fail "unknown step ${step}" ;;
     esac

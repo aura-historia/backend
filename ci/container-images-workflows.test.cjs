@@ -20,3 +20,21 @@ test('automatic image and email workflows retain local checks without an AWS pub
   assert.match(templates,/Compile every MJML template/);
   assert.match(templates,/generate:cognito-verification/);
 });
+
+test('the deploy workflow publishes only tested images and deploys them through the protected environment', () => {
+  const deploy = read('.github/workflows/deploy.yml');
+  assert.match(deploy, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(deploy, /^  (push|pull_request|schedule):/m);
+  assert.doesNotMatch(deploy, /id-token:\s*write|configure-aws-credentials/);
+  assert.match(deploy, /uses: \.\/\.github\/workflows\/container-images\.yml\n    with:\n      source_sha: .*\n      export_image: true/);
+  // Only the publish job, which runs none of the commit's code, may write the package.
+  assert.equal(deploy.match(/packages: write/g)?.length, 1);
+  assert.match(deploy, /  publish:\n    name: Publish to GHCR\n    needs: \[resolve, build\]/);
+  assert.match(deploy, /environment:\n      name: prod/);
+  assert.match(deploy, /concurrency:\n  group: prod-deploy\n  cancel-in-progress: false/);
+  assert.match(deploy, /StrictHostKeyChecking=yes/);
+  assert.match(deploy, /"deploy \$\{SHA\} \$\{IMAGE\}"/);
+  const images = read('.github/workflows/container-images.yml');
+  assert.doesNotMatch(images, /packages: write/);
+  assert.ok(images.indexOf('Export the tested image') > images.indexOf('Smoke-test the prod Compose project'), 'the image is handed over only after its smoke tests');
+});

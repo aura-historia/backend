@@ -2,7 +2,8 @@
 # Smoke test of the prod Compose project (host/prod) with throwaway secrets. It runs the
 # checked-in compose file under its own project, volume and network names:
 #   - PostgreSQL starts with data checksums, and only the expected ports and sockets;
-#   - `bootstrap`, `inspect-schema` and `inspect` run through the ops entrypoint;
+#   - `bootstrap`, `inspect-schema` and `inspect` run through the ops entrypoint, and the
+#     migrator accepts the migration plan the deploy computes (host/prod/migration_plan.py);
 #   - pgBackRest creates the stanza, archives WAL, takes a full and a differential backup, and
 #     `restore-check` restores the newest one plus the archive into a throwaway container. The
 #     encrypted repository is a local volume here; the host's first backup proves S3;
@@ -101,6 +102,33 @@ EOF
 psql_aura() { compose exec -T -u postgres postgres psql -d aura -XAtc "$1"; }
 psql_superuser_over_tcp() { compose exec -T -u postgres postgres psql -h 127.0.0.1 -d aura -XAtc 'SELECT 1'; }
 pgbackrest() { compose exec -T -u postgres postgres pgbackrest --stanza=aura "$@"; }
+plan_migrations() {
+  python3 -I "${PROD_DIR}/migration_plan.py" --inspection "$1" --migrations "${REPO}/migrations" \
+    --request-id smoke --bundle-digest "$(printf '%064d' 0)"
+}
+
+# The deploy's plan against the migrator: nothing is pending after bootstrap, and a plan made
+# before the newest migration was applied is accepted as already committed, which proves the
+# plan's checksums and ledger fingerprint are the migrator's own.
+check_migration_plan() {
+  log "checking the deploy's migration plan against the migrator"
+  compose --profile ops run --rm -T ops inspect-schema >"${WORK}/inspection"
+  plan_migrations "${WORK}/inspection" >"${WORK}/plan"
+  [[ ! -s ${WORK}/plan ]] || fail "a bootstrapped database has pending migrations"
+  python3 -I - "${WORK}/inspection" "${PROD_DIR}" >"${WORK}/earlier-inspection" <<'PYTHON'
+import json, sys
+sys.path.insert(0, sys.argv[2])
+import migration_plan
+inspection = migration_plan.read_inspection(sys.argv[1])
+inspection["ledger"] = inspection["ledger"][:-1]
+inspection["ledger_fingerprint"] = migration_plan.fingerprint(inspection["ledger"])
+print(json.dumps(inspection))
+PYTHON
+  plan_migrations "${WORK}/earlier-inspection" >"${WORK}/plan"
+  [[ -s ${WORK}/plan ]] || fail "no plan for the newest migration"
+  compose --profile ops run --rm -T migrate migrate --plan /dev/stdin <"${WORK}/plan" | tail -n 1 >"${WORK}/migrate.json"
+  grep -q '"status":"NO_OP"' "${WORK}/migrate.json" || fail "the migrator refused the deploy's plan: $(cat "${WORK}/migrate.json")"
+}
 
 status_with_origin_header() {
   local header=()
@@ -131,8 +159,8 @@ main() {
   log "bootstrapping roles and migrations"
   compose run --rm -T bootstrap | tee "${WORK}/bootstrap.json"
   grep -q '"BOOTSTRAPPED"' "${WORK}/bootstrap.json" || fail "bootstrap did not report BOOTSTRAPPED"
-  compose --profile ops run --rm -T ops inspect-schema >/dev/null
   compose --profile ops run --rm -T ops inspect >/dev/null
+  check_migration_plan
   if psql_superuser_over_tcp >/dev/null 2>&1; then
     fail "the superuser connected over the network"
   fi

@@ -1,223 +1,145 @@
-name: Release
-run-name: Release ${{ inputs.mode }} / ${{ inputs.target }} / ${{ inputs.source_sha || inputs.bundle_digest }}
+name: Deploy
+run-name: Deploy ${{ inputs.ref }} to prod
+# Builds the image for one commit, publishes it to GHCR and deploys it to the prod host over SSH
+# (host/prod/README.md#deploys); deploying an earlier commit is the rollback. The `prod`
+# environment's reviewers approve every deploy; its branch policy limits which branches may run
+# this workflow, and DEPLOY_BRANCHES which commits it deploys.
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: Build shared artifacts or promote a completed bundle
+      ref:
+        description: Branch, tag or commit to deploy, on a deploy branch (an earlier commit rolls back)
         required: true
-        type: choice
-        options: [build, promote]
-      target:
-        description: Deployment target (dev must be explicitly enabled)
-        required: true
-        type: choice
-        options: [prod, dev]
-      source_sha:
-        description: Build only — full lowercase SHA merged into protected develop
         type: string
-      bundle_digest:
-        description: Promote only — full immutable completed bundle SHA-256
-        type: string
-      manual_evidence:
-        description: Optional sanitized OpenSearch observations JSON; see docs/infra.md
-        type: string
+
 permissions:
   contents: read
-  actions: read
-  deployments: read
+
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
 env:
-  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  DELIVERY_BUCKET: ${{ vars.DELIVERY_BUCKET }}
-  DELIVERY_CONTROL_VERSION: ${{ vars.DELIVERY_CONTROL_VERSION }}
-  DELIVERY_BUILD_PIPELINE: ${{ vars.DELIVERY_BUILD_PIPELINE }}
-  DELIVERY_DEV_ENABLED: ${{ vars.DELIVERY_DEV_ENABLED }}
-  DELIVERY_PROTECTIONS_VERIFIED: ${{ vars.DELIVERY_PROTECTIONS_VERIFIED }}
-  WORKFLOW_REVISION: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
-  INVOCATION_REVISION: ${{ github.workflow_sha }}
-  GH_TOKEN: ${{ github.token }}
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/aura-historia
+  # The host enforces the same list (host/prod/deploy.sh); this only fails earlier.
+  DEPLOY_BRANCHES: develop epic/aws-exit-single-host
+
 jobs:
   resolve:
-    name: Pin request and check protections
-    if: github.ref == 'refs/heads/develop' && github.repository == 'aura-historia/backend'
+    name: Resolve ${{ inputs.ref }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      actions: read
-      deployments: read
-      id-token: write
-    outputs:
-      source_sha: ${{ steps.resolve.outputs.source_sha }}
-      request_id: ${{ steps.resolve.outputs.request_id }}
-      bundle_digest: ${{ steps.resolve.outputs.bundle_digest }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        if: inputs.mode == 'promote'
-        with:
-          role-to-assume: ${{ vars.DELIVERY_READER_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Resolve immutable selection
-        id: resolve
-        env:
-          DELIVERY_MODE: ${{ inputs.mode }}
-          DELIVERY_TARGET: ${{ inputs.target }}
-          DELIVERY_SOURCE_SHA: ${{ inputs.source_sha }}
-          DELIVERY_BUNDLE_DIGEST: ${{ inputs.bundle_digest }}
-        run: node ci/delivery/workflow.cjs resolve
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: delivery-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery/selection.json
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 30
-  tests:
-    needs: resolve
-    uses: ./.github/workflows/release-tests.yml
-    with:
-      source_sha: ${{ needs.resolve.outputs.source_sha }}
-      control_revision: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
-  build:
-    name: Approve shared build / ${{ needs.resolve.outputs.source_sha }}
-    if: inputs.mode == 'build'
-    needs: [resolve, tests]
-    environment: aws-release-build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 130
-    permissions:
-      contents: read
-      actions: read
-      deployments: read
-      id-token: write
     outputs:
-      bundle_digest: ${{ steps.wait.outputs.bundle_digest }}
+      sha: ${{ steps.commit.outputs.sha }}
+      image: ${{ steps.image.outputs.image }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - uses: actions/download-artifact@v8
-        with:
-          name: delivery-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery
-      - uses: actions/download-artifact@v8
-        with:
-          name: delivery-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ vars.DELIVERY_BUILD_REQUESTER_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Submit exact authorized shared build
-        run: node ci/delivery/workflow.cjs build
-      - name: Bounded native build monitor
-        id: wait
-        run: node ci/delivery/workflow.cjs wait-build
-  prepare:
-    name: Review cumulative target compatibility
-    if: always() && needs.tests.result == 'success' && (needs.build.result == 'success' || (inputs.mode == 'promote' && needs.build.result == 'skipped'))
-    needs: [resolve, tests, build]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    permissions:
-      contents: read
-      actions: read
-      deployments: read
-      id-token: write
-    outputs:
-      report_digest: ${{ steps.summary.outputs.report_digest }}
-      verdict: ${{ steps.summary.outputs.verdict }}
-      prerequisite_digest: ${{ steps.summary.outputs.prerequisite_digest }}
-    env:
-      DELIVERY_REQUEST_ID: ${{ needs.resolve.outputs.request_id }}
-      DELIVERY_TARGET: ${{ inputs.target }}
-      DELIVERY_BUNDLE_DIGEST: ${{ needs.build.outputs.bundle_digest || needs.resolve.outputs.bundle_digest }}
-      DELIVERY_REVIEW_MODEL_ID: ${{ vars.DELIVERY_REVIEW_MODEL_ID }}
-      DELIVERY_MANUAL_COMPLETION: ${{ inputs.manual_evidence }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - uses: actions/download-artifact@v8
-        with:
-          name: delivery-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery
-      - uses: actions/download-artifact@v8
-        with:
-          name: delivery-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_PLANNER_ROLE_ARN || vars.DELIVERY_DEV_PLANNER_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Prepare target report and blocking manual checklist
-        env:
-          DELIVERY_REPO_DIR: ${{ github.workspace }}
-          DELIVERY_TESTS_FILE: .delivery/tests.json
-        run: node ci/delivery/pipeline.cjs prepare
-      - name: Display exact approval identity
-        id: summary
+          persist-credentials: false
+      - name: Resolve the commit on a deploy branch
+        id: commit
         run: |
-          jq -r '"report_digest=" + .reportDigest, "verdict=" + .verdict, "prerequisite_digest=" + .prerequisiteDigest' .delivery/approval.json >> "$GITHUB_OUTPUT"
-          cat .delivery/summary.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: delivery-review-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 90
-  deploy:
-    name: Approve ${{ inputs.target }} / report ${{ needs.prepare.outputs.report_digest }} / prerequisites ${{ needs.prepare.outputs.prerequisite_digest }}
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.prepare.result == 'success' && needs.prepare.outputs.verdict == 'ROUTINE' }}
-    needs: [resolve, prepare]
-    environment:
-      name: aws-${{ inputs.target }}
-      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          for branch in $DEPLOY_BRANCHES; do
+            if git merge-base --is-ancestor "$sha" "origin/${branch}"; then
+              echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::${sha} is not on ${DEPLOY_BRANCHES}"
+          exit 1
+      # Only this workflow's publish job pushes to the package, once per commit.
+      - name: Reuse the image already published for this commit
+        id: image
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          if digest="$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}:${SHA}" --format '{{json .Manifest.Digest}}' 2>/dev/null)"; then
+            digest="${digest//\"/}"
+            [[ ${digest} =~ ^sha256:[0-9a-f]{64}$ ]]
+            echo "image=${IMAGE_REPOSITORY}@${digest}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build
+    needs: resolve
+    if: needs.resolve.outputs.image == ''
+    uses: ./.github/workflows/container-images.yml
+    with:
+      source_sha: ${{ needs.resolve.outputs.sha }}
+      export_image: true
+
+  # The only job that can write the package, and it runs none of the commit's code.
+  publish:
+    name: Publish to GHCR
+    needs: [resolve, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
-      contents: read
-      actions: read
-      deployments: read
-      id-token: write
-    env:
-      DELIVERY_DEPLOY_PIPELINE: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_PIPELINE || vars.DELIVERY_DEV_PIPELINE }}
-      DELIVERY_MANUAL_COMPLETION: ${{ inputs.manual_evidence }}
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          ref: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - uses: actions/download-artifact@v8
-        with:
-          name: delivery-review-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .delivery
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: ${{ inputs.target == 'prod' && vars.DELIVERY_PROD_REQUESTER_ROLE_ARN || vars.DELIVERY_DEV_REQUESTER_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - name: Submit exact approved deployment and manual attestation
-        run: node ci/delivery/workflow.cjs deploy
+          name: image-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Push the tested image
+        id: push
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gunzip -c image.tar.gz | docker load --quiet
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag "local/aura-historia:${SHA}" "${IMAGE_REPOSITORY}:${SHA}"
+          docker push --quiet "${IMAGE_REPOSITORY}:${SHA}"
+          image="$(docker image inspect --format '{{index .RepoDigests 0}}' "${IMAGE_REPOSITORY}:${SHA}")"
+          [[ ${image} =~ ^${IMAGE_REPOSITORY}@sha256:[0-9a-f]{64}$ ]]
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy ${{ needs.resolve.outputs.sha }}
+    needs: [resolve, publish]
+    # Either the image this run published, or the one already published for the commit.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && needs.resolve.outputs.image != '')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: prod
+      url: https://api.aura-historia.com/v1/health
+    steps:
+      - name: Deploy over SSH
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          IMAGE: ${{ needs.publish.outputs.image || needs.resolve.outputs.image }}
+          DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.PROD_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ ${IMAGE} =~ ^${IMAGE_REPOSITORY}@sha256:[0-9a-f]{64}$ ]]
+          [[ -n ${DEPLOY_HOST} && -n ${DEPLOY_KEY} && -n ${KNOWN_HOSTS} ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy
+          chmod 0600 ~/.ssh/deploy
+          # The host's key is pinned under an alias, so the host's address appears in no variable.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          echo "Deploying \`${SHA}\` as \`${IMAGE}\`" >> "$GITHUB_STEP_SUMMARY"
+          # The deploy runs as a unit on the host and finishes even if this connection drops;
+          # `status` over the same key shows its outcome.
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o HostKeyAlias=aura-prod -o ServerAliveInterval=30 \
+            "deploy@${DEPLOY_HOST}" "deploy ${SHA} ${IMAGE}"
+      - name: Remove the key
+        if: always()
+        run: rm -f ~/.ssh/deploy

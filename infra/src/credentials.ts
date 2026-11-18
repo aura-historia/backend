@@ -3,9 +3,9 @@ import type { Construct } from "constructs";
 import type { StageName } from "./config";
 
 /**
- * Template metadata naming the secret each credential version parameter pins. The release planner
- * (ci/delivery/credential-versions.cjs) binds every listed parameter to that secret's AWSCURRENT
- * version, so changing a credential is an explicit parameter change on the next release.
+ * Template metadata naming the secret each credential version parameter pins. The operator passes
+ * each listed parameter that secret's AWSCURRENT version when deploying the stack, so changing a
+ * credential is an explicit parameter change (docs/infra.md#runtime-credentials).
  */
 export const CREDENTIAL_VERSIONS_METADATA = "AuraHistoria::CredentialVersions";
 // Secrets Manager generates UUID version IDs; a custom client request token would not fit.

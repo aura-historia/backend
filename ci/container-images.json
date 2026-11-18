@@ -5,8 +5,6 @@
     "binary": "aura-historia-worker",
     "dockerfile": "Dockerfile",
     "repository": "aura-historia",
-    "platform": "linux/amd64",
-    "digestParameter": "AuraHistoriaImageDigest",
-    "taskDefinitionOutput": "AuraHistoriaImage"
+    "platform": "linux/amd64"
   }
 ]

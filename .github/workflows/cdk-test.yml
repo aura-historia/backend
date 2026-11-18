@@ -91,7 +91,7 @@ jobs:
       - name: Test CDK app and deployment helpers
         run: |
           npm --prefix infra test
-          node --test ci/*.test.cjs ci/delivery/*.test.cjs
+          node --test ci/*.test.cjs
 
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all
