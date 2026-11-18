@@ -59,6 +59,20 @@ init() {
   log "fill in the empty values, install ${PUBLIC_FILES[*]} (host/prod/README.md#secrets), then run 'check'"
 }
 
+# Compose interpolates `$`, treats ` #` as a comment and strips quotes and surrounding spaces in
+# env files, so such a value would not reach the process as written.
+unsafe_values() {
+  local line value
+  while IFS= read -r line; do
+    [[ ${line} =~ ^[A-Z0-9_]+=(.*)$ ]] || continue
+    value=${BASH_REMATCH[1]}
+    if [[ ${value} == *[\$\"\'\\]* || ${value} == " "* || ${value} == *" " || ${value} == "#"* || ${value} == *" #"* ]]; then
+      return 0
+    fi
+  done <"$1"
+  return 1
+}
+
 check() {
   local relative target key problems=0
   for relative in $(templates) "${PUBLIC_FILES[@]}"; do
@@ -76,6 +90,10 @@ check() {
         echo "empty: ${key} in ${target}"; problems=$((problems + 1))
       fi
     done
+    if unsafe_values "${target}"; then
+      echo "unsafe characters in a value of ${target} (\$, quotes, backslash, ' #', surrounding spaces)"
+      problems=$((problems + 1))
+    fi
     if grep -q '@generate:' "${target}"; then
       echo "ungenerated placeholder in ${target}"; problems=$((problems + 1))
     fi

@@ -78,7 +78,8 @@ was. `bootstrap` connects as it and creates the roles:
 
 - `aura_runtime`: `api`, `mcp`, `worker` and the `ops` jobs; applications never connect as
   superuser.
-- `aura_migrator`: the `migrate` service only.
+- `aura_migrator`: the `migrate` service only, which reads the reviewed plan from stdin:
+  `compose.sh run --rm -T migrate migrate --plan /dev/stdin < plan.json`.
 - `aura_inspector`: read-only, for `ops inspect-schema`.
 - `aura_crawler_ingestion`: the crawler, which may only call the ingestion enqueue function.
 
@@ -88,7 +89,9 @@ The settings and connection budget are in [`postgresql.conf`](postgres/postgresq
 ### Crawler
 
 The crawler runs on the host, outside Compose. PostgreSQL also listens on a socket in
-`/run/aura-historia/postgresql`, which only the database container can write. Set in
+`/run/aura-historia/postgresql`, which only the database container can write and only the
+`crawler` group can enter. Peer authentication maps uid 999, the image's `postgres` user, to the
+superuser on this socket too, so no host process may run as uid 999. Set in
 `/etc/crawler/crawler.env`, with the password from `postgres-bootstrap.env`:
 
 ```
@@ -112,7 +115,7 @@ uses. Remove that site block afterwards.
 
 On the host, from the stable checkout of a reviewed ref, with the OpenSearch project running:
 
-1. `sudo host/install.sh prod`: socket directory, external volumes, timers.
+1. `sudo host/install.sh prod`: socket directory, external volumes, units.
 2. `sudo host/prod/secrets.sh init`, fill in the files, `sudo host/prod/secrets.sh check`.
 3. `sudo host/prod/compose.sh build postgres caddy`.
 4. `sudo host/prod/compose.sh up -d --wait postgres`, then `sudo host/prod/backup.sh stanza`:
@@ -121,6 +124,8 @@ On the host, from the stable checkout of a reviewed ref, with the OpenSearch pro
    migration.
 6. `sudo host/prod/compose.sh up -d`, then `sudo host/prod/backup.sh full`.
 7. `sudo host/prod/backup.sh restore-check` once.
+8. Install the operators' OpenPGP public key as `backup-recipient.asc`, then
+   `sudo host/install.sh prod-timers`.
 
 The first time Caddy starts, the old OpenSearch gateway's certificates can be carried over so
 the `opensearch.` site has no gap: stop the gateway, copy the volume
@@ -129,7 +134,7 @@ the `opensearch.` site has no gap: stop the gateway, copy the volume
 ## Scheduled jobs
 
 systemd timers ([units](systemd)) run on the AWS schedules, in UTC; `install.sh prod` installs
-them with the checkout's path. A job never starts the stack (`run --no-deps`), and a run still
+them with the checkout's path and `install.sh prod-timers` enables them. A job never starts the stack (`run --no-deps`), and a run still
 going when the next is due is not started twice.
 
 | Timer | Runs |
@@ -141,7 +146,8 @@ going when the next is due is not started twice.
 | `aura-prod-backup-diff` | differential backup, Monday to Saturday 02:30 |
 | `aura-prod-secrets-copy` | encrypted copy of `/etc/aura-historia/prod`, 04:00 |
 
-Failures show in `systemctl list-timers 'aura-prod-*'` and `journalctl -u 'aura-prod-*'`.
+`systemctl list-timers 'aura-prod-*'` shows the next and last runs; failed runs show in
+`systemctl --failed 'aura-prod-*'` and `journalctl -u 'aura-prod-*'`.
 
 ## Backups
 

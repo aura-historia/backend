@@ -221,8 +221,8 @@ services:
     entrypoint: [ops]
     command: []
     cgroup_parent: aura_pipeline.slice
-    mem_limit: 1g
-    memswap_limit: 1g
+    mem_limit: 768m
+    memswap_limit: 768m
     env_file:
       - *settings
       - /etc/aura-historia/prod/secrets/aws.env
@@ -234,6 +234,8 @@ services:
       - /etc/aura-historia/prod/secrets/fxrates.env
     environment:
       <<: [*app-environment, *classifier-environment]
+      # Periodic matching's decision and run reports are info events.
+      LOG_LEVEL: info
       DATABASE_TARGET: prod
       EXPIRY_CLEANUP_BATCH_SIZE: "100"
       PERIODIC_MATCH_BATCH_CANDIDATES: "1"
@@ -248,7 +250,8 @@ services:
     # Periodic matching runs up to two hours; let it stop between filters.
     stop_grace_period: 60s
 
-  # `compose.sh run --rm migrate migrate --plan <file>` as the migrator role.
+  # `compose.sh run --rm -T migrate migrate --plan /dev/stdin < plan.json` as the migrator role;
+  # the container has no host mounts.
   migrate:
     <<: *app
     profiles: [ops]

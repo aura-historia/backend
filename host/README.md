@@ -47,7 +47,7 @@ The starting plan for 64 GB; tune it from observed usage after go-live.
 | PostgreSQL (`shared_buffers=4GB`) | serving | `mem_limit: 14g`, `mem_reservation: 12g`, `oom_score_adj: -900` |
 | OpenSearch (8 GiB heap) | serving | `mem_limit: 20g`, `mem_reservation: 16g`, `oom_score_adj: -500` ([compose](../opensearch/prod/compose.yaml)) |
 | API, MCP, Caddy | serving | 3 GiB together |
-| Worker and `ops` | pipeline | 3 GiB together |
+| Worker and `ops` | pipeline | worker 2 GiB; each `ops` run 768 MiB (cleanup can overlap periodic matching); the occasional restore check 4 GiB ([prod](prod/README.md)) |
 | Crawler stack | batch | 6 GiB slice cap; its database `mem_limit: 3g` ([compose](../src/crawler/docker-compose.yml)) |
 | Interactive sessions | user | 10 GiB slice cap |
 | Host and page cache | — | the rest |

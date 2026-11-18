@@ -6,7 +6,7 @@
 #   - pgBackRest creates the stanza, archives WAL, takes a full and a differential backup, and
 #     `restore-check` restores the newest one plus the archive into a throwaway container. The
 #     encrypted repository is a local volume here; the host's first backup proves S3;
-#   - Caddy refuses requests without the origin secret and forwards those with it.
+#   - Caddy refuses requests without the origin secret, forwards those with it and never logs it.
 # Application processes that need real provider credentials at startup are not started.
 #
 # Usage: ci/host-prod/smoke.sh <application image>
@@ -162,6 +162,9 @@ main() {
   status="$(status_with_origin_header "${ORIGIN_SECRET}")"
   # No API replica runs here, so a forwarded request ends at the proxy as 502 or 503.
   [[ ${status} == 502 || ${status} == 503 ]] || fail "the origin secret was not forwarded (${status})"
+  if compose logs --no-color caddy 2>&1 | grep -qF -- "${ORIGIN_SECRET}"; then
+    fail "Caddy logged the origin secret"
+  fi
   log "smoke test passed"
 }
 

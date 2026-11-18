@@ -6,6 +6,15 @@
 	# no HTTP listener is needed and port 80 stays closed.
 	acme_dns cloudflare {env.CLOUDFLARE_DNS_API_TOKEN}
 	auto_https disable_redirects
+	# Error logs record the request headers; keep the origin secret and viewer credentials out.
+	log default {
+		output stderr
+		format filter {
+			request>headers>X-Origin-Verify delete
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+		}
+	}
 	servers {
 		timeouts {
 			read_header 10s

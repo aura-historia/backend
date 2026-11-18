@@ -7,8 +7,9 @@
 #             OpenSearch CPU reservation
 #   ssh       accept SSH keys only (refuses while a recent SSH user has no key)
 #   firewall  ufw: deny inbound except SSH and 443; the same for Docker-published ports
-#   prod      the prod Compose project's socket directory, external volumes, ops and backup
-#             timers; run from the stable checkout the timers should use (host/prod/README.md)
+#   prod      the prod Compose project's socket directory, external volumes and units; run
+#             from the stable checkout the units should use (host/prod/README.md)
+#   prod-timers  enable the prod ops, backup and secrets-copy timers once the stack runs
 #   check     print the effective state without changing anything
 #
 # Every step is idempotent; rerun it after a partial failure.
@@ -211,8 +212,17 @@ install_prod() {
     sed "s|@PROD_DIR@|${prod_dir}|g" "${unit}" | install -m 0644 /dev/stdin "${SYSTEMD_DIR}/$(basename -- "${unit}")"
   done
   systemctl daemon-reload
+  log "prod units run ${prod_dir}; rerun 'prod' from another checkout to move them"
+}
+
+# Enabled only once the stack runs, so no job fails for want of a database, secret or key.
+enable_prod_timers() {
+  [[ -n "$(docker ps -q --filter label=com.docker.compose.project=aura-prod --filter label=com.docker.compose.service=postgres)" ]] ||
+    fail "start the prod stack first (host/prod/README.md#first-start)"
+  [[ -s /etc/aura-historia/prod/backup-recipient.asc ]] ||
+    fail "install the operators' OpenPGP public key as /etc/aura-historia/prod/backup-recipient.asc first"
   systemctl enable --now "${PROD_TIMERS[@]}"
-  log "prod timers run ${prod_dir}; rerun 'prod' from another checkout to move them"
+  log "prod timers enabled"
 }
 
 print_check() {
@@ -244,7 +254,7 @@ print_check() {
 }
 
 main() {
-  [[ $# -gt 0 ]] || { sed -n '2,13p' "$0"; exit 2; }
+  [[ $# -gt 0 ]] || { sed -n '2,14p' "$0"; exit 2; }
   require_root "$@"
   for step in "$@"; do
     case ${step} in
@@ -252,6 +262,7 @@ main() {
       ssh) install_ssh ;;
       firewall) install_firewall ;;
       prod) install_prod ;;
+      prod-timers) enable_prod_timers ;;
       check) print_check ;;
       *) fail "unknown step ${step}" ;;
     esac

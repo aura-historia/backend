@@ -6,6 +6,7 @@ set -euo pipefail
 
 readonly DATA=/var/lib/postgresql/restore
 readonly SOCKET=/tmp/restore-socket
+readonly REPLAY_LIMIT_SECONDS=$((12 * 3600))
 
 if [[ ${EUID} -eq 0 ]]; then
   install -d -o postgres -g postgres -m 0700 "${DATA}" "${SOCKET}"
@@ -26,7 +27,10 @@ pg_ctl -D "${DATA}" -w -t 3600 start -o "-c config_file=/etc/postgresql/postgres
   -c data_directory=${DATA} -c archive_mode=off -c listen_addresses='' \
   -c unix_socket_directories=${SOCKET} -c shared_buffers=512MB -c huge_pages=off \
   -c effective_cache_size=1GB -c maintenance_work_mem=256MB"
-until [[ "$(psql -h "${SOCKET}" -d aura -XAtc 'SELECT NOT pg_is_in_recovery()')" == t ]]; do
+deadline=$((SECONDS + REPLAY_LIMIT_SECONDS))
+until [[ "$(psql -h "${SOCKET}" -d aura -XAtc 'SELECT NOT pg_is_in_recovery()' 2>/dev/null)" == t ]]; do
+  pg_ctl -D "${DATA}" status >/dev/null || { echo "error: the restored copy stopped during replay" >&2; exit 1; }
+  ((SECONDS < deadline)) || { echo "error: replay did not finish within ${REPLAY_LIMIT_SECONDS}s" >&2; exit 1; }
   sleep 2
 done
 
