@@ -12,7 +12,9 @@
 //!   trailer, zlib checksum, Brotli end marker).
 //! - The reader decodes `gzip`, `deflate` and `br` itself as the chunks arrive, so the limit
 //!   counts decoded bytes and a decompression bomb stops at it
-//!   (`docs/crawler/networking.md#request-headers`).
+//!   (`docs/crawler/networking.md#request-headers`). As browsers and reqwest's own decoding do,
+//!   an encoded body without a byte reads as empty, and the bytes after a compressed stream's end
+//!   are left out.
 
 use crate::network::policy::ReqwestErrorLike;
 use hyper::body::Bytes;
@@ -122,26 +124,50 @@ async fn read_body<R: ShopResponse>(
     }
 }
 
-/// How the shop marks the end of the body.
+/// How the shop marks the end of the body, as hyper reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Framing {
     /// `Content-Length`, chunked transfer coding, or an HTTP/2 stream end.
     Delimited,
-    /// An HTTP/1.x body with neither header, which ends when the shop closes the connection.
+    /// An HTTP/1.x body that ends when the shop closes the connection: one with neither header,
+    /// or with a `Transfer-Encoding` whose last coding is not `chunked`.
     UntilClose,
 }
 
 impl Framing {
     fn of(version: Version, headers: &HeaderMap) -> Self {
-        if matches!(version, Version::HTTP_10 | Version::HTTP_11)
-            && !headers.contains_key(CONTENT_LENGTH)
-            && !headers.contains_key(TRANSFER_ENCODING)
-        {
-            Self::UntilClose
-        } else {
-            Self::Delimited
+        if !matches!(version, Version::HTTP_10 | Version::HTTP_11) {
+            return Self::Delimited;
+        }
+        match last_transfer_coding(headers) {
+            Some(coding) if coding.eq_ignore_ascii_case("chunked") => Self::Delimited,
+            Some(_) => Self::UntilClose,
+            None if headers.contains_key(CONTENT_LENGTH) => Self::Delimited,
+            None => Self::UntilClose,
         }
     }
+}
+
+/// The last coding the response's `Transfer-Encoding` names, which decides its framing; `None`
+/// without the header. A `Content-Length` beside it does not count, as for hyper.
+fn last_transfer_coding(headers: &HeaderMap) -> Option<String> {
+    let values: Vec<&str> = headers
+        .get_all(TRANSFER_ENCODING)
+        .iter()
+        .map(|value| value.to_str().unwrap_or_default())
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    Some(
+        values
+            .iter()
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .rfind(|coding| !coding.is_empty())
+            .unwrap_or_default()
+            .to_owned(),
+    )
 }
 
 /// Whether the read failed because the peer closed the TLS connection without `close_notify`,
@@ -189,9 +215,10 @@ impl ContentCoding {
         }
     }
 
-    /// The decoded length the shop declares, which only an unencoded body's `Content-Length` is.
+    /// The decoded length the shop declares, which only an unencoded body's `Content-Length` is,
+    /// and only without a `Transfer-Encoding`, which overrides it.
     fn declared_decoded_length(self, headers: &HeaderMap) -> Option<u64> {
-        if self != Self::Identity {
+        if self != Self::Identity || headers.contains_key(TRANSFER_ENCODING) {
             return None;
         }
         headers
@@ -205,8 +232,18 @@ impl ContentCoding {
 }
 
 /// Decodes the body chunk by chunk into [`BoundedBytes`], whose refusal past the limit stops the
-/// decoder before it produces more.
-enum BodyDecoder {
+/// decoder before it produces more. As browsers and reqwest's own decoding do, a body without a
+/// byte is empty whatever its coding, and the bytes after the end of a compressed stream, such as
+/// a trailing newline or a second gzip member, are not read.
+struct BodyDecoder {
+    stream: DecodingStream,
+    /// Whether any encoded byte arrived.
+    received: bool,
+    /// Whether the compressed stream reached its end.
+    ended: bool,
+}
+
+enum DecodingStream {
     Identity(BoundedBytes),
     Gzip(flate2::write::GzDecoder<BoundedBytes>),
     Deflate(ZlibStream),
@@ -218,60 +255,77 @@ const BROTLI_BUFFER_BYTES: usize = 8 * 1024;
 
 impl BodyDecoder {
     fn new(coding: ContentCoding, decoded: BoundedBytes) -> Self {
-        match coding {
-            ContentCoding::Identity => Self::Identity(decoded),
-            ContentCoding::Gzip => Self::Gzip(flate2::write::GzDecoder::new(decoded)),
-            ContentCoding::Deflate => Self::Deflate(ZlibStream::new(decoded)),
-            ContentCoding::Brotli => Self::Brotli(Box::new(brotli::DecompressorWriter::new(
-                decoded,
-                BROTLI_BUFFER_BYTES,
-            ))),
+        let stream = match coding {
+            ContentCoding::Identity => DecodingStream::Identity(decoded),
+            ContentCoding::Gzip => DecodingStream::Gzip(flate2::write::GzDecoder::new(decoded)),
+            ContentCoding::Deflate => DecodingStream::Deflate(ZlibStream::new(decoded)),
+            ContentCoding::Brotli => DecodingStream::Brotli(Box::new(
+                brotli::DecompressorWriter::new(decoded, BROTLI_BUFFER_BYTES),
+            )),
+        };
+        Self {
+            stream,
+            received: false,
+            ended: false,
         }
     }
 
     fn coding(&self) -> ContentCoding {
-        match self {
-            Self::Identity(_) => ContentCoding::Identity,
-            Self::Gzip(_) => ContentCoding::Gzip,
-            Self::Deflate(_) => ContentCoding::Deflate,
-            Self::Brotli(_) => ContentCoding::Brotli,
+        match &self.stream {
+            DecodingStream::Identity(_) => ContentCoding::Identity,
+            DecodingStream::Gzip(_) => ContentCoding::Gzip,
+            DecodingStream::Deflate(_) => ContentCoding::Deflate,
+            DecodingStream::Brotli(_) => ContentCoding::Brotli,
         }
     }
 
+    /// Decodes `encoded`; once the compressed stream ended, what follows is not read.
     fn write(&mut self, encoded: &[u8]) -> io::Result<()> {
-        match self {
-            Self::Identity(decoded) => decoded.write_all(encoded),
-            Self::Gzip(decoder) => decoder.write_all(encoded),
-            Self::Deflate(decoder) => decoder.write(encoded),
-            Self::Brotli(decoder) => decoder.write_all(encoded),
+        if encoded.is_empty() {
+            return Ok(());
         }
+        self.received = true;
+        if self.ended {
+            return Ok(());
+        }
+        self.ended = match &mut self.stream {
+            DecodingStream::Identity(decoded) => decoded.write_all(encoded).map(|()| false)?,
+            DecodingStream::Gzip(decoder) => write_until_stream_end(decoder, encoded)?,
+            DecodingStream::Deflate(decoder) => decoder.write(encoded)?,
+            DecodingStream::Brotli(decoder) => write_until_stream_end(decoder.as_mut(), encoded)?,
+        };
+        Ok(())
     }
 
-    /// Writes out what the decoder holds and fails when the compressed stream has not ended.
+    /// Writes out what the decoder holds and fails when the compressed stream has not ended. A
+    /// body without a byte is empty.
     fn finish(&mut self) -> io::Result<()> {
-        match self {
-            Self::Identity(_) => Ok(()),
-            Self::Gzip(decoder) => decoder.try_finish(),
-            Self::Deflate(decoder) => decoder.finish(),
-            Self::Brotli(decoder) => decoder.close(),
+        if !self.received || self.ended {
+            return Ok(());
+        }
+        match &mut self.stream {
+            DecodingStream::Identity(_) => Ok(()),
+            DecodingStream::Gzip(decoder) => decoder.try_finish(),
+            DecodingStream::Deflate(decoder) => decoder.finish(),
+            DecodingStream::Brotli(decoder) => decoder.close(),
         }
     }
 
     fn decoded(&self) -> &BoundedBytes {
-        match self {
-            Self::Identity(decoded) => decoded,
-            Self::Gzip(decoder) => decoder.get_ref(),
-            Self::Deflate(decoder) => &decoder.decoded,
-            Self::Brotli(decoder) => decoder.get_ref(),
+        match &self.stream {
+            DecodingStream::Identity(decoded) => decoded,
+            DecodingStream::Gzip(decoder) => decoder.get_ref(),
+            DecodingStream::Deflate(decoder) => &decoder.decoded,
+            DecodingStream::Brotli(decoder) => decoder.get_ref(),
         }
     }
 
     fn into_bytes(mut self) -> Vec<u8> {
-        let decoded = match &mut self {
-            Self::Identity(decoded) => decoded,
-            Self::Gzip(decoder) => decoder.get_mut(),
-            Self::Deflate(decoder) => &mut decoder.decoded,
-            Self::Brotli(decoder) => decoder.get_mut(),
+        let decoded = match &mut self.stream {
+            DecodingStream::Identity(decoded) => decoded,
+            DecodingStream::Gzip(decoder) => decoder.get_mut(),
+            DecodingStream::Deflate(decoder) => &mut decoder.decoded,
+            DecodingStream::Brotli(decoder) => decoder.get_mut(),
         };
         std::mem::take(&mut decoded.bytes)
     }
@@ -299,6 +353,20 @@ impl BodyDecoder {
     }
 }
 
+/// Writes `encoded` to a decoding `writer` until it is all taken or the writer takes no more
+/// because its compressed stream ended, which it answers.
+fn write_until_stream_end(writer: &mut impl Write, mut encoded: &[u8]) -> io::Result<bool> {
+    while !encoded.is_empty() {
+        match writer.write(encoded) {
+            Ok(0) => return Ok(true),
+            Ok(taken) => encoded = &encoded[taken..],
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
 /// A zlib stream (`Content-Encoding: deflate`), which flate2's writer would let end anywhere: the
 /// stream counts as complete only once the decoder reached its end and checked its checksum.
 struct ZlibStream {
@@ -316,18 +384,13 @@ impl ZlibStream {
         }
     }
 
-    fn write(&mut self, mut encoded: &[u8]) -> io::Result<()> {
+    /// Decodes `encoded` and answers whether the stream ended; the bytes after its end are not
+    /// read.
+    fn write(&mut self, mut encoded: &[u8]) -> io::Result<bool> {
         let mut buffer = [0_u8; 8 * 1024];
         loop {
             if self.ended {
-                return if encoded.is_empty() {
-                    Ok(())
-                } else {
-                    Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "data after the end of the deflate stream",
-                    ))
-                };
+                return Ok(true);
             }
             let (read_before, written_before) = (self.inflate.total_in(), self.inflate.total_out());
             let status = self
@@ -343,7 +406,7 @@ impl ZlibStream {
                 continue;
             }
             if encoded.is_empty() && written < buffer.len() {
-                return Ok(());
+                return Ok(false);
             }
             if read == 0 && written == 0 {
                 return Err(io::Error::new(
@@ -575,6 +638,7 @@ mod tests {
     /// compressed length.
     #[rstest]
     #[case::gzip("gzip")]
+    #[case::deflate("deflate")]
     #[case::brotli("br")]
     #[tokio::test]
     async fn should_stop_decoding_at_the_limit_when_a_compressed_body_decodes_past_it(
@@ -600,5 +664,102 @@ mod tests {
             "{complete:?}"
         );
         assert_eq!(prefix, vec![0; LIMIT]);
+    }
+
+    /// As reqwest's own decoding did, an encoded body without a byte reads as empty: a robots.txt
+    /// that answers `Content-Encoding: gzip` with nothing must not fail the whole shop.
+    #[rstest]
+    #[case::gzip("gzip")]
+    #[case::deflate("deflate")]
+    #[case::brotli("br")]
+    #[tokio::test]
+    async fn should_read_an_empty_body_when_it_names_a_content_encoding(#[case] coding: &str) {
+        let headers = format!("Content-Encoding: {coding}\r\nContent-Length: 0\r\n");
+
+        let body = read_complete(answer(&headers, b""), 1024).await.unwrap();
+
+        assert!(body.is_empty());
+    }
+
+    /// The bytes after a compressed stream's end, such as the newline a PHP shop adds or a second
+    /// gzip member, are not read, as browsers and reqwest's own decoding do.
+    #[rstest]
+    #[case::gzip_newline("gzip", b"\n".to_vec())]
+    #[case::deflate_newline("deflate", b"\n".to_vec())]
+    #[case::brotli_newline("br", b"\n".to_vec())]
+    #[case::second_gzip_member("gzip", gzip(b"Disallow: /second-member/\n"))]
+    #[tokio::test]
+    async fn should_read_the_stream_and_leave_out_bytes_after_its_end(
+        #[case] coding: &str,
+        #[case] trailing: Vec<u8>,
+    ) {
+        let mut encoded = encode(coding, ROBOTS_TXT);
+        encoded.extend_from_slice(&trailing);
+        let headers = format!(
+            "Content-Encoding: {coding}\r\nContent-Length: {}\r\n",
+            encoded.len()
+        );
+
+        let body = read_complete(answer(&headers, &encoded), 1024)
+            .await
+            .unwrap();
+
+        assert_eq!(body, ROBOTS_TXT);
+    }
+
+    /// hyper reads a body whose `Transfer-Encoding` does not end in `chunked` until the shop
+    /// closes the connection, so the missing `close_notify` ends it too.
+    #[tokio::test]
+    async fn should_read_a_body_framed_by_a_non_chunked_transfer_encoding_until_close() {
+        let body = read_complete(answer("Transfer-Encoding: identity\r\n", ROBOTS_TXT), 1024)
+            .await
+            .unwrap();
+
+        assert_eq!(body, ROBOTS_TXT);
+    }
+
+    #[tokio::test]
+    async fn should_read_the_prefix_of_a_close_delimited_compressed_body() {
+        let addr =
+            local_tls::serve_without_close_notify(close_delimited("gzip", &gzip(ROBOTS_TXT)), 1);
+
+        let prefix = read_body_prefix(get(addr).await, 12).await.unwrap();
+
+        assert_eq!(prefix, &ROBOTS_TXT[..12]);
+    }
+
+    /// A `Transfer-Encoding` overrides a `Content-Length` beside it, for the framing and for the
+    /// length the body declares.
+    #[rstest]
+    #[case::content_length(&[("content-length", "12")], Framing::Delimited, Some(12))]
+    #[case::chunked_with_length(
+        &[("transfer-encoding", "gzip, Chunked"), ("content-length", "99999999")],
+        Framing::Delimited,
+        None
+    )]
+    #[case::not_chunked(&[("transfer-encoding", "identity")], Framing::UntilClose, None)]
+    #[case::neither(&[], Framing::UntilClose, None)]
+    fn should_frame_a_response_and_read_its_declared_length_as_hyper_does(
+        #[case] pairs: &[(&'static str, &'static str)],
+        #[case] framing: Framing,
+        #[case] declared: Option<u64>,
+    ) {
+        let headers: HeaderMap = pairs
+            .iter()
+            .map(|(name, value)| {
+                (
+                    reqwest::header::HeaderName::from_static(name),
+                    reqwest::header::HeaderValue::from_static(value),
+                )
+            })
+            .collect();
+
+        assert_eq!(framing, Framing::of(Version::HTTP_11, &headers));
+        assert_eq!(framing, Framing::of(Version::HTTP_10, &headers));
+        assert_eq!(Framing::Delimited, Framing::of(Version::HTTP_2, &headers));
+        assert_eq!(
+            declared,
+            ContentCoding::Identity.declared_decoded_length(&headers)
+        );
     }
 }

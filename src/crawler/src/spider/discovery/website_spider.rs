@@ -760,27 +760,40 @@ pub trait SpiderTransport: Send + Sync {
 /// [shop-body reader](crate::network::response_body), which needs them as the shop framed them.
 #[derive(Clone)]
 pub struct SpiderClients {
-    /// Spider's client, which decodes bodies transparently.
-    pub library: spider::reqwest::Client,
     /// The crawler's own client, with transparent decompression off.
     pub shop_body: spider::reqwest::Client,
+    library: Arc<LibraryClientBuild>,
 }
 
+/// Builds Spider's client with the same settings and pinned addresses as the crawler's own.
+type LibraryClientBuild =
+    dyn Fn() -> Result<spider::reqwest::Client, spider::reqwest::Error> + Send + Sync;
+
 impl SpiderClients {
-    /// Both clients with [`spider_client_builder`]'s settings and `pin`'s addresses.
+    /// The crawler's client with [`spider_client_builder`]'s settings and `pin`'s addresses, and
+    /// Spider's, built on demand with the same.
     pub fn build(
         timeout: Duration,
-        pin: impl Fn(spider::reqwest::ClientBuilder) -> spider::reqwest::ClientBuilder,
+        pin: impl Fn(spider::reqwest::ClientBuilder) -> spider::reqwest::ClientBuilder
+        + Send
+        + Sync
+        + 'static,
     ) -> Result<Self, spider::reqwest::Error> {
-        Ok(Self {
-            library: pin(spider_client_builder(timeout)).build()?,
-            shop_body: pin(spider_client_builder(timeout))
-                .no_gzip()
-                .no_brotli()
-                .no_deflate()
-                .no_zstd()
-                .build()?,
-        })
+        let pin = Arc::new(pin);
+        let shop_body = pin(spider_client_builder(timeout))
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
+            .build()?;
+        let library = Arc::new(move || pin(spider_client_builder(timeout)).build());
+        Ok(Self { shop_body, library })
+    }
+
+    /// Spider's client, which decodes bodies transparently. Built when the crawl starts, not for
+    /// every robots.txt read, root attempt and redirect hop a preflight makes.
+    pub fn library(&self) -> Result<spider::reqwest::Client, spider::reqwest::Error> {
+        (self.library)()
     }
 }
 
@@ -794,7 +807,7 @@ impl SpiderTransport for PublicSpiderTransport {
         timeout: Duration,
     ) -> Result<SpiderClients, SpiderTransportError> {
         let target = resolve_public_http_target(url, timeout).await?;
-        SpiderClients::build(timeout, |builder| {
+        SpiderClients::build(timeout, move |builder| {
             builder.resolve_to_addrs(&target.host, &target.addresses)
         })
         .map_err(SpiderTransportError::Client)
@@ -1845,7 +1858,11 @@ impl SpiderImpl {
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
-        website.set_http_client(clients.library.clone());
+        website.set_http_client(
+            clients
+                .library()
+                .map_err(|error| SpiderDiscoveryError::Client(Box::new(error)))?,
+        );
         let redirect_queue = website
             .queue(REDIRECT_QUEUE_CAPACITY)
             .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
@@ -2728,10 +2745,11 @@ mod tests {
             _url: &Url,
             timeout: Duration,
         ) -> Result<SpiderClients, SpiderTransportError> {
-            SpiderClients::build(timeout, |builder| {
-                self.hosts
+            let (hosts, addr) = (self.hosts.clone(), self.addr);
+            SpiderClients::build(timeout, move |builder| {
+                hosts
                     .iter()
-                    .fold(builder, |builder, host| builder.resolve(host, self.addr))
+                    .fold(builder, |builder, host| builder.resolve(host, addr))
             })
             .map_err(SpiderTransportError::Client)
         }

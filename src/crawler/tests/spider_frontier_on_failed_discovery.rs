@@ -158,7 +158,8 @@ impl SpiderTransport for PinnedTransport {
         _url: &Url,
         timeout: Duration,
     ) -> Result<SpiderClients, SpiderTransportError> {
-        SpiderClients::build(timeout, |builder| builder.resolve(HOST, self.addr))
+        let addr = self.addr;
+        SpiderClients::build(timeout, move |builder| builder.resolve(HOST, addr))
             .map_err(SpiderTransportError::Client)
     }
 }

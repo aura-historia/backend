@@ -391,9 +391,10 @@ mod tests {
             _url: &Url,
             timeout: Duration,
         ) -> Result<SpiderClients, SpiderTransportError> {
-            SpiderClients::build(timeout, |builder| {
+            let addr = self.0;
+            SpiderClients::build(timeout, move |builder| {
                 builder
-                    .resolve("localhost", self.0)
+                    .resolve("localhost", addr)
                     .tls_backend_preconfigured(local_tls::client_config())
             })
             .map_err(SpiderTransportError::Client)
