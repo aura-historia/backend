@@ -6100,15 +6100,8 @@ name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
  "lambda_runtime",
- "platform-observability",
- "platform-postgres",
- "platform-process",
- "serial_test",
- "sqlx",
  "thiserror 2.0.21",
- "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]

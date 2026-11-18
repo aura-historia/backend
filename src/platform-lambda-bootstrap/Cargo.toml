@@ -5,14 +5,5 @@ edition = "2024"
 
 [dependencies]
 lambda_runtime = { workspace = true }
-platform-observability = { workspace = true }
-platform-postgres = { workspace = true }
-platform-process = { workspace = true }
-sqlx = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "sync"] }
-
-[dev-dependencies]
-serial_test = { workspace = true }
-url = { workspace = true }
