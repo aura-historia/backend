@@ -34,6 +34,30 @@
       ]
     },
     {
+      "name": "a numbered list page captured under the product it listed first, titled by year (Gillmark)",
+      "rows": [
+        { "path": "map/asia-210/page-5/", "captured": "9282", "page_identity": "9282", "title": "1893", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 5, "expected": "survivor", "evidence": null },
+        { "path": "map/asia-210/european-russia-johnston-9282/", "captured": "9282", "page_identity": "9282", "title": "1893", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 10, "expected": "keep", "evidence": null },
+        { "path": "map/asia-210/european-russia-johnston-9282/?l=en", "captured": "9282", "page_identity": "9282", "title": null, "last_error_kind": null, "last_scraped_days_ago": 3, "created_days_ago": 4, "expected": "keep", "evidence": null }
+      ]
+    },
+    {
+      "name": "a product page next to a list page, a translation and another map of the same year (Gillmark)",
+      "rows": [
+        { "path": "map/europe-211/france-cary-9301/", "captured": "9301", "page_identity": "9301", "title": "1801", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 10, "expected": "survivor", "evidence": null },
+        { "path": "map/europe-211/page/2", "captured": "9301", "page_identity": "9301", "title": "1801", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 3, "expected": "keep", "evidence": null },
+        { "path": "map/europe-211/france-cary-9301/?l=en", "captured": "9301", "page_identity": "9301", "title": "1801", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 2, "expected": "retire", "evidence": "spelling" },
+        { "path": "map/europe-211/spain-cary-9310/", "captured": "9301", "page_identity": "9301", "title": "1801", "last_error_kind": null, "last_scraped_days_ago": 2, "created_days_ago": 1, "expected": "keep", "evidence": null }
+      ]
+    },
+    {
+      "name": "a reused stock code on two pieces titled by their year alone",
+      "rows": [
+        { "path": "products/c412", "captured": "C412", "page_identity": "C412", "title": "1962", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 40, "expected": "survivor", "evidence": null },
+        { "path": "products/c412-1", "captured": "C412", "page_identity": "C412", "title": "1962", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 3, "expected": "keep", "evidence": null }
+      ]
+    },
+    {
       "name": "a spelling without a captured title",
       "rows": [
         { "path": "product/3051/oak-chest/", "captured": "#3051", "page_identity": "#3051", "title": "Oak chest", "last_error_kind": null, "last_scraped_days_ago": 1, "created_days_ago": 3, "expected": "survivor", "evidence": null },

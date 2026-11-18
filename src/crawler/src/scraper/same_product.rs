@@ -41,7 +41,9 @@ pub enum SameProductEvidence {
     /// The page identity is a whole path segment or query value of the URL's captured identity,
     /// which a rule read from the page URL (`/ukiyoe_detail.php?print_id=40475` and `40475`).
     IdentityToken,
-    /// The captured titles are equal, or one of them is missing.
+    /// The captured titles are equal, or one of them is missing, and neither URL is a list page
+    /// ([`is_list_page`]); equal titles count only when they name something
+    /// ([`title_names_something`]).
     Title,
 }
 
@@ -71,7 +73,10 @@ pub fn same_product_evidence(
         .is_some_and(|captured| is_identity_token_of(page_identity, captured))
     {
         Some(SameProductEvidence::IdentityToken)
-    } else if titles_agree(page.title, carrier.title) {
+    } else if titles_agree(page.title, carrier.title)
+        && !is_list_page(page.url)
+        && !is_list_page(carrier.url)
+    {
         Some(SameProductEvidence::Title)
     } else {
         None
@@ -143,11 +148,31 @@ fn is_identity_token_of(identity: &str, captured: &str) -> bool {
     in_path || in_query
 }
 
+/// Whether two captured titles agree: they are equal and name something, or one is missing.
 fn titles_agree(title: Option<&str>, other: Option<&str>) -> bool {
     match (title, other) {
-        (Some(title), Some(other)) => title == other,
+        (Some(title), Some(other)) => title == other && title_names_something(title),
         _ => true,
     }
+}
+
+/// Whether a title has a character other than an ASCII digit, ASCII punctuation or ASCII
+/// whitespace. A bare year or number (Gillmark's maps are titled `1893`) is shared by many
+/// products of a shop, so two such titles being equal shows nothing.
+fn title_names_something(title: &str) -> bool {
+    title.chars().any(|character| {
+        !(character.is_ascii_digit()
+            || character.is_ascii_punctuation()
+            || character == ' '
+            || ('\t'..='\r').contains(&character))
+    })
+}
+
+/// Whether `url`'s path is that of a numbered list page (`/page-5/`, `/page/5`, `/seite-2`).
+/// Such a page shows one of its listed products first, so a schema derives that product's
+/// identity and title from it; its title says nothing about it being that product.
+fn is_list_page(url: &Url) -> bool {
+    regex!(r"(?i)/(?:page|seite|pagina)(?:[-_]?|/)[0-9]+(?:/|$)").is_match(url.path())
 }
 
 #[cfg(test)]
@@ -303,19 +328,147 @@ mod tests {
     ) {
         assert_eq!(
             evidence(
-                "https://www.gillmark.example/book/hertfordshire-countryside-238/page-14/",
-                Some("5168"),
+                "https://shop.example/product/3051/oak-chest-1/",
+                Some("#3051"),
                 title,
-                "5169",
-                "https://www.gillmark.example/book/hertfordshire-countryside-238/june-1971-5169/",
+                "#3051",
+                "https://shop.example/product/3051/oak-chest/",
                 carrier_title,
             ),
             Some(SameProductEvidence::Title)
         );
     }
 
+    /// Gillmark captured numbered list pages under the identity of the product each listed
+    /// first, and titles its maps with bare years: neither a list page nor an equal year shows
+    /// that two URLs are one product, in either direction.
+    #[rstest::rstest]
+    #[case::list_page_carrier_with_equal_years(
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/",
+        Some("1893"),
+        "https://www.gillmark.example/map/asia-210/page-5/",
+        Some("1893")
+    )]
+    #[case::list_page_retiree_with_equal_years(
+        "https://www.gillmark.example/map/asia-210/page-5/",
+        Some("1893"),
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/",
+        Some("1893")
+    )]
+    #[case::list_page_carrier_with_equal_titles(
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/",
+        Some("European Russia, Johnston"),
+        "https://www.gillmark.example/map/asia-210/page-5/",
+        Some("European Russia, Johnston")
+    )]
+    #[case::list_page_carrier_untitled(
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/",
+        Some("1893"),
+        "https://www.gillmark.example/map/asia-210/page-5/",
+        None
+    )]
+    #[case::list_page_retiree_untitled(
+        "https://www.gillmark.example/map/asia-210/page/5",
+        None,
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/",
+        Some("1893")
+    )]
+    #[case::equal_years_on_two_product_pages(
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/",
+        Some("1893"),
+        "https://www.gillmark.example/map/asia-210/siberia-stieler-9301/",
+        Some("1893")
+    )]
+    #[case::equal_numbers_and_punctuation(
+        "https://shop.example/products/lot-17",
+        Some("1882 / 3 (2)"),
+        "https://shop.example/products/lot-18",
+        Some("1882 / 3 (2)")
+    )]
+    fn should_find_no_title_evidence_on_a_list_page_or_in_a_bare_year(
+        #[case] url: &str,
+        #[case] title: Option<&str>,
+        #[case] carrier_url: &str,
+        #[case] carrier_title: Option<&str>,
+    ) {
+        assert_eq!(
+            evidence(url, Some("9282"), title, "9282", carrier_url, carrier_title),
+            None
+        );
+    }
+
+    /// The list page guard and the bare-year guard hold back the title only: a spelling of the
+    /// same page, such as Gillmark's English version, is still one product.
+    #[rstest::rstest]
+    #[case::language_parameter(
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/?l=en",
+        "https://www.gillmark.example/map/asia-210/european-russia-johnston-9282/"
+    )]
+    #[case::language_segment(
+        "https://www.gillmark.example/de/map/asia-210/european-russia-johnston-9282/",
+        "https://www.gillmark.example/en/map/asia-210/european-russia-johnston-9282"
+    )]
+    fn should_still_take_a_translation_with_a_bare_year_title_for_one_product(
+        #[case] url: &str,
+        #[case] carrier_url: &str,
+    ) {
+        assert_eq!(
+            evidence(
+                url,
+                Some("9282"),
+                Some("1893"),
+                "9282",
+                carrier_url,
+                Some("1893")
+            ),
+            Some(SameProductEvidence::Spelling)
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::hyphen("/map/asia-210/page-5/")]
+    #[case::underscore("/catalogue/page_12")]
+    #[case::joined("/books/page3")]
+    #[case::segment("/category/prints/page/2/")]
+    #[case::german("/kategorie/grafik/seite-4/")]
+    #[case::upper_case("/Shop/Page-7")]
+    fn should_take_a_numbered_page_for_a_list_page(#[case] path: &str) {
+        assert!(is_list_page(
+            &Url::parse("https://shop.example")
+                .unwrap()
+                .join(path)
+                .unwrap()
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case::product_slug("/map/asia-210/european-russia-johnston-9282/")]
+    #[case::number_inside_slug("/products/page-5-of-the-book-of-hours")]
+    #[case::word_ending_in_page("/homepage-5/")]
+    #[case::pager_parameter("/view?p_idx=7&page=2")]
+    fn should_not_take_a_product_page_for_a_list_page(#[case] path: &str) {
+        assert!(!is_list_page(
+            &Url::parse("https://shop.example")
+                .unwrap()
+                .join(path)
+                .unwrap()
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case::words("June 1971", true)]
+    #[case::code("C327", true)]
+    #[case::non_ascii_letters("浮世絵 1850", true)]
+    #[case::year("1893", false)]
+    #[case::numbers_and_punctuation("No. 1882 / 3", true)]
+    #[case::digits_and_punctuation("1882 / 3 (2)", false)]
+    fn should_tell_whether_a_title_names_something(#[case] title: &str, #[case] names: bool) {
+        assert_eq!(title_names_something(title), names);
+    }
+
     /// Gillmark's page 14 was captured as May 1971 and now derives June 1971's identity; HaresFur
-    /// reused the stock code `C327` for another piece: neither is the carrier's product.
+    /// reused the stock code `C327` for another piece, also when both pieces are titled by their
+    /// year alone: neither is the carrier's product.
     #[rstest::rstest]
     #[case::gillmark(
         "https://www.gillmark.example/book/hertfordshire-countryside-238/page-14/",
@@ -332,6 +485,14 @@ mod tests {
         "C327",
         "https://haresfur.example/products/rolf-palm-stoneware-vase",
         "Rolf Palm stoneware vase"
+    )]
+    #[case::reused_stock_code_with_bare_number_titles(
+        "https://haresfur.example/products/c327-2",
+        "C327",
+        "1962",
+        "C327",
+        "https://haresfur.example/products/c327",
+        "1962"
     )]
     fn should_find_no_evidence_for_another_product_under_a_shared_identity(
         #[case] url: &str,

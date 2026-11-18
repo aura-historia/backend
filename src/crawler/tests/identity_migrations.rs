@@ -212,8 +212,8 @@ struct Fixtures {
 
 /// The migration and the scraper's same-product rule answer every row of the shared fixtures
 /// alike: spellings, translations and untitled variants are retired, distinct products under a
-/// reused stock code (HaresFur's `C327`) are kept, and the healthiest row survives a failing or
-/// stale earlier one.
+/// reused stock code (HaresFur's `C327`), Gillmark's list pages and pages titled by a bare year
+/// are kept, and the healthiest row survives a failing or stale earlier one.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_retire_exactly_the_urls_the_same_product_rule_retires() {
     let pool = get_postgres_client().await;

@@ -32,7 +32,7 @@ Shops reuse one identity for different products, such as a stock code after a sa
 
 - spelling: the two URLs name one page apart from a trailing slash, doubled slashes in the path, a [language segment](networking.md#redirect-removal-evidence) before the path, the query parameters the crawler never [stores](networking.md#stored-urls), and parameters that name a language (`Sprache`, `l`, `lang`) or a list page (`page`);
 - identity token: the page's identity is a whole path segment or query value of the URL's captured identity when that is a link or path, as when a rule read the page URL (`/ukiyoe_detail.php?print_id=40475` and `40475`); a part of a token does not count;
-- title: the two captured titles are equal, or one is missing; on a first scrape the scraped title stands for the URL's.
+- title: the two captured titles are equal, or one is missing; on a first scrape the scraped title stands for the URL's. The title never counts when either URL is a numbered list page (`/page-5/`, `/page/5`, `/seite-2`), whose schema reads the identity and title of the product it lists first, and equal titles count only when they hold more than digits, punctuation and spaces, since a bare year such as `1893` titles many products of one shop.
 
 There are no per-shop rules. A URL retired as a duplicate is no longer scraped; its listing is neither updated nor withdrawn, as after a [redirect to a known product URL](networking.md#duplicate-targets).
 

@@ -12,7 +12,9 @@
 --     view, currency, language and pager parameters, as of this migration), or
 --   * the identity its page showed is a whole path segment or query value of its captured
 --     identity, a link or path, or
---   * their captured titles are equal or one of them is missing.
+--   * their captured titles are equal or one of them is missing, neither URL is a numbered list
+--     page (`/page-5/`, `/page/5`, `/seite-2`) and equal titles name something beyond digits,
+--     punctuation and spaces (a bare year such as `1893` names many products).
 -- A carrier is a URL whose page showed the identity it was captured under; the healthiest is the
 -- one without an error, then the most recently scraped, then the earliest stored.
 -- Deliberately left to the scraper's next scrape of each URL:
@@ -70,6 +72,17 @@ LANGUAGE sql IMMUTABLE AS $$
        )
 $$;
 
+CREATE OR REPLACE FUNCTION pg_temp.is_list_page(url TEXT) RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT COALESCE(substring(url FROM '^[^:/?#]+://[^/?#]*([^?#]*)'), '')
+           ~* '/(?:page|seite|pagina)(?:[-_]?|/)[0-9]+(?:/|$)'
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.title_names_something(title TEXT) RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT title !~ '^[\x09-\x0d\x20-\x40\x5b-\x60\x7b-\x7e]*$'
+$$;
+
 WITH candidates AS (
     SELECT url,
            listing_source_id,
@@ -101,9 +114,13 @@ WITH candidates AS (
      AND carrier.url <> page.url
     WHERE pg_temp.product_spelling(page.url) = pg_temp.product_spelling(carrier.url)
        OR pg_temp.is_identity_token_of(page.page_identity, page.captured_identity)
-       OR page.title IS NULL
-       OR carrier.title IS NULL
-       OR page.title = carrier.title
+       OR (
+           (page.title IS NULL
+            OR carrier.title IS NULL
+            OR (page.title = carrier.title AND pg_temp.title_names_something(page.title)))
+           AND NOT pg_temp.is_list_page(page.url)
+           AND NOT pg_temp.is_list_page(carrier.url)
+       )
 )
 UPDATE listing_source_urls AS urls
 SET crawler_disposition = 'DUPLICATE',
@@ -114,3 +131,5 @@ WHERE urls.url = retired.url;
 
 DROP FUNCTION pg_temp.product_spelling(TEXT);
 DROP FUNCTION pg_temp.is_identity_token_of(TEXT, TEXT);
+DROP FUNCTION pg_temp.is_list_page(TEXT);
+DROP FUNCTION pg_temp.title_names_something(TEXT);
