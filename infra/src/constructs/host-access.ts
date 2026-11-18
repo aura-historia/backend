@@ -29,7 +29,7 @@ export interface HostAccessProps {
 /**
  * What the self-hosted host needs from AWS before it serves traffic: an IAM user for its runtime
  * calls, the versioned bucket its backups go to, the secret CloudFront sends to its origin and
- * the key the Cognito post-confirmation forwarder signs with.
+ * the key both Cognito triggers sign their requests to the host with.
  * Access keys are created and rotated by an operator, never by CloudFormation. Each grant is
  * its own managed policy, which leaves room beyond the user's small inline-policy size limit.
  */

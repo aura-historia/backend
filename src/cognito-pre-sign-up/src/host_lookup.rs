@@ -284,6 +284,15 @@ mod tests {
 
     const KEY: &str = "pre-sign-up-lookup-test-signing-key-0123";
     const ISSUER: &str = "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool";
+    // The host's endpoint tests answer and accept exactly these documents.
+    const REQUEST_FIXTURE: &str =
+        include_str!("../../../docs/fixtures/cognito-pre-sign-up/request.json");
+    const ALLOW_FIXTURE: &str =
+        include_str!("../../../docs/fixtures/cognito-pre-sign-up/decision-allow.json");
+    const REJECT_FIXTURE: &str =
+        include_str!("../../../docs/fixtures/cognito-pre-sign-up/decision-reject.json");
+    const LINK_FIXTURE: &str =
+        include_str!("../../../docs/fixtures/cognito-pre-sign-up/decision-link.json");
 
     type Received = Arc<Mutex<Vec<(HeaderMap, Bytes)>>>;
 
@@ -332,8 +341,8 @@ mod tests {
         (outcome, received)
     }
 
-    fn ok(body: serde_json::Value) -> Option<(StatusCode, String)> {
-        Some((StatusCode::OK, body.to_string()))
+    fn fixture(body: &str) -> Option<(StatusCode, String)> {
+        Some((StatusCode::OK, body.to_owned()))
     }
 
     fn command() -> ResolveFederatedAccountCommand {
@@ -347,21 +356,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_sign_the_lookup_for_its_purpose_and_send_only_the_decision_inputs() {
-        let (outcome, received) = resolve(ok(serde_json::json!({
-            "decision": "ALLOW_NEW_ACCOUNT"
-        })))
-        .await;
+        let (outcome, received) = resolve(fixture(ALLOW_FIXTURE)).await;
 
         assert_eq!(Ok(FederatedAccountDecision::AllowNewAccount), outcome);
         let received = received.lock().unwrap();
         let (headers, body) = &received[0];
         assert_eq!(
-            serde_json::json!({
-                "email": "ada@example.test",
-                "emailVerified": true,
-                "issuer": ISSUER,
-                "existingEmailAction": "LINK_VERIFIED"
-            }),
+            serde_json::from_str::<serde_json::Value>(REQUEST_FIXTURE).unwrap(),
             serde_json::from_slice::<serde_json::Value>(body).unwrap()
         );
         assert_eq!("lambda-request-id", headers[CORRELATION_ID_HEADER]);
@@ -382,16 +383,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_each_decision_of_the_host() {
-        let (rejected, _) = resolve(ok(serde_json::json!({
-            "decision": "REJECT_EXISTING_ACCOUNT"
-        })))
-        .await;
-        let (linked, _) = resolve(ok(serde_json::json!({
-            "decision": "LINK_EXISTING_ACCOUNT",
-            "identity": { "issuer": ISSUER, "subject": "canonical-subject" },
-            "canonicalEmail": "ada@example.test"
-        })))
-        .await;
+        let (rejected, _) = resolve(fixture(REJECT_FIXTURE)).await;
+        let (linked, _) = resolve(fixture(LINK_FIXTURE)).await;
 
         assert_eq!(
             Ok(FederatedAccountDecision::RejectExistingAccount),

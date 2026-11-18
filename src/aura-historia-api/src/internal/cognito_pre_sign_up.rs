@@ -34,9 +34,11 @@ pub(crate) const MAX_BODY_BYTES: usize = 4 * 1024;
 const PROCESSING_BUDGET: Duration = Duration::from_millis(2_000);
 
 /// The federated sign-up the trigger resolves. The trigger has already matched its provider
-/// against the provider policy and derived the issuer from the event's user pool.
+/// against the provider policy and derived the issuer from the event's user pool. Unknown fields
+/// are ignored, so a trigger may deploy a new field before the host reads it. The wire contract is
+/// pinned by `docs/fixtures/cognito-pre-sign-up`, which the trigger's tests share.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct PreSignUpRequest {
     email: String,
     email_verified: bool,
@@ -262,6 +264,13 @@ mod tests {
     const PATH: &str = "/internal/cognito/pre-sign-up";
     const KEY: &str = "pre-sign-up-test-signing-key-0123456789";
     const ISSUER: &str = "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool";
+    /// The trigger's tests send exactly this request.
+    const REQUEST_FIXTURE: &str =
+        include_str!("../../../../docs/fixtures/cognito-pre-sign-up/request.json");
+
+    fn fixture(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
 
     struct FakeResolver {
         outcome: Result<FederatedAccountDecision, ResolveFederatedAccountError>,
@@ -363,29 +372,31 @@ mod tests {
         for (decision, expected) in [
             (
                 FederatedAccountDecision::AllowNewAccount,
-                json!({ "decision": "ALLOW_NEW_ACCOUNT" }),
+                fixture(include_str!(
+                    "../../../../docs/fixtures/cognito-pre-sign-up/decision-allow.json"
+                )),
             ),
             (
                 FederatedAccountDecision::RejectExistingAccount,
-                json!({ "decision": "REJECT_EXISTING_ACCOUNT" }),
+                fixture(include_str!(
+                    "../../../../docs/fixtures/cognito-pre-sign-up/decision-reject.json"
+                )),
             ),
             (
                 FederatedAccountDecision::LinkExistingAccount {
                     identity: identity(),
                     canonical_email: "ada@example.test".try_into().unwrap(),
                 },
-                json!({
-                    "decision": "LINK_EXISTING_ACCOUNT",
-                    "identity": { "issuer": ISSUER, "subject": "canonical-subject" },
-                    "canonicalEmail": "ada@example.test"
-                }),
+                fixture(include_str!(
+                    "../../../../docs/fixtures/cognito-pre-sign-up/decision-link.json"
+                )),
             ),
         ] {
             let resolver = FakeResolver::answering(Ok(decision));
 
             let (status, body) = send(
                 router(Arc::clone(&resolver)),
-                signed(request_body(ISSUER), now()),
+                signed(REQUEST_FIXTURE.as_bytes().to_vec(), now()),
             )
             .await;
 
