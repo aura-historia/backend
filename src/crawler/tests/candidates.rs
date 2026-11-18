@@ -5466,8 +5466,9 @@ async fn scraper_should_find_the_earliest_live_url_of_the_source_carrying_an_ide
 
 /// Only a captured identity is carried, and only by a URL whose page showed it at its last
 /// capture: a URL whose page showed `HF-0054` while captured as `J054` carries neither, and one
-/// in an identity conflict or whose page identity is not yet recorded carries nothing, so two
-/// URLs whose pages swapped identities never retire each other.
+/// in an identity conflict, one whose page identity is not yet recorded and one whose capture is
+/// forgotten before a removal carry nothing, so two URLs whose pages swapped identities never
+/// retire or strand each other and a moved product is not judged against the page it left.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_take_only_a_url_whose_page_showed_its_captured_identity_for_its_carrier() {
     let pool = get_postgres_client().await;
@@ -5479,6 +5480,8 @@ async fn scraper_should_take_only_a_url_whose_page_showed_its_captured_identity_
     let swapped_a = url::Url::parse("https://pinned.example.com/products/a").unwrap();
     let swapped_b = url::Url::parse("https://pinned.example.com/products/b").unwrap();
     let spelling = url::Url::parse("https://pinned.example.com/products/tea-bowl?ref=nav").unwrap();
+    let conflicted = url::Url::parse("https://pinned.example.com/products/vase").unwrap();
+    let removed = url::Url::parse("https://pinned.example.com/products/lamp").unwrap();
     insert_identity_url(
         &pool,
         listing_source_id,
@@ -5515,6 +5518,38 @@ async fn scraper_should_take_only_a_url_whose_page_showed_its_captured_identity_
         1,
     )
     .await;
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &conflicted,
+        ("V-1", Some("V-1")),
+        CrawlerDisposition::Active,
+        5,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_error_kind = 'SourceListingIdConflict' WHERE url = $1",
+    )
+    .bind(conflicted.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &removed,
+        ("L-1", Some("L-1")),
+        CrawlerDisposition::Active,
+        6,
+    )
+    .await;
+    assert_eq!(
+        service
+            .forget_capture_before_removal(&listing_source_id, &removed, None)
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
     let carrier = |identity: &'static str, excluding: &url::Url| {
         let service = &service;
         let excluding = excluding.clone();
@@ -5526,7 +5561,7 @@ async fn scraper_should_take_only_a_url_whose_page_showed_its_captured_identity_
         }
     };
 
-    for identity in ["J054", "HF-0054", "K-1"] {
+    for identity in ["J054", "HF-0054", "K-1", "V-1", "L-1"] {
         assert_eq!(carrier(identity, &spelling).await, None, "{identity}");
     }
     assert_eq!(carrier("B", &swapped_a).await, None);

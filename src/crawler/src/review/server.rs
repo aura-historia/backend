@@ -12,9 +12,8 @@ use crate::review::identity_conflict_report;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason,
-    PageClassification, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
-    SourceProductUrl,
+    CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason, PageClassification,
+    RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput, SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -23,9 +22,6 @@ use crate::review::readers::{
     persisted_row_failure,
 };
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
-use crate::scraper::css_selector::product_schema_repository::{
-    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
-};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::spider::local_lock::LocalLockManager;
@@ -512,8 +508,12 @@ impl ReviewServer {
             return match self.repository.get_review(review_id).await {
                 Ok(detail) => {
                     log_invalid_candidate(&detail);
-                    let live_identity_rules =
-                        identity_rules_or_none(&detail, self.live_identity_rules(&detail).await);
+                    let live_identity_rules = identity_rules_or_none(
+                        &detail,
+                        self.source_product_urls
+                            .live_identity_rules(review_id)
+                            .await,
+                    );
                     match self.source_product_urls.list(review_id).await {
                         Ok(source_product_urls) => HttpResponse::json(
                             200,
@@ -828,28 +828,6 @@ impl ReviewServer {
             .fetch(url)
             .await
             .map_err(|err| live_url_fetch_error(url.as_str(), &err))
-    }
-
-    /// The identity rule of each live product schema of the review's ListingSource, as
-    /// [`ReviewDetailAnswer::live_identity_rules`] answers them; none for a URL-pattern review.
-    async fn live_identity_rules(
-        &self,
-        detail: &ReviewDetail,
-    ) -> Result<Vec<Option<ExtractionRule>>, sqlx::Error> {
-        if detail.review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
-            return Ok(Vec::new());
-        }
-        let live = ListingSourceProductSchemaRepositoryImpl::new(self.repository.pool())
-            .find_product_schema(&detail.review.listing_source_id)
-            .await?;
-        Ok(live
-            .map(|live| {
-                live.product_schemas
-                    .into_iter()
-                    .map(|schema| schema.source_listing_id)
-                    .collect()
-            })
-            .unwrap_or_default())
     }
 
     /// Fetches the review page live for a human's preview (`/api/review-pages/{id}/inspect`,
@@ -1609,7 +1587,7 @@ mod tests {
 
     mod live_identity_rules {
         use super::*;
-        use crate::review::model::CrawlerReview;
+        use crate::review::model::{ARTIFACT_PRODUCT_SCHEMA, CrawlerReview};
         use listing_source_core::ListingSourceId;
 
         fn product_schema_review() -> ReviewDetail {

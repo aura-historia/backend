@@ -236,8 +236,10 @@ pub enum RedirectDestination {
 /// The product URL of a ListingSource that carries a source listing id another URL's page shows:
 /// the earliest stored product URL of the ListingSource, not retired, that was captured under the
 /// identity and whose page showed it at its last capture (`last_extracted_source_listing_id` equals
-/// `last_source_listing_id`). A URL in an identity conflict, or one whose page identity is not yet
-/// recorded, carries nothing, so two URLs whose pages swapped identities never retire each other
+/// `last_source_listing_id`). A URL in an identity conflict, one whose page identity is not yet
+/// recorded and one whose last capture was a removal (which forgets the page identity) carry
+/// nothing, so two URLs whose pages swapped identities never retire or strand each other, and a
+/// product that moved to another URL is not judged against the page it left
 /// (`docs/crawler/scheduling-and-retries.md#captured-identity`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityCarrier {
@@ -264,6 +266,7 @@ where
          WHERE listing_source_id = $1
            AND last_source_listing_id = $2
            AND last_extracted_source_listing_id IS NOT DISTINCT FROM last_source_listing_id
+           AND last_error_kind IS DISTINCT FROM 'SourceListingIdConflict'
            AND url <> $3
            AND url_class = 'product'
            AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
@@ -453,7 +456,9 @@ pub trait ScraperCandidateService: Send + Sync {
         redirect_move: RedirectUrlMove,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Forgets the URL's last capture before a verified removal is captured: the page hash,
-    /// scraper-context fingerprint and captured raw-input hash become `NULL`. Neither a failed
+    /// scraper-context fingerprint and captured raw-input hash become `NULL`, and with them the
+    /// title and the page identity, so the URL no longer [carries](IdentityCarrier) its identity
+    /// for a product that moved to another URL. Neither a failed
     /// removal capture nor a failed [`mark_removed`](Self::mark_removed) afterwards can then
     /// leave the URL matching the product capture before the removal, which would skip a page
     /// that comes back unchanged and leave the listing removed.
@@ -466,7 +471,9 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Records a verified removal whose raw delete is durably captured, or was captured by an
     /// earlier check, and makes the URL eligible for later rechecks. It forgets the page hash and
     /// scraper-context fingerprint of the last product scrape, so a page that comes back
-    /// unchanged is extracted and captured again instead of skipped. A removal that
+    /// unchanged is extracted and captured again instead of skipped, and its title and page
+    /// identity, so the URL [carries](IdentityCarrier) nothing until a capture shows a product
+    /// again. A removal that
     /// `removed_by_templates` captured is recorded with them; when the stored list no longer
     /// holds one of them unchanged, retired or narrowed since the page was matched, the URL is
     /// left due at once, as the change's re-arm leaves the removals it finds. A removal a shared
@@ -1540,6 +1547,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = NULL,
                  last_captured_title = NULL,
+                 last_extracted_source_listing_id = NULL,
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
                  updated = NOW()
@@ -1597,6 +1605,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
                  last_captured_title = NULL,
+                 last_extracted_source_listing_id = NULL,
                  removed_by_templates = $5,
                  removed_by_redirect_target = $7,
                  crawler_disposition = 'ACTIVE',

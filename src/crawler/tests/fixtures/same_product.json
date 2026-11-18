@@ -58,10 +58,10 @@
       ]
     },
     {
-      "name": "a spelling without a captured title",
+      "name": "a copy without a captured title, as after a captured removal",
       "rows": [
         {"path": "product/3051/oak-chest/", "captured": "#3051", "page_identity": "#3051", "title": "Oak chest", "expected": "survivor", "evidence": null},
-        {"path": "product/3051/oak-chest-1/", "captured": "#3051", "page_identity": "#3051", "title": null, "expected": "retire", "evidence": "title"}
+        {"path": "product/3051/oak-chest-1/", "captured": "#3051", "page_identity": "#3051", "title": null, "expected": "keep", "evidence": null}
       ]
     },
     {

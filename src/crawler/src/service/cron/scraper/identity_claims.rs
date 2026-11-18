@@ -49,6 +49,17 @@ impl ClaimedIdentities {
     }
 
     /// Releases `url`'s claim of `source_listing_id`; a claim another URL holds stays.
+    /// The URL other than `url` that claimed `source_listing_id` in this batch, without claiming
+    /// it: a captured URL whose page shows the identity is judged against the claimant as
+    /// against a carrier, since the claimant's capture is not stored yet.
+    pub(super) fn claimant(&self, source_listing_id: &str, url: &url::Url) -> Option<Claimant> {
+        let claimed = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        claimed
+            .get(source_listing_id)
+            .filter(|claimant| claimant.url != *url)
+            .cloned()
+    }
+
     pub(super) fn release(&self, source_listing_id: &str, url: &url::Url) {
         let mut claimed = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         if claimed
@@ -128,6 +139,28 @@ mod tests {
 
     /// The claimant's capture failed: a later spelling claims the identity itself instead of
     /// being retired as the duplicate of a URL that captured nothing.
+    #[test]
+    fn should_name_the_claimant_to_another_url_without_claiming() {
+        let claims = Arc::new(ClaimedIdentities::default());
+        let first = url("/product/223/table/");
+        let captured = url("/product/9/dresser/");
+
+        assert_eq!(claims.claimant(IDENTITY, &captured), None);
+        let claim = claims.claim(IDENTITY, &first, Some("Table")).unwrap();
+
+        assert_eq!(
+            claims.claimant(IDENTITY, &captured),
+            Some(Claimant {
+                url: first.clone(),
+                title: Some("Table".to_owned())
+            })
+        );
+        assert_eq!(claims.claimant(IDENTITY, &first), None);
+        assert_eq!(claims.claimant("another identity", &captured), None);
+        drop(claim);
+        assert_eq!(claims.claimant(IDENTITY, &captured), None);
+    }
+
     #[test]
     fn should_release_a_claim_whose_capture_did_not_become_durable() {
         let claims = Arc::new(ClaimedIdentities::default());

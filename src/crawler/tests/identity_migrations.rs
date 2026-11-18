@@ -1,5 +1,6 @@
 //! The one-off data migration that comes with keeping captured identities: releasing the URLs stuck
-//! in an identity conflict (#2983) and recording the page identity of the others.
+//! in an identity conflict (#2983) and recording the page identity of the URLs whose last capture
+//! showed a product.
 
 use crawler::CrawlRoot;
 use crawler::service::listing_source_registration::{
@@ -34,13 +35,14 @@ async fn insert_listing_source(pool: &PgPool) -> ListingSourceId {
     listing_source_id
 }
 
-/// Stores a captured product URL of `listing_source_id` under `identity`, created `age_days` ago.
+/// Stores a product URL of `listing_source_id` captured under `identity` with the title `title`
+/// (`None` after a captured removal).
 async fn insert_captured_url(
     pool: &PgPool,
     listing_source_id: ListingSourceId,
     path: &str,
     identity: &str,
-    age_days: i32,
+    title: Option<&str>,
 ) -> String {
     let url = format!("{ROOT}{path}");
     UrlMetadataRepositoryImpl::new(pool.clone())
@@ -54,12 +56,12 @@ async fn insert_captured_url(
     sqlx::query(
         "UPDATE listing_source_urls \
          SET last_source_listing_id = $2, last_extracted_source_listing_id = $2, \
-             created = NOW() - make_interval(days => $3) \
+             last_captured_title = $3 \
          WHERE url = $1",
     )
     .bind(&url)
     .bind(identity)
-    .bind(age_days)
+    .bind(title)
     .execute(pool)
     .await
     .unwrap();
@@ -70,14 +72,30 @@ async fn run(pool: &PgPool, migration: &'static str) {
     sqlx::raw_sql(migration).execute(pool).await.unwrap();
 }
 
+/// A conflicted URL is due at once and carries nothing; a URL whose last capture showed a product
+/// records its identity as the page's; one whose last capture was a removal records none.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_release_conflicted_urls_and_record_the_page_identity_of_the_others() {
     let pool = get_postgres_client().await;
     let listing_source_id = insert_listing_source(&pool).await;
-    let captured =
-        insert_captured_url(&pool, listing_source_id, "products/chair", "SKU-1", 1).await;
-    let conflicted =
-        insert_captured_url(&pool, listing_source_id, "products/tea-bowl", "J054", 1).await;
+    let captured = insert_captured_url(
+        &pool,
+        listing_source_id,
+        "products/chair",
+        "SKU-1",
+        Some("Chair"),
+    )
+    .await;
+    let conflicted = insert_captured_url(
+        &pool,
+        listing_source_id,
+        "products/tea-bowl",
+        "J054",
+        Some("Tea bowl"),
+    )
+    .await;
+    let removed =
+        insert_captured_url(&pool, listing_source_id, "products/lamp", "SKU-7", None).await;
     sqlx::query(
         "UPDATE listing_source_urls \
          SET last_error_kind = 'SourceListingIdConflict', next_retry_at = NOW() + INTERVAL '4 hours' \
@@ -111,4 +129,5 @@ async fn should_release_conflicted_urls_and_record_the_page_identity_of_the_othe
     };
     assert_eq!(state(captured).await, (Some("SKU-1".to_owned()), true));
     assert_eq!(state(conflicted).await, (None, true));
+    assert_eq!(state(removed).await, (None, true));
 }

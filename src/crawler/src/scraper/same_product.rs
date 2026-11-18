@@ -11,15 +11,20 @@ use crate::spider::utils::url::canonical::without_language_segment;
 use regex::regex;
 use url::Url;
 
-/// Query parameters that name the language a page is shown in (`?Sprache=fr`, `?l=en`) or the
-/// list page a product was linked from (`?page=2`). They do not tell two products apart, so two
-/// URLs that differ only in them, on top of the parameters the crawler never stores
+/// Query parameters that name the language a page is shown in (`?Sprache=fr`, `?l=en`) when
+/// their value is a language tag. They do not tell two products apart, so two URLs that differ
+/// only in them, on top of the parameters the crawler never stores
 /// (`docs/crawler/networking.md#stored-urls`), name one product. They are not dropped when a URL
 /// is stored, since a shop may keep its language versions apart by them.
-const PRODUCT_NOISE_PARAMETERS: &[&str] = &[
-    "lang", "language", "l", "lng", "hl", "locale", "sprache", "langue", "lingua", "idioma",
-    "taal", "page", "pg",
+const LANGUAGE_PARAMETERS: &[&str] = &[
+    "lang", "language", "l", "lng", "hl", "locale", "sprache", "langue", "lingua", "idioma", "taal",
 ];
+
+/// Query parameters that name the list page a product was linked from (`?page=2`) when their
+/// value is a number, like the [`LANGUAGE_PARAMETERS`]. A shop that routes its products by one of
+/// these names (`index.php?page=item123`, `lot.php?l=55`) keeps them apart by a value that is no
+/// page number or language tag.
+const PAGER_PARAMETERS: &[&str] = &["page", "pg"];
 
 /// A product URL as the same-product rule compares it.
 #[derive(Debug, Clone, Copy)]
@@ -40,9 +45,9 @@ pub enum SameProductEvidence {
     /// The page identity is a whole path segment or query value of the URL's captured identity,
     /// which a rule read from the page URL (`/ukiyoe_detail.php?print_id=40475` and `40475`).
     IdentityToken,
-    /// The captured titles are equal, or one of them is missing, and neither URL is a list page
-    /// ([`is_list_page`]); equal titles count only when they name something
-    /// ([`title_names_something`]).
+    /// The captured titles are equal and name something ([`title_names_something`]), and
+    /// neither URL is a list page ([`is_list_page`]). A missing title shows nothing: a captured
+    /// removal clears it.
     Title,
 }
 
@@ -84,7 +89,7 @@ pub fn same_product_evidence(
 
 /// `url` in the spelling two URLs of one product share: the [stored spelling](CrawledUrl)
 /// without a trailing slash, doubled slashes in its path collapsed, without a language segment
-/// before its path and without [`PRODUCT_NOISE_PARAMETERS`].
+/// before its path and without language and pager parameters ([`is_noise_parameter`]).
 fn product_spelling(url: &Url) -> Url {
     let mut collapsed = CrawledUrl::new(url.clone()).as_url().clone();
     let path = collapse_slashes(collapsed.path());
@@ -114,10 +119,15 @@ fn collapse_slashes(path: &str) -> String {
 }
 
 fn is_noise_parameter(pair: &str) -> bool {
-    let name = pair.split_once('=').map_or(pair, |(name, _)| name);
-    PRODUCT_NOISE_PARAMETERS
-        .iter()
-        .any(|noise| name.eq_ignore_ascii_case(noise))
+    let Some((name, value)) = pair.split_once('=') else {
+        return false;
+    };
+    let named = |names: &[&str]| names.iter().any(|noise| name.eq_ignore_ascii_case(noise));
+    (named(LANGUAGE_PARAMETERS)
+        && regex!(r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,4})?$").is_match(value))
+        || (named(PAGER_PARAMETERS)
+            && !value.is_empty()
+            && value.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Whether `identity` is a whole path segment or a whole query value of `captured`, a captured
@@ -147,12 +157,11 @@ fn is_identity_token_of(identity: &str, captured: &str) -> bool {
     in_path || in_query
 }
 
-/// Whether two captured titles agree: they are equal and name something, or one is missing.
+/// Whether two captured titles agree: both are known, equal and name something.
 fn titles_agree(title: Option<&str>, other: Option<&str>) -> bool {
-    match (title, other) {
-        (Some(title), Some(other)) => title == other && title_names_something(title),
-        _ => true,
-    }
+    title
+        .zip(other)
+        .is_some_and(|(title, other)| title == other && title_names_something(title))
 }
 
 /// Whether a title has a character other than an ASCII digit, ASCII punctuation or ASCII
@@ -240,6 +249,10 @@ mod tests {
         "https://shop.example/view?p_idx=7&page=2",
         "https://shop.example/view?p_idx=7"
     )]
+    #[case::language_tag_with_region(
+        "https://shop.example/item.php?id=7&lang=en-GB",
+        "https://shop.example/item.php?id=7&lang=de"
+    )]
     fn should_take_two_spellings_of_one_page_for_one_product(
         #[case] url: &str,
         #[case] carrier: &str,
@@ -262,6 +275,14 @@ mod tests {
     #[case::other_host(
         "https://shop.example/products/vase",
         "https://other.example/products/vase"
+    )]
+    #[case::page_parameter_naming_a_product(
+        "https://shop.example/index.php?page=item123",
+        "https://shop.example/index.php?page=item456"
+    )]
+    #[case::language_name_with_a_lot_number(
+        "https://auction.example/lot.php?l=55",
+        "https://auction.example/lot.php?l=56"
     )]
     fn should_not_take_other_pages_for_one_spelling(#[case] url: &str, #[case] carrier: &str) {
         assert_eq!(
@@ -317,24 +338,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn should_take_equal_titles_for_one_product() {
+        assert_eq!(
+            evidence(
+                "https://shop.example/product/3051/oak-chest-1/",
+                Some("#3051"),
+                Some("Oak chest"),
+                "#3051",
+                "https://shop.example/product/3051/oak-chest/",
+                Some("Oak chest"),
+            ),
+            Some(SameProductEvidence::Title)
+        );
+    }
+
+    /// A captured removal clears a URL's title: a product that moved from `/a` (now gone) to
+    /// `/b` is no evidence of one product with the page it left, nor is a capture without a title.
     #[rstest::rstest]
-    #[case::equal(Some("June 1971"), Some("June 1971"))]
-    #[case::page_untitled(None, Some("June 1971"))]
-    #[case::carrier_untitled(Some("June 1971"), None)]
-    fn should_take_agreeing_or_missing_titles_for_one_product(
+    #[case::carrier_untitled(Some("Oak chest"), None)]
+    #[case::page_untitled(None, Some("Oak chest"))]
+    #[case::both_untitled(None, None)]
+    fn should_take_no_missing_title_for_evidence(
         #[case] title: Option<&str>,
         #[case] carrier_title: Option<&str>,
     ) {
         assert_eq!(
             evidence(
-                "https://shop.example/product/3051/oak-chest-1/",
+                "https://shop.example/products/b",
                 Some("#3051"),
                 title,
                 "#3051",
-                "https://shop.example/product/3051/oak-chest/",
+                "https://shop.example/products/a",
                 carrier_title,
             ),
-            Some(SameProductEvidence::Title)
+            None
         );
     }
 

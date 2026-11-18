@@ -33,8 +33,8 @@ pub(super) enum CarriedIdentity {
 ///   earlier in the batch, is retired as that URL's duplicate with evidence of one product and
 ///   parked in a conflict without; otherwise it captures and claims the identity;
 /// - an unredirected scrape of a captured URL captures under its captured identity, unless its
-///   page shows another identity that another URL carries: then it is retired with evidence of
-///   one product and parked in a conflict without;
+///   page shows another identity that another URL carries, or that another URL claimed earlier in
+///   the batch: then it is retired with evidence of one product and parked in a conflict without;
 /// - a redirected scrape keeps its own identity, which the redirect's conflict check judged.
 ///
 /// It looks the carrier up at most once.
@@ -117,29 +117,36 @@ async fn settle_captured_url(
     else {
         return CarriedIdentity::Capture(None);
     };
-    match ctx
+    let carrier = match ctx
         .scraper_candidates
         .identity_carrier(&candidate.listing_source_id, page_identity, &candidate.url)
         .await
     {
-        Ok(None) => CarriedIdentity::Capture(None),
-        Ok(Some(carrier)) => CarriedIdentity::Settled(Box::new(
-            settle_shown_identity(
-                candidate,
-                ctx,
-                ProductUrlIdentity {
-                    url: &candidate.url,
-                    captured_identity: Some(captured),
-                    title: candidate.last_captured_title.as_deref(),
-                },
-                page_identity,
-                &carrier.url,
-                carrier.title.as_deref(),
-            )
-            .await,
-        )),
-        Err(error) => lookup_failed(candidate, &error),
-    }
+        Ok(Some(carrier)) => Some((carrier.url, carrier.title)),
+        Ok(None) => ctx
+            .claimed_identities
+            .claimant(page_identity, &candidate.url)
+            .map(|claimant| (claimant.url, claimant.title)),
+        Err(error) => return lookup_failed(candidate, &error),
+    };
+    let Some((carrier_url, carrier_title)) = carrier else {
+        return CarriedIdentity::Capture(None);
+    };
+    CarriedIdentity::Settled(Box::new(
+        settle_shown_identity(
+            candidate,
+            ctx,
+            ProductUrlIdentity {
+                url: &candidate.url,
+                captured_identity: Some(captured),
+                title: candidate.last_captured_title.as_deref(),
+            },
+            page_identity,
+            &carrier_url,
+            carrier_title.as_deref(),
+        )
+        .await,
+    ))
 }
 
 /// Retires `candidate` as the duplicate of `carrier_url` with evidence of one product, and parks
@@ -199,8 +206,8 @@ fn known_product_conflict_message(
 }
 
 /// Logs the decision on a page that shows an identity another URL carries: at INFO for a URL
-/// that carries an identity of its own, which may have another product now, and at DEBUG for a
-/// first scrape, the usual way a second spelling of a product is found.
+/// that carries an identity of its own, which may have another product now, and for every
+/// retirement, which nothing undoes; at DEBUG for a first scrape parked in a conflict.
 fn log_shown_identity(
     candidate: &ScraperCandidate,
     captured: Option<&str>,
@@ -214,29 +221,31 @@ fn log_shown_identity(
     } else {
         "identity_conflict"
     };
-    match captured {
-        Some(captured) => info!(
+    let captured_identity = captured.unwrap_or_default();
+    if captured.is_some() || evidence.is_some() {
+        info!(
             event = SHOWS_CARRIED_IDENTITY_EVENT,
             listing_source_id = %candidate.listing_source_id,
             url = %candidate.url,
-            captured_identity = captured,
+            captured_identity,
             page_identity,
             carrier_url = %carrier_url,
             evidence = evidence_name,
             outcome,
             "A product page shows an identity another product URL of its ListingSource carries"
-        ),
-        None => debug!(
+        );
+    } else {
+        debug!(
             event = SHOWS_CARRIED_IDENTITY_EVENT,
             listing_source_id = %candidate.listing_source_id,
             url = %candidate.url,
-            captured_identity = "",
+            captured_identity,
             page_identity,
             carrier_url = %carrier_url,
             evidence = evidence_name,
             outcome,
             "A product page shows an identity another product URL of its ListingSource carries"
-        ),
+        );
     }
 }
 
@@ -750,6 +759,55 @@ mod tests {
             assert!(outcome.errored);
             assert_eq!(
                 outcome.failure_kind.as_deref(),
+                Some(SOURCE_LISTING_ID_CONFLICT_ERROR_KIND)
+            );
+        }
+
+        /// A first scrape earlier in the batch claimed the identity, but its capture is not
+        /// stored yet: a captured URL whose page shows that identity is judged against the
+        /// claimant, so it is not captured with the claimant's product under its own listing.
+        #[tokio::test]
+        async fn should_park_a_url_whose_page_shows_an_identity_the_batch_claimed() {
+            let claimant = url("https://example.com/product/223/table/");
+            let captured = url("https://example.com/product/9/dresser/");
+            let mut scraper_service = MockScraperService::new();
+            scraper_service
+                .expect_scrape()
+                .times(2)
+                .returning(|request| {
+                    let scraped = if request.url.path().ends_with("table/") {
+                        scraped_product(
+                            request.url.clone(),
+                            "#2798",
+                            Some("#2798"),
+                            Some("Oak table"),
+                        )
+                    } else {
+                        scraped_product(request.url.clone(), "J9", Some("#2798"), Some("Oak table"))
+                    };
+                    Box::pin(async move { scrape_outcome(Ok(Some(scraped))) })
+                });
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_identity_carrier()
+                .times(2)
+                .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            scraper_candidates.expect_set_disposition().never();
+            expect_conflict(&mut scraper_candidates, &captured);
+            let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+            let first_outcome =
+                scrape_candidate(scraper_candidate("ListingSource", claimant), &ctx).await;
+            let captured_outcome = scrape_candidate(
+                captured_candidate(captured.as_str(), "J9", Some("Pine dresser")),
+                &ctx,
+            )
+            .await;
+
+            assert!(first_outcome.capture.is_some());
+            assert!(captured_outcome.capture.is_none());
+            assert_eq!(
+                captured_outcome.failure_kind.as_deref(),
                 Some(SOURCE_LISTING_ID_CONFLICT_ERROR_KIND)
             );
         }
