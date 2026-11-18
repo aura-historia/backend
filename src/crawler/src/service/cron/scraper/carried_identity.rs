@@ -33,8 +33,9 @@ pub(super) enum CarriedIdentity {
 ///   earlier in the batch, is retired as that URL's duplicate with evidence of one product and
 ///   parked in a conflict without; otherwise it captures and claims the identity;
 /// - an unredirected scrape of a captured URL captures under its captured identity, unless its
-///   page shows another identity that another URL carries, or that another URL claimed earlier in
-///   the batch: then it is retired with evidence of one product and parked in a conflict without;
+///   page shows another identity that another URL carries: then it is retired with evidence of
+///   one product and parked in a conflict without; one that another URL only claimed earlier in
+///   the batch parks it in a conflict, since that claimant's capture may still fail;
 /// - a redirected scrape keeps its own identity, which the redirect's conflict check judged.
 ///
 /// It looks the carrier up at most once.
@@ -117,36 +118,57 @@ async fn settle_captured_url(
     else {
         return CarriedIdentity::Capture(None);
     };
-    let carrier = match ctx
+    match ctx
         .scraper_candidates
         .identity_carrier(&candidate.listing_source_id, page_identity, &candidate.url)
         .await
     {
-        Ok(Some(carrier)) => Some((carrier.url, carrier.title)),
-        Ok(None) => ctx
+        Ok(Some(carrier)) => CarriedIdentity::Settled(Box::new(
+            settle_shown_identity(
+                candidate,
+                ctx,
+                ProductUrlIdentity {
+                    url: &candidate.url,
+                    captured_identity: Some(captured),
+                    title: candidate.last_captured_title.as_deref(),
+                },
+                page_identity,
+                &carrier.url,
+                carrier.title.as_deref(),
+            )
+            .await,
+        )),
+        Ok(None) => match ctx
             .claimed_identities
             .claimant(page_identity, &candidate.url)
-            .map(|claimant| (claimant.url, claimant.title)),
-        Err(error) => return lookup_failed(candidate, &error),
-    };
-    let Some((carrier_url, carrier_title)) = carrier else {
-        return CarriedIdentity::Capture(None);
-    };
-    CarriedIdentity::Settled(Box::new(
-        settle_shown_identity(
-            candidate,
-            ctx,
-            ProductUrlIdentity {
-                url: &candidate.url,
-                captured_identity: Some(captured),
-                title: candidate.last_captured_title.as_deref(),
-            },
-            page_identity,
-            &carrier_url,
-            carrier_title.as_deref(),
-        )
-        .await,
-    ))
+        {
+            Some(claimant) => CarriedIdentity::Settled(Box::new(
+                park_behind_claim(candidate, ctx, captured, page_identity, &claimant.url).await,
+            )),
+            None => CarriedIdentity::Capture(None),
+        },
+        Err(error) => lookup_failed(candidate, &error),
+    }
+}
+
+/// Parks a captured URL whose page shows an identity a first scrape claimed earlier in the batch
+/// in an identity conflict, whatever the evidence: the claimant's capture is not stored yet and
+/// may still fail, and retiring the URL against it would strand the URL's own listing. Its retry
+/// judges it against the stored carrier.
+async fn park_behind_claim(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    captured: &str,
+    page_identity: &str,
+    claimant_url: &url::Url,
+) -> ScrapeCandidateOutcome {
+    log_shown_identity(candidate, Some(captured), page_identity, claimant_url, None);
+    persist_identity_conflict(
+        candidate,
+        ctx,
+        &known_product_conflict_message(Some(captured), page_identity, claimant_url),
+    )
+    .await
 }
 
 /// Retires `candidate` as the duplicate of `carrier_url` with evidence of one product, and parks
@@ -764,10 +786,16 @@ mod tests {
         }
 
         /// A first scrape earlier in the batch claimed the identity, but its capture is not
-        /// stored yet: a captured URL whose page shows that identity is judged against the
-        /// claimant, so it is not captured with the claimant's product under its own listing.
+        /// stored yet: a captured URL whose page shows that identity is neither captured with the
+        /// claimant's product under its own listing nor retired against a capture that may still
+        /// fail, even when the titles agree; it waits in a conflict.
+        #[rstest::rstest]
+        #[case::another_product("Pine dresser")]
+        #[case::same_title_as_the_claimant("Oak table")]
         #[tokio::test]
-        async fn should_park_a_url_whose_page_shows_an_identity_the_batch_claimed() {
+        async fn should_park_a_url_whose_page_shows_an_identity_the_batch_claimed(
+            #[case] captured_title: &str,
+        ) {
             let claimant = url("https://example.com/product/223/table/");
             let captured = url("https://example.com/product/9/dresser/");
             let mut scraper_service = MockScraperService::new();
@@ -799,7 +827,7 @@ mod tests {
             let first_outcome =
                 scrape_candidate(scraper_candidate("ListingSource", claimant), &ctx).await;
             let captured_outcome = scrape_candidate(
-                captured_candidate(captured.as_str(), "J9", Some("Pine dresser")),
+                captured_candidate(captured.as_str(), "J9", Some(captured_title)),
                 &ctx,
             )
             .await;
