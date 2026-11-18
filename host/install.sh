@@ -153,9 +153,11 @@ install_ssh() {
   log "SSH accepts keys only; keep this session open and test a new key login before closing it"
 }
 
-ssh_port() { sshd -T | awk '$1 == "port" {print $2; exit}'; }
+# These awk programs read to the end: under pipefail, exiting early would kill the
+# writer with SIGPIPE and fail the whole step.
+ssh_port() { sshd -T | awk '$1 == "port" && !seen++ {print $2}'; }
 
-external_interface() { ip -o route show default | awk '{print $5; exit}'; }
+external_interface() { ip -o route show default | awk 'NR == 1 {print $5}'; }
 
 install_ufw_docker_block() {
   local interface=$1 rules
