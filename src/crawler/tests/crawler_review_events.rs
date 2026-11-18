@@ -243,6 +243,7 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
             review_id,
             ReviewActor::AgentReviewer,
             Some("not a product page"),
+            None,
         )
         .await
         .unwrap();
@@ -566,7 +567,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
 
     let rejected_id = pending_schema_review(&repository, &listing_source_id).await;
     repository
-        .reject_review(rejected_id, ReviewActor::Human, None)
+        .reject_review(rejected_id, ReviewActor::Human, None, None)
         .await
         .unwrap();
     let closed_edit = repository
@@ -659,7 +660,7 @@ async fn should_record_no_event_for_a_refused_mutation() {
     assert!(events(&repository, review_id).await.is_empty());
 
     repository
-        .reject_review(review_id, ReviewActor::Human, None)
+        .reject_review(review_id, ReviewActor::Human, None, None)
         .await
         .unwrap();
     let closed = [
@@ -668,6 +669,7 @@ async fn should_record_no_event_for_a_refused_mutation() {
                 review_id,
                 ReviewActor::AgentReviewer,
                 Some("not a shop page"),
+                None,
             )
             .await,
         repository
@@ -722,6 +724,7 @@ async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
             review_id,
             ReviewActor::AgentReviewer,
             Some("not a product page"),
+            None,
         )
         .await;
 
@@ -756,6 +759,7 @@ async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
             review_id,
             ReviewActor::AgentReviewer,
             Some("not a shop page"),
+            None,
         )
         .await
         .unwrap();

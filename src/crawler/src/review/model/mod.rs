@@ -4,6 +4,7 @@ pub mod list_window;
 pub mod listing_source_detail;
 pub mod listing_source_filter;
 pub mod listing_source_overview;
+pub mod page_classification;
 pub mod page_role;
 pub mod page_signals;
 pub mod page_size;
@@ -42,6 +43,10 @@ pub use listing_source_detail::{
 };
 pub use listing_source_filter::{SourceActivity, SourceSort, SourceStatus};
 pub use listing_source_overview::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
+pub use page_classification::{
+    ClassifiedPage, MAX_PAGE_VERDICT_REASON_CHARS, PageClassification, PageClassificationError,
+    PageVerdict, PageVerdictReason,
+};
 pub use page_role::*;
 pub use page_signals::PageSignals;
 pub use page_size::PageSize;

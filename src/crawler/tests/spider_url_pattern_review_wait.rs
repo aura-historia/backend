@@ -356,6 +356,7 @@ async fn should_record_no_review_wait_when_url_pattern_review_is_rejected_during
             review_id,
             ReviewActor::Human,
             Some("not the shop's catalogue"),
+            None,
         )
         .await
         .unwrap();
@@ -409,6 +410,7 @@ async fn should_clear_an_earlier_review_wait_when_its_review_is_rejected_during_
             review_id,
             ReviewActor::Human,
             Some("not the shop's catalogue"),
+            None,
         )
         .await
         .unwrap();
@@ -446,7 +448,7 @@ impl ClosingVerdict {
         match self {
             Self::Approve => approve_candidate(repository, review_id).await,
             Self::Reject => repository
-                .reject_review(review_id, ReviewActor::Human, None)
+                .reject_review(review_id, ReviewActor::Human, None, None)
                 .await
                 .unwrap(),
         }

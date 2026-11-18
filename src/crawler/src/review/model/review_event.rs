@@ -38,6 +38,9 @@ pub struct ReviewEventSummary {
     /// The URL-pattern state an `APPROVED` event of a URL-pattern review made live, such as
     /// `NO_PATTERN`; `None` for every other event.
     pub approved_url_pattern_state: Option<String>,
+    /// Whether a `REJECTED` event rests on the page classifier's verdicts, which the review agent
+    /// runner sent with it (`docs/crawler/extraction-and-review.md#page-classifier`).
+    pub classifier_rejection: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
