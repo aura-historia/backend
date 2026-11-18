@@ -44,7 +44,9 @@ Each scope also reads its providers' settings, unchanged from its Lambda functio
 `ANTHROPIC_API_KEY`, `VERTEX_AI_PROJECT_ID`, `LOOPS_API_KEY`, `OPENSEARCH_ENDPOINT_URL`, the
 notification email settings and `AURA_HISTORIA_COGNITO_USER_POOL_ID`). Composition reads and
 validates them at startup; a missing setting stops the worker and names the scope. Google
-credentials come from the file `GOOGLE_APPLICATION_CREDENTIALS` names.
+credentials come from the file `GOOGLE_APPLICATION_CREDENTIALS` names. Notification emails are
+rendered from the compiled templates under `MAIL_TEMPLATE_DIR`, which the image sets to its
+baked-in [templates](../../mjml/README.md); every template is loaded at startup.
 
 If a consumer, the dispatcher or the wake-up listener stops on its own, the worker shuts down
 every other task and exits non-zero, so the container is restarted rather than running with a

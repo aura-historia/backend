@@ -27,6 +27,14 @@ if docker run --rm --network none --read-only --user 0:0 --entrypoint /usr/bin/t
   exit 1
 fi
 
+# Every MJML email template is compiled into the image's template directory.
+expected_templates="$(git ls-files -- 'mjml/**/*.mjml' | wc -l)"
+image_templates="$(docker run --rm --network none --read-only --entrypoint /usr/bin/find "$image_ref" \
+  /usr/share/aura-historia/mail-templates -type f -name '*.html' | wc -l)"
+test "$expected_templates" -gt 0 && test "$image_templates" -eq "$expected_templates" || {
+  echo "The image holds $image_templates compiled email templates; expected $expected_templates." >&2; exit 1;
+}
+
 # Every entrypoint exists and fails closed without configuration instead of starting.
 for entrypoint in api mcp worker; do
   status=0

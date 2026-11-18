@@ -194,7 +194,7 @@ fn category_label(category: ReasonCategory, language: EmailLanguage) -> &'static
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::template_mapping::s3_template_key;
+    use crate::template_mapping::template_path;
     use content_notice_core::{
         content_notice_id::ContentNoticeId, content_notice_target::ProductListingTitleSnapshot,
     };
@@ -262,9 +262,8 @@ mod tests {
         );
 
         assert_eq!(
-            format!("mail/build-id/mjml/content-notice/receipt/{expected_key_language}.html"),
-            s3_template_key(
-                "mail/build-id/",
+            format!("content-notice/receipt/{expected_key_language}.html"),
+            template_path(
                 external_template_type(&source.content),
                 EmailLanguage::resolve(source.language),
             )
@@ -293,12 +292,8 @@ mod tests {
             external_template_data(&source, links(EmailLanguage::De))
         );
         assert_eq!(
-            "mail/build-id/mjml/content-notice/receipt/de.html",
-            s3_template_key(
-                "mail/build-id/",
-                external_template_type(&source.content),
-                EmailLanguage::De,
-            )
+            "content-notice/receipt/de.html",
+            template_path(external_template_type(&source.content), EmailLanguage::De,)
         );
     }
 

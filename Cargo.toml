@@ -29,6 +29,7 @@ members = [
     "src/billing-service",
     "src/billing-stripe",
     "src/cognito-post-confirmation",
+    "src/cognito-post-confirmation-forwarder",
     "src/cognito-pre-sign-up",
     "src/credential-core",
     "src/domain-primitives",
@@ -63,6 +64,7 @@ members = [
     "src/platform-observability",
     "src/platform-lambda-bootstrap",
     "src/platform-aws",
+    "src/platform-cloudwatch-logs",
     "src/platform-opensearch",
     "src/platform-postgres",
     "src/platform-postgres-queue",
@@ -130,6 +132,7 @@ aws-sdk-account = "1.106.0"
 aws-sdk-geoplaces = "1.69.0"
 aws-sdk-sesv2 = "1.122.0"
 aws-sdk-s3 = "1.135.0"
+aws-sdk-cloudwatchlogs = "1.135.0"
 aws-smithy-runtime-api = "1.18.0"
 aws-smithy-types = "1.6.1"
 aws_lambda_events = { version = "1.2.0", default-features = false }
@@ -162,6 +165,8 @@ auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
+platform-cloudwatch-logs = { path = "src/platform-cloudwatch-logs" }
+cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 platform-process = { path = "src/platform-process" }
 platform-worker = { path = "src/platform-worker" }
 aura-historia-worker = { path = "src/aura-historia-worker" }

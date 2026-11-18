@@ -215,6 +215,16 @@ describe.each(STAGES)("%s Cognito federation", (stage) => {
     expect(rolePolicyStatements(template, forwarder)).toEqual([]);
   });
 
+  test("forwards to the host's internal endpoint through the API hostname with the version-pinned signing key", () => {
+    const template = identityTemplate(stage);
+    const forwarder = resourceByFunctionName(template, `cognito-post-confirmation-forwarder-${stage}`);
+    expect(forwarder.Properties.Environment.Variables).toEqual({
+      LOG_LEVEL: expect.any(String),
+      POST_CONFIRMATION_ENDPOINT_URL: "https://api.aura-historia.com/internal/cognito/post-confirmation",
+      POST_CONFIRMATION_SIGNING_KEY: credentialReference(credentialSecrets(stage).postConfirmationSigning, "value"),
+    });
+  });
+
   test("pins each trigger's code to a completed release object and its version to the code digest", () => {
     const template = identityTemplate(stage);
     for (const [functionName, stem] of [

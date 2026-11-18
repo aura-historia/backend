@@ -1,0 +1,20 @@
+[package]
+name = "cognito-post-confirmation-forwarder"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cognito-post-confirmation = { workspace = true }
+lambda_runtime = { workspace = true }
+platform-lambda-bootstrap = { workspace = true }
+platform-observability = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }

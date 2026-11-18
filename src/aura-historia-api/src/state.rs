@@ -177,6 +177,7 @@ pub struct AppState {
     pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
     pub(crate) shopify_webhooks: Option<ShopifyWebhooksState>,
     pub(crate) stripe_webhooks: Option<StripeWebhooksState>,
+    pub(crate) cognito_post_confirmation: Option<CognitoPostConfirmationState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
@@ -233,6 +234,7 @@ impl AppState {
             notifications: None,
             webhooks: None,
             loops_webhooks: None,
+            cognito_post_confirmation: None,
             shopify_webhooks: None,
             stripe_webhooks: None,
             auctions: None,
@@ -397,6 +399,11 @@ impl AppState {
         self
     }
 
+    pub fn with_cognito_post_confirmation(mut self, state: CognitoPostConfirmationState) -> Self {
+        self.cognito_post_confirmation = Some(state);
+        self
+    }
+
     pub fn with_shopify_webhooks(mut self, webhooks: ShopifyWebhooksState) -> Self {
         self.shopify_webhooks = Some(webhooks);
         self
@@ -556,6 +563,29 @@ impl WebhooksState {
         Self {
             intake,
             authenticator,
+        }
+    }
+}
+
+/// The internal endpoint Cognito's post-confirmation forwarder calls.
+#[derive(Clone)]
+pub struct CognitoPostConfirmationState {
+    pub(crate) verifier: Arc<cognito_post_confirmation::signature::SignatureVerifier>,
+    pub(crate) expected_issuer: Arc<str>,
+    pub(crate) register: Arc<dyn user_service::use_cases::RegisterCognitoUserUseCase>,
+}
+
+impl CognitoPostConfirmationState {
+    /// `expected_issuer` is the configured user pool's issuer; other pools' events are refused.
+    pub fn new(
+        verifier: cognito_post_confirmation::signature::SignatureVerifier,
+        expected_issuer: impl Into<String>,
+        register: Arc<dyn user_service::use_cases::RegisterCognitoUserUseCase>,
+    ) -> Self {
+        Self {
+            verifier: Arc::new(verifier),
+            expected_issuer: Arc::from(expected_issuer.into()),
+            register,
         }
     }
 }

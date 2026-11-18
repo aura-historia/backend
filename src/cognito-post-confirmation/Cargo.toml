@@ -5,24 +5,23 @@ edition = "2024"
 
 [dependencies]
 application = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["cognito"] }
+base64 = { workspace = true }
 localization = { workspace = true }
-platform-observability = { workspace = true }
-platform-lambda-bootstrap = { workspace = true }
-platform-postgres = { workspace = true }
+openssl = { workspace = true, features = ["vendored"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
-aws_lambda_events = { workspace = true, features = ["cognito"] }
-lambda_runtime = { workspace = true }
-serde-email = { workspace = true }
 user-core = { workspace = true }
-user-postgres = { workspace = true }
 user-service = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+platform-postgres = { workspace = true }
+serde-email = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 time = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+user-postgres = { workspace = true }

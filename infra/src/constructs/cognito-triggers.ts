@@ -4,6 +4,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { ARTIFACT_BUCKET_NAME, type StageConfig } from "../config";
+import { credentialSecrets, credentialValue } from "../credentials";
 import { lambdaArtifactParameters, releaseLambdaCode } from "../release-artifacts";
 import { LAMBDA_LOG_LEVEL, LAMBDA_LOGGING, lambdaLogGroup } from "./lambda-logging";
 
@@ -15,25 +16,36 @@ interface TriggerDefinition {
   readonly binaryName: string;
   /** Distinct from the retired VPC triggers, which keep their names until their stack is deleted. */
   readonly functionName: (stage: string) => string;
-  readonly environment: (config: StageConfig) => Record<string, string>;
+  readonly environment: (scope: Construct, config: StageConfig) => Record<string, string>;
 }
+
+/** The host's internal endpoint the post-confirmation forwarder calls (`aura-historia-api`). */
+export const POST_CONFIRMATION_ENDPOINT_PATH = "/internal/cognito/post-confirmation";
 
 export const PRE_SIGN_UP_TRIGGER: TriggerDefinition = {
   id: "PreSignUp",
   binaryName: "cognito-pre-sign-up",
   functionName: (stage) => `cognito-pre-sign-up-trigger-${stage}`,
-  environment: (config) => ({ COGNITO_PROVIDER_SIGNUP_POLICY: providerSignupPolicy(config) }),
+  environment: (_scope, config) => ({ COGNITO_PROVIDER_SIGNUP_POLICY: providerSignupPolicy(config) }),
 };
 
 /**
- * Forwards each confirmation to the host's signed internal endpoint; it holds no business state.
- * Its endpoint and signing-key configuration arrive with its binary.
+ * Forwards each confirmation, signed and timestamped, to the host's internal endpoint through the
+ * public API hostname, because the host accepts only CloudFront. It holds no business state. The
+ * signing key is resolved at deployment from the version-pinned secret the host stack generates.
  */
 export const POST_CONFIRMATION_TRIGGER: TriggerDefinition = {
   id: "PostConfirmation",
   binaryName: "cognito-post-confirmation-forwarder",
   functionName: (stage) => `cognito-post-confirmation-forwarder-${stage}`,
-  environment: () => ({}),
+  environment: (scope, config) => ({
+    POST_CONFIRMATION_ENDPOINT_URL: `https://${config.apiDomainName}${POST_CONFIRMATION_ENDPOINT_PATH}`,
+    POST_CONFIRMATION_SIGNING_KEY: credentialValue(
+      scope,
+      credentialSecrets(config.stage).postConfirmationSigning,
+      "value",
+    ).unsafeUnwrap(),
+  }),
 };
 
 export interface CognitoTriggersProps {
@@ -78,7 +90,7 @@ function triggerFunction(
     reservedConcurrentExecutions: 5,
     logGroup: lambdaLogGroup(scope, `${definition.id}LogGroup`, functionName, config),
     ...LAMBDA_LOGGING,
-    environment: { LOG_LEVEL: LAMBDA_LOG_LEVEL, ...definition.environment(config) },
+    environment: { LOG_LEVEL: LAMBDA_LOG_LEVEL, ...definition.environment(scope, config) },
   });
   return new lambda.Alias(scope, `${definition.id}Alias`, {
     aliasName: COGNITO_TRIGGER_ALIAS_NAME,

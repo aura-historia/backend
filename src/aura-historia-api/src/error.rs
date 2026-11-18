@@ -273,6 +273,19 @@ pub(crate) const STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE");
 pub(crate) const STRIPE_WEBHOOK_UNAUTHORIZED: ApiErrorCode =
     ApiErrorCode("STRIPE_WEBHOOK_UNAUTHORIZED");
+// The internal post-confirmation endpoint's codes; it is not part of the public API contract.
+pub(crate) const POST_CONFIRMATION_CONFLICT: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_CONFLICT");
+pub(crate) const POST_CONFIRMATION_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_INTERNAL_ERROR");
+pub(crate) const POST_CONFIRMATION_INVALID_EVENT: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_INVALID_EVENT");
+pub(crate) const POST_CONFIRMATION_PAYLOAD_TOO_LARGE: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_PAYLOAD_TOO_LARGE");
+pub(crate) const POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE");
+pub(crate) const POST_CONFIRMATION_UNAUTHORIZED: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_UNAUTHORIZED");
 pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");

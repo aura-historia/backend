@@ -11,7 +11,6 @@ aura-historia-jobs = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-cognitoidentityprovider = { workspace = true }
 aws-sdk-geoplaces = { workspace = true }
-aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
 aws-smithy-types = { workspace = true }
 delivery-outbox = { workspace = true }
@@ -67,7 +66,7 @@ search-filter-core = { workspace = true }
 serde = { workspace = true }
 serde-email = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["opensearch", "postgres", "s3", "ses"] }
+test-api = { workspace = true, features = ["opensearch", "postgres", "ses"] }
 time = { workspace = true, features = ["macros"] }
 uuid = { workspace = true, features = ["v7"] }
 wiremock = "0.6"

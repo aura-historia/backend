@@ -24,6 +24,8 @@ pub mod product_listings;
 pub(crate) mod public_overview;
 mod rate_limit;
 pub use platform_process::{InvalidRateLimit, RateLimit};
+pub mod consent_evidence;
+pub mod internal;
 mod readiness;
 pub mod search_filters;
 pub mod shipping;
@@ -45,8 +47,8 @@ use crate::auth::{
 use crate::readiness::RuntimeReadiness;
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
-    ContentNoticesState, ListingSourcesState, LoopsWebhooksState, NewsletterState,
-    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    CognitoPostConfirmationState, ContentNoticesState, ListingSourcesState, LoopsWebhooksState,
+    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
     PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
     PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, ShopifyWebhooksState,
     StripeWebhooksState, UsersState, WatchlistState, WebhooksState,
@@ -191,6 +193,7 @@ use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
 };
 
+use cognito_post_confirmation::signature::{SignatureVerifier, SigningKey};
 use geo_amazon_location::{AmazonLocationAddressSuggester, AmazonLocationConfig};
 use geo_postgres::SqlxSuggestionUsageRepositoryFactory;
 use geo_service::suggestions::SuggestAddressesHandler;
@@ -264,6 +267,9 @@ pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
 pub const LOOPS_WEBHOOK_SIGNING_SECRET_ENV: &str = "LOOPS_WEBHOOK_SIGNING_SECRET";
+pub const COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV: &str = "COGNITO_POST_CONFIRMATION_SIGNING_KEY";
+pub const COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV: &str =
+    "COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY";
 pub const SHOPIFY_APP_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_CLIENT_SECRET";
 pub const SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_PREVIOUS_CLIENT_SECRET";
 pub const NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV: &str =
@@ -273,7 +279,7 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO";
 pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
-pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const MAIL_TEMPLATE_DIR_ENV: &str = "MAIL_TEMPLATE_DIR";
 pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV: &str =
     "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED";
@@ -287,7 +293,6 @@ const MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS: u64 = 24 * 60 * 60;
 const MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS: u64 = 365 * 24 * 60 * 60;
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
-pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
 pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
@@ -333,6 +338,7 @@ pub struct ApiConfig {
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
     shopify_webhook_secrets: ShopifyWebhookSecrets,
+    post_confirmation_signature: SignatureVerifier,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -421,7 +427,7 @@ impl ApiConfig {
         )
         .map_err(ApiConfigError::LoopsConfig)?;
         let newsletter_confirmation_email = NewsletterConfirmationEmailConfig::new(
-            required_config(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+            required_config(&mut get, MAIL_TEMPLATE_DIR_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV)?,
             required_config(
@@ -429,7 +435,6 @@ impl ApiConfig {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
             )?,
             required_config(&mut get, STAGE_ENV)?,
-            required_config(&mut get, MAIL_TEMPLATE_PREFIX_ENV)?,
             &required_config(&mut get, NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV)?,
         )
         .map_err(ApiConfigError::NewsletterConfirmationEmailConfig)?;
@@ -440,6 +445,7 @@ impl ApiConfig {
         )
         .map_err(|_| ApiConfigError::InvalidLoopsWebhookSigningSecret)?;
         let shopify_webhook_secrets = shopify_webhook_secrets(&mut get)?;
+        let post_confirmation_signature = post_confirmation_signature(&mut get)?;
         let rate_limit = rate_limit_config(
             &mut get,
             API_RATE_LIMIT_PER_SECOND_ENV,
@@ -474,6 +480,7 @@ impl ApiConfig {
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
             shopify_webhook_secrets,
+            post_confirmation_signature,
             public_listing_source_read_max_in_flight,
             public_listing_source_read_request_timeout,
         })
@@ -738,6 +745,8 @@ pub enum ApiConfigError {
     InvalidLoopsWebhookSigningSecret,
     #[error("invalid Shopify app client-secret configuration")]
     InvalidShopifyAppClientSecret,
+    #[error("{name} must hold at least 32 bytes")]
+    WeakPostConfirmationSigningKey { name: &'static str },
     #[error("invalid Stripe webhook signing-secret configuration")]
     InvalidStripeWebhookSigningSecret,
 }
@@ -751,6 +760,25 @@ where
     let current = required_config(get, SHOPIFY_APP_CLIENT_SECRET_ENV)?;
     ShopifyWebhookSecrets::new(current, get(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV))
         .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret)
+}
+
+/// The forwarder's current signing key is required; the previous one is accepted next to it only
+/// while the key rotates.
+fn post_confirmation_signature<F>(get: &mut F) -> Result<SignatureVerifier, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let key = |name: &'static str, value: String| {
+        SigningKey::new(value).map_err(|_| ApiConfigError::WeakPostConfirmationSigningKey { name })
+    };
+    let current = key(
+        COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV,
+        required_config(get, COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV)?,
+    )?;
+    let previous = get(COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV)
+        .map(|value| key(COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV, value))
+        .transpose()?;
+    Ok(SignatureVerifier::new(current, previous))
 }
 
 fn rate_limit_config<F>(
@@ -881,6 +909,10 @@ fn compose_app(
                 )
                 .with_state(webhooks),
         );
+    }
+
+    if let Some(post_confirmation) = state.cognito_post_confirmation {
+        routes = routes.merge(internal::routes(post_confirmation));
     }
 
     if let Some(webhooks) = state.stripe_webhooks {
@@ -1672,10 +1704,10 @@ async fn app_state_from_config_and_runtime(
     );
     let newsletter_challenges = SqlxNewsletterConfirmationChallengesRepository::new();
     let newsletter_email_sender = SesNewsletterConfirmationEmailSender::new(
-        aws_sdk_s3::Client::new(&aws_client_config),
         aws_sdk_sesv2::Client::new(&aws_client_config),
         config.newsletter_confirmation_email().clone(),
-    );
+    )
+    .map_err(ApiStateError::NewsletterConfirmationTemplates)?;
     let request_newsletter_subscription = RequestNewsletterSubscriptionHandler::new(
         unit_of_work.clone(),
         newsletter_challenges,
@@ -2320,6 +2352,16 @@ async fn app_state_from_config_and_runtime(
             )),
             Arc::new(process_shopify_product),
         ))
+        .with_cognito_post_confirmation(CognitoPostConfirmationState::new(
+            config.post_confirmation_signature.clone(),
+            config.cognito_jwt().issuer.clone(),
+            Arc::new(user_service::use_cases::RegisterCognitoUserHandler::new(
+                unit_of_work.clone(),
+                SqlxUserRepositoryFactory::new(),
+                SqlxUserCognitoIdentityRegistryFactory::new(),
+                SqlxMarketingConsentIntentRepository::new(),
+            )),
+        ))
         .with_loops_webhooks(LoopsWebhooksState::new(
             config.loops_webhook_signing_secret().to_owned(),
             Arc::new(LoopsNewsletterWebhookVerifier),
@@ -2393,6 +2435,8 @@ pub enum ApiStateError {
     LoopsWebhookListConfiguration,
     #[error("failed to configure address suggestions")]
     AddressSuggestions(#[source] application::error::BoxError),
+    #[error("failed to load the newsletter confirmation email templates")]
+    NewsletterConfirmationTemplates(#[source] user_email_aws::NewsletterConfirmationTemplateError),
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
@@ -2509,8 +2553,12 @@ mod tests {
                 "test-shopify-client-secret".to_owned(),
             ),
             (
-                S3_BUCKET_NAME_TEMPLATES_ENV,
-                "test-mail-templates".to_owned(),
+                COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV,
+                "test-post-confirmation-signing-key-0123".to_owned(),
+            ),
+            (
+                MAIL_TEMPLATE_DIR_ENV,
+                "/usr/share/aura-historia/mail-templates".to_owned(),
             ),
             (
                 NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV,
@@ -2530,7 +2578,6 @@ mod tests {
             ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
-            (MAIL_TEMPLATE_PREFIX_ENV, "mail/test-commit/".to_owned()),
             (
                 NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
                 "http://127.0.0.1:3000".to_owned(),
@@ -2751,12 +2798,11 @@ mod tests {
             let config = ApiConfig::from_getter(|name| values.get(name).cloned())
                 .unwrap_or_else(|error| panic!("valid API config rejected: {error}"));
             let expected = NewsletterConfirmationEmailConfig::new(
-                "test-mail-templates",
+                "/usr/share/aura-historia/mail-templates",
                 "Aura Historia <newsletter@example.test>",
                 "contact@example.test",
                 value,
                 "ephemeral",
-                "mail/test-commit/",
                 "http://127.0.0.1:3000",
             )
             .unwrap_or_else(|_| panic!("valid newsletter email config rejected"));
@@ -2913,6 +2959,35 @@ mod tests {
             config(&[(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, " ")], &[]),
             Err(ApiConfigError::InvalidShopifyAppClientSecret)
         ));
+    }
+
+    #[test]
+    fn should_require_a_strong_post_confirmation_signing_key_without_revealing_it() {
+        let mut missing = valid_api_config_values();
+        missing.remove(COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| missing.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV
+            })
+        ));
+
+        let sentinel = "short-key-sentinel";
+        for name in [
+            COGNITO_POST_CONFIRMATION_SIGNING_KEY_ENV,
+            COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY_ENV,
+        ] {
+            let mut weak = valid_api_config_values();
+            weak.insert(name, sentinel.to_owned());
+            let Err(error) = ApiConfig::from_getter(|name| weak.get(name).cloned()) else {
+                panic!("weak post-confirmation signing key unexpectedly accepted");
+            };
+            assert!(matches!(
+                error,
+                ApiConfigError::WeakPostConfirmationSigningKey { name: rejected } if rejected == name
+            ));
+            assert!(!format!("{error} {error:?}").contains(sentinel));
+        }
     }
 
     #[test]

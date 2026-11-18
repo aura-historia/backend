@@ -44,4 +44,5 @@ carry provider responses or persisted values.
 
 `google_application_default_credentials()` reads the credentials file named by
 `GOOGLE_APPLICATION_CREDENTIALS` and fails at startup when it is missing; it never falls back to
-a developer's local credentials or a metadata server.
+a developer's local credentials or a metadata server. On the host the file is a keyless AWS
+`external_account` configuration ([Vertex AI credentials](../../docs/infra.md#vertex-ai-credentials)).

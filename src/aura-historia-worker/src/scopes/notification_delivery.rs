@@ -36,23 +36,24 @@ const DELIVERY_OPERATION_BUDGET: Duration = Duration::from_secs(30);
 
 pub fn compose_delivery_use_case(
     pool: PgPool,
-    s3: aws_sdk_s3::Client,
     ses: aws_sdk_sesv2::Client,
     email: EmailDeliveryConfig,
 ) -> Result<Arc<dyn DeliverNotificationUseCase>, CompositionError> {
-    let dispatcher =
-        NotificationDeliveryDispatcher::new(vec![Arc::new(SesNotificationChannelSender::new(
-            s3,
-            ses,
-            email,
-            Arc::new(SqlxEmailDeliveryTargetReader::new(pool.clone())),
-        )) as Arc<dyn NotificationChannelSender>])
-        .map_err(|_| {
-            CompositionError::new(
-                SCOPE,
-                "notification delivery dispatcher configuration is invalid",
-            )
-        })?;
+    let sender = SesNotificationChannelSender::new(
+        ses,
+        email,
+        Arc::new(SqlxEmailDeliveryTargetReader::new(pool.clone())),
+    )
+    .map_err(|error| CompositionError::new(SCOPE, error))?;
+    let dispatcher = NotificationDeliveryDispatcher::new(vec![
+        Arc::new(sender) as Arc<dyn NotificationChannelSender>
+    ])
+    .map_err(|_| {
+        CompositionError::new(
+            SCOPE,
+            "notification delivery dispatcher configuration is invalid",
+        )
+    })?;
     dispatcher
         .validate_channels([NotificationDeliveryChannel::Email])
         .map_err(|_| {
@@ -311,12 +312,8 @@ pub async fn compose(pool: &PgPool) -> Result<Arc<dyn JobHandler>, CompositionEr
         )
         .load()
         .await;
-    let use_case = compose_delivery_use_case(
-        pool.clone(),
-        aws_sdk_s3::Client::new(&aws_config),
-        aws_sdk_sesv2::Client::new(&aws_config),
-        email,
-    )?;
+    let use_case =
+        compose_delivery_use_case(pool.clone(), aws_sdk_sesv2::Client::new(&aws_config), email)?;
     Ok(Arc::new(NotificationDeliveryJobs::new(use_case)))
 }
 
@@ -325,11 +322,10 @@ fn email_config_from(
     setting: impl Fn(&str) -> Result<String, ConfigError>,
 ) -> Result<EmailDeliveryConfig, BoxError> {
     Ok(EmailDeliveryConfig::new(
-        setting("S3_BUCKET_NAME_TEMPLATES")?,
+        setting("MAIL_TEMPLATE_DIR")?,
         setting("NOTIFICATION_EMAIL_FROM")?,
         setting("NOTIFICATION_EMAIL_REPLY_TO")?,
         setting("NOTIFICATION_EMAIL_CONFIGURATION_SET")?,
-        setting("MAIL_TEMPLATE_PREFIX")?,
         &setting("NOTIFICATION_EMAIL_FRONTEND_ORIGIN")?,
     )?)
 }
@@ -545,12 +541,11 @@ mod tests {
 
     fn test_env(name: &str) -> Result<String, ConfigError> {
         Ok(match name {
-            "S3_BUCKET_NAME_TEMPLATES" => "test-templates",
+            "MAIL_TEMPLATE_DIR" => "/usr/share/aura-historia/mail-templates",
             "NOTIFICATION_EMAIL_FROM" => "from@example.test",
             "NOTIFICATION_EMAIL_REPLY_TO" => "reply@example.test",
             CONFIGURATION_SET_ENV => "aura-historia-test-email",
             "STAGE" => "test",
-            "MAIL_TEMPLATE_PREFIX" => "mail/test-commit/",
             "NOTIFICATION_EMAIL_FRONTEND_ORIGIN" => "https://stage.aura-historia.com",
             _ => return Err(ConfigError::Missing { name: name.into() }),
         }

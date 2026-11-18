@@ -1,5 +1,6 @@
 import { API_SELECTIVE_READ_PATH_PATTERNS } from "../src/constructs/api";
-import { axumRouteKeys, swaggerRouteKeys } from "./api-route-contract";
+import { POST_CONFIRMATION_ENDPOINT_PATH } from "../src/constructs/cognito-triggers";
+import { axumInternalRouteKeys, axumRouteKeys, swaggerRouteKeys } from "./api-route-contract";
 
 const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
   "GET /v1/listing-sources",
@@ -62,6 +63,16 @@ describe("REST route contract", () => {
       expect(routes.filter((key) => key.includes(" /api/"))).toEqual([]);
     }
     expect(axum).toEqual(swagger);
+  });
+
+  test("serves the internal routes outside the OpenAPI contract and outside shared caching", () => {
+    const internal = axumInternalRouteKeys();
+    expect(internal).toEqual([`POST ${POST_CONFIRMATION_ENDPOINT_PATH}`]);
+    for (const key of internal) {
+      expect(swaggerRouteKeys()).not.toContain(key);
+      const path = key.slice(key.indexOf(" ") + 1);
+      expect(API_SELECTIVE_READ_PATH_PATTERNS.some((pattern) => matchesPathPattern(pattern, path))).toBe(false);
+    }
   });
 
   test("CloudFront shares only the reviewed anonymous GET and HEAD representations", () => {

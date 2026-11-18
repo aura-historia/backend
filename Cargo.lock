@@ -312,15 +312,17 @@ dependencies = [
  "aura-historia-mcp",
  "aura-historia-runtime",
  "aws-config",
+ "aws-sdk-cloudwatchlogs",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-geoplaces",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
+ "aws_lambda_events",
  "axum",
  "base64 0.23.1",
  "billing-service",
  "billing-stripe",
  "classifier-model",
+ "cognito-post-confirmation",
  "content-notice-core",
  "content-notice-postgres",
  "content-notice-service",
@@ -360,6 +362,7 @@ dependencies = [
  "party-core",
  "party-postgres",
  "party-service",
+ "platform-cloudwatch-logs",
  "platform-observability",
  "platform-postgres",
  "platform-process",
@@ -397,6 +400,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
  "url",
  "user-cognito",
  "user-core",
@@ -691,7 +695,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-geoplaces",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-smithy-types",
  "content-notice-core",
@@ -883,6 +886,30 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
+name = "aws-sdk-cloudwatchlogs"
+version = "1.165.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "581cf82c1682f1251b910a32af5b19f9f5faed98c9117825391c1fcdfde21855"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-eventstream",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "fastrand",
  "regex-lite",
  "tracing",
 ]
@@ -1845,10 +1872,9 @@ dependencies = [
  "application",
  "async-trait",
  "aws_lambda_events",
- "lambda_runtime",
+ "base64 0.23.1",
  "localization",
- "platform-lambda-bootstrap",
- "platform-observability",
+ "openssl",
  "platform-postgres",
  "serde-email",
  "serde_json",
@@ -1862,6 +1888,23 @@ dependencies = [
  "user-core",
  "user-postgres",
  "user-service",
+]
+
+[[package]]
+name = "cognito-post-confirmation-forwarder"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "cognito-post-confirmation",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "reqwest 0.12.28",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -5097,7 +5140,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "content-notice-core",
  "domain-primitives",
@@ -5116,6 +5158,7 @@ dependencies = [
  "serde-email",
  "serde_json",
  "strum 0.28.0",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "url",
@@ -6035,6 +6078,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-cloudwatch-logs"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aws-sdk-cloudwatchlogs",
+ "platform-aws",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
@@ -6103,6 +6160,7 @@ dependencies = [
  "application",
  "google-cloud-auth",
  "platform-postgres",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -9339,7 +9397,6 @@ name = "user-email-aws"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-smithy-runtime-api",
  "aws-smithy-types",

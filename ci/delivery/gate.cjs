@@ -61,7 +61,7 @@ function inventory(root) {
         (target) =>
           target.kind.includes('bin') &&
           (target.name.endsWith('-lambda') ||
-            ['cognito-post-confirmation', 'cognito-pre-sign-up'].includes(
+            ['cognito-post-confirmation-forwarder', 'cognito-pre-sign-up'].includes(
               target.name,
             )),
       )

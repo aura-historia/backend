@@ -14,7 +14,7 @@ use product_listing_core::{
 };
 use serde_json::{Value, json};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum EmailLanguage {
     De,
     En,
@@ -24,6 +24,8 @@ pub(crate) enum EmailLanguage {
 }
 
 impl EmailLanguage {
+    pub(crate) const ALL: [Self; 5] = [Self::De, Self::En, Self::Fr, Self::Es, Self::It];
+
     pub(crate) const fn resolve(language: Language) -> Self {
         match language {
             Language::De => Self::De,
@@ -69,7 +71,7 @@ impl EmailLanguage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum EmailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateAvailability,
@@ -78,6 +80,18 @@ pub(crate) enum EmailTemplateType {
     PartnershipApplicationApproval,
     PartnershipApplicationRejection,
     ContentNoticeReceipt,
+}
+
+impl EmailTemplateType {
+    pub(crate) const ALL: [Self; 7] = [
+        Self::WatchlistUpdatePrice,
+        Self::WatchlistUpdateAvailability,
+        Self::SearchFilterMatch,
+        Self::SavedSearchDigest,
+        Self::PartnershipApplicationApproval,
+        Self::PartnershipApplicationRejection,
+        Self::ContentNoticeReceipt,
+    ];
 }
 
 pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplateType {
@@ -98,31 +112,23 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
     }
 }
 
+/// The template's directory below the template root, as under `mjml/`.
 pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'static str {
     match template_type {
-        EmailTemplateType::WatchlistUpdatePrice => "mjml/watchlist/product-update/price",
-        EmailTemplateType::WatchlistUpdateAvailability => {
-            "mjml/watchlist/product-update/availability"
-        }
-        EmailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
-        EmailTemplateType::SavedSearchDigest => "mjml/search-filter/digest",
-        EmailTemplateType::PartnershipApplicationApproval => {
-            "mjml/partnership-application/approval"
-        }
-        EmailTemplateType::PartnershipApplicationRejection => {
-            "mjml/partnership-application/rejection"
-        }
-        EmailTemplateType::ContentNoticeReceipt => "mjml/content-notice/receipt",
+        EmailTemplateType::WatchlistUpdatePrice => "watchlist/product-update/price",
+        EmailTemplateType::WatchlistUpdateAvailability => "watchlist/product-update/availability",
+        EmailTemplateType::SearchFilterMatch => "search-filter/match",
+        EmailTemplateType::SavedSearchDigest => "search-filter/digest",
+        EmailTemplateType::PartnershipApplicationApproval => "partnership-application/approval",
+        EmailTemplateType::PartnershipApplicationRejection => "partnership-application/rejection",
+        EmailTemplateType::ContentNoticeReceipt => "content-notice/receipt",
     }
 }
 
-pub(crate) fn s3_template_key(
-    template_prefix: &str,
-    template_type: EmailTemplateType,
-    language: EmailLanguage,
-) -> String {
+/// The compiled template's path relative to the template root: `<directory>/<language>.html`.
+pub(crate) fn template_path(template_type: EmailTemplateType, language: EmailLanguage) -> String {
     format!(
-        "{template_prefix}{}/{}.html",
+        "{}/{}.html",
         template_directory(template_type),
         language.as_str()
     )
@@ -785,17 +791,25 @@ mod tests {
     }
 
     #[test]
-    fn should_use_english_template_key_for_ingestion_only_language() {
-        let key = s3_template_key(
-            "mail/build-id/",
+    fn should_use_english_template_path_for_ingestion_only_language() {
+        let path = template_path(
             EmailTemplateType::WatchlistUpdateAvailability,
             EmailLanguage::resolve(Language::Zh),
         );
 
-        assert_eq!(
-            "mail/build-id/mjml/watchlist/product-update/availability/en.html",
-            key
-        );
+        assert_eq!("watchlist/product-update/availability/en.html", path);
+    }
+
+    #[test]
+    fn should_name_an_mjml_source_for_every_template_and_language() {
+        let mjml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mjml");
+        for template_type in EmailTemplateType::ALL {
+            for language in EmailLanguage::ALL {
+                let source =
+                    mjml.join(template_path(template_type, language).replace(".html", ".mjml"));
+                assert!(source.is_file(), "{} has no MJML source", source.display());
+            }
+        }
     }
 
     #[rstest]
