@@ -4,9 +4,18 @@ on:
   workflow_call:
     inputs:
       source_sha:
-        description: Exact candidate SHA selected by the trusted release workflow
+        description: Exact commit to build, selected by the deploy workflow
         required: false
         type: string
+      publish:
+        description: Push the tested application image to GHCR, tagged with the commit
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      image:
+        description: The published image, pinned by digest (ghcr.io/<owner>/<repository>@sha256:…)
+        value: ${{ jobs.image.outputs.published }}
   pull_request:
     paths:
       - ".dockerignore"
@@ -75,7 +84,7 @@ jobs:
         run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
 
   host-scripts:
-    name: Lint host scripts
+    name: Lint and test host scripts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -85,11 +94,19 @@ jobs:
         run: |
           shellcheck --version
           git ls-files -z -- 'host/*.sh' 'host/**/*.sh' 'ci/host-prod/*.sh' | xargs -0 shellcheck --severity=warning
+      - name: Migration plan tests
+        run: python3 -m unittest discover -s ci/host-prod
 
   image:
     name: Build and test ${{ matrix.id }}
     needs: [catalog]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Used only by the publish step, which runs only when the deploy workflow asks for it.
+      packages: write
+    outputs:
+      published: ${{ steps.publish.outputs.image }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.catalog.outputs.container_matrix) }}
@@ -141,3 +158,21 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
           IMAGE_ID: ${{ matrix.id }}
         run: bash ci/host-prod/smoke.sh "local/${IMAGE_ID}:${CANDIDATE_SHA}"
+      - name: Publish to GHCR
+        id: publish
+        if: inputs.publish && matrix.id == 'aura-historia'
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
+          IMAGE_ID: ${{ matrix.id }}
+          REPOSITORY: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag "local/${IMAGE_ID}:${CANDIDATE_SHA}" "${REPOSITORY}:${CANDIDATE_SHA}"
+          docker push --quiet "${REPOSITORY}:${CANDIDATE_SHA}"
+          image="$(docker image inspect --format '{{index .RepoDigests 0}}' "${REPOSITORY}:${CANDIDATE_SHA}")"
+          [[ ${image} =~ ^${REPOSITORY}@sha256:[0-9a-f]{64}$ ]]
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "Published \`${image}\`" >> "$GITHUB_STEP_SUMMARY"
