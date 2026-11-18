@@ -24,6 +24,7 @@ on:
       - "ci/container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/mjml-templates.yml"
   push:
     branches: [develop]
     paths:
@@ -42,6 +43,7 @@ on:
       - "ci/container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/mjml-templates.yml"
 
 permissions:
   contents: read

@@ -10,8 +10,11 @@ use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::collections::HashMap;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+use testcontainers::bollard::models::{HostConfig, PortBinding};
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{GenericImage, ImageExt};
@@ -122,8 +125,17 @@ async fn endpoint() -> Url {
         .clone()
 }
 
-fn opensearch_container_name() -> String {
-    format!("{OPENSEARCH_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+/// Unique per process, so a process in another PID namespace on the same daemon never
+/// removes this cluster.
+fn opensearch_container_name() -> &'static str {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        format!(
+            "{OPENSEARCH_CONTAINER_NAME_PREFIX}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        )
+    })
 }
 
 fn docker_remove(name: &str) {
@@ -135,7 +147,7 @@ fn docker_remove(name: &str) {
 }
 
 extern "C" fn cleanup() {
-    docker_remove(&opensearch_container_name());
+    docker_remove(opensearch_container_name());
 }
 
 /// Removes the process-owned cluster on normal exit (`atexit`) and on `SIGINT` / `SIGTERM`.
@@ -147,20 +159,22 @@ fn install_cleanup() {
     });
 }
 
-/// Starts the pinned engine with a random host port, then installs the search pipeline and the
-/// unscoped product index. The container lives for the whole test process.
+/// Starts the pinned engine with only its HTTP port published on a random loopback port, then
+/// installs the search pipeline and the unscoped product index. The container lives for the
+/// whole test process.
 async fn start_process_cluster() -> Url {
     install_cleanup();
     let name = opensearch_container_name();
     // A failed or cancelled start is retried by the OnceCell; never reuse its container.
-    docker_remove(&name);
+    docker_remove(name);
     let started = Instant::now();
     let (repository, tag) = OPENSEARCH_IMAGE
         .split_once(':')
         .expect("OpenSearch image reference must be repository:tag");
     let request = GenericImage::new(repository, tag)
         .with_exposed_port(OPENSEARCH_CONTAINER_PORT.tcp())
-        .with_container_name(name);
+        .with_container_name(name)
+        .with_host_config_modifier(publish_http_on_loopback);
     let container = OPENSEARCH_ENVIRONMENT
         .iter()
         .fold(request, |request, (key, value)| {
@@ -188,6 +202,18 @@ async fn start_process_cluster() -> Url {
     // The cleanup hooks remove the container when the process exits.
     std::mem::forget(container);
     endpoint
+}
+
+/// The security plugin is disabled, so the cluster must not be reachable from other hosts.
+fn publish_http_on_loopback(host_config: &mut HostConfig) {
+    host_config.publish_all_ports = Some(false);
+    host_config.port_bindings = Some(HashMap::from([(
+        OPENSEARCH_CONTAINER_PORT.tcp().to_string(),
+        Some(vec![PortBinding {
+            host_ip: Some("127.0.0.1".to_owned()),
+            host_port: None,
+        }]),
+    )]));
 }
 
 async fn wait_until_reachable(client: &Client) {

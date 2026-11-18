@@ -41,9 +41,10 @@ One supervisor owns the complete command's service lifecycle. It creates
 UUID-named, labelled containers, volumes and a network; ports bind only to
 `127.0.0.1`. Images are pinned in
 [`environment/services.rs`](src/environment/services.rs) and
-[`opensearch.rs`](src/opensearch.rs). PostgreSQL uses verified TLS. OpenSearch,
-managed or process-owned, installs the workspace mapping and hybrid pipeline
-before tests start. Its engine version and immutable image pin match production so
+[`opensearch.rs`](src/opensearch.rs). PostgreSQL uses verified TLS. OpenSearch
+installs the workspace mapping and hybrid pipeline before tests start, as does the
+process-owned cluster of a plain Cargo run, which publishes only its HTTP port on
+`127.0.0.1`. Its engine version and immutable image pin match production so
 mapping compatibility is checked against the serving engine.
 
 Children attach to validated job configuration. Both
