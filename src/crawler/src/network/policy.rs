@@ -210,8 +210,8 @@ impl RequestTimeouts {
 
 /// Client settings every crawler request shares: the crawler identity and
 /// request headers, the platform trust store, HTTP/1.1, no automatic
-/// redirects and bounded timeouts. [`public_http_client`] adds the pinned
-/// public addresses; tests build local clients from the same base.
+/// redirects and bounded timeouts. Its responses are decoded transparently;
+/// requests to shops use [`shop_client_builder`].
 pub fn crawler_client_builder(
     timeouts: RequestTimeouts,
 ) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
@@ -227,12 +227,35 @@ pub fn crawler_client_builder(
         .http1_only())
 }
 
+/// The transfer encodings the scraper's clients name; [`response_body`](crate::network::response_body)
+/// decodes them.
+const SHOP_ACCEPT_ENCODING: &str = "gzip,br";
+
+/// Client settings of every scraper request to a shop: [`crawler_client_builder`] with reqwest's
+/// transparent decompression off, so that [`response_body`](crate::network::response_body) reads
+/// each body as the shop framed it and decodes it within its limit, and with `Accept-Encoding`
+/// naming the encodings it decodes. [`public_http_client`] adds the pinned public addresses;
+/// tests build local clients from the same base.
+pub fn shop_client_builder(
+    timeouts: RequestTimeouts,
+) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
+    Ok(crawler_client_builder(timeouts)?
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .no_zstd()
+        .default_headers(reqwest::header::HeaderMap::from_iter([(
+            reqwest::header::ACCEPT_ENCODING,
+            HeaderValue::from_static(SHOP_ACCEPT_ENCODING),
+        )])))
+}
+
 pub async fn public_http_client(
     url: &Url,
     timeouts: RequestTimeouts,
 ) -> Result<reqwest::Client, CrawlerClientError> {
     let target = resolve_public_http_target(url, timeouts.connect).await?;
-    crawler_client_builder(timeouts)?
+    shop_client_builder(timeouts)?
         .resolve_to_addrs(&target.host, &target.addresses)
         .build()
         .map_err(CrawlerClientError::Build)
@@ -734,11 +757,11 @@ mod tests {
         assert_eq!(location_text(&location), None);
     }
 
-    /// Every crawler request identifies the crawler and sends the crawler
-    /// request headers and the transfer encodings the client decodes, nothing else; the scraper, image probes and review
-    /// inspection all build their clients from this base.
+    /// Every request to a shop identifies the crawler and sends the crawler request headers and
+    /// the transfer encodings the shop-body reader decodes, nothing else; the scraper, image
+    /// probes and review inspection all build their clients from this base.
     #[tokio::test]
-    async fn crawler_client_builder_should_send_the_crawler_identity_and_request_headers() {
+    async fn shop_client_builder_should_send_the_crawler_identity_and_request_headers() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -753,7 +776,7 @@ mod tests {
             String::from_utf8_lossy(&request[..read]).into_owned()
         });
 
-        let client = crawler_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
+        let client = shop_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
             .unwrap()
             .build()
             .unwrap();

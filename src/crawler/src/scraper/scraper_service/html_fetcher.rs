@@ -1,6 +1,6 @@
 use crate::network::bot_challenge::{BotChallenge, detect_bot_challenge, may_be_challenge_status};
 #[cfg(test)]
-use crate::network::policy::crawler_client_builder;
+use crate::network::policy::shop_client_builder;
 use crate::network::policy::{
     CrawlerClientError, NetworkAction, NetworkErrorKind, PublicTargetError, RequestTimeouts,
     RetryPolicy, action_for, classify_reqwest_error, error_with_sources, inline_retry_backoff_for,
@@ -524,7 +524,7 @@ impl ReqwestHtmlFetcher {
         };
         #[cfg(test)]
         if self.allow_private_targets_for_test {
-            return crawler_client_builder(timeouts)
+            return shop_client_builder(timeouts)
                 .map_err(client_fetch_error)?
                 .build()
                 .map_err(reqwest_fetch_error);
@@ -774,6 +774,14 @@ fn body_fetch_error(error: ShopBodyError<reqwest::Error>) -> FetchAttemptError {
         ShopBodyError::Transport(error) => reqwest_fetch_error(error),
         error @ ShopBodyError::TooLarge { .. } => FetchAttemptError {
             error: unsafe_fetch_error(error.to_string()),
+        },
+        // As when reqwest decoded the body: a body that does not decode is no failure of the
+        // shop's host.
+        error @ ShopBodyError::Decode { .. } => FetchAttemptError {
+            error: FetchError::Network {
+                kind: NetworkErrorKind::Unknown,
+                details: error_with_sources(&error),
+            },
         },
     }
 }

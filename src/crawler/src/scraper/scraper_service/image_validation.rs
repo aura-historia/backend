@@ -475,7 +475,7 @@ mod tests {
                 .unwrap();
             String::from_utf8(request).unwrap().to_ascii_lowercase()
         });
-        let client = crate::network::policy::crawler_client_builder(RequestTimeouts::uniform(
+        let client = crate::network::policy::shop_client_builder(RequestTimeouts::uniform(
             std::time::Duration::from_secs(5),
         ))
         .unwrap()

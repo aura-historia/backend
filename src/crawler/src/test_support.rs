@@ -178,6 +178,55 @@ pub(crate) mod local_tls {
         )
     }
 
+    /// Serves `connections` connections over TLS, as `localhost`. Each request is answered with
+    /// `response`, then the TCP connection is closed without TLS `close_notify`, the way some
+    /// shops end a body. Answers the server's address.
+    pub(crate) fn serve_without_close_notify(
+        response: Vec<u8>,
+        connections: usize,
+    ) -> std::net::SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for _ in 0..connections {
+                let Ok((mut socket, _)) = listener.accept() else {
+                    return;
+                };
+                answer_without_close_notify(&mut socket, &response);
+            }
+        });
+        addr
+    }
+
+    fn answer_without_close_notify(socket: &mut std::net::TcpStream, response: &[u8]) {
+        use std::io::{Read, Write};
+        let _ = socket.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+        let mut connection = rustls::ServerConnection::new(server_config()).unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            if connection.complete_io(socket).is_err() {
+                return;
+            }
+            match connection.reader().read(&mut buffer) {
+                Ok(0) => return,
+                Ok(read) => request.extend_from_slice(&buffer[..read]),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => return,
+            }
+        }
+        connection.writer().write_all(response).unwrap();
+        while connection.wants_write() {
+            if connection.write_tls(socket).is_err() {
+                return;
+            }
+        }
+        // A TCP close, with no `close_notify` alert before it; the client closes its side once
+        // it has read up to the close.
+        let _ = socket.shutdown(std::net::Shutdown::Write);
+        let _ = socket.read_to_end(&mut Vec::new());
+    }
+
     /// A client configuration that accepts any server certificate, since a test server
     /// certificate is no trust anchor.
     pub(crate) fn client_config() -> rustls::ClientConfig {

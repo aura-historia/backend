@@ -742,7 +742,7 @@ pub trait Spider: Send + Sync {
     async fn crawl(&self, request: CrawlRequest) -> Result<SpiderCrawl, SpiderDiscoveryError>;
 }
 
-/// Builds the HTTP client used for the crawl root and every Spider request.
+/// Builds the HTTP clients used for the crawl root, robots.txt and every Spider request.
 ///
 /// The production transport resolves and pins public addresses; tests pin a
 /// local listener so the preflight path runs unchanged.
@@ -752,7 +752,36 @@ pub trait SpiderTransport: Send + Sync {
         &self,
         url: &Url,
         timeout: Duration,
-    ) -> Result<spider::reqwest::Client, SpiderTransportError>;
+    ) -> Result<SpiderClients, SpiderTransportError>;
+}
+
+/// The two clients a crawl needs, pinned to the same addresses. Spider reads page bodies itself
+/// and needs them decoded; the crawler reads robots.txt and the crawl root's page through the
+/// [shop-body reader](crate::network::response_body), which needs them as the shop framed them.
+#[derive(Clone)]
+pub struct SpiderClients {
+    /// Spider's client, which decodes bodies transparently.
+    pub library: spider::reqwest::Client,
+    /// The crawler's own client, with transparent decompression off.
+    pub shop_body: spider::reqwest::Client,
+}
+
+impl SpiderClients {
+    /// Both clients with [`spider_client_builder`]'s settings and `pin`'s addresses.
+    pub fn build(
+        timeout: Duration,
+        pin: impl Fn(spider::reqwest::ClientBuilder) -> spider::reqwest::ClientBuilder,
+    ) -> Result<Self, spider::reqwest::Error> {
+        Ok(Self {
+            library: pin(spider_client_builder(timeout)).build()?,
+            shop_body: pin(spider_client_builder(timeout))
+                .no_gzip()
+                .no_brotli()
+                .no_deflate()
+                .no_zstd()
+                .build()?,
+        })
+    }
 }
 
 pub struct PublicSpiderTransport;
@@ -763,12 +792,12 @@ impl SpiderTransport for PublicSpiderTransport {
         &self,
         url: &Url,
         timeout: Duration,
-    ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+    ) -> Result<SpiderClients, SpiderTransportError> {
         let target = resolve_public_http_target(url, timeout).await?;
-        spider_client_builder(timeout)
-            .resolve_to_addrs(&target.host, &target.addresses)
-            .build()
-            .map_err(SpiderTransportError::Client)
+        SpiderClients::build(timeout, |builder| {
+            builder.resolve_to_addrs(&target.host, &target.addresses)
+        })
+        .map_err(SpiderTransportError::Client)
     }
 }
 
@@ -944,6 +973,10 @@ impl ShopResponse for spider::reqwest::Response {
         spider::reqwest::Response::headers(self)
     }
 
+    fn version(&self) -> spider::reqwest::Version {
+        spider::reqwest::Response::version(self)
+    }
+
     fn chunk(&mut self) -> impl Future<Output = Result<Option<Bytes>, Self::Error>> + Send {
         spider::reqwest::Response::chunk(self)
     }
@@ -1083,11 +1116,11 @@ fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptErr
     }
 }
 
-/// A fetched crawl root together with the pinned client that fetched it, so
-/// the crawl reuses the validated client instead of resolving the host again.
+/// A fetched crawl root together with the pinned clients that fetched it, so
+/// the crawl reuses the validated clients instead of resolving the host again.
 struct RootFetch {
     response: spider::reqwest::Response,
-    client: spider::reqwest::Client,
+    clients: SpiderClients,
 }
 
 async fn fetch_crawl_root_once(
@@ -1096,16 +1129,17 @@ async fn fetch_crawl_root_once(
     arrival: RootArrival,
     timeout: Duration,
 ) -> Result<RootFetch, PreflightAttemptError> {
-    let client = transport
+    let clients = transport
         .client_for(root, timeout)
         .await
         .map_err(|error| preflight_transport_error(error, root, arrival))?;
-    let response = client
+    let response = clients
+        .shop_body
         .get(root.clone())
         .send()
         .await
         .map_err(preflight_request_error)?;
-    Ok(RootFetch { response, client })
+    Ok(RootFetch { response, clients })
 }
 
 /// Fetches the crawl root with bounded inline retries for transient transport
@@ -1132,12 +1166,12 @@ async fn fetch_crawl_root(
     }
 }
 
-/// The established crawl root, the status it answered and the client pinned
+/// The established crawl root, the status it answered and the clients pinned
 /// to it.
 struct PreflightedRoot {
     url: Url,
     status: u16,
-    client: spider::reqwest::Client,
+    clients: SpiderClients,
     /// The move to the twin host the root page's links asked for, when it did.
     reroot: Option<RootReroot>,
 }
@@ -1173,11 +1207,11 @@ async fn preflight_crawl_root(
         ))
     });
     let (url, reroot) = chain.end();
-    let (status, client) = followed.map_err(|error| error.after_reroot(reroot.as_ref()))?;
+    let (status, clients) = followed.map_err(|error| error.after_reroot(reroot.as_ref()))?;
     Ok(PreflightedRoot {
         url,
         status,
-        client,
+        clients,
         reroot,
     })
 }
@@ -1220,7 +1254,7 @@ impl RootChain {
 /// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
 /// the twin would; a move counts against the redirect bound. A host the chain already left is
 /// never moved back to, and a move the twin redirects back from is not one. Answers the status
-/// the root answered and the client pinned to it. `robots`, the policy of the configured root's
+/// the root answered and the clients pinned to it. `robots`, the policy of the configured root's
 /// origin read before the preflight, refuses a hop on that origin it disallows before the hop is
 /// requested.
 async fn follow_crawl_root(
@@ -1230,7 +1264,7 @@ async fn follow_crawl_root(
     retry: RetryPolicy,
     max_body_bytes: usize,
     robots: Option<&RobotsPolicy>,
-) -> Result<(u16, spider::reqwest::Client), SpiderDiscoveryError> {
+) -> Result<(u16, SpiderClients), SpiderDiscoveryError> {
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
         if let Some(policy) = robots
             && chain.current.origin() == chain.configured.origin()
@@ -1241,7 +1275,7 @@ async fn follow_crawl_root(
                 "robots.txt disallows where the crawl root redirects",
             ));
         }
-        let RootFetch { response, client } =
+        let RootFetch { response, clients } =
             fetch_crawl_root(transport, &chain.current, chain.arrival, timeout, retry).await?;
         chain
             .visited_hosts
@@ -1265,7 +1299,7 @@ async fn follow_crawl_root(
                 chain.reroot = Some(moved);
                 continue;
             }
-            return Ok((status, client));
+            return Ok((status, clients));
         }
 
         if redirect_count == MAX_ROOT_REDIRECTS {
@@ -1772,7 +1806,7 @@ impl SpiderImpl {
         let PreflightedRoot {
             url: root_url,
             status: root_preflight_status,
-            client,
+            clients,
             reroot: root_reroot,
         } = preflight_crawl_root(
             self.transport.as_ref(),
@@ -1795,7 +1829,7 @@ impl SpiderImpl {
         } = crawl_rules(
             self.transport.as_ref(),
             &root_url,
-            &client,
+            &clients.shop_body,
             request_timeout,
             robots_read_first.filter(|_| root_url.origin() == configured_origin),
         )
@@ -1811,7 +1845,7 @@ impl SpiderImpl {
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
-        website.set_http_client(client.clone());
+        website.set_http_client(clients.library.clone());
         let redirect_queue = website
             .queue(REDIRECT_QUEUE_CAPACITY)
             .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
@@ -2693,12 +2727,13 @@ mod tests {
             &self,
             _url: &Url,
             timeout: Duration,
-        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
-            let mut builder = spider_client_builder(timeout);
-            for host in &self.hosts {
-                builder = builder.resolve(host, self.addr);
-            }
-            builder.build().map_err(SpiderTransportError::Client)
+        ) -> Result<SpiderClients, SpiderTransportError> {
+            SpiderClients::build(timeout, |builder| {
+                self.hosts
+                    .iter()
+                    .fold(builder, |builder, host| builder.resolve(host, self.addr))
+            })
+            .map_err(SpiderTransportError::Client)
         }
     }
 
@@ -2711,7 +2746,7 @@ mod tests {
             &self,
             _url: &Url,
             _timeout: Duration,
-        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+        ) -> Result<SpiderClients, SpiderTransportError> {
             Err(SpiderTransportError::Target(self.0.clone()))
         }
     }
@@ -5101,7 +5136,7 @@ mod tests {
             &self,
             url: &Url,
             timeout: Duration,
-        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+        ) -> Result<SpiderClients, SpiderTransportError> {
             self.builds.fetch_add(1, Ordering::Relaxed);
             self.inner.client_for(url, timeout).await
         }
@@ -5442,7 +5477,7 @@ mod tests {
             &self,
             url: &Url,
             timeout: Duration,
-        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+        ) -> Result<SpiderClients, SpiderTransportError> {
             if url.port() == Some(self.refused_port) {
                 return Err(SpiderTransportError::Target(PublicTargetError::InvalidPort));
             }
