@@ -125,6 +125,8 @@ main() {
   [[ "$(psql_aura 'SHOW data_checksums')" == on ]] || fail "data checksums are off"
   [[ -S ${WORK}/socket/.s.PGSQL.5432 ]] || fail "no PostgreSQL socket in the shared directory"
   [[ -z "$(docker port "$(compose ps -q postgres)")" ]] || fail "PostgreSQL publishes a port"
+  # pgBackRest verifies S3's certificate against the system CA bundle.
+  compose exec -T postgres test -s /etc/ssl/certs/ca-certificates.crt || fail "the database image has no CA bundle"
 
   log "bootstrapping roles and migrations"
   compose run --rm -T bootstrap | tee "${WORK}/bootstrap.json"
