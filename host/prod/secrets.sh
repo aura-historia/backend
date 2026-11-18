@@ -112,9 +112,11 @@ check() {
 # the host; the bucket keeps earlier versions of the object.
 copy() {
   [[ -s ${RECIPIENT} ]] || fail "install the operators' OpenPGP public key as ${RECIPIENT} first"
-  local bucket gnupg_home
+  local bucket
   bucket="$(value_of AURA_BACKUP_BUCKET "${CONFIG_DIR}/compose.env")"
   [[ -n ${bucket} ]] || fail "AURA_BACKUP_BUCKET is empty in ${CONFIG_DIR}/compose.env"
+  # Global, not local: the EXIT trap runs after this function returns, and under `set -u` a
+  # vanished local would fail the script after a successful upload.
   gnupg_home="$(mktemp -d)"
   trap 'rm -rf -- "${gnupg_home}"' EXIT
   tar -C "$(dirname -- "${CONFIG_DIR}")" -czf - "$(basename -- "${CONFIG_DIR}")" |
