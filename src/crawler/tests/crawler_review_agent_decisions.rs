@@ -982,6 +982,7 @@ async fn should_cap_the_agent_decisions_of_an_hour_from_the_event_trail() {
                 *review_id,
                 ReviewActor::AgentReviewer,
                 Some("not a shop page"),
+                None,
             )
             .await
             .unwrap();
@@ -991,6 +992,7 @@ async fn should_cap_the_agent_decisions_of_an_hour_from_the_event_trail() {
             reviews[2],
             ReviewActor::AgentReviewer,
             Some("not a shop page"),
+            None,
         )
         .await;
     let approval_after_restart = guarded(&pool, 2)
@@ -1010,7 +1012,7 @@ async fn should_cap_the_agent_decisions_of_an_hour_from_the_event_trail() {
     }
     assert!(trail(&repository, reviews[2]).await.is_empty());
     repository
-        .reject_review(reviews[2], ReviewActor::Human, None)
+        .reject_review(reviews[2], ReviewActor::Human, None, None)
         .await
         .unwrap();
 }
@@ -1046,6 +1048,7 @@ async fn should_never_exceed_the_hourly_cap_with_concurrent_agent_decisions() {
                     review_id,
                     ReviewActor::AgentReviewer,
                     Some("not a shop page"),
+                    None,
                 )
                 .await
         })
@@ -2008,7 +2011,12 @@ async fn should_refuse_every_verdict_of_the_author_agent() {
         .approve_review(review_id, ReviewActor::AgentAuthor, approval(1))
         .await;
     let rejected = repository
-        .reject_review(review_id, ReviewActor::AgentAuthor, Some("not a shop page"))
+        .reject_review(
+            review_id,
+            ReviewActor::AgentAuthor,
+            Some("not a shop page"),
+            None,
+        )
         .await;
 
     for refusal in [approved, rejected] {
@@ -2438,6 +2446,7 @@ async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_th
                 review_id,
                 ReviewActor::AgentReviewer,
                 Some("not a product page"),
+                None,
             )
             .await,
     ];
@@ -3278,7 +3287,7 @@ async fn rejected_no_product_review(
     )
     .await;
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("a category page"))
+        .reject_review(review_id, ReviewActor::Human, Some("a category page"), None)
         .await
         .unwrap();
     review_id
@@ -3303,7 +3312,7 @@ async fn should_hold_the_next_manual_review_for_a_human_after_two_no_product_clo
     .await;
     assert_eq!(agent_rounds(&repository, second).await, (0, false));
     repository
-        .reject_review(second, ReviewActor::Human, Some("a category page"))
+        .reject_review(second, ReviewActor::Human, Some("a category page"), None)
         .await
         .unwrap();
 

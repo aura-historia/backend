@@ -236,7 +236,12 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
     );
     let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
     repository
-        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            rejected,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let mut candidates = MockScraperCandidateService::new();
@@ -304,7 +309,12 @@ async fn assert_rejected_triggering_page_is_not_captured(
         vec![(url.as_str(), PAGE_ROLE_TRIGGERING_GENERATION_PAGE)]
     );
     repository
-        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            rejected,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let extracting = cached_schemas(id, vec![minimal_schema()]);
@@ -434,7 +444,12 @@ async fn should_remove_the_product_when_its_url_redirects_outside_the_pattern_on
             .result,
     );
     repository
-        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            rejected,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let requested_url = Url::parse("https://example.com/products/sold-chair").unwrap();
@@ -506,6 +521,7 @@ async fn reject_by_mistake(
             review_id,
             ReviewActor::AgentReviewer,
             Some("not a product page"),
+            None,
         )
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
@@ -1165,7 +1181,12 @@ async fn should_capture_a_rejected_page_as_removed_when_a_removed_page_template_
         .await
         .unwrap_or_else(|error| panic!("open manual review: {error}"));
     repository
-        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            rejected,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     assert!(
@@ -1360,7 +1381,12 @@ async fn reject_manual_review_over(
         .await
         .unwrap_or_else(|error| panic!("open manual review: {error}"));
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not product pages"))
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not product pages"),
+            None,
+        )
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
 }
@@ -1661,7 +1687,12 @@ async fn should_seed_the_next_manual_review_with_pages_that_waited_on_the_first(
         record_schema_review_wait(&candidates, &id, page, first_review).await;
     }
     repository
-        .reject_review(first_review, ReviewActor::Human, Some("not product pages"))
+        .reject_review(
+            first_review,
+            ReviewActor::Human,
+            Some("not product pages"),
+            None,
+        )
         .await
         .unwrap_or_else(|error| panic!("reject the first review: {error}"));
     let first_pages = review_page_urls(&repository, first_review).await;

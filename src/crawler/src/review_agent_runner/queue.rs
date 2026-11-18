@@ -59,6 +59,8 @@ pub struct QueuedReview {
     /// Whether the review waits on a needs-repair verdict, so its author process is a repair
     /// round.
     pub repair_requested: bool,
+    /// Whether the page classifier judges the review before an author works it.
+    pub classification_due: bool,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -159,6 +161,7 @@ impl ReviewQueue {
                         handed_back: review.handed_back,
                         created: review.created,
                         repair_requested: review.repair_request.is_some(),
+                        classification_due: review.classification_due,
                     })
                 })
                 .collect(),
@@ -382,6 +385,10 @@ pub struct ReviewEventEntry {
     /// The URL-pattern state an approval of a URL-pattern review made live, such as `NO_PATTERN`.
     #[serde(default)]
     pub approved_url_pattern_state: Option<String>,
+    /// Whether a `REJECTED` event rests on the page classifier's verdicts; the digest lists those
+    /// in the classifier's section, apart from the reviewer's verdicts.
+    #[serde(default)]
+    pub classifier_rejection: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
@@ -459,6 +466,7 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 listing_source_name: None,
                 handed_back: None,
+                classification_due: false,
                 created: OffsetDateTime::UNIX_EPOCH,
                 repair_requested: false,
             })
@@ -665,6 +673,7 @@ mod tests {
             agent_rounds: if human_required { 3 } else { 0 },
             human_required,
             handed_back: None,
+            classification_due: false,
             created: now,
             updated: now,
         }
@@ -817,6 +826,7 @@ mod tests {
             candidate_version: 2,
             notes: None,
             approved_url_pattern_state: None,
+            classifier_rejection: false,
             created,
         }
     }
