@@ -194,7 +194,7 @@ use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
 };
 
-use cognito_post_confirmation::signature::{SignatureVerifier, SigningKey};
+use cognito_trigger_signing::signature::{SignatureVerifier, SigningKey};
 use geo_amazon_location::{AmazonLocationAddressSuggester, AmazonLocationConfig};
 use geo_postgres::SqlxSuggestionUsageRepositoryFactory;
 use geo_service::suggestions::SuggestAddressesHandler;

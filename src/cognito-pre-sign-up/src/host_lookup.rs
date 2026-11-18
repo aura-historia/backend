@@ -3,7 +3,7 @@
 //! this purpose and through the public API hostname. The request carries only what the decision
 //! needs; neither it nor the answer is logged, because together they tell whether an email has an
 //! account. Any failure fails the sign-up, as a database error did.
-use cognito_post_confirmation::{
+use cognito_trigger_signing::{
     signature::{SignaturePurpose, SigningKey},
     signed_request::{SignedHostClient, SignedHostClientConfigError, SignedRequestError},
 };
@@ -276,7 +276,7 @@ mod tests {
         response::IntoResponse,
         routing::post,
     };
-    use cognito_post_confirmation::{
+    use cognito_trigger_signing::{
         signature::{SIGNATURE_HEADER, SignatureVerifier, TIMESTAMP_HEADER},
         signed_request::CORRELATION_ID_HEADER,
     };

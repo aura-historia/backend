@@ -577,7 +577,7 @@ impl WebhooksState {
 /// The internal endpoint Cognito's post-confirmation forwarder calls.
 #[derive(Clone)]
 pub struct CognitoPostConfirmationState {
-    pub(crate) verifier: Arc<cognito_post_confirmation::signature::SignatureVerifier>,
+    pub(crate) verifier: Arc<cognito_trigger_signing::signature::SignatureVerifier>,
     pub(crate) expected_issuer: Arc<str>,
     pub(crate) register: Arc<dyn user_service::use_cases::RegisterCognitoUserUseCase>,
 }
@@ -585,7 +585,7 @@ pub struct CognitoPostConfirmationState {
 impl CognitoPostConfirmationState {
     /// `expected_issuer` is the configured user pool's issuer; other pools' events are refused.
     pub fn new(
-        verifier: cognito_post_confirmation::signature::SignatureVerifier,
+        verifier: cognito_trigger_signing::signature::SignatureVerifier,
         expected_issuer: impl Into<String>,
         register: Arc<dyn user_service::use_cases::RegisterCognitoUserUseCase>,
     ) -> Self {
@@ -600,7 +600,7 @@ impl CognitoPostConfirmationState {
 /// The internal endpoint Cognito's pre-sign-up trigger calls.
 #[derive(Clone)]
 pub struct CognitoPreSignUpState {
-    pub(crate) verifier: Arc<cognito_post_confirmation::signature::SignatureVerifier>,
+    pub(crate) verifier: Arc<cognito_trigger_signing::signature::SignatureVerifier>,
     pub(crate) expected_issuer: Arc<str>,
     pub(crate) resolve: Arc<dyn user_service::use_cases::ResolveFederatedAccountUseCase>,
 }
@@ -608,7 +608,7 @@ pub struct CognitoPreSignUpState {
 impl CognitoPreSignUpState {
     /// `expected_issuer` is the configured user pool's issuer; other pools' requests are refused.
     pub fn new(
-        verifier: cognito_post_confirmation::signature::SignatureVerifier,
+        verifier: cognito_trigger_signing::signature::SignatureVerifier,
         expected_issuer: impl Into<String>,
         resolve: Arc<dyn user_service::use_cases::ResolveFederatedAccountUseCase>,
     ) -> Self {

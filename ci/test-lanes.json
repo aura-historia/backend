@@ -55,6 +55,7 @@
     "classifier-model",
     "cognito-post-confirmation-forwarder",
     "cognito-pre-sign-up",
+    "cognito-trigger-signing",
     "content-notice-core",
     "content-notice-service",
     "credential-core",

@@ -14,7 +14,7 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use cognito_post_confirmation::signature::{
+use cognito_trigger_signing::signature::{
     SIGNATURE_HEADER, SignatureError, SignaturePurpose, TIMESTAMP_HEADER,
 };
 use serde::{Deserialize, Serialize};
@@ -248,7 +248,7 @@ mod tests {
     use crate::state::{AppState, CognitoPreSignUpState};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use cognito_post_confirmation::signature::{
+    use cognito_trigger_signing::signature::{
         SIGNATURE_HEADER, SignaturePurpose, SignatureVerifier, SigningKey, TIMESTAMP_HEADER,
         TIMESTAMP_TOLERANCE_SECONDS, sign,
     };

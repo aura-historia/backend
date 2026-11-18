@@ -2,7 +2,7 @@
 //! forwards each confirmation event, signed and timestamped, to the host's internal endpoint
 //! through the public API hostname. A failed or refused forward fails the confirmation, as a
 //! failed registration did when the trigger wrote to the database itself.
-use cognito_post_confirmation::{
+use cognito_trigger_signing::{
     signature::{SignatureError, SignaturePurpose, SigningKey},
     signed_request::{SignedHostClient, SignedHostClientConfigError, SignedRequestError},
 };
@@ -122,7 +122,7 @@ mod tests {
         http::{HeaderMap, StatusCode},
         routing::post,
     };
-    use cognito_post_confirmation::{
+    use cognito_trigger_signing::{
         signature::{SIGNATURE_HEADER, SignatureVerifier, TIMESTAMP_HEADER},
         signed_request::CORRELATION_ID_HEADER,
     };

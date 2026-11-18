@@ -700,7 +700,7 @@ mod tests {
         tokio::spawn(async move { axum::serve(listener, app).await });
         HostAccountLookup::new(
             &format!("http://{address}/internal/cognito/pre-sign-up"),
-            cognito_post_confirmation::signature::SigningKey::new(
+            cognito_trigger_signing::signature::SigningKey::new(
                 "pre-sign-up-handler-test-signing-key-0123",
             )
             .expect("test signing key"),

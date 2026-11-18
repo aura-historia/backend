@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cognito-post-confirmation = { workspace = true }
+cognito-trigger-signing = { workspace = true }
 lambda_runtime = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }

@@ -31,6 +31,7 @@ members = [
     "src/cognito-post-confirmation",
     "src/cognito-post-confirmation-forwarder",
     "src/cognito-pre-sign-up",
+    "src/cognito-trigger-signing",
     "src/credential-core",
     "src/domain-primitives",
     "src/localization",
@@ -167,6 +168,7 @@ platform-observability = { path = "src/platform-observability" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
 platform-cloudwatch-logs = { path = "src/platform-cloudwatch-logs" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
+cognito-trigger-signing = { path = "src/cognito-trigger-signing" }
 platform-process = { path = "src/platform-process" }
 platform-worker = { path = "src/platform-worker" }
 aura-historia-worker = { path = "src/aura-historia-worker" }

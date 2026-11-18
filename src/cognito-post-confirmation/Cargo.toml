@@ -6,15 +6,11 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["cognito"] }
-base64 = { workspace = true }
 localization = { workspace = true }
-openssl = { workspace = true, features = ["vendored"] }
-reqwest = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }

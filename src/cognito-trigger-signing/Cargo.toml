@@ -1,0 +1,11 @@
+[package]
+name = "cognito-trigger-signing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = { workspace = true }
+openssl = { workspace = true, features = ["vendored"] }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
