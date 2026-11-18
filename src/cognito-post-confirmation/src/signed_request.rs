@@ -1,7 +1,9 @@
 //! Signed requests from a Cognito trigger to the host's internal endpoints. The triggers reach
 //! the host only through the public API hostname, so an endpoint must be HTTPS (plain HTTP only
 //! on a loopback host, for tests), and redirects are never followed.
-use crate::signature::{SIGNATURE_HEADER, SignatureError, SigningKey, TIMESTAMP_HEADER, sign};
+use crate::signature::{
+    SIGNATURE_HEADER, SignatureError, SignaturePurpose, SigningKey, TIMESTAMP_HEADER, sign,
+};
 use std::time::Duration;
 use url::{Host, Url};
 
@@ -27,11 +29,12 @@ pub enum SignedRequestError {
     Refused { status: u16 },
 }
 
-/// Posts signed, timestamped JSON bodies to one host endpoint.
+/// Posts JSON bodies, signed for one purpose and timestamped, to one host endpoint.
 pub struct SignedHostClient {
     client: reqwest::Client,
     endpoint: Url,
     key: SigningKey,
+    purpose: SignaturePurpose,
 }
 
 impl SignedHostClient {
@@ -39,6 +42,7 @@ impl SignedHostClient {
     pub fn new(
         endpoint: &str,
         key: SigningKey,
+        purpose: SignaturePurpose,
         timeout: Duration,
     ) -> Result<Self, SignedHostClientConfigError> {
         let endpoint =
@@ -52,6 +56,7 @@ impl SignedHostClient {
             client,
             endpoint,
             key,
+            purpose,
         })
     }
 
@@ -63,7 +68,8 @@ impl SignedHostClient {
         now: i64,
         correlation_id: &str,
     ) -> Result<reqwest::Response, SignedRequestError> {
-        let signature = sign(&self.key, now, &body).map_err(SignedRequestError::Sign)?;
+        let signature =
+            sign(&self.key, self.purpose, now, &body).map_err(SignedRequestError::Sign)?;
         let response = self
             .client
             .post(self.endpoint.clone())

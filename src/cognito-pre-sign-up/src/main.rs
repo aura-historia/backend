@@ -1,11 +1,11 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::cognito::CognitoEventUserPoolsPreSignup;
-use cognito_pre_sign_up::{handler, is_external_provider_signup, parse_provider_signup_policy};
-use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use platform_lambda_bootstrap::{
-    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    required_config_from_env,
+use cognito_pre_sign_up::{
+    handler, host_lookup::HostAccountLookup, is_external_provider_signup,
+    parse_provider_signup_policy,
 };
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use platform_lambda_bootstrap::{log_cold_start, log_invocation_start, required_config_from_env};
 use platform_observability::{LoggingConfig, init};
 use std::{
     sync::Arc,
@@ -13,11 +13,11 @@ use std::{
 };
 use tokio::time::timeout;
 use user_cognito::CognitoAccountLinker;
-use user_postgres::SqlxFederatedAccountReader;
-use user_service::use_cases::ResolveFederatedAccountHandler;
 
 const COMPONENT: &str = "cognito-pre-sign-up";
 
+/// Cognito waits at most five seconds for the trigger, which also has to start and answer. The
+/// host lookup and the Cognito link call both fit inside this deadline.
 const INVOCATION_DEADLINE: Duration = Duration::from_millis(4_200);
 
 #[tokio::main]
@@ -31,8 +31,7 @@ async fn main() -> Result<(), Error> {
         parse_provider_signup_policy(&policy_json)
             .map_err(|_| Error::from("invalid Cognito provider sign-up policy"))?,
     );
-    let postgres = RuntimePostgresConfig::from_env()?;
-    let services = Arc::new(LazyComposition::new());
+    let lookup = Arc::new(HostAccountLookup::from_env()?);
     let aws_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let linker = Arc::new(CognitoAccountLinker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&aws_config),
@@ -43,8 +42,7 @@ async fn main() -> Result<(), Error> {
     run(service_fn(
         move |event: LambdaEvent<CognitoEventUserPoolsPreSignup>| {
             let providers = Arc::clone(&providers);
-            let postgres = postgres.clone();
-            let services = Arc::clone(&services);
+            let lookup = Arc::clone(&lookup);
             let linker = Arc::clone(&linker);
             async move {
                 log_invocation_start(COMPONENT, &event.context);
@@ -61,18 +59,8 @@ async fn main() -> Result<(), Error> {
                 }
 
                 let invocation = timeout(INVOCATION_DEADLINE, async {
-                    let service = services
-                        .get_or_try_build(|| async {
-                            let pool = postgres.connect(COMPONENT).await?;
-                            Ok::<_, Error>(Arc::new(ResolveFederatedAccountHandler::new(
-                                SqlxFederatedAccountReader::new(pool),
-                            )))
-                        })
-                        .await?;
-
-                    match handler(event, providers.as_ref(), service.as_ref(), linker.as_ref())
-                        .await
-                    {
+                    let resolver = lookup.for_invocation(&request_id);
+                    match handler(event, providers.as_ref(), &resolver, linker.as_ref()).await {
                         Ok(response) => Ok(response),
                         Err(error) => {
                             tracing::warn!(

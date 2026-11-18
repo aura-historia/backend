@@ -47,11 +47,12 @@ use crate::auth::{
 use crate::readiness::RuntimeReadiness;
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
-    CognitoPostConfirmationState, ContentNoticesState, ListingSourcesState, LoopsWebhooksState,
-    NewsletterState, NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, ShopifyWebhooksState,
-    StripeWebhooksState, UsersState, WatchlistState, WebhooksState,
+    CognitoPostConfirmationState, CognitoPreSignUpState, ContentNoticesState, ListingSourcesState,
+    LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState, PartiesState,
+    PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, PublicOverviewState,
+    SearchFiltersState, ShopifyWebhooksState, StripeWebhooksState, UsersState, WatchlistState,
+    WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -211,7 +212,7 @@ use user_loops::{
 use user_postgres::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
-    SqlxCognitoUserIdentityReader, SqlxLoopsWebhookReceiptRepository,
+    SqlxCognitoUserIdentityReader, SqlxFederatedAccountReader, SqlxLoopsWebhookReceiptRepository,
     SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
     SqlxNewsletterProfileReader, SqlxStripeSubscriptionEventStoreFactory,
     SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserAuthenticationReader,
@@ -912,7 +913,11 @@ fn compose_app(
     }
 
     if let Some(post_confirmation) = state.cognito_post_confirmation {
-        routes = routes.merge(internal::routes(post_confirmation));
+        routes = routes.merge(internal::post_confirmation_routes(post_confirmation));
+    }
+
+    if let Some(pre_sign_up) = state.cognito_pre_sign_up {
+        routes = routes.merge(internal::pre_sign_up_routes(pre_sign_up));
     }
 
     if let Some(webhooks) = state.stripe_webhooks {
@@ -2261,6 +2266,11 @@ async fn app_state_from_config_and_runtime(
     )
     .with_dissolve(Arc::new(dissolve_partnership));
 
+    let resolve_federated_account = Arc::new(
+        user_service::use_cases::ResolveFederatedAccountHandler::new(
+            SqlxFederatedAccountReader::new(pool.clone()),
+        ),
+    );
     let readiness = Arc::new(RuntimeReadiness::new(pool, opensearch_client.clone()));
 
     let address_suggestions_state = state::AddressSuggestionsState {
@@ -2361,6 +2371,11 @@ async fn app_state_from_config_and_runtime(
                 SqlxUserCognitoIdentityRegistryFactory::new(),
                 SqlxMarketingConsentIntentRepository::new(),
             )),
+        ))
+        .with_cognito_pre_sign_up(CognitoPreSignUpState::new(
+            config.post_confirmation_signature.clone(),
+            config.cognito_jwt().issuer.clone(),
+            resolve_federated_account,
         ))
         .with_loops_webhooks(LoopsWebhooksState::new(
             config.loops_webhook_signing_secret().to_owned(),

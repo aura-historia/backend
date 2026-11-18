@@ -178,6 +178,7 @@ pub struct AppState {
     pub(crate) shopify_webhooks: Option<ShopifyWebhooksState>,
     pub(crate) stripe_webhooks: Option<StripeWebhooksState>,
     pub(crate) cognito_post_confirmation: Option<CognitoPostConfirmationState>,
+    pub(crate) cognito_pre_sign_up: Option<CognitoPreSignUpState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
@@ -235,6 +236,7 @@ impl AppState {
             webhooks: None,
             loops_webhooks: None,
             cognito_post_confirmation: None,
+            cognito_pre_sign_up: None,
             shopify_webhooks: None,
             stripe_webhooks: None,
             auctions: None,
@@ -401,6 +403,11 @@ impl AppState {
 
     pub fn with_cognito_post_confirmation(mut self, state: CognitoPostConfirmationState) -> Self {
         self.cognito_post_confirmation = Some(state);
+        self
+    }
+
+    pub fn with_cognito_pre_sign_up(mut self, state: CognitoPreSignUpState) -> Self {
+        self.cognito_pre_sign_up = Some(state);
         self
     }
 
@@ -586,6 +593,29 @@ impl CognitoPostConfirmationState {
             verifier: Arc::new(verifier),
             expected_issuer: Arc::from(expected_issuer.into()),
             register,
+        }
+    }
+}
+
+/// The internal endpoint Cognito's pre-sign-up trigger calls.
+#[derive(Clone)]
+pub struct CognitoPreSignUpState {
+    pub(crate) verifier: Arc<cognito_post_confirmation::signature::SignatureVerifier>,
+    pub(crate) expected_issuer: Arc<str>,
+    pub(crate) resolve: Arc<dyn user_service::use_cases::ResolveFederatedAccountUseCase>,
+}
+
+impl CognitoPreSignUpState {
+    /// `expected_issuer` is the configured user pool's issuer; other pools' requests are refused.
+    pub fn new(
+        verifier: cognito_post_confirmation::signature::SignatureVerifier,
+        expected_issuer: impl Into<String>,
+        resolve: Arc<dyn user_service::use_cases::ResolveFederatedAccountUseCase>,
+    ) -> Self {
+        Self {
+            verifier: Arc::new(verifier),
+            expected_issuer: Arc::from(expected_issuer.into()),
+            resolve,
         }
     }
 }

@@ -77,7 +77,7 @@ composes three stacks:
 
 | Stack suffix under `application-prod` | Ownership |
 | --- | --- |
-| `host` | The host's IAM user, the versioned backup bucket, the CloudFront origin secret and the post-confirmation signing key |
+| `host` | The host's IAM user, the versioned backup bucket, the CloudFront origin secret and the Cognito triggers' signing key |
 | `identity` | Cognito pool, client, domains, identity providers and both Cognito triggers; the SES configuration set; the host user's Cognito admin grant |
 | `api` | CloudFront distributions and Web ACLs for `api.` and `mcp.`, both on the host origin |
 
@@ -109,12 +109,16 @@ The `host` stack deploys independently of the others and before the host serves 
   An operator installs its `value` in the host proxy's secret file. To rotate, put a new value,
   let the proxy accept both, deploy `api` with the new version in `OriginVerifyCredentialVersion`,
   then drop the old value from the proxy.
-- **Post-confirmation signing key.** `/aura-historia/prod/edge/post-confirmation-signing` is
-  generated once and retained. An operator installs its `value` as the API's
-  `COGNITO_POST_CONFIRMATION_SIGNING_KEY`; `identity` resolves it into the forwarder at
-  deployment through `PostConfirmationSigningCredentialVersion`. To rotate, put a new value, set
-  the old one as the API's `COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY` and the new one as
-  its current key, deploy `identity` with the new version, then remove the previous key.
+- **Cognito trigger signing key.** `/aura-historia/prod/edge/post-confirmation-signing` is
+  generated once and retained. Both triggers sign their requests to the host with it, each under
+  its own purpose label, so a request signed for one internal endpoint never verifies at the
+  other. A second key would add no isolation: both triggers' configurations hold the key in
+  plaintext and are readable by the same principals. An operator installs its `value` as the
+  API's `COGNITO_POST_CONFIRMATION_SIGNING_KEY`, which verifies both endpoints; `identity`
+  resolves it into both triggers at deployment through `PostConfirmationSigningCredentialVersion`.
+  To rotate, put a new value, set the old one as the API's
+  `COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY` and the new one as its current key, deploy
+  `identity` with the new version, which updates both triggers, then remove the previous key.
 
 ### Host runtime credentials
 
@@ -165,14 +169,24 @@ and Web ACLs are unchanged by the origin; see the [HTTP front door](http-api-fro
 CloudFormation reads the origin name and the secret only when it updates a distribution. After
 changing either, deploy `api` with a template change, such as the new secret version.
 
-The Cognito triggers run outside any VPC, so neither can reach the host's database. Pre-sign-up
-may call only the Cognito API and the host's public front door; the post-confirmation forwarder
-calls the host's internal endpoint `/internal/cognito/post-confirmation` through the public API
-hostname, because the host accepts only CloudFront. It signs each forwarded event with
-HMAC-SHA256 over its timestamp and body; the host accepts it only within five minutes of its own
-clock and only for the configured user pool, and any failure fails the confirmation. The endpoint
-is not part of the public OpenAPI contract. Their
-code is pinned to objects in the release bundle bucket, which therefore stays, through each
+The Cognito triggers run outside any VPC, so neither can reach the host's database. Each calls
+its internal endpoint on the host through the public API hostname, because the host accepts only
+CloudFront, and signs the request with HMAC-SHA256 over its purpose, timestamp and body. The host
+accepts a request only within five minutes of its own clock and only for the configured user
+pool, and any failure, refusal or timeout fails the sign-up or confirmation. The endpoints are not
+part of the public OpenAPI contract.
+
+- **Post-confirmation** forwards each confirmation event to
+  `/internal/cognito/post-confirmation`, which registers the user.
+- **Pre-sign-up** returns early for native sign-ups. For a federated sign-up it applies the
+  provider policy, then asks `/internal/cognito/pre-sign-up` whether the email already has an
+  account; the host answers only the decision (allow, reject, or link to the persisted Cognito
+  identity and canonical email). The trigger performs the link itself with its own Cognito grant,
+  so the host user needs none. The lookup must answer within 2.5 seconds so that the link call
+  still fits Cognito's five-second limit. The answer reveals whether an email has an account, so
+  only signed requests get one, and neither side logs the email or the decision.
+
+Their code is pinned to objects in the release bundle bucket, which therefore stays, through each
 function's artifact key, version and SHA-256 parameters; Cognito invokes their `live` aliases.
 
 ### Production deletion protection
@@ -207,9 +221,9 @@ with `cdk deploy` from `infra/`, passing its parameters: `identity` takes the
 triggers' artifact key, version and SHA-256; `api` takes `OriginVerifyCredentialVersion`. Before the first reduced deployment:
 
 - Both trigger artifacts must be built from code that runs without the database: a
-  pre-sign-up trigger without PostgreSQL configuration and a configured post-confirmation
+  pre-sign-up trigger that asks the host's endpoint and a configured post-confirmation
   forwarder. Cognito invokes them for every sign-up and confirmation, so a trigger that cannot
-  start fails them all.
+  start fails them all; the host must serve both internal endpoints before `identity` deploys.
 - `identity` keeps the exports the retired `compute` stack imports, so `compute` may stay until
   teardown. Remove those exports only after `compute` is deleted.
 - The retired `observability` stack imports the API Gateway ID, which the reduced `api` stack

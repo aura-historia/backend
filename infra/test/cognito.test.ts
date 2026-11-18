@@ -188,7 +188,16 @@ describe.each(STAGES)("%s Cognito federation", (stage) => {
     expect(preSignUp.Properties).toMatchObject({ Timeout: 5, MemorySize: 256, ReservedConcurrentExecutions: 5 });
     expect(preSignUp.Properties.VpcConfig).toBeUndefined();
     expect(preSignUp.Properties.Layers).toBeUndefined();
-    expect(Object.keys(variables).sort()).toEqual(["COGNITO_PROVIDER_SIGNUP_POLICY", "LOG_LEVEL"]);
+    expect(Object.keys(variables).sort()).toEqual([
+      "COGNITO_PROVIDER_SIGNUP_POLICY",
+      "LOG_LEVEL",
+      "PRE_SIGN_UP_ENDPOINT_URL",
+      "PRE_SIGN_UP_SIGNING_KEY",
+    ]);
+    expect(variables.PRE_SIGN_UP_ENDPOINT_URL).toBe("https://api.aura-historia.com/internal/cognito/pre-sign-up");
+    expect(variables.PRE_SIGN_UP_SIGNING_KEY).toEqual(
+      credentialReference(credentialSecrets(stage).postConfirmationSigning, "value"),
+    );
     const providerPolicies = JSON.parse(variables.COGNITO_PROVIDER_SIGNUP_POLICY as string) as Array<Record<string, string>>;
     expect(providerPolicies).toEqual([
       {

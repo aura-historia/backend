@@ -3,7 +3,7 @@
 //! through the public API hostname. A failed or refused forward fails the confirmation, as a
 //! failed registration did when the trigger wrote to the database itself.
 use cognito_post_confirmation::{
-    signature::{SignatureError, SigningKey},
+    signature::{SignatureError, SignaturePurpose, SigningKey},
     signed_request::{SignedHostClient, SignedHostClientConfigError, SignedRequestError},
 };
 use std::time::Duration;
@@ -77,7 +77,12 @@ pub struct Forwarder {
 impl Forwarder {
     pub fn new(endpoint: &str, key: SigningKey) -> Result<Self, ForwarderConfigError> {
         Ok(Self {
-            client: SignedHostClient::new(endpoint, key, FORWARD_TIMEOUT)?,
+            client: SignedHostClient::new(
+                endpoint,
+                key,
+                SignaturePurpose::PostConfirmation,
+                FORWARD_TIMEOUT,
+            )?,
         })
     }
 
@@ -188,6 +193,7 @@ mod tests {
         assert_eq!(
             Ok(()),
             SignatureVerifier::new(SigningKey::new(KEY).unwrap(), None).verify(
+                SignaturePurpose::PostConfirmation,
                 headers.get(TIMESTAMP_HEADER).map(|value| value.as_bytes()),
                 headers.get(SIGNATURE_HEADER).map(|value| value.as_bytes()),
                 body,

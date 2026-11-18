@@ -21,12 +21,23 @@ interface TriggerDefinition {
 
 /** The host's internal endpoint the post-confirmation forwarder calls (`aura-historia-api`). */
 export const POST_CONFIRMATION_ENDPOINT_PATH = "/internal/cognito/post-confirmation";
+/** The host's internal endpoint the pre-sign-up trigger asks for federated decisions. */
+export const PRE_SIGN_UP_ENDPOINT_PATH = "/internal/cognito/pre-sign-up";
 
+/**
+ * Applies the provider policy and links federated identities itself, but asks the host's internal
+ * endpoint, through the public API hostname, whether the sign-up's email already has an account.
+ * It signs with the post-confirmation forwarder's key under its own purpose label.
+ */
 export const PRE_SIGN_UP_TRIGGER: TriggerDefinition = {
   id: "PreSignUp",
   binaryName: "cognito-pre-sign-up",
   functionName: (stage) => `cognito-pre-sign-up-trigger-${stage}`,
-  environment: (_scope, config) => ({ COGNITO_PROVIDER_SIGNUP_POLICY: providerSignupPolicy(config) }),
+  environment: (scope, config) => ({
+    COGNITO_PROVIDER_SIGNUP_POLICY: providerSignupPolicy(config),
+    PRE_SIGN_UP_ENDPOINT_URL: `https://${config.apiDomainName}${PRE_SIGN_UP_ENDPOINT_PATH}`,
+    PRE_SIGN_UP_SIGNING_KEY: triggerSigningKey(scope, config),
+  }),
 };
 
 /**
@@ -40,13 +51,14 @@ export const POST_CONFIRMATION_TRIGGER: TriggerDefinition = {
   functionName: (stage) => `cognito-post-confirmation-forwarder-${stage}`,
   environment: (scope, config) => ({
     POST_CONFIRMATION_ENDPOINT_URL: `https://${config.apiDomainName}${POST_CONFIRMATION_ENDPOINT_PATH}`,
-    POST_CONFIRMATION_SIGNING_KEY: credentialValue(
-      scope,
-      credentialSecrets(config.stage).postConfirmationSigning,
-      "value",
-    ).unsafeUnwrap(),
+    POST_CONFIRMATION_SIGNING_KEY: triggerSigningKey(scope, config),
   }),
 };
+
+/** Both triggers sign their host requests with one key, each under its own purpose label. */
+function triggerSigningKey(scope: Construct, config: StageConfig): string {
+  return credentialValue(scope, credentialSecrets(config.stage).postConfirmationSigning, "value").unsafeUnwrap();
+}
 
 export interface CognitoTriggersProps {
   readonly config: StageConfig;
@@ -54,7 +66,7 @@ export interface CognitoTriggersProps {
 
 /**
  * The two Lambda functions Cognito invokes. They run outside any VPC: the host's database is
- * private, so each reaches only Cognito or the host's public front door.
+ * private, so each reaches only Cognito and the host's public front door.
  */
 export class CognitoTriggers extends Construct {
   readonly preSignUp: lambda.Alias;
