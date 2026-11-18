@@ -74,28 +74,19 @@ Select the lane/profile from the table; the [fixture guide](../src/test-api/READ
 lists what each profile starts. The remaining lane needs no services.
 Give concurrent runs separate output directories.
 
-## Exact-source release eligibility
+## Release images
 
-[Complete release tests](../.github/workflows/release-tests.yml) calls the same
-four-lane Rust suite and the infrastructure, image and MJML workflows with an
-explicit full candidate SHA. It has no path filters and receives no cloud or model
-credentials. Existing-bundle promotions repeat this suite for the bundle source.
-The inventory validates every workspace package, deployable binary, Dockerfile,
-image smoke check and tracked delivery helper before emitting its fingerprint.
-
-`Complete release suite` runs after all required suites, including failures and
-cancellation. Only success from every trusted required job produces immutable
-[test evidence](../ci/delivery/gate.cjs), bound to source, trusted workflow revision,
-run/attempt, toolchain and inventory. Missing and skipped suites fail eligibility.
-A successful artifact upload cannot change that result.
+The [deploy workflow](../.github/workflows/deploy.yml) builds the image for the commit it
+deploys through the [image checks](../.github/workflows/container-images.yml), with the same
+image and prod Compose smoke tests as a pull request, and publishes it to GHCR only when they
+pass. It runs no Rust, infrastructure or MJML suites itself: deploy commits that passed them
+on their pull request. The [host deploy runbook](../host/prod/README.md#deploys) owns the rest.
 
 The ordinary workflows retain path filters: before requiring their checks for
 merging, remove those workflow filters or add an always-present dispatcher
 that explicitly accounts for skipped paths. GitHub leaves a required path-filtered
-workflow pending when it never starts. Do not require the manual-only release suite
-on PRs. GitHub owners must verify the actual ruleset and environment restrictions;
-repository YAML alone does not configure them. Coverage and Sonar were retired by the current CI contract;
-release eligibility consumes the current suites without adding a second harness.
+workflow pending when it never starts. GitHub owners must verify the actual ruleset and
+environment restrictions; repository YAML alone does not configure them.
 
 ## Cache and failures
 

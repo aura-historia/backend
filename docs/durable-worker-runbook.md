@@ -26,7 +26,7 @@ Record the exact task/endpoints/instance/slot and recovery checkpoint, prior lif
 maintenance owner/request, current retained WAL/free storage, pause budget and monitoring.
 Enter the environment maintenance hold before privileged operations. Pause only when the
 reviewed work requires it; retain an intentional prior stopped state. The small
-[maintenance helper](../ci/delivery/maintenance.cjs) records durable pause intent through
+maintenance helper records durable pause intent through
 its required evidence writer before calling DMS, observes ambiguous responses and resumes
 only its owned pause on the same task/checkpoint using `resume-processing`. It pauses only
 a task that reports a recovery checkpoint, and a running task can report none until it

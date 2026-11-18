@@ -6,68 +6,12 @@ This runbook owns deployment order, operator prerequisites and recovery boundari
 successful synth are **not evidence of deployed state or workload readiness**.
 Verify the approved account, physical resources and effective configuration at each release.
 
-## Delivery evidence and ownership
+## Releases
 
-The versioned [delivery contracts](../ci/delivery/contracts.schema.json) and
-[pure validators](../ci/delivery/contracts.cjs) own release evidence. Canonical JSON
-sorts object keys and retains array order; its SHA-256 binds every request, report
-and immutable bundle. SQLx migration checksums remain SHA-384 and are never
-substituted with artifact hashes.
-
-A completed bundle binds its exact source, complete Lambda/image catalogs,
-content-addressed versioned objects, registry digests, migration checksums,
-OpenSearch/source assets, per-target assemblies and original full-suite tests.
-Build identity is source SHA plus approved build-configuration digest. Publish
-completion metadata last. Missing/corrupt objects fail reuse. A new deployment
-request carries fresh tests and target approval without changing the bundle.
-
-Compatibility evidence binds the target account/region, last verified deployment,
-actual schema ledger, cumulative changes, effective templates/configuration,
-reviewer model/policy and manual prerequisite digest. Unknown baselines and
-uncertain review require maintenance. Manual OpenSearch administration remains
-operator work under the [OpenSearch contract](opensearch-stage.md); retained
-worker/message compatibility follows the [worker runbook](durable-worker-runbook.md).
-
-The model receives pending migration SQL, schema differences, changed infrastructure
-properties, source/contract patches and merged PR descriptions from immutable squash
-commit bodies. Unchanged templates and schemas use verified digests; applied SQL and
-unchanged implementation files are omitted. Patches cover only what an application release
-deploys and the contracts it changes: crates the release never deploys (such as the
-crawler), test and fixture code, crawler and report docs, repository tooling and the
-release control plane are listed by path and reason instead
-([`review-context.cjs`](../ci/delivery/review-context.cjs) owns the rules). The full inventory remains immutable
-evidence. Admission recomputes the focused context and verifies both its digest and
-its binding to that inventory. Release notes cannot override native facts or hard
-policy. The retained source inventory has a separate 16 MiB bound; full before/after
-file contents in that inventory do not consume the model's focused input budget.
-It excludes repository `data/`, which never enters a bundle, and records binary
-changes by path only.
-Focused model input is bounded to 1.25 MiB by default, below the model's 1M-token window
-(code and JSON average about 2.3 bytes per token). Oversized inventory or relevant context
-still holds delivery; evidence is never truncated.
-Planning and admission read the same native property-level change-set view, resolving
-available references instead of treating every possible dependent update as a change.
-
-Healthy idle CDC requires fresh successful polling, explicit zero returned records
-and zero reader age. Missing metric samples remain unknown; an absent producer
-metric alone does not establish idleness.
-
-Worker health measures whether the deployed workers work, not whether they keep up with
-ingestion. A queue with a backlog passes while its worker acknowledges at least half of the
-records it receives in the observed window; SQS throttling of a saturated function returns
-records unacknowledged, while a failing worker acknowledges almost none. Backlog age is
-reported but not gated. A dead-letter queue fails only when it holds more messages than its
-latest sample before the observed window, which starts after the stack updates; without such a
-sample, any dead letter fails. Earlier dead
-letters stay with [failure custody](durable-worker-runbook.md#failure-custody-and-controlled-redrive)
-and the DLQ alarm.
-
-The environment record holds only its last verified application bundle, separately
-observed SQL state, active execution and an explicit operational hold. Successful
-SQL followed by failed application deployment updates schema evidence and preserves
-the previous verified bundle. Holds have no expiry or automatic unlock; maintenance
-and routine delivery share the same exclusion boundary. Request approvals authorize
-only their exact build or target scope and cannot be transferred between environments.
+Application releases build in GitHub Actions and deploy to the host; the
+[host deploy runbook](../host/prod/README.md#deploys) owns that path, its approval and its
+rollback. The CDK app below is never part of a release: an operator deploys its stacks with
+`cdk deploy` as described in [deploying the reduced app](#deploying-the-reduced-app).
 
 ## Infrastructure boundary
 
@@ -270,110 +214,7 @@ version that predates a stored category (`NUDITY` was added by
 If a rollback is unavoidable, first delete those rows. Their listings then count as
 unassessed, so their images stay hidden until assessment runs again.
 
-## Deployment inputs and approvals
-
-[Release](../.github/workflows/deploy.yml) is a **manual** workflow dispatched from
-protected `develop`. Pushes, tags, PRs and schedules never request AWS release
-compilation, publication or deployment. Ordinary CI remains automatic.
-
-| Mode | Selection | Protected approvals |
-| --- | --- | --- |
-| `build` | Full immutable SHA merged into protected `develop`, plus dev/prod | `aws-release-build`, then `aws-dev` or `aws-prod` |
-| `promote` | Existing completed bundle digest, plus dev/prod | Target approval only |
-
-Every request runs the [complete exact-source test suite](ci.md#exact-source-release-eligibility),
-including promotions and documentation-only changes. Candidate tests receive no
-cloud or model credentials. The build approval authorizes compilation/publication
-cost. Only its isolated requester role can submit a shared CodePipeline build.
-One CodeBuild job compiles the entire Lambda deployment catalog in one Cargo
-invocation, builds each catalog image, compiles mail, and synthesizes configured
-target assemblies. Lambda builds retain Cargo Lambda’s ThinLTO and one codegen unit;
-its command-line profile settings override the LTO environment variable. The matcher
-uses its existing GNU target separately from the Lambda MUSL target. Selecting the
-deployment catalog avoids including development tools and their dependency features.
-Rust, cargo-lambda, Zig, Node, sccache, lockfiles and the prebuilt tool image digest
-are pinned by the approved configuration.
-Candidate Cargo/build scripts and Dockerfiles execute without forwarded AWS
-credentials; compilation uses a network-isolated container. Source mounts remain
-read-only. The builder role can publish artifacts, with no database secrets,
-application mutation, maintenance or role-passing powers.
-
-The release builder alone restores and saves dependency snapshots in a separate
-private S3 cache bucket, with 14-day expiration. Snapshots contain downloaded Cargo
-sources and a bounded 10 GB local sccache; they contain no workspace target tree,
-application binaries, credentials or deployment evidence. Workspace compilation
-bypasses sccache and final binary links always run. The compiler container accesses
-only the local cache; CodeBuild handles its S3 transfer outside that container.
-Keys separate builder/control configuration, lockfile and Lambda catalog. A new
-source SHA saves a new snapshot and restores a compatible earlier snapshot by
-prefix. Dependency compilation additionally uses sccache's compiler/input/flag
-identity. Cache misses and expired snapshots require ordinary compilation.
-
-To update tools, change the [builder Dockerfile](../ci/delivery/builder/Dockerfile),
-run `bash ci/delivery/publish-builder.sh` as a platform operator, and pin its printed
-ECR digest in `ci/delivery/build-config.json`. Publication reuses an existing
-immutable Dockerfile tag. Review the configuration and update the trusted control
-revision through the platform procedure; ordinary releases only pull the pinned
-image. Tagged builder images are retained for builds using earlier configurations.
-
-A fresh cumulative target report is prepared after bundle creation/reuse. Review
-its exact account/region, source, bundle, baseline, SQL, stack changes, worker
-compatibility and **blocking OpenSearch checklist** before target approval.
-`MAINTENANCE_REQUIRED`, uncertainty and missing baselines hold routine delivery.
-The reviewer has read/inspection/model access and cannot execute generated commands,
-weaken hard restrictions or authorize maintenance.
-
-Target approval attests the exact report and any completed manual prerequisite.
-OpenSearch commands run locally on the named host under the
-[OpenSearch contract](opensearch-stage.md#release-and-schema-change-contract).
-Provide a fresh sanitized before-state through dispatch `manual_evidence` as
-`{"beforeObservation":{"target":"prod","targetHost":"…","index":"…","alias":"…","mapping":{},"aliases":{},"observedAt":"…"}}`
-when private read access is unavailable. Also provide expected after observations as
-`manual_evidence` JSON `{"observations":[{"prerequisiteId":"…","mapping":{},"aliases":{}}]}`.
-If observations become available while approval waits, an approved operator can
-publish the immutable `reports/manual/<request-id>.json` observation object to the
-delivery bucket with conditional creation. The protected target job binds those
-observations to the displayed target/report/prerequisite digests. Missing or
-incorrect expected after-state evidence holds deployment. No pipeline has search
-administration credentials.
-
-Optional dispatch `manual_evidence.nativeChecks` requests additional read-only review
-evidence. `retiredEventRules` selects `{eventBusName,name}` pairs on an already observed
-target bus; the planner verifies absence and execution rechecks it. `databaseInstanceId`
-and `lambdaFunctions` select observed target resources for one-hour capacity metrics
-and allowlisted pool settings. `sourcePaths` selects supporting tracked Rust files at
-the candidate SHA. Requests supply selectors, never observed values or verdicts; missing
-metrics remain missing. These checks add no mutation or approval authority.
-
-The review also compares compiled mail-template identifiers and content hashes with
-the last verified bundle. A build-specific `MAIL_TEMPLATE_PREFIX` rotation can select
-identical template bytes; changed content remains explicit in the report.
-
-The target requester submits pinned request, bundle, report and control-source
-versions to its native pipeline. All mutations and verification share one ordered
-`Deploy` stage in QUEUED mode, plus the durable environment exclusion record.
-Native CloudFormation action roles trust only their owning pipeline role. Notification
-rules wait for their SNS publish policy before creation.
-CodePipeline stage queueing alone is not a whole-release lock. The candidate
-migrator is deployed before invocation, pending SQL runs before application
-changes, then native API/MCP CodeDeploy alias rollout and bounded health checks
-must pass before the application baseline advances. Worker/message compatibility
-is separately reviewed. Routine delivery preserves DMS task identity, configuration
-and intentional consumer activation. It cannot stop/start/modify capture or replace
-protected durable resources.
-
-Rollout hooks select the qualified candidate from the deployment's registered AppSpec,
-verifying its SHA-256 and the exact function/live alias. CodeDeploy target summaries
-may omit version fields; neither the current alias nor the latest published version
-is evidence of the deployment's intended candidate.
-
-GitHub monitoring is bounded. Cancelling a GitHub runner does not cancel AWS work,
-resume DMS or release an environment hold. Inspect native execution links and the
-versioned environment record after failure; do not infer success from a workflow
-badge. The monitor retries an initially missing native execution for at most two
-minutes; authorization errors and terminal failure statuses still fail immediately.
-SQL may have committed while application deployment failed. Reconciliation
-must preserve that schema evidence and the previous verified application baseline.
+## Deployment inputs
 
 ### Runtime credentials
 
@@ -388,12 +229,10 @@ reads the Anthropic secret's key when it runs.
 
 [`credentials.ts`](../infra/src/credentials.ts) owns the secret names and JSON fields; provision
 app secrets before the first release that references them, and keep only runtime credentials
-under the `app/` prefix: the routine CloudFormation role may read exactly the runtime PostgreSQL
-secret and that prefix. Routine delivery binds each parameter to the secret's `AWSCURRENT`
-version, reading metadata only, and holds when a secret is missing. Templates accept only the
-UUID version IDs Secrets Manager generates; never supply a client request token. Protected
-identity and initialization stacks take the same parameters in the platform procedure: bind them
-with `node ci/delivery/credential-versions.cjs <target> <template.json>`.
+under the `app/` prefix. Templates accept only the
+UUID version IDs Secrets Manager generates; never supply a client request token. When deploying a
+stack, pass each of its `<Name>CredentialVersion` parameters the secret's `AWSCURRENT` version ID
+(`aws secretsmanager describe-secret --secret-id <name> --query VersionIdsToStages`).
 
 Plain SSM `String` parameters hold non-secret configuration only: change sets report their
 resolved values, which would otherwise reach release evidence. Planning still redacts every
@@ -410,66 +249,7 @@ until the release completes, new connections from deployed versions fail with SQ
 If that release fails and rolls back, restore the previous secret version to `AWSCURRENT` and run
 bootstrap again before retrying.
 
-### Operator setup
-
-Delivery infrastructure is separately approved platform work. Before enabling normal
-requests on a new environment:
-
-1. Protect `develop`. Configure required CI checks as described in [CI](ci.md).
-   Configure `aws-release-build`, `aws-dev` (if enabled), `aws-prod`, and each enabled
-   `aws-<target>-maintenance` with required
-   reviewers, protected-branch deployment policy, and administrator bypass disabled.
-   The owner chooses whether self-approval is allowed. Verify these in GitHub's UI
-   and API, then set `DELIVERY_PROTECTIONS_VERIFIED=true`; helpers also reject missing
-   reviewer/branch protections. YAML does not create environment protections.
-2. Review the immutable trusted control ZIP, publish it under `control/<digest>.zip`
-   with a version ID, and configure the standalone delivery stack with its key/version,
-   exact protected workflow revision, approved build-config digest and CodeConnections
-   connection. Source polling, source webhooks, restart-on-update and automatic builds
-   are disabled. Admission rejects bootstrap/default executions without authorization.
-   Application bundles cannot update the control plane or its permissions boundaries.
-3. Use the outputs from the delivery stack for the
-   repository variables below. Pin `DELIVERY_WORKFLOW_REVISION` to the approved control commit for helper
-   checkouts and test evidence; actual invocation HEAD is recorded separately.
-   Trusted helpers compare control-sensitive paths to that pin and reject changed
-   workflow entries/helpers until the owner updates the approved control plane.
-   App-only commits can advance develop without changing this pin. The protected
-   develop entry YAML grants no authority by itself. Keep control-source version,
-   pinned workflow revision, build configuration and target files aligned; changing them is platform work.
-   Configure a strong review model explicitly, qualified read-only inspector and
-   target inventory under `ci/delivery/targets/`. Missing private facts require
-   sanitized operator evidence and hold deployment until reviewed.
-   The reviewer calls the Anthropic Messages API directly with Opus 5.5 at high
-   effort. Its planner role reads only the target's Anthropic API key secret
-   at runtime; never copy that key into GitHub secrets, logs or release evidence.
-   The verdict uses schema-constrained JSON. Thinking and response text share
-   the bounded output budget. Thinking blocks
-   are discarded; malformed, truncated, refused or tool-bearing responses hold
-   deployment. Token usage and effort are retained with the review evidence.
-4. Establish a verified environment baseline and current schema observation under
-   the protected maintenance procedure. A baseline assertion must reflect the
-   deployed versions and artifacts, not merely the requested source. Confirm SNS
-   subscriptions and budget/failure notification delivery.
-
-| Repository variable | Delivery stack output / ownership |
-| --- | --- |
-| `AWS_ACCOUNT_ID`, `AWS_REGION` | Explicit approved workload account; `eu-central-1` |
-| `DELIVERY_BUCKET` | `DeliveryBucket` |
-| `DELIVERY_CONTROL_VERSION` | Approved immutable control ZIP version |
-| `DELIVERY_WORKFLOW_REVISION` | Approved full control-source commit, independent of candidate source |
-| `DELIVERY_READER_ROLE_ARN` | `BundleReaderRoleArn` |
-| `DELIVERY_BUILD_PIPELINE` | `BuildPipelineName` |
-| `DELIVERY_BUILD_REQUESTER_ROLE_ARN` | `BuildRequesterRoleArn` |
-| `DELIVERY_PROD_PLANNER_ROLE_ARN`, `DELIVERY_DEV_PLANNER_ROLE_ARN` | `<target>PlannerRoleArn` |
-| `DELIVERY_PROD_REQUESTER_ROLE_ARN`, `DELIVERY_DEV_REQUESTER_ROLE_ARN` | `<target>DeploymentRequesterRoleArn` |
-| `DELIVERY_PROD_PIPELINE`, `DELIVERY_DEV_PIPELINE` | `<target>DeploymentPipelineName` |
-| `DELIVERY_PROD_MAINTENANCE_ROLE_ARN`, `DELIVERY_DEV_MAINTENANCE_ROLE_ARN` | `<target>MaintenanceRoleArn` |
-| `DELIVERY_REVIEW_MODEL_ID` | `claude-opus-5-5` for the direct Anthropic reviewer |
-| `DELIVERY_DEV_ENABLED` | Same explicit flag as delivery provisioning; default false |
-
-Parameter names and types belong in configuration/constructs, not a second
-inventory here. Credentials follow [runtime credentials](#runtime-credentials).
-Provider/consent-specific requirements live in [marketing consent](marketing-consent.md).
+### Identity setup
 
 Production managed login uses `https://auth.aura-historia.com`. The identity stack
 imports an ACM certificate from `us-east-1` and publishes
@@ -489,52 +269,6 @@ then compute creates stable pre/post trigger aliases, then separately approved i
 sets `AttachIdentityTriggers=true`. Do not detach or replace an existing pool to perform
 this sequence.
 
-### Immutable artifacts and build evidence
-
-The retained delivery bucket owns shared content-addressed bytes, versioned
-manifests, exact test evidence, requests and reports. Complete manifests and build
-completion markers publish only after every object/digest/catalog validates.
-Partially uploaded objects cannot make a bundle eligible. Reuse reads and validates
-existing immutable versions; corruption is a failure, never permission to overwrite.
-Registry references use immutable digests. Mail uses `mail/<build-id>/mjml/…` for
-both environments. Per-target assemblies may differ while application bytes remain
-identical. Shared CDK file assets are registered once per target; repeated asset
-identities must name the same source. Assets are published and referenced by exact key/version before
-assembly completion; deployment performs no Rust, image, mail or synth rebuild.
-
-CloudFormation templates use JSON Unicode escapes so native template readback
-preserves their exact values. Baseline and change-set comparisons explicitly read
-the `Original` template; processed dynamic references are not the submitted template.
-Native pipeline input copies the verified immutable template bytes without JSON
-serialization, including for a verified unchanged stack's `CREATE_UPDATE` action.
-
-One on-demand shared build group uses a Linux XLarge worker (36 vCPUs, 72 GiB).
-Real CodeBuild executions export observed duration/compute minutes, per-container
-cgroup memory peaks when available, pipeline/build IDs and artifact sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
-minutes, effective timeout/compute type and cache behavior; project settings alone do not prove the actual build's limits. Benchmark cold/warm builds through the protected build
-approval before changing group count or compute size. There is no reserved build
-fleet, build VPC or automatic source-triggered paid work. Metrics include compiler
-cache hits/misses, compilation CPU/resource usage and elapsed build phases. S3
-cache transfer time and final billing require native CodeBuild evidence; a local
-cache proof is not a production performance benchmark. Pipeline scratch artifacts
-and dependency caches have bounded retention; completed bundles and recovery evidence are
-retained. Configure the delivery budget and confirm notification subscriptions.
-
-### Optional dev and idle costs
-
-Production works independently of dev and never requires a successful dev rollout.
-`devEnabled=false` omits its delivery pipeline and rejects dev requests; this does
-not delete a running dev environment. Disabling workflows/pipelines does **not**
-remove RDS, DMS, NAT, interface endpoint, storage or self-hosted search-host costs.
-
-Decommission is a separate approved operation: inventory backups/restore evidence,
-retained data and keys, queues/backlogs, DNS/provider callbacks, scoped credentials,
-search storage, active tasks and replication slot/WAL ownership. Do not leave an
-active database with an abandoned slot accumulating WAL. Drain/fence consumers and
-settle capture custody before removing dependencies. Later reactivation uses the
-same platform/bootstrap procedures and fresh target evidence; this is not an
-on-demand ephemeral environment mechanism.
-
 ## First-time environment and maintenance
 
 Bootstrap prepares protected network/data/identity resources and the private
@@ -553,59 +287,6 @@ Initial FX is a separately approved private invocation; retries retain
 `deployment:fxrate:initial:{stage}:v1`. Persisted capture is deduplicated, provider
 calls are not exactly once. Function success alone does not prove workload readiness.
 Never run duplicate consumers or purge/rename queues to simplify handoff.
-
-[Maintenance](../.github/workflows/maintenance.yml) is a protected, narrow manual
-entry for status, explicit baseline adoption/exclusion, reviewed DMS pause/resume and reconciliation.
-It does not execute arbitrary SQL, shell commands or stack updates. It uses the same
-non-expiring environment record as routine delivery. Entry and reconciliation may
-observe a started CDC task without an optional recovery checkpoint; pause and resume
-still require verified recovery checkpoints. A maintenance pause needs fresh
-WAL/storage headroom and monitoring evidence; persist exact task/slot/checkpoint
-identity and intent before mutation. Resume only the owned normal stop using
-`resume-processing`; never invent a new start LSN or automatically clear an overdue
-pause. Follow the [worker recovery procedure](durable-worker-runbook.md) for native
-custody and capture changes; the workflow cannot reconcile a capture-configuration change
-([approved DMS maintenance](durable-worker-runbook.md#approved-dms-maintenance)).
-
-Dispatch `status` first to obtain the current state digest. Mutations require an
-`evidence` JSON object with that `expectedStateDigest` and a reviewed `reason`.
-`enter` acquires maintenance exclusion and records the actual capture baseline;
-`pause` additionally requires fresh `wal` evidence (`observedAt`, `retainedBytes`,
-`freeBytes`, `maxPauseSeconds`, `monitoringUri`). `resume` reads the exact retained
-pause record. Retries reconcile retained intent/results and never issue a blind
-second stop/start. `reconcile` additionally requires `migrationInvocationSettled:true`
-and a restricted `migrationEvidenceUri`; native settlement, actual schema and restored
-intended DMS/capture state plus health are checked before clearing the hold. A held routine
-execution has no maintenance records: its health is checked against the DMS and router
-baseline in its admitted report, the same evidence routine verification uses.
-
-Before the first routine request, associate `migrate` with the delivery stack's
-migration CloudFormation service role, and `compute`, `api` and `observability` with
-its runtime CloudFormation service role. A stack still using the bootstrap role
-needs a separately reviewed platform handoff: use the exact versioned bundle
-`TemplateURL` and unchanged live parameters, require zero resource changes, then
-verify the resulting role, original template, parameter values and every physical
-resource identity. Avoid `UsePreviousTemplate` for this handoff: native readback can
-materialize dynamic SSM references. An available change set with no resource changes
-remains ambiguous to routine delivery; complete this handoff before retrying it.
-
-For the first baseline only, `adopt` takes `bundleDigest`, `reason` and explicit intended
-`expectedDmsStatus` (`running`, `stopped` or `ready`). Deploy the
-reviewed bootstrap/platform templates and exact bundle through the separately
-approved platform procedure first. Adoption checks actual stack templates and
-artifact/source parameters, Lambda ZIP and serving alias bytes, immutable container
-digests, complete migration checksums, reconstructed schema and native settlement.
-It publishes a held record before verification; failure retains that hold and cannot
-label an asserted baseline verified. It cannot overwrite an existing verified baseline.
-
-Failed native operations require fresh actual schema plus settled CloudFormation,
-CodeBuild, CodeDeploy and pipeline evidence before reconciliation. A manually owned
-operation has no invented pipeline ID; inspect its native resources separately.
-Unknown migration completion or in-flight native work preserves the hold. Never
-mark a failed release verified, erase committed SQL, force-unlock by age, invoke an
-older migrator or run down migrations. The
-[private psql bootstrap wrapper](../infra/sql/rds-bootstrap-roles.sql) remains separately
-approved administration with private secret injection, never passwords in CLI logs.
 
 ## Manual platform operations
 

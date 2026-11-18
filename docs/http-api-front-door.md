@@ -233,7 +233,7 @@ pin these boundaries to the transport budgets.
 
 ### MCP deployment and stage verification
 
-Use the [existing Release workflow](infra.md#deployment-inputs-and-approvals).
+Deploy CDK changes as described in [deploying the reduced app](infra.md#deploying-the-reduced-app).
 Before first traffic, verify ownership and available aliases, then provision an issued
 ACM certificate covering the exact host in `us-east-1` (CloudFront viewer). Supply its ARN
 through the external SSM String parameter `/certificates/prod/mcp-cloudfront-certificate-arn`
@@ -310,7 +310,7 @@ period. Historical changelog entries retain their original paths.
 
 ## Front-door changes and rollback
 
-Follow the [release procedure](infra.md#deployment-inputs-and-approvals), then:
+Follow [deploying the reduced app](infra.md#deploying-the-reduced-app), then:
 
 1. Inventory approved-account alias/domain claims, externally owned DNS, current
    consumers and the previous endpoint/rollback target. Resolve conflicts with their
