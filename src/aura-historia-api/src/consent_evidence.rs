@@ -98,9 +98,13 @@ pub fn init_logging(
 }
 
 impl ConsentEvidenceLog {
-    /// Starts delivering to CloudWatch with the host's AWS credentials, in a stream of its own.
-    pub fn start(self, client: aws_sdk_cloudwatchlogs::Client) -> Shipper {
-        Shipper::spawn(
+    /// Creates this process's stream in both groups with the host's AWS credentials, so a wrong
+    /// group, grant or credential stops startup, then starts delivering.
+    pub async fn start(
+        self,
+        client: aws_sdk_cloudwatchlogs::Client,
+    ) -> Result<Shipper, application::error::BoxError> {
+        Shipper::start(
             CloudWatchLogsSink::new(client),
             self.receiver,
             ShipperConfig {
@@ -110,6 +114,7 @@ impl ConsentEvidenceLog {
                 flush_interval: FLUSH_INTERVAL,
             },
         )
+        .await
     }
 }
 

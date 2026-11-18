@@ -4,9 +4,10 @@
 //! [`channel`] returns the [`TargetRecords`] whose layer formats each event of the target as one
 //! JSON line (the shape of the process's own JSON log) into a bounded queue, and the
 //! [`RecordReceiver`] a [`Shipper`] drains into its log groups with `PutLogEvents`. The layer
-//! never blocks or fails the code that logs: a full queue drops the record and counts it, and a
-//! group that refuses every delivery for [`GIVE_UP_AFTER`] drops what it holds. Delivery is
-//! best-effort; the shipper reports, but never logs the content of, what it drops.
+//! never blocks or fails the code that logs: a full queue drops the record and counts it. A group
+//! that refuses every delivery for [`GIVE_UP_AFTER`] spills what it holds, line by line, to the
+//! process's stderr, so the records survive in the container log instead of holding back every
+//! later one. Delivery is best-effort; the shipper reports what it drops without its content.
 use application::error::BoxError;
 use aws_sdk_cloudwatchlogs::types::InputLogEvent;
 use platform_aws::AwsSdkFailure;
@@ -19,8 +20,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{Level, Subscriber};
 use tracing_subscriber::{Layer, filter::Targets, fmt::MakeWriter, registry::LookupSpan};
 
-/// A group whose deliveries all fail for this long loses its pending records, so a batch the
-/// service will never accept cannot hold back every later one.
+/// A group whose deliveries all fail for this long spills its pending records to stderr, so a
+/// batch the service will never accept cannot hold back every later one.
 pub const GIVE_UP_AFTER: Duration = Duration::from_secs(15 * 60);
 /// While a group's deliveries fail, the failure is logged at most this often.
 const FAILURE_LOG_INTERVAL: Duration = Duration::from_secs(60);
@@ -248,10 +249,22 @@ pub struct Shipper {
 }
 
 impl Shipper {
-    pub fn spawn(sink: impl LogEventSink, receiver: RecordReceiver, config: ShipperConfig) -> Self {
+    /// Creates this process's stream in every group, so a wrong group name, a missing grant or
+    /// missing credentials fail here instead of on the first record, then starts delivering.
+    pub async fn start(
+        sink: impl LogEventSink,
+        receiver: RecordReceiver,
+        config: ShipperConfig,
+    ) -> Result<Self, BoxError> {
+        if config.log_groups.is_empty() {
+            return Err("a dedicated CloudWatch target needs at least one log group".into());
+        }
+        for group in &config.log_groups {
+            sink.create_stream(group, &config.stream).await?;
+        }
         let (stop, stopped) = oneshot::channel();
         let task = tokio::spawn(ship(sink, receiver, config, stopped));
-        Self { stop, task }
+        Ok(Self { stop, task })
     }
 
     /// Delivers what is queued, then stops. Gives up after `timeout`.
@@ -268,8 +281,9 @@ impl Shipper {
 
 struct Destination {
     group: String,
-    stream_ready: bool,
     pending: Vec<LogRecord>,
+    /// Oldest records dropped at [`MAX_PENDING_PER_GROUP`] since the last report.
+    dropped_at_limit: usize,
     failing_since: Option<tokio::time::Instant>,
     failure_logged_at: Option<tokio::time::Instant>,
 }
@@ -278,8 +292,8 @@ impl Destination {
     fn new(group: String) -> Self {
         Self {
             group,
-            stream_ready: false,
             pending: Vec::new(),
+            dropped_at_limit: 0,
             failing_since: None,
             failure_logged_at: None,
         }
@@ -297,9 +311,6 @@ async fn ship(
         .into_iter()
         .map(Destination::new)
         .collect::<Vec<_>>();
-    if destinations.is_empty() {
-        return;
-    }
     let mut interval = tokio::time::interval(config.flush_interval);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -336,17 +347,12 @@ fn accept(
         .unwrap_or(0);
     let index = if index < destinations.len() { index } else { 0 };
     let destination = &mut destinations[index];
-    if destination.pending.len() == MAX_PENDING_PER_GROUP {
-        destination.pending.remove(0);
-        tracing::warn!(
-            event = "cloudwatch_logs.records_dropped",
-            log_group = %destination.group,
-            dropped = 1,
-            reason = "pending_limit",
-            "Dropped a dedicated CloudWatch log record"
-        );
-    }
     destination.pending.push(record);
+    if destination.pending.len() > MAX_PENDING_PER_GROUP {
+        // The oldest record is spilled like a failed batch, not lost.
+        spill(&destination.pending.remove(0));
+        destination.dropped_at_limit += 1;
+    }
 }
 
 fn report_dropped(receiver: &RecordReceiver) {
@@ -364,14 +370,17 @@ fn report_dropped(receiver: &RecordReceiver) {
 /// Delivers the destination's pending records in timestamp order, in batches within the
 /// `PutLogEvents` limits. A failure keeps the rest for the next attempt.
 async fn deliver(sink: &impl LogEventSink, stream: &str, destination: &mut Destination) {
+    if destination.dropped_at_limit > 0 {
+        tracing::warn!(
+            event = "cloudwatch_logs.records_spilled",
+            log_group = %destination.group,
+            spilled = std::mem::take(&mut destination.dropped_at_limit),
+            reason = "pending_limit",
+            "Spilled dedicated CloudWatch log records to stderr"
+        );
+    }
     if destination.pending.is_empty() {
         return;
-    }
-    if !destination.stream_ready {
-        match sink.create_stream(&destination.group, stream).await {
-            Ok(()) => destination.stream_ready = true,
-            Err(error) => return failed(destination, &error),
-        }
     }
     destination
         .pending
@@ -388,6 +397,12 @@ async fn deliver(sink: &impl LogEventSink, stream: &str, destination: &mut Desti
         destination.failing_since = None;
         destination.failure_logged_at = None;
     }
+}
+
+/// Keeps an undeliverable record in the container log, as its own JSON line on stderr.
+fn spill(record: &LogRecord) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr().lock(), "{}", record.message);
 }
 
 fn batch_len(records: &[LogRecord]) -> usize {
@@ -408,14 +423,16 @@ fn failed(destination: &mut Destination, error: &BoxError) {
     let failing_since = *destination.failing_since.get_or_insert(now);
     if now.duration_since(failing_since) >= GIVE_UP_AFTER {
         tracing::error!(
-            event = "cloudwatch_logs.records_dropped",
+            event = "cloudwatch_logs.records_spilled",
             log_group = %destination.group,
-            dropped = destination.pending.len(),
+            spilled = destination.pending.len(),
             reason = "delivery_failed",
             error = %error,
-            "Dropped dedicated CloudWatch log records after their deliveries failed for too long"
+            "Spilled dedicated CloudWatch log records to stderr after their deliveries failed for too long"
         );
-        destination.pending.clear();
+        for record in destination.pending.drain(..) {
+            spill(&record);
+        }
         destination.failing_since = None;
         destination.failure_logged_at = None;
         return;
@@ -448,11 +465,15 @@ mod tests {
         streams: Mutex<Vec<(String, String)>>,
         puts: Mutex<Vec<(String, String, Vec<LogRecord>)>>,
         failures_left: Mutex<u32>,
+        refuse_streams: bool,
     }
 
     #[async_trait::async_trait]
     impl LogEventSink for Arc<FakeSink> {
         async fn create_stream(&self, group: &str, stream: &str) -> Result<(), BoxError> {
+            if self.refuse_streams {
+                return Err("synthetic access denied".into());
+            }
             self.streams
                 .lock()
                 .unwrap()
@@ -553,7 +574,9 @@ mod tests {
     async fn should_route_each_record_to_its_group_in_timestamp_order_on_close() {
         let (records, receiver) = channel(TARGET, 16);
         let sink = Arc::new(FakeSink::default());
-        let shipper = Shipper::spawn(Arc::clone(&sink), receiver, config());
+        let shipper = Shipper::start(Arc::clone(&sink), receiver, config())
+            .await
+            .unwrap();
         for (kind, timestamp) in [("second", 3), ("first", 2), ("second", 1)] {
             records
                 .writer
@@ -592,20 +615,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_refuse_to_start_when_a_stream_cannot_be_created() {
+        let (_, receiver) = channel(TARGET, 16);
+        let sink = Arc::new(FakeSink {
+            refuse_streams: true,
+            ..FakeSink::default()
+        });
+
+        assert!(Shipper::start(sink, receiver, config()).await.is_err());
+    }
+
+    #[tokio::test]
     async fn should_retry_a_refused_delivery_and_deliver_each_record_once() {
         let (records, receiver) = channel(TARGET, 16);
         let sink = Arc::new(FakeSink {
             failures_left: Mutex::new(2),
             ..FakeSink::default()
         });
-        let shipper = Shipper::spawn(
+        let shipper = Shipper::start(
             Arc::clone(&sink),
             receiver,
             ShipperConfig {
                 flush_interval: Duration::from_millis(10),
                 ..config()
             },
-        );
+        )
+        .await
+        .unwrap();
         records
             .writer
             .sender
@@ -625,7 +661,6 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn should_keep_retrying_until_deliveries_have_failed_for_too_long() {
         let mut destination = Destination::new("/first".to_owned());
-        destination.stream_ready = true;
         destination.pending.push(record(serde_json::json!({}), 1));
         let sink = Arc::new(FakeSink {
             failures_left: Mutex::new(u32::MAX),
@@ -639,7 +674,7 @@ mod tests {
 
         tokio::time::advance(Duration::from_secs(1)).await;
         deliver(&sink, "stream", &mut destination).await;
-        assert!(destination.pending.is_empty());
+        assert!(destination.pending.is_empty(), "spilled to stderr");
 
         *sink.failures_left.lock().unwrap() = 0;
         destination

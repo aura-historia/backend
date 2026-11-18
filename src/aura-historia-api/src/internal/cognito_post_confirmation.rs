@@ -20,6 +20,7 @@ use cognito_post_confirmation::{
     signature::{SIGNATURE_HEADER, SignatureError, TIMESTAMP_HEADER},
 };
 use std::time::Duration;
+use tracing::Instrument;
 use user_service::use_cases::RegisterCognitoUserError;
 
 /// A Cognito post-confirmation event is a few kilobytes.
@@ -58,19 +59,24 @@ pub async fn post_cognito_post_confirmation(
         request_id: metadata.request_id,
         correlation_id: metadata.correlation_id,
     };
-    let registration = tokio::time::timeout(
-        PROCESSING_BUDGET,
-        register_confirmed_user(
-            &event,
-            &state.expected_issuer,
-            &context,
-            state.register.as_ref(),
-        ),
-    )
-    .await;
-    match registration {
-        Ok(Ok(_)) => StatusCode::NO_CONTENT.into_response(),
-        Ok(Err(PostConfirmationError::Input(error))) => {
+    // The registration runs in its own task, which neither the budget nor a dropped connection
+    // cancels: cut off inside its commit, it would commit the user and consent grant without
+    // recording their evidence, and a retry, finding the user, records none either.
+    let registration = tokio::spawn(
+        async move {
+            register_confirmed_user(
+                &event,
+                &state.expected_issuer,
+                &context,
+                state.register.as_ref(),
+            )
+            .await
+        }
+        .instrument(tracing::Span::current()),
+    );
+    match tokio::time::timeout(PROCESSING_BUDGET, registration).await {
+        Ok(Ok(Ok(_))) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(Err(PostConfirmationError::Input(error)))) => {
             tracing::warn!(
                 event = "cognito_post_confirmation.rejected",
                 reason = %error,
@@ -78,7 +84,7 @@ pub async fn post_cognito_post_confirmation(
             );
             invalid_event().into_response()
         }
-        Ok(Err(PostConfirmationError::Registration(error))) => {
+        Ok(Ok(Err(PostConfirmationError::Registration(error)))) => {
             let response = registration_error(&error);
             tracing::warn!(
                 event = "cognito_post_confirmation.failed",
@@ -88,11 +94,19 @@ pub async fn post_cognito_post_confirmation(
             );
             response
         }
+        Ok(Err(_)) => {
+            tracing::error!(
+                event = "cognito_post_confirmation.failed",
+                status = StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                "Cognito user registration task panicked"
+            );
+            ApiError::internal_server_error(POST_CONFIRMATION_INTERNAL_ERROR).into_response()
+        }
         Err(_) => {
             tracing::warn!(
                 event = "cognito_post_confirmation.failed",
                 status = StatusCode::SERVICE_UNAVAILABLE.as_u16(),
-                "Cognito user registration exceeded its processing budget"
+                "Cognito user registration exceeded its processing budget; it continues"
             );
             temporarily_unavailable().into_response()
         }
@@ -187,6 +201,8 @@ mod tests {
     #[derive(Default)]
     struct FakeRegistration {
         failure: Option<Failure>,
+        delay: Option<std::time::Duration>,
+        completed: std::sync::atomic::AtomicBool,
         calls: Mutex<Vec<(OperationContext, RegisterCognitoUserCommand)>>,
     }
 
@@ -201,6 +217,11 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((context.clone(), command.clone()));
+            if let Some(delay) = self.delay {
+                tokio::time::sleep(delay).await;
+            }
+            self.completed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             match self.failure {
                 Some(failure) => Err(failure()),
                 None => Ok(RegisterCognitoUserResult {
@@ -355,6 +376,29 @@ mod tests {
         assert_eq!(StatusCode::BAD_REQUEST, status);
         assert_eq!("POST_CONFIRMATION_INVALID_EVENT", body["error"]);
         assert!(registration.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_answer_unavailable_past_the_budget_yet_let_the_registration_finish() {
+        let registration = Arc::new(FakeRegistration {
+            delay: Some(super::PROCESSING_BUDGET + std::time::Duration::from_secs(1)),
+            ..FakeRegistration::default()
+        });
+
+        let (status, body) = send(
+            router(Arc::clone(&registration)),
+            signed(event("eu-central-1_pool"), KEY, now()),
+        )
+        .await;
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, status);
+        assert_eq!("POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE", body["error"]);
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        assert!(
+            registration
+                .completed
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
     }
 
     #[tokio::test]

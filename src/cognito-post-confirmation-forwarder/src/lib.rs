@@ -34,7 +34,7 @@ pub enum ForwardError {
     Serialize(#[source] serde_json::Error),
     #[error("failed to sign the confirmation event")]
     Sign(#[source] SignatureError),
-    #[error("the host endpoint could not be reached in time")]
+    #[error("the request to the host endpoint failed or timed out")]
     Transport(#[source] reqwest::Error),
     #[error("the host endpoint refused the confirmation with status {status}")]
     Refused { status: u16 },

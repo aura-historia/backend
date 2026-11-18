@@ -121,16 +121,20 @@ to its internal endpoint. Evidence still lands in the two retained CloudWatch gr
 Cognito sign-up grants (`consent_source` `COGNITO_SIGNUP`, which only post-confirmation records)
 go to the post-confirmation group, all other evidence to the API group. The API ships them through
 a [dedicated target](../src/aura-historia-api/src/consent_evidence.rs), independent of the
-configured log level and of the container log shipping, which never sees evidence:
+configured log level and of the container log shipping, which sees evidence only when it is
+spilled:
 
 - `CONSENT_EVIDENCE_API_LOG_GROUP` and `CONSENT_EVIDENCE_POST_CONFIRMATION_LOG_GROUP` name the
   groups; `STAGE=prod` refuses to start without both. Without them (local runs) evidence stays in
   the process log.
 - Each API process writes its own `host-api/<date>/<id>` stream with the host IAM user, which may
-  only create streams and put events on these groups.
-- Records are the JSON lines of the Lambda era, delivered within about a second and retried while
-  CloudWatch refuses them. A full queue, or a group whose deliveries all fail for 15 minutes,
-  drops records and logs only their count.
+  only create streams and put events on these groups. It creates the stream in both groups at
+  startup and does not start if it cannot.
+- Records keep the JSON fields of the Lambda era, without its span context (request and
+  correlation IDs are fields). They are delivered within about a second and retried while
+  CloudWatch refuses them. A group whose deliveries all fail for 15 minutes, or that holds more
+  than 10,000 undelivered records, spills them line by line to the API's stderr, so they survive
+  in the container log; a full in-process queue drops records and logs only their count.
 
 For English signup/DOI grants, `backend:email-marketing-purpose:v1` maps to this frozen wording:
 

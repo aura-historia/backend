@@ -22,11 +22,12 @@ fn main() -> Result<(), MainError> {
             // Registered before startup, so a stop request during composition is not lost.
             let shutdown = Shutdown::register()?;
             let evidence = match evidence {
-                Some(evidence) => {
-                    let aws =
-                        aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-                    Some(evidence.start(aws_sdk_cloudwatchlogs::Client::new(&aws)))
-                }
+                Some(evidence) => Some(
+                    evidence
+                        .start(cloudwatch_logs_client().await)
+                        .await
+                        .map_err(MainError::ConsentEvidenceStart)?,
+                ),
                 None => None,
             };
             let config = ApiConfig::from_env()?;
@@ -39,12 +40,29 @@ fn main() -> Result<(), MainError> {
         })
 }
 
+/// Bounded, so a hung delivery cannot stall the shipper while the queue fills.
+async fn cloudwatch_logs_client() -> aws_sdk_cloudwatchlogs::Client {
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .timeout_config(
+            aws_config::timeout::TimeoutConfig::builder()
+                .connect_timeout(Duration::from_secs(3))
+                .operation_attempt_timeout(Duration::from_secs(5))
+                .operation_timeout(Duration::from_secs(10))
+                .build(),
+        )
+        .load()
+        .await;
+    aws_sdk_cloudwatchlogs::Client::new(&config)
+}
+
 #[derive(thiserror::Error, Debug)]
 enum MainError {
     #[error("invalid configuration")]
     Config(#[source] application::error::BoxError),
     #[error(transparent)]
     ConsentEvidence(#[from] ConsentEvidenceConfigError),
+    #[error("failed to reach the consent-evidence log groups")]
+    ConsentEvidenceStart(#[source] application::error::BoxError),
     #[error(transparent)]
     ApiConfig(#[from] ApiConfigError),
     #[error(transparent)]
