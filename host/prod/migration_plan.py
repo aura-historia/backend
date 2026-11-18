@@ -17,19 +17,27 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 MIGRATION_FILE = re.compile(r"^(\d+)_.+\.sql$")
 REVERSIBLE_FILE = re.compile(r"\.(up|down)\.sql$")
 BUNDLE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+# SQLx runs a migration outside a transaction when its file starts with this line.
+NO_TRANSACTION = b"-- no-transaction"
 
 
 class PlanError(Exception):
     pass
 
 
-def migration_checksums(directory):
-    """Version to SQLx checksum (SHA-384 of the file) of every migration in `directory`."""
-    checksums = {}
+class Migration(NamedTuple):
+    checksum: str
+    transactional: bool
+
+
+def read_migrations(directory):
+    """Version to SQLx checksum (SHA-384 of the file) and transaction mode of every migration."""
+    migrations = {}
     for path in sorted(Path(directory).iterdir()):
         if REVERSIBLE_FILE.search(path.name):
             raise PlanError(f"{path.name}: reversible migrations are not supported")
@@ -37,12 +45,13 @@ def migration_checksums(directory):
         if not match:
             continue
         version = int(match.group(1))
-        if version in checksums:
+        if version in migrations:
             raise PlanError(f"two migrations have version {version}")
-        checksums[version] = hashlib.sha384(path.read_bytes()).hexdigest()
-    if not checksums:
+        sql = path.read_bytes()
+        migrations[version] = Migration(hashlib.sha384(sql).hexdigest(), not sql.startswith(NO_TRANSACTION))
+    if not migrations:
         raise PlanError(f"no migrations in {directory}")
-    return checksums
+    return migrations
 
 
 def fingerprint(ledger):
@@ -51,7 +60,7 @@ def fingerprint(ledger):
     return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
 
 
-def plan(inspection, checksums, request_id, bundle_digest):
+def plan(inspection, migrations, request_id, bundle_digest):
     """The plan for the pending migrations, or None when the ledger already has them all."""
     if not request_id:
         raise PlanError("the request ID is empty")
@@ -66,16 +75,23 @@ def plan(inspection, checksums, request_id, bundle_digest):
         version = row["version"]
         if not row["success"]:
             raise PlanError(f"migration {version} failed earlier; repair the ledger by hand")
-        if version not in checksums:
+        if version not in migrations:
             unknown.append(version)
-        elif checksums[version] != row["checksum"]:
+        elif migrations[version].checksum != row["checksum"]:
             raise PlanError(f"migration {version} differs from the one the database applied")
         applied.add(version)
-    pending = [{"version": version, "checksum": checksums[version]} for version in sorted(checksums) if version not in applied]
+    pending = [{"version": version, "checksum": migrations[version].checksum}
+               for version in sorted(migrations) if version not in applied]
     if pending and unknown:
         raise PlanError(
             f"the database has migrations this revision lacks ({', '.join(map(str, unknown))}) "
             f"and this revision has pending ones ({', '.join(str(m['version']) for m in pending)})"
+        )
+    outside_transaction = [m["version"] for m in pending if not migrations[m["version"]].transactional]
+    if outside_transaction:
+        raise PlanError(
+            f"migration {', '.join(map(str, outside_transaction))} runs outside a transaction, which the "
+            "migrator refuses; it needs a reviewed manual procedure"
         )
     if not pending:
         return None
@@ -111,7 +127,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         inspection = read_inspection(args.inspection)
-        result = plan(inspection, migration_checksums(args.migrations), args.request_id, args.bundle_digest)
+        result = plan(inspection, read_migrations(args.migrations), args.request_id, args.bundle_digest)
     except (KeyError, TypeError) as error:
         print(f"migration plan: malformed ledger row ({error!r})", file=sys.stderr)
         return 1

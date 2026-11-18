@@ -1,14 +1,14 @@
 name: Deploy
 run-name: Deploy ${{ inputs.ref }} to prod
 # Builds the image for one commit, publishes it to GHCR and deploys it to the prod host over SSH
-# (host/prod/README.md#deploys). Deploying an earlier commit is the rollback. The `prod`
+# (host/prod/README.md#deploys); deploying an earlier commit is the rollback. The `prod`
 # environment's reviewers approve every deploy; its branch policy limits which branches may run
-# this workflow, not which commit it deploys.
+# this workflow, and DEPLOY_BRANCHES which commits it deploys.
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch, tag or commit to deploy (an earlier commit rolls back)
+        description: Branch, tag or commit to deploy, on a deploy branch (an earlier commit rolls back)
         required: true
         type: string
 
@@ -21,6 +21,8 @@ concurrency:
 
 env:
   IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/aura-historia
+  # The host enforces the same list (host/prod/deploy.sh); this only fails earlier.
+  DEPLOY_BRANCHES: develop epic/aws-exit-single-host
 
 jobs:
   resolve:
@@ -37,10 +39,23 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-      - name: Resolve the commit
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve the commit on a deploy branch
         id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Reuse an image already published for this commit
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          for branch in $DEPLOY_BRANCHES; do
+            if git merge-base --is-ancestor "$sha" "origin/${branch}"; then
+              echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::${sha} is not on ${DEPLOY_BRANCHES}"
+          exit 1
+      # Only this workflow's publish job pushes to the package, once per commit.
+      - name: Reuse the image already published for this commit
         id: image
         env:
           SHA: ${{ steps.commit.outputs.sha }}
@@ -61,17 +76,44 @@ jobs:
     uses: ./.github/workflows/container-images.yml
     with:
       source_sha: ${{ needs.resolve.outputs.sha }}
-      publish: true
+      export_image: true
+
+  # The only job that can write the package, and it runs none of the commit's code.
+  publish:
+    name: Publish to GHCR
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
-      contents: read
       packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: image-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Push the tested image
+        id: push
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gunzip -c image.tar.gz | docker load --quiet
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag "local/aura-historia:${SHA}" "${IMAGE_REPOSITORY}:${SHA}"
+          docker push --quiet "${IMAGE_REPOSITORY}:${SHA}"
+          image="$(docker image inspect --format '{{index .RepoDigests 0}}' "${IMAGE_REPOSITORY}:${SHA}")"
+          [[ ${image} =~ ^${IMAGE_REPOSITORY}@sha256:[0-9a-f]{64}$ ]]
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy ${{ needs.resolve.outputs.sha }}
-    needs: [resolve, build]
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    needs: [resolve, publish]
+    # Either the image this run published, or the one already published for the commit.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && needs.resolve.outputs.image != '')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     environment:
       name: prod
       url: https://api.aura-historia.com/v1/health
@@ -79,7 +121,7 @@ jobs:
       - name: Deploy over SSH
         env:
           SHA: ${{ needs.resolve.outputs.sha }}
-          IMAGE: ${{ needs.build.outputs.image || needs.resolve.outputs.image }}
+          IMAGE: ${{ needs.publish.outputs.image || needs.resolve.outputs.image }}
           DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
           DEPLOY_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ vars.PROD_DEPLOY_KNOWN_HOSTS }}
@@ -93,6 +135,8 @@ jobs:
           # The host's key is pinned under an alias, so the host's address appears in no variable.
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           echo "Deploying \`${SHA}\` as \`${IMAGE}\`" >> "$GITHUB_STEP_SUMMARY"
+          # The deploy runs as a unit on the host and finishes even if this connection drops;
+          # `status` over the same key shows its outcome.
           ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -o HostKeyAlias=aura-prod -o ServerAliveInterval=30 \
             "deploy@${DEPLOY_HOST}" "deploy ${SHA} ${IMAGE}"

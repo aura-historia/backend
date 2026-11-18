@@ -24,7 +24,11 @@ def inspection(*rows):
     return {"ledger": ledger, "ledger_fingerprint": migration_plan.fingerprint(ledger)}
 
 
-class MigrationChecksums(unittest.TestCase):
+def transactional(**sql_by_version):
+    return {int(v[1:]): migration_plan.Migration(checksum(sql), True) for v, sql in sql_by_version.items()}
+
+
+class ReadMigrations(unittest.TestCase):
     def directory(self, files):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -33,30 +37,33 @@ class MigrationChecksums(unittest.TestCase):
         return temporary.name
 
     def test_should_hash_each_migration_file_like_sqlx(self):
-        directory = self.directory({"1_a.sql": "SELECT 1;\n", "2_b.sql": "SELECT 2;\n", "README.md": "x"})
+        directory = self.directory({"1_a.sql": "SELECT 1;\n", "2_b.sql": "-- no-transaction\nVACUUM;\n", "README.md": "x"})
         self.assertEqual(
-            migration_plan.migration_checksums(directory),
-            {1: checksum("SELECT 1;\n"), 2: checksum("SELECT 2;\n")},
+            migration_plan.read_migrations(directory),
+            {
+                1: migration_plan.Migration(checksum("SELECT 1;\n"), True),
+                2: migration_plan.Migration(checksum("-- no-transaction\nVACUUM;\n"), False),
+            },
         )
 
     def test_should_refuse_reversible_migrations(self):
         directory = self.directory({"1_a.up.sql": "", "1_a.down.sql": ""})
         with self.assertRaises(migration_plan.PlanError):
-            migration_plan.migration_checksums(directory)
+            migration_plan.read_migrations(directory)
 
     def test_should_refuse_two_migrations_with_one_version(self):
         directory = self.directory({"1_a.sql": "", "1_b.sql": ""})
         with self.assertRaises(migration_plan.PlanError):
-            migration_plan.migration_checksums(directory)
+            migration_plan.read_migrations(directory)
 
 
 class Plan(unittest.TestCase):
-    checksums = {1: checksum("one"), 2: checksum("two"), 3: checksum("three")}
+    migrations = transactional(v1="one", v2="two", v3="three")
 
     def test_should_plan_the_migrations_the_ledger_lacks(self):
         current = inspection((1, checksum("one"), True))
         self.assertEqual(
-            migration_plan.plan(current, self.checksums, "deploy-1", DIGEST),
+            migration_plan.plan(current, self.migrations, "deploy-1", DIGEST),
             {
                 "request_id": "deploy-1",
                 "bundle_digest": DIGEST,
@@ -69,37 +76,43 @@ class Plan(unittest.TestCase):
         )
 
     def test_should_plan_nothing_when_every_migration_is_applied(self):
-        current = inspection(*[(v, c, True) for v, c in self.checksums.items()])
-        self.assertIsNone(migration_plan.plan(current, self.checksums, "deploy-1", DIGEST))
+        current = inspection(*[(v, m.checksum, True) for v, m in self.migrations.items()])
+        self.assertIsNone(migration_plan.plan(current, self.migrations, "deploy-1", DIGEST))
 
     def test_should_plan_nothing_when_rolling_back_past_applied_migrations(self):
-        current = inspection(*[(v, c, True) for v, c in self.checksums.items()], (4, checksum("four"), True))
-        self.assertIsNone(migration_plan.plan(current, self.checksums, "deploy-1", DIGEST))
+        current = inspection(*[(v, m.checksum, True) for v, m in self.migrations.items()], (4, checksum("four"), True))
+        self.assertIsNone(migration_plan.plan(current, self.migrations, "deploy-1", DIGEST))
 
     def test_should_refuse_pending_migrations_next_to_unknown_applied_ones(self):
         current = inspection((1, checksum("one"), True), (4, checksum("four"), True))
         with self.assertRaisesRegex(migration_plan.PlanError, "lacks"):
-            migration_plan.plan(current, self.checksums, "deploy-1", DIGEST)
+            migration_plan.plan(current, self.migrations, "deploy-1", DIGEST)
 
     def test_should_refuse_a_migration_that_differs_from_the_applied_one(self):
         current = inspection((1, checksum("edited"), True))
         with self.assertRaisesRegex(migration_plan.PlanError, "differs"):
-            migration_plan.plan(current, self.checksums, "deploy-1", DIGEST)
+            migration_plan.plan(current, self.migrations, "deploy-1", DIGEST)
 
     def test_should_refuse_a_failed_ledger_row(self):
         current = inspection((1, checksum("one"), False))
         with self.assertRaisesRegex(migration_plan.PlanError, "failed"):
-            migration_plan.plan(current, self.checksums, "deploy-1", DIGEST)
+            migration_plan.plan(current, self.migrations, "deploy-1", DIGEST)
 
     def test_should_refuse_a_ledger_that_does_not_match_its_fingerprint(self):
         current = inspection((1, checksum("one"), True))
         current["ledger_fingerprint"] = "0" * 64
         with self.assertRaisesRegex(migration_plan.PlanError, "fingerprint"):
-            migration_plan.plan(current, self.checksums, "deploy-1", DIGEST)
+            migration_plan.plan(current, self.migrations, "deploy-1", DIGEST)
+
+    def test_should_refuse_a_pending_migration_outside_a_transaction(self):
+        migrations = {**self.migrations, 4: migration_plan.Migration(checksum("four"), False)}
+        current = inspection(*[(v, m.checksum, True) for v, m in self.migrations.items()])
+        with self.assertRaisesRegex(migration_plan.PlanError, "outside a transaction"):
+            migration_plan.plan(current, migrations, "deploy-1", DIGEST)
 
     def test_should_refuse_a_malformed_bundle_digest(self):
         with self.assertRaises(migration_plan.PlanError):
-            migration_plan.plan(inspection(), self.checksums, "deploy-1", "sha256:" + DIGEST)
+            migration_plan.plan(inspection(), self.migrations, "deploy-1", "sha256:" + DIGEST)
 
 
 class Fingerprint(unittest.TestCase):

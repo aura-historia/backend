@@ -7,15 +7,11 @@ on:
         description: Exact commit to build, selected by the deploy workflow
         required: false
         type: string
-      publish:
-        description: Push the tested application image to GHCR, tagged with the commit
+      export_image:
+        description: Hand the tested application image to the caller as the artifact image-<run>-<attempt>
         required: false
         type: boolean
         default: false
-    outputs:
-      image:
-        description: The published image, pinned by digest (ghcr.io/<owner>/<repository>@sha256:…)
-        value: ${{ jobs.image.outputs.published }}
   pull_request:
     paths:
       - ".dockerignore"
@@ -75,6 +71,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - name: Validate catalog and fixture logic
         run: |
           node ci/container-images.cjs validate
@@ -90,23 +87,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - name: Shellcheck
         run: |
           shellcheck --version
           git ls-files -z -- 'host/*.sh' 'host/**/*.sh' 'ci/host-prod/*.sh' | xargs -0 shellcheck --severity=warning
       - name: Migration plan tests
-        run: python3 -m unittest discover -s ci/host-prod
+        # A rollback may build a commit from before these tests existed.
+        run: |
+          if compgen -G 'ci/host-prod/test_*.py' >/dev/null; then
+            python3 -m unittest discover -s ci/host-prod
+          fi
 
   image:
     name: Build and test ${{ matrix.id }}
     needs: [catalog]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # Used only by the publish step, which runs only when the deploy workflow asks for it.
-      packages: write
-    outputs:
-      published: ${{ steps.publish.outputs.image }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.catalog.outputs.container_matrix) }}
@@ -114,6 +110,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - name: Configure Docker Hub mirror
         shell: bash
         run: |
@@ -158,21 +155,17 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
           IMAGE_ID: ${{ matrix.id }}
         run: bash ci/host-prod/smoke.sh "local/${IMAGE_ID}:${CANDIDATE_SHA}"
-      - name: Publish to GHCR
-        id: publish
-        if: inputs.publish && matrix.id == 'aura-historia'
+      - name: Export the tested image
+        if: inputs.export_image && matrix.id == 'aura-historia'
         shell: bash
         env:
           CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
           IMAGE_ID: ${{ matrix.id }}
-          REPOSITORY: ghcr.io/${{ github.repository_owner }}/${{ matrix.repository }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker tag "local/${IMAGE_ID}:${CANDIDATE_SHA}" "${REPOSITORY}:${CANDIDATE_SHA}"
-          docker push --quiet "${REPOSITORY}:${CANDIDATE_SHA}"
-          image="$(docker image inspect --format '{{index .RepoDigests 0}}' "${REPOSITORY}:${CANDIDATE_SHA}")"
-          [[ ${image} =~ ^${REPOSITORY}@sha256:[0-9a-f]{64}$ ]]
-          echo "image=${image}" >> "$GITHUB_OUTPUT"
-          echo "Published \`${image}\`" >> "$GITHUB_STEP_SUMMARY"
+        run: docker save "local/${IMAGE_ID}:${CANDIDATE_SHA}" | gzip -1 > image.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: inputs.export_image && matrix.id == 'aura-historia'
+        with:
+          name: image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: image.tar.gz
+          if-no-files-found: error
+          retention-days: 1
