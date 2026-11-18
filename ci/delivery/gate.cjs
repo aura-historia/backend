@@ -24,7 +24,9 @@ function inventory(root) {
     (file) =>
       /^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|depgraph-rules\.toml|\.config\/|\.cargo\/|ci\/|tooling\/|tests\/|\.github\/|infra\/package(-lock)?\.json|mjml\/package(-lock)?\.json)/.test(
         file,
-      ) || /^src\/.*\/(Cargo\.toml|Dockerfile)$/.test(file),
+      ) ||
+      /^(Dockerfile|\.dockerignore)$/.test(file) ||
+      /^src\/.*\/(Cargo\.toml|Dockerfile)$/.test(file),
   );
   const lanes = JSON.parse(
     fs.readFileSync(path.join(root, 'ci/test-lanes.json')),
@@ -59,12 +61,9 @@ function inventory(root) {
         (target) =>
           target.kind.includes('bin') &&
           (target.name.endsWith('-lambda') ||
-            [
-              'aura-historia-api',
-              'aura-historia-mcp',
-              'cognito-post-confirmation',
-              'cognito-pre-sign-up',
-            ].includes(target.name)),
+            ['cognito-post-confirmation', 'cognito-pre-sign-up'].includes(
+              target.name,
+            )),
       )
       .map((target) => target.name),
   );
@@ -87,7 +86,7 @@ function inventory(root) {
       throw new Error(`Incomplete image catalog: ${image.id}`);
   }
   const dockerfiles = files.filter((file) =>
-    /^src\/.*\/Dockerfile$/.test(file),
+    /^(src\/.*\/)?Dockerfile$/.test(file),
   );
   if (
     digest(dockerfiles.sort()) !==
