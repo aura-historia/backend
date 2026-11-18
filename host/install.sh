@@ -15,7 +15,7 @@ set -euo pipefail
 HOST_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly HOST_DIR
 readonly SYSTEMD_DIR=/etc/systemd/system
-readonly TIER_SLICES=(aura-serving.slice aura-pipeline.slice aura-batch.slice)
+readonly TIER_SLICES=(aura_serving.slice aura_pipeline.slice aura_batch.slice)
 readonly BATCH_UNITS=(crawler-server.service review-agent-runner.service crawler-backup.service crawler-autodeploy.service)
 readonly RETIRED_SLICE=auraopensearch.slice
 readonly RESERVATION_UNITS=(init.scope system.slice user.slice machine.slice)
@@ -69,12 +69,14 @@ install_cgroups() {
   done
 
   systemctl daemon-reload
-  # daemon-reload does not rewrite a cpuset a unit no longer sets; reset it explicitly.
+  # Neither daemon-reload nor an empty AllowedCPUs= rewrites a running unit's cpuset,
+  # so widen it to every online CPU until the next boot, which starts without a mask.
   for unit in "${RESERVATION_UNITS[@]}"; do
-    systemctl set-property --runtime "${unit}" AllowedCPUs= || log "could not reset AllowedCPUs on ${unit}"
+    systemctl set-property --runtime "${unit}" AllowedCPUs="$(cat /sys/devices/system/cpu/online)" \
+      || log "could not widen AllowedCPUs on ${unit}"
   done
   systemctl enable --now "${TIER_SLICES[@]}"
-  log "tier slices active; crawler units join aura-batch.slice at their next start"
+  log "tier slices active; crawler units join aura_batch.slice at their next start"
   default_docker_parent
 
   retire_opensearch_slice
@@ -108,7 +110,7 @@ retire_opensearch_slice() {
     return 0
   fi
   if cgroup_populated "${RETIRED_SLICE}"; then
-    log "${RETIRED_SLICE} still has processes: recreate OpenSearch in aura-serving.slice (host/README.md), then rerun 'cgroups'"
+    log "${RETIRED_SLICE} still has processes: recreate OpenSearch in aura_serving.slice (host/README.md), then rerun 'cgroups'"
     return 0
   fi
   systemctl disable --now "${RETIRED_SLICE}"

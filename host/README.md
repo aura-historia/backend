@@ -15,10 +15,10 @@ cgroup driver.
 
 | Slice | Members | CPU / IO weight | Memory |
 |---|---|---|---|
-| `aura-serving.slice` | PostgreSQL, OpenSearch, API, MCP, Caddy | 1000 | `MemoryLow=28G`, covering the members' reservations |
-| `aura-pipeline.slice` | worker, `ops` jobs, log shipping | 200 | per-container limits |
+| `aura_serving.slice` | PostgreSQL, OpenSearch, API, MCP, Caddy | 1000 | `MemoryLow=28G`, covering the members' reservations |
+| `aura_pipeline.slice` | worker, `ops` jobs, log shipping | 200 | per-container limits |
 | `system.slice` | sshd, Docker, journald and other host services | 100 (default) | unlimited |
-| `aura-batch.slice` | crawler units, crawler database, crawler review agents | 50 | `MemoryMax=6G` |
+| `aura_batch.slice` | crawler units, crawler database, crawler review agents | 50 | `MemoryMax=6G` |
 | `user.slice` | interactive sessions, builds, agent sessions | 20 | `MemoryMax=10G` |
 
 A capped tier that reaches its limit first loses page cache, then the kernel kills
@@ -28,6 +28,10 @@ containers share the sessions' cap. The 10 GiB for `user.slice` is shared by eve
 login, so parallel builds may need fewer Cargo jobs. Only a host-wide OOM, when the
 uncapped tiers together exhaust memory, can reach the serving tier; negative
 `oom_score_adj` values make PostgreSQL and then OpenSearch its last choices.
+
+Tier names use an underscore because a dash in a slice name nests it: an
+`aura-serving.slice` would sit inside `aura.slice` and compete through that parent's
+default weight and protection.
 
 IO weights take effect only under an IO controller model (BFQ or `io.cost`). This
 host's NVMe RAID uses the `none` scheduler, so today CPU weights and memory limits
@@ -72,11 +76,11 @@ From a checkout of a reviewed ref:
    `sudo systemctl restart docker` so the default parent applies, then recreate the
    containers in their tiers, keeping their external volumes: OpenSearch from that
    checkout with `docker compose -f opensearch/prod/compose.yaml --profile public up -d`,
-   and the crawler database with `CRAWLER_POSTGRES_CGROUP_PARENT=aura-batch.slice`
+   and the crawler database with `CRAWLER_POSTGRES_CGROUP_PARENT=aura_batch.slice`
    set before `db-up`. Restart the crawler units when convenient.
 3. Rerun `sudo host/install.sh cgroups`. It retires the old OpenSearch slice once
    that slice is empty.
-4. `sudo host/stress-test.sh` fills `aura-batch.slice` and `user.slice` past their
+4. `sudo host/stress-test.sh` fills `aura_batch.slice` and `user.slice` past their
    caps and fails if a serving container was OOM-killed or restarted.
 5. `sudo host/install.sh ssh` once every SSH user logs in with a key, then
    `sudo host/install.sh firewall`.

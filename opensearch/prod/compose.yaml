@@ -18,7 +18,7 @@ services:
     mem_limit: ${OPENSEARCH_MEMORY_LIMIT:-20g}
     mem_reservation: ${OPENSEARCH_MEMORY_RESERVATION:-16g}
     memswap_limit: ${OPENSEARCH_MEMORY_LIMIT:-20g}
-    cgroup_parent: aura-serving.slice
+    cgroup_parent: aura_serving.slice
     oom_score_adj: -500
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -64,7 +64,7 @@ services:
       opensearch: {condition: service_healthy}
     mem_limit: 256m
     cpus: 0.5
-    cgroup_parent: aura-serving.slice
+    cgroup_parent: aura_serving.slice
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]

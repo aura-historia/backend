@@ -39,7 +39,7 @@ swap; its heap and memory limits follow the host's memory plan.
 
 ### Production resource allocation
 
-OpenSearch runs in the host's serving tier, `aura-serving.slice`, with no CPU
+OpenSearch runs in the host's serving tier, `aura_serving.slice`, with no CPU
 pinning or quota: CPU and IO weights rank it with PostgreSQL above the pipeline,
 batch and interactive tiers, and its memory reservation is protected from their
 pressure. The [host tiers](../host/README.md) own the slices, the memory plan and

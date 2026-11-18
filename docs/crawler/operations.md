@@ -40,7 +40,7 @@ For the same local trial, `server` with `CRAWLER_START_REVIEW_AGENT_RUNNER=true`
 
 The container runs Postgres with `max_connections=300`. The crawler's [pools](#postgres-pools) together default to the sum of the spider and scraper concurrency plus 18, which is 128 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pools' sum plus the sessions you open yourself.
 
-The container is capped at 3 GiB. On the production host, set `CRAWLER_POSTGRES_CGROUP_PARENT=aura-batch.slice` in the environment or the compose project's `.env` before `db-up`, so the database runs in the host's batch tier with the crawler units ([host tiers](../../host/README.md)).
+The container is capped at 3 GiB. On the production host, set `CRAWLER_POSTGRES_CGROUP_PARENT=aura_batch.slice` in the environment or the compose project's `.env` before `db-up`, so the database runs in the host's batch tier with the crawler units ([host tiers](../../host/README.md)).
 
 The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From `src/crawler`, use the matching scripts in `scripts/linux/` or `scripts/windows/`:
 

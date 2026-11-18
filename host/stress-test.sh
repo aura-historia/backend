@@ -2,10 +2,10 @@
 # Fills a capped tier slice past its MemoryMax and checks that the serving tier keeps
 # its memory. See host/README.md.
 #
-# Usage: sudo host/stress-test.sh [slice]...   (default: aura-batch.slice user.slice)
+# Usage: sudo host/stress-test.sh [slice]...   (default: aura_batch.slice user.slice)
 set -euo pipefail
 
-readonly SERVING=/sys/fs/cgroup/aura-serving.slice
+readonly SERVING=/sys/fs/cgroup/aura_serving.slice
 readonly CHUNK_MIB=256
 
 log() { printf '==> %s\n' "$*"; }
@@ -17,7 +17,7 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 serving_containers() {
   docker ps -q | while read -r id; do
     docker inspect "${id}" --format '{{.HostConfig.CgroupParent}} {{.Id}} {{.Name}}'
-  done | awk '$1 == "aura-serving.slice" {print "docker-" $2 ".scope", substr($3, 2)}'
+  done | awk '$1 == "aura_serving.slice" {print "docker-" $2 ".scope", substr($3, 2)}'
 }
 
 memory_event() { awk -v key="$2" '$1 == key {print $2}' "$1/memory.events"; }
@@ -70,9 +70,9 @@ sys.exit(3)
 }
 
 slices=("$@")
-[[ ${#slices[@]} -gt 0 ]] || slices=(aura-batch.slice user.slice)
-[[ -d ${SERVING} ]] || fail "aura-serving.slice is not active"
-[[ -n "$(serving_containers)" ]] || fail "no container runs in aura-serving.slice; recreate OpenSearch there first"
+[[ ${#slices[@]} -gt 0 ]] || slices=(aura_batch.slice user.slice)
+[[ -d ${SERVING} ]] || fail "aura_serving.slice is not active"
+[[ -n "$(serving_containers)" ]] || fail "no container runs in aura_serving.slice; recreate OpenSearch there first"
 for slice in "${slices[@]}"; do
   stress_slice "${slice}"
 done
