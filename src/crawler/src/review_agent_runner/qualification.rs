@@ -945,14 +945,14 @@ mod tests {
                 "qualification": "DISQUALIFIED",
                 "label": "OTHER",
                 "label_effect": "LABELLED",
-                "other_reason": " Auction Platform ",
+                "other_reason": " Login For Prices ",
                 "summary": "x".repeat(MAX_REPORT_TEXT_CHARS + 10),
             })
         };
 
         let report = QualifierReport::of(output(listing_source_id.to_string()), listing_source_id)
             .unwrap_or_else(|| panic!("a report for the source"));
-        assert_eq!(report.other_reason, "auction platform");
+        assert_eq!(report.other_reason, "login for prices");
         assert_eq!(report.summary.chars().count(), MAX_REPORT_TEXT_CHARS);
         assert_eq!(
             None,
@@ -994,9 +994,9 @@ mod tests {
                 "DISQUALIFIED",
                 "OTHER",
                 "LABELLED",
-                "auction platform",
+                "login for prices",
             ),
-            record(None, "QUALIFIED", "OTHER", "LABELLED", "auction platform"),
+            record(None, "QUALIFIED", "OTHER", "LABELLED", "login for prices"),
             record(None, "NEEDS_HUMAN", "NONE", "NONE", ""),
         ];
 
@@ -1011,7 +1011,7 @@ mod tests {
             "kept OTHER by HUMAN",
             "kept APPROACH_NOT_APPLICABLE by AGENT_AUTHOR",
             "NOT_AN_ESHOP → NOT_AN_ANTIQUE_SHOP",
-            "auction platform: 2",
+            "login for prices: 2",
         ] {
             assert!(section.contains(expected), "{expected}\n{section}");
         }
