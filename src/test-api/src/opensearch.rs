@@ -1,6 +1,4 @@
 use crate::IntegrationTestService;
-use crate::aws::{aws_emulator_container_name, get_aws_config, get_endpoint_url};
-use application::error::{BoxError, box_error};
 use async_trait::async_trait;
 
 use opensearch::http::headers::HeaderMap;
@@ -12,8 +10,11 @@ use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use std::time::Duration;
-use tokio::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+use testcontainers::core::IntoContainerPort;
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{GenericImage, ImageExt};
 use tokio::sync::OnceCell;
 use tokio::time::sleep;
 use tracing::debug;
@@ -24,24 +25,26 @@ use tracing::debug;
 /// The search adapter's tests depend on `test-api`, so importing it here would be circular.
 const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 
-pub const TEST_DOMAIN_NAME: &str = "test-domain";
+/// The production engine version. The immutable digest is the actual image policy, so mapping
+/// compatibility is checked against the serving engine.
+pub(crate) const OPENSEARCH_IMAGE: &str = "opensearchproject/opensearch:3.9.0@sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c";
+pub(crate) const OPENSEARCH_CONTAINER_PORT: u16 = 9200;
+/// Single-node settings shared by the supervisor's cluster and the process-owned cluster.
+pub(crate) const OPENSEARCH_ENVIRONMENT: &[(&str, &str)] = &[
+    ("discovery.type", "single-node"),
+    ("DISABLE_SECURITY_PLUGIN", "true"),
+    ("DISABLE_INSTALL_DEMO_CONFIG", "true"),
+    ("OPENSEARCH_JAVA_OPTS", "-Xms512m -Xmx512m"),
+    // A shared runner disk above the 90% high watermark makes this single-node test
+    // cluster block index creation with 403 `index_create_block_exception`. Disk headroom
+    // is guarded separately (`ci/guard-disk.py`), so the watermarks only cause flakes here.
+    ("cluster.routing.allocation.disk.threshold_enabled", "false"),
+];
+const OPENSEARCH_CONTAINER_NAME_PREFIX: &str = "aura-historia-opensearch-test";
+const OPENSEARCH_STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 
-static OPENSEARCH_BOOTSTRAPPED: OnceCell<()> = OnceCell::const_new();
-
-fn test_access_policies() -> String {
-    json!({
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "es:*",
-                "Resource": "*"
-            }
-        ]
-    })
-    .to_string()
-}
+/// The process-owned cluster of an unmanaged run, started at most once per test process.
+static PROCESS_CLUSTER: OnceCell<Url> = OnceCell::const_new();
 
 /// Construct an owned client on the calling Tokio runtime.
 ///
@@ -49,16 +52,20 @@ fn test_access_policies() -> String {
 /// including from a context cleanup thread or API server thread, can fail with DispatchGone.
 /// Call this on each owning runtime; clones may share a transport within that runtime.
 pub async fn get_opensearch_client() -> Client {
-    let endpoint_url = domain_endpoint().await;
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
+    let client = client_for(endpoint().await);
+    debug!("Successfully initialized runtime-owned OpenSearch client.");
+    client
+}
+
+fn client_for(endpoint: Url) -> Client {
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
         .disable_proxy()
         .build()
         .expect("shouldn't fail creating OpenSearch-Transport");
-    debug!("Successfully initialized runtime-owned OpenSearch client.");
     Client::new(transport)
 }
 
-/// Marker type representing the OpenSearch service in Floci-based tests.
+/// Marker type representing a real OpenSearch cluster in integration tests.
 ///
 /// Implements the `IntegrationTestService` trait to support lifecycle management
 /// when used with the `#[aura_integration_test]` macro.
@@ -68,16 +75,12 @@ pub struct OpenSearch();
 #[async_trait]
 impl IntegrationTestService for OpenSearch {
     fn service_names(&self) -> &'static [&'static str] {
-        &["opensearch"]
+        &[]
     }
 
     async fn set_up(&self) {
+        let endpoint = endpoint().await;
         if let Some(context) = crate::TestContext::current() {
-            if crate::environment::managed_environment().is_none() {
-                OPENSEARCH_BOOTSTRAPPED
-                    .get_or_init(|| async { set_up_open_search().await })
-                    .await;
-            }
             let index = context
                 .product_listings_index()
                 .expect("scoped product index");
@@ -86,24 +89,13 @@ impl IntegrationTestService for OpenSearch {
                 .await
                 .expect("persist scoped index");
             ensure_index_exists(
-                &get_opensearch_client().await,
+                &client_for(endpoint),
                 &index,
                 PRODUCT_LISTINGS_INDEX_MAPPING_STR,
             )
             .await
             .expect("create scoped product index");
-            return;
         }
-        if let Some(config) = crate::environment::managed_environment() {
-            assert!(
-                config.opensearch_endpoint().is_some(),
-                "managed profile has no OpenSearch"
-            );
-            return;
-        }
-        OPENSEARCH_BOOTSTRAPPED
-            .get_or_init(|| async { set_up_open_search().await })
-            .await;
     }
 
     async fn tear_down(&self) {
@@ -114,7 +106,8 @@ impl IntegrationTestService for OpenSearch {
     }
 }
 
-async fn domain_endpoint() -> Url {
+/// The supervisor's cluster in a managed run; otherwise the process-owned cluster.
+async fn endpoint() -> Url {
     if let Some(config) = crate::environment::managed_environment() {
         return Url::parse(
             config
@@ -123,102 +116,91 @@ async fn domain_endpoint() -> Url {
         )
         .expect("managed endpoint was validated");
     }
-    // Floci reports a container IP in DescribeDomain. Host clients must use the published port.
-    let container_name = format!(
-        "floci-aws-{}-opensearch-000000000000-eu-central-1-{TEST_DOMAIN_NAME}",
-        aws_emulator_container_name()
-    );
-    let output = Command::new("docker")
-        .args([
-            "inspect",
-            "--format",
-            "{{(index (index .NetworkSettings.Ports \"9200/tcp\") 0).HostPort}}",
-            &container_name,
-        ])
-        .output()
+    PROCESS_CLUSTER
+        .get_or_init(start_process_cluster)
         .await
-        .expect("shouldn't fail inspecting OpenSearch port binding");
-    assert!(
-        output.status.success(),
-        "OpenSearch container must have a published port"
-    );
-    let port = String::from_utf8(output.stdout)
-        .expect("OpenSearch port binding must be UTF-8")
-        .trim()
-        .parse::<u16>()
-        .expect("OpenSearch port binding must be a TCP port");
-    let mut endpoint = Url::parse(get_endpoint_url()).expect("AWS emulator endpoint must be a URL");
-    endpoint
-        .set_port(Some(port))
-        .expect("OpenSearch endpoint must accept a port");
-    endpoint
+        .clone()
 }
 
-async fn set_up_open_search() {
-    let started = std::time::Instant::now();
-    set_up_domain()
+fn opensearch_container_name() -> String {
+    format!("{OPENSEARCH_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+}
+
+fn docker_remove(name: &str) {
+    let _ = Command::new("docker")
+        .args(["rm", "-f", "-v", name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+extern "C" fn cleanup() {
+    docker_remove(&opensearch_container_name());
+}
+
+/// Removes the process-owned cluster on normal exit (`atexit`) and on `SIGINT` / `SIGTERM`.
+fn install_cleanup() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        unsafe { libc::atexit(cleanup) };
+        crate::signal::register_signal_cleanup(|| cleanup());
+    });
+}
+
+/// Starts the pinned engine with a random host port, then installs the search pipeline and the
+/// unscoped product index. The container lives for the whole test process.
+async fn start_process_cluster() -> Url {
+    install_cleanup();
+    let name = opensearch_container_name();
+    // A failed or cancelled start is retried by the OnceCell; never reuse its container.
+    docker_remove(&name);
+    let started = Instant::now();
+    let (repository, tag) = OPENSEARCH_IMAGE
+        .split_once(':')
+        .expect("OpenSearch image reference must be repository:tag");
+    let request = GenericImage::new(repository, tag)
+        .with_exposed_port(OPENSEARCH_CONTAINER_PORT.tcp())
+        .with_container_name(name);
+    let container = OPENSEARCH_ENVIRONMENT
+        .iter()
+        .fold(request, |request, (key, value)| {
+            request.with_env_var(*key, *value)
+        })
+        .start()
         .await
-        .expect("shouldn't fail creating OpenSearch-Domain");
-    wait_until_domain_processed(TEST_DOMAIN_NAME)
+        .expect("shouldn't fail starting OpenSearch test container");
+    let port = container
+        .get_host_port_ipv4(OPENSEARCH_CONTAINER_PORT.tcp())
         .await
-        .expect("shouldn't fail waiting for domain  to complete processing");
-    bootstrap_indices(&get_opensearch_client().await)
+        .expect("OpenSearch container must publish its HTTP port");
+    let endpoint =
+        Url::parse(&format!("http://localhost:{port}")).expect("OpenSearch endpoint must be a URL");
+    let client = client_for(endpoint.clone());
+    wait_until_reachable(&client).await;
+    bootstrap_indices(&client)
         .await
-        .expect("shouldn't fail setting up indices");
+        .expect("shouldn't fail setting up OpenSearch indices");
     debug!(
         elapsed_ms = started.elapsed().as_millis(),
-        "OpenSearch structural bootstrap complete."
+        pid = std::process::id(),
+        "OpenSearch container started and bootstrapped."
     );
+    // The cleanup hooks remove the container when the process exits.
+    std::mem::forget(container);
+    endpoint
 }
 
-async fn set_up_domain() -> Result<(), BoxError> {
-    aws_sdk_opensearch::Client::new(get_aws_config().await)
-        .create_domain()
-        .domain_name(TEST_DOMAIN_NAME)
-        .engine_version("OpenSearch_3.9")
-        .access_policies(test_access_policies())
-        .send()
-        .await
-        .map(|_| ())
-        .map_err(box_error)
-}
-
-async fn wait_until_domain_processed(domain: &'static str) -> Result<(), BoxError> {
-    let mut retries = 500;
-    let mut processing = true;
-    while processing {
-        let res = aws_sdk_opensearch::Client::new(get_aws_config().await)
-            .describe_domain()
-            .domain_name(domain)
-            .send()
-            .await?;
-        if res
-            .clone()
-            .domain_status
-            .expect("shouldn't miss 'domain_status'")
-            .processing
-            .expect("shouldn't miss 'domain_status.processing'")
-        {
-            retries -= 1;
-            debug!(
-                remaining_retries = retries,
-                domain = domain,
-                "Domain is still being processed..."
-            );
-            if retries < 0 {
-                return Err(std::io::Error::other("Domain took too long to process").into());
+async fn wait_until_reachable(client: &Client) {
+    let deadline = Instant::now() + OPENSEARCH_STARTUP_TIMEOUT;
+    loop {
+        match client.ping().send().await {
+            Ok(response) if response.status_code().is_success() => return,
+            outcome if Instant::now() >= deadline => {
+                panic!("OpenSearch test container did not become reachable: {outcome:?}")
             }
-            sleep(Duration::from_millis(500)).await;
-        } else {
-            debug!(
-                remaining_retries = retries,
-                domain = domain,
-                "Domain finished processing."
-            );
-            processing = false;
+            _ => sleep(Duration::from_millis(500)).await,
         }
     }
-    Ok(())
 }
 
 static PRODUCT_LISTINGS_INDEX_MAPPING_STR: &str = include_str!(concat!(
@@ -335,11 +317,11 @@ async fn set_up_indices(client: &Client) -> Result<(), Error> {
 }
 
 pub(crate) async fn bootstrap_indices(client: &Client) -> Result<(), Error> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         match set_up_indices(client).await {
             Ok(()) => return Ok(()),
-            Err(err) if std::time::Instant::now() < deadline => {
+            Err(err) if Instant::now() < deadline => {
                 debug!(error = %err, "OpenSearch indices are not ready yet; retrying setup.");
                 sleep(Duration::from_secs(2)).await;
             }
@@ -353,7 +335,7 @@ pub(crate) async fn bootstrap_indices(client: &Client) -> Result<(), Error> {
 /// Silently skips any index that does not yet exist (e.g. before the first
 /// test has caused its creation).
 pub(crate) async fn clear_all_indices() {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     const INDICES: &[&str] = &["product-listings", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
@@ -436,7 +418,6 @@ mod runtime_tests {
         let setup = runtime();
         let id = ProductListingId::new().to_string();
         let (session, index) = setup.block_on(async {
-            crate::aws::get_aws_emulator(crate::aws::RUNTIME_TEST_SERVICES, &[]).await;
             let session = TestContext::acquire("OpenSearch runtime lifetime", Isolation::Isolated)
                 .await
                 .unwrap();

@@ -3,7 +3,7 @@ use super::{Result, invalid, services, supervisor};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: aura-test-env run --profile postgres|aws|opensearch|api --slots 1..1024 [--state-dir ABSOLUTE] -- COMMAND [ARG...] | gc [--state-dir ABSOLUTE] | probe";
+const USAGE: &str = "usage: aura-test-env run --profile postgres|aws|opensearch|api|all --slots 1..1024 [--state-dir ABSOLUTE] -- COMMAND [ARG...] | gc [--state-dir ABSOLUTE] | probe";
 
 /// Run the developer CLI; stdout/stderr of a supervised command are inherited.
 pub async fn run_cli(args: Vec<OsString>) -> Result<i32> {
@@ -38,6 +38,7 @@ pub async fn run_cli(args: Vec<OsString>) -> Result<i32> {
                     Some("aws") => Profile::Aws,
                     Some("opensearch") => Profile::Opensearch,
                     Some("api") => Profile::Api,
+                    Some("all") => Profile::All,
                     _ => return Err(invalid(USAGE)),
                 })
             }

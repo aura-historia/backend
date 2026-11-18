@@ -137,7 +137,7 @@ jobs:
           id: integration
           lanes: INFRASTRUCTURE
           slots: 4
-          profile: api
+          profile: all
           compilation_cache: dependencies
 
   remaining:

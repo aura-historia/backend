@@ -73,7 +73,6 @@ struct Manifest {
 enum Kind {
     Database,
     Index,
-    Queue,
     Bucket,
     Sender,
     ConfigurationSet,
@@ -216,10 +215,10 @@ impl TestContext {
         }
     }
 
-    fn name(&self, label: &str, maximum: usize, suffix: &str) -> Result<String> {
+    fn name(&self, label: &str, maximum: usize) -> Result<String> {
         self.active()?;
         let metadata = self.0.manifest.lock().expect("context metadata lock");
-        names::resource(&metadata.run, &metadata.test, label, maximum, suffix)
+        names::resource(&metadata.run, &metadata.test, label, maximum)
     }
 
     fn own(&self, kind: Kind, name: String) -> Result<String> {
@@ -237,24 +236,13 @@ impl TestContext {
     }
 
     /// Register and durably record a resource before issuing its create request.
-    pub async fn queue_name(&self, label: &str, fifo: bool) -> Result<String> {
-        let name = self.resolve_queue_name(label, fifo)?;
-        self.persist_resources().await?;
-        Ok(name)
-    }
-    pub(crate) fn resolve_queue_name(&self, label: &str, fifo: bool) -> Result<String> {
-        self.own(
-            Kind::Queue,
-            self.name(label, 80, if fifo { ".fifo" } else { "" })?,
-        )
-    }
     pub async fn bucket_name(&self, label: &str) -> Result<String> {
-        let name = self.own(Kind::Bucket, self.name(label, 63, "")?)?;
+        let name = self.own(Kind::Bucket, self.name(label, 63)?)?;
         self.persist_resources().await?;
         Ok(name)
     }
     pub async fn configuration_set_name(&self, label: &str) -> Result<String> {
-        let name = self.own(Kind::ConfigurationSet, self.name(label, 64, "")?)?;
+        let name = self.own(Kind::ConfigurationSet, self.name(label, 64)?)?;
         self.persist_resources().await?;
         Ok(name)
     }
@@ -289,7 +277,7 @@ impl TestContext {
     pub async fn register_sender(&self, label: &str) -> Result<String> {
         let email = self.own(
             Kind::Sender,
-            format!("{}@example.test", self.name(label, 64, "")?),
+            format!("{}@example.test", self.name(label, 64)?),
         )?;
         self.persist_resources().await?;
         Ok(email)
@@ -298,20 +286,11 @@ impl TestContext {
     pub fn sender_email(&self) -> Result<String> {
         self.own(
             Kind::Sender,
-            format!("{}@example.test", self.name("sender", 64, "")?),
+            format!("{}@example.test", self.name("sender", 64)?),
         )
     }
-    #[cfg(feature = "sqs")]
-    pub(crate) fn register_queue(&self, name: &str) -> Result<()> {
-        let prefix = format!("a{}-{}-", self.run_id(), &self.test_id()[..16]);
-        if !name.starts_with(&prefix) {
-            return Err(failure("queue must be named by the active context"));
-        }
-        self.own(Kind::Queue, name.to_owned())?;
-        Ok(())
-    }
     pub fn product_listings_index(&self) -> Result<String> {
-        self.own(Kind::Index, self.name("product-listings", 255, "")?)
+        self.own(Kind::Index, self.name("product-listings", 255)?)
     }
 
     /// Register shutdown that stops and joins an externally created server/worker before cleanup.
@@ -416,7 +395,6 @@ impl Manifest {
             let maximum = match resource.kind {
                 Kind::Database => 63,
                 Kind::Index => 255,
-                Kind::Queue => 80,
                 Kind::Bucket => 63,
                 Kind::Sender => 77,
                 Kind::ConfigurationSet => 64,
@@ -573,8 +551,8 @@ mod tests {
             name: "ownership".into(),
             slot: 0,
             resources: vec![Resource {
-                kind: Kind::Queue,
-                name: "foreign-queue".into(),
+                kind: Kind::Bucket,
+                name: "foreign-bucket".into(),
             }],
         };
         assert!(manifest.validate(&manifest.run, 0).is_err());

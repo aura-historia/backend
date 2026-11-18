@@ -1,31 +1,37 @@
 use std::process::Stdio;
-use test_api::aws::{get_aws_emulator, get_endpoint_url};
-use test_api::{IntegrationTestService, OpenSearch};
+use test_api::aws::{get_aws_config, get_aws_emulator, get_endpoint_url};
 use tokio::process::Command;
+
+async fn list_buckets(expectation: &str) {
+    aws_sdk_s3::Client::from_conf(
+        aws_sdk_s3::config::Builder::from(get_aws_config().await)
+            .force_path_style(true)
+            .build(),
+    )
+    .list_buckets()
+    .send()
+    .await
+    .expect(expectation);
+}
 
 #[tokio::test]
 #[ignore = "fixture self-test; run explicitly with --ignored"]
 #[serial_test::serial]
 async fn should_expose_test_host_and_port() {
     require_unmanaged_phase();
-    get_aws_emulator(&["opensearch"], &[]).await;
+    get_aws_emulator(&["s3"], &[]).await;
     let endpoint = url::Url::parse(get_endpoint_url()).unwrap();
     assert_eq!(endpoint.host_str(), Some("localhost"));
     assert!(endpoint.port().unwrap() > 0);
-    aws_sdk_opensearch::Client::new(test_api::aws::get_aws_config().await)
-        .list_domain_names()
-        .send()
-        .await
-        .expect("published Floci endpoint must accept real SDK requests");
+    list_buckets("published Floci endpoint must accept real SDK requests").await;
 }
 
 #[tokio::test]
 #[ignore = "fixture self-test; run explicitly with --ignored"]
 #[serial_test::serial]
-async fn should_reap_child_resources_without_removing_another_process_fixture() {
+async fn should_remove_a_child_process_fixture_without_removing_its_parent() {
     require_unmanaged_phase();
-    test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
-    OpenSearch().set_up().await;
+    get_aws_emulator(&["s3"], &[]).await;
 
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -44,41 +50,18 @@ async fn should_reap_child_resources_without_removing_another_process_fixture() 
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
-    let namespace = format!(
+    let child_emulator = format!(
         "aura-historia-aws-backend-floci-test-{}",
         child.id().expect("child must have an id before waiting")
     );
     assert!(child.wait().await.unwrap().success());
     let emulator = Command::new("docker")
-        .args(["inspect", &namespace])
+        .args(["inspect", &child_emulator])
         .output()
         .await
         .unwrap();
     assert!(!emulator.status.success(), "child emulator must be removed");
-    for args in [
-        vec!["ps", "-aq", "--filter"],
-        vec!["volume", "ls", "-q", "--filter"],
-    ] {
-        let output = Command::new("docker")
-            .args(args)
-            .arg(format!("label=floci_namespace={namespace}"))
-            .output()
-            .await
-            .unwrap();
-        assert!(output.status.success());
-        assert!(output.stdout.is_empty(), "child resources must be removed");
-    }
-    assert!(
-        test_api::get_opensearch_client()
-            .await
-            .ping()
-            .send()
-            .await
-            .unwrap()
-            .status_code()
-            .is_success(),
-        "the parent process's OpenSearch must survive child cleanup"
-    );
+    list_buckets("the parent process's emulator must survive child cleanup").await;
 }
 
 #[tokio::test]
@@ -88,8 +71,8 @@ async fn aws_fixture_child() {
         return;
     }
     require_unmanaged_phase();
-    test_api::aws::get_aws_emulator(&["opensearch"], &[]).await;
-    OpenSearch().set_up().await;
+    get_aws_emulator(&["s3"], &[]).await;
+    list_buckets("child emulator must accept requests").await;
 }
 
 fn require_unmanaged_phase() {

@@ -19,7 +19,7 @@ def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lane", choices=LANES, action="append", required=True)
     parser.add_argument("--slots", type=int, required=True)
-    parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api"], required=True)
+    parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api", "all"], required=True)
     parser.add_argument("--supervisor", type=pathlib.Path, required=True)
     parser.add_argument("--state-dir", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)

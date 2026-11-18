@@ -1,5 +1,3 @@
-#[cfg(feature = "api-gateway")]
-mod api_gateway;
 #[cfg(feature = "aura-historia-api")]
 mod aura_historia_api;
 pub mod aws;
@@ -10,8 +8,6 @@ mod logs;
 pub use logs::CapturedLogs;
 mod owned_task;
 pub use owned_task::{OwnedTask, spawn_owned};
-#[cfg(feature = "eventbridge")]
-mod eventbridge;
 #[cfg(feature = "opensearch")]
 mod opensearch;
 #[cfg(feature = "postgres")]
@@ -20,16 +16,10 @@ mod s3;
 #[cfg(feature = "ses")]
 mod ses;
 mod signal;
-#[cfg(feature = "sqs")]
-mod sqs;
 
-#[cfg(feature = "api-gateway")]
-pub use api_gateway::*;
 use async_trait::async_trait;
 #[cfg(feature = "aura-historia-api")]
 pub use aura_historia_api::{AuraHistoriaApi, AuraHistoriaApiAppFactory};
-#[cfg(feature = "eventbridge")]
-pub use eventbridge::get_eventbridge_client;
 pub use futures_util::FutureExt;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
@@ -42,8 +32,6 @@ pub use s3::S3;
 pub use serial_test::serial;
 #[cfg(feature = "ses")]
 pub use ses::*;
-#[cfg(feature = "sqs")]
-pub use sqs::{Sqs, SqsBuilder, SqsBuilderError, SqsQueuePair, WorkerSqs, get_sqs_client};
 pub use test_api_macros::aura_integration_test;
 pub use tokio;
 pub use tracing;
@@ -79,17 +67,4 @@ pub trait IntegrationTestService: Sized {
     async fn set_up(&self);
     /// Cleans up after the test (defaults to a no-op)
     async fn tear_down(&self) {}
-}
-
-#[macro_export]
-macro_rules! extract_apigw_response_json_body {
-    ($response:expr) => {{
-        match &$response.clone().body {
-            Some(aws_lambda_events::encodings::Body::Text(body)) => {
-                serde_json::from_str::<serde_json::Value>(body)
-                    .expect("Failed to parse JSON from response body")
-            }
-            _ => panic!("Expected response body to be Text."),
-        }
-    }};
 }
