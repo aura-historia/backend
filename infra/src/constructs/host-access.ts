@@ -28,7 +28,8 @@ export interface HostAccessProps {
 
 /**
  * What the self-hosted host needs from AWS before it serves traffic: an IAM user for its runtime
- * calls, the versioned bucket its backups go to, and the secret CloudFront sends to its origin.
+ * calls, the versioned bucket its backups go to, the secret CloudFront sends to its origin and
+ * the key the Cognito post-confirmation forwarder signs with.
  * Access keys are created and rotated by an operator, never by CloudFormation. Each grant is
  * its own managed policy, which leaves room beyond the user's small inline-policy size limit.
  */
@@ -36,6 +37,7 @@ export class HostAccess extends Construct {
   readonly user: iam.User;
   readonly backupBucket: s3.Bucket;
   readonly originVerifySecret: secretsmanager.Secret;
+  readonly postConfirmationSigningSecret: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: HostAccessProps) {
     super(scope, id);
@@ -43,23 +45,39 @@ export class HostAccess extends Construct {
 
     this.user = new iam.User(this, "HostUser", { userName: config.host.userName });
     this.backupBucket = createBackupBucket(this, config, this.user);
-    this.originVerifySecret = new secretsmanager.Secret(this, "OriginVerifySecret", {
-      secretName: credentialSecrets(config.stage).originVerify.secretName,
-      description: "Header value CloudFront sends to the host origin; the host proxy rejects requests without it.",
-      generateSecretString: {
-        secretStringTemplate: "{}",
-        generateStringKey: "value",
-        passwordLength: 64,
-        excludePunctuation: true,
-      },
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
+    this.originVerifySecret = generatedSecret(
+      this,
+      "OriginVerifySecret",
+      credentialSecrets(config.stage).originVerify.secretName,
+      "Header value CloudFront sends to the host origin; the host proxy rejects requests without it.",
+    );
+    this.postConfirmationSigningSecret = generatedSecret(
+      this,
+      "PostConfirmationSigningSecret",
+      credentialSecrets(config.stage).postConfirmationSigning.secretName,
+      "Key the Cognito post-confirmation forwarder signs with; the host's internal endpoint verifies it.",
+    );
 
     grantBackups(this, this.user, this.backupBucket);
     grantEmailSending(this, config, this.user);
     grantPlaceLookups(this, this.user);
     grantLogsAndMetrics(this, config, this.user);
   }
+}
+
+/** A retained random `value` an operator installs on the host; the host user never reads it. */
+function generatedSecret(scope: Construct, id: string, secretName: string, description: string): secretsmanager.Secret {
+  return new secretsmanager.Secret(scope, id, {
+    secretName,
+    description,
+    generateSecretString: {
+      secretStringTemplate: "{}",
+      generateStringKey: "value",
+      passwordLength: 64,
+      excludePunctuation: true,
+    },
+    removalPolicy: cdk.RemovalPolicy.RETAIN,
+  });
 }
 
 function createBackupBucket(scope: Construct, config: StageConfig, user: iam.IUser): s3.Bucket {

@@ -29,6 +29,7 @@ members = [
     "src/billing-service",
     "src/billing-stripe",
     "src/cognito-post-confirmation",
+    "src/cognito-post-confirmation-forwarder",
     "src/cognito-pre-sign-up",
     "src/credential-core",
     "src/domain-primitives",
@@ -166,6 +167,7 @@ auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
+cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 platform-process = { path = "src/platform-process" }
 platform-worker = { path = "src/platform-worker" }
 aura-historia-worker = { path = "src/aura-historia-worker" }

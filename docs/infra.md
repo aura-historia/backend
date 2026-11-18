@@ -77,7 +77,7 @@ composes three stacks:
 
 | Stack suffix under `application-prod` | Ownership |
 | --- | --- |
-| `host` | The host's IAM user, the versioned backup bucket and the CloudFront origin secret |
+| `host` | The host's IAM user, the versioned backup bucket, the CloudFront origin secret and the post-confirmation signing key |
 | `identity` | Cognito pool, client, domains, identity providers and both Cognito triggers; the SES configuration set; the host user's Cognito admin grant |
 | `api` | CloudFront distributions and Web ACLs for `api.` and `mcp.`, both on the host origin |
 
@@ -109,6 +109,12 @@ The `host` stack deploys independently of the others and before the host serves 
   An operator installs its `value` in the host proxy's secret file. To rotate, put a new value,
   let the proxy accept both, deploy `api` with the new version in `OriginVerifyCredentialVersion`,
   then drop the old value from the proxy.
+- **Post-confirmation signing key.** `/aura-historia/prod/edge/post-confirmation-signing` is
+  generated once and retained. An operator installs its `value` as the API's
+  `COGNITO_POST_CONFIRMATION_SIGNING_KEY`; `identity` resolves it into the forwarder at
+  deployment through `PostConfirmationSigningCredentialVersion`. To rotate, put a new value, set
+  the old one as the API's `COGNITO_POST_CONFIRMATION_PREVIOUS_SIGNING_KEY` and the new one as
+  its current key, deploy `identity` with the new version, then remove the previous key.
 
 ### CloudFront origin lock
 
@@ -126,7 +132,11 @@ changing either, deploy `api` with a template change, such as the new secret ver
 
 The Cognito triggers run outside any VPC, so neither can reach the host's database. Pre-sign-up
 may call only the Cognito API and the host's public front door; the post-confirmation forwarder
-calls the host through the public API hostname, because the host accepts only CloudFront. Their
+calls the host's internal endpoint `/internal/cognito/post-confirmation` through the public API
+hostname, because the host accepts only CloudFront. It signs each forwarded event with
+HMAC-SHA256 over its timestamp and body; the host accepts it only within five minutes of its own
+clock and only for the configured user pool, and any failure fails the confirmation. The endpoint
+is not part of the public OpenAPI contract. Their
 code is pinned to objects in the release bundle bucket, which therefore stays, through each
 function's artifact key, version and SHA-256 parameters; Cognito invokes their `live` aliases.
 
@@ -158,8 +168,8 @@ An update that intentionally replaces or removes an `identity` resource other th
 The reduced `identity` and `api` stacks reach prod only at the cutover, after the host serves
 the application; `host` may deploy earlier. Keep the retained stack names. Deploy each stack
 with `cdk deploy` from `infra/`, passing its parameters: `identity` takes the
-`CognitoIdentityProvidersCredentialVersion` and both triggers' artifact key, version and
-SHA-256; `api` takes `OriginVerifyCredentialVersion`. Before the first reduced deployment:
+`CognitoIdentityProvidersCredentialVersion`, the `PostConfirmationSigningCredentialVersion` and both
+triggers' artifact key, version and SHA-256; `api` takes `OriginVerifyCredentialVersion`. Before the first reduced deployment:
 
 - Both trigger artifacts must be built from code that runs without the database: a
   pre-sign-up trigger without PostgreSQL configuration and a configured post-confirmation

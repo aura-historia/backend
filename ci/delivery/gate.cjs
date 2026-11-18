@@ -62,7 +62,7 @@ function inventory(root) {
             [
               'aura-historia-api',
               'aura-historia-mcp',
-              'cognito-post-confirmation',
+              'cognito-post-confirmation-forwarder',
               'cognito-pre-sign-up',
             ].includes(target.name)),
       )

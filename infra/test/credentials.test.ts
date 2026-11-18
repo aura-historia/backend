@@ -21,6 +21,7 @@ function dynamicReferences(template: unknown): string[] {
 test("operators provision or the host stack generates exactly these deploy-time secrets and JSON fields", () => {
   expect(Object.values(credentialSecrets("prod")).map(({ secretName, fields }) => [secretName, fields])).toEqual([
     ["/aura-historia/prod/edge/origin-verify", ["value"]],
+    ["/aura-historia/prod/edge/post-confirmation-signing", ["value"]],
     ["/aura-historia/prod/app/cognito-identity-providers", ["googleClientSecret", "facebookClientSecret"]],
   ]);
 });
@@ -56,6 +57,7 @@ describe.each(STAGES)("%s deploy-time credentials", (stage) => {
     expect(pinned.sort()).toEqual([
       `application-${stage}-api:/aura-historia/${stage}/edge/origin-verify`,
       `application-${stage}-identity:/aura-historia/${stage}/app/cognito-identity-providers`,
+      `application-${stage}-identity:/aura-historia/${stage}/edge/post-confirmation-signing`,
     ]);
   });
 });

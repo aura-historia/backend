@@ -1,7 +1,7 @@
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
-use cognito_post_confirmation::handler;
-use lambda_runtime::{Context, LambdaEvent};
+use cognito_post_confirmation::{PostConfirmationError, register_confirmed_user};
 use localization::Language;
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use serde_email::Email;
@@ -22,11 +22,36 @@ use user_service::ports::{
 };
 use user_service::use_cases::commands::coordinate_marketing_consent::MarketingConsentCoordinator;
 use user_service::use_cases::{
-    RegisterCognitoUserHandler, ResolveCognitoUserError, ResolveCognitoUserHandler,
-    ResolveCognitoUserRequest, ResolveCognitoUserUseCase,
+    RegisterCognitoUserHandler, RegisterCognitoUserUseCase, ResolveCognitoUserError,
+    ResolveCognitoUserHandler, ResolveCognitoUserRequest, ResolveCognitoUserUseCase,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+/// A Cognito event as the host endpoint receives it.
+struct ForwardedEvent {
+    payload: CognitoEventUserPoolsPostConfirmation,
+}
+
+/// Registers like the host endpoint, configured for the event's own user pool.
+async fn handler(
+    event: ForwardedEvent,
+    service: &impl RegisterCognitoUserUseCase,
+) -> Result<CognitoEventUserPoolsPostConfirmation, PostConfirmationError> {
+    let header = &event.payload.cognito_event_user_pools_header;
+    let issuer = format!(
+        "https://cognito-idp.{}.amazonaws.com/{}",
+        header.region.as_deref().unwrap_or_default(),
+        header.user_pool_id.as_deref().unwrap_or_default()
+    );
+    let context = OperationContext {
+        principal: Principal::System,
+        request_id: RequestId::new("host-request-id"),
+        correlation_id: CorrelationId::new("host-request-id"),
+    };
+    register_confirmed_user(&event.payload, &issuer, &context, service).await?;
+    Ok(event.payload)
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_register_opaque_cognito_subject_as_independent_default_user() {
@@ -578,7 +603,7 @@ fn post_confirmation_event(
     user_pool_id: &str,
     subject: &str,
     email: &str,
-) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+) -> ForwardedEvent {
     post_confirmation_event_with_username("provider-username", region, user_pool_id, subject, email)
 }
 
@@ -606,7 +631,7 @@ fn post_confirmation_event_with_username(
     user_pool_id: &str,
     subject: &str,
     email: &str,
-) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+) -> ForwardedEvent {
     post_confirmation_event_with_username_and_profile(
         username,
         region,
@@ -625,7 +650,7 @@ fn post_confirmation_event_with_profile(
     given_name: Option<&str>,
     family_name: Option<&str>,
     locale: Option<&str>,
-) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+) -> ForwardedEvent {
     post_confirmation_event_with_username_and_profile(
         "provider-username",
         region,
@@ -647,7 +672,7 @@ fn post_confirmation_event_with_username_and_profile(
     subject: &str,
     email: &str,
     profile: ProfileAttributes<'_>,
-) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+) -> ForwardedEvent {
     let mut user_attributes = serde_json::json!({ "sub": subject, "email": email });
     for (attribute, value) in [
         ("given_name", profile.given_name),
@@ -672,15 +697,12 @@ fn post_confirmation_event_with_username_and_profile(
         "response": {}
     }))
     .unwrap_or_else(|error| panic!("invalid test Cognito event: {error}"));
-    let mut context = Context::default();
-    context.request_id = "lambda-request-id".to_owned();
-
-    LambdaEvent { payload, context }
+    ForwardedEvent { payload }
 }
 
 fn post_confirmation_event_with_signup_attributes(
     fixture: SignupEventFixture<'_>,
-) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+) -> ForwardedEvent {
     let mut user_attributes = serde_json::json!({
         "sub": fixture.subject,
         "email": fixture.email
@@ -707,10 +729,7 @@ fn post_confirmation_event_with_signup_attributes(
         "response": {}
     }))
     .unwrap_or_else(|error| panic!("invalid test Cognito event: {error}"));
-    let mut context = Context::default();
-    context.request_id = "lambda-request-id".to_owned();
-
-    LambdaEvent { payload, context }
+    ForwardedEvent { payload }
 }
 
 async fn begin(unit_of_work: &SqlxUnitOfWork) -> SqlxTransaction {

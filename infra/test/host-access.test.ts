@@ -162,17 +162,20 @@ describe("host access stack", () => {
     ]);
   });
 
-  test("generates the retained origin secret that CloudFront sends and the host proxy requires", () => {
-    const [, secret] = only(host, "AWS::SecretsManager::Secret");
-    expect(secret.DeletionPolicy).toBe("Retain");
-    expect(secret.Properties).toMatchObject({
-      Name: "/aura-historia/prod/edge/origin-verify",
-      GenerateSecretString: {
+  test("generates the retained origin secret and post-confirmation signing key that the host requires", () => {
+    const secrets = Object.values(host.findResources("AWS::SecretsManager::Secret")) as Resource[];
+    expect(secrets.map((secret) => secret.Properties.Name).sort()).toEqual([
+      "/aura-historia/prod/edge/origin-verify",
+      "/aura-historia/prod/edge/post-confirmation-signing",
+    ]);
+    for (const secret of secrets) {
+      expect(secret.DeletionPolicy).toBe("Retain");
+      expect(secret.Properties.GenerateSecretString).toEqual({
         SecretStringTemplate: "{}", GenerateStringKey: "value", PasswordLength: 64, ExcludePunctuation: true,
-      },
-    });
-    expect(secret.Properties.SecretString).toBeUndefined();
-    // The host user never reads it; an operator installs it in the proxy's secret file.
+      });
+      expect(secret.Properties.SecretString).toBeUndefined();
+    }
+    // The host user never reads them; an operator installs them in the host's secret files.
     expect(JSON.stringify(hostUserStatements())).not.toContain("secretsmanager:");
   });
 });

@@ -315,11 +315,13 @@ dependencies = [
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-geoplaces",
  "aws-sdk-sesv2",
+ "aws_lambda_events",
  "axum",
  "base64 0.23.1",
  "billing-service",
  "billing-stripe",
  "classifier-model",
+ "cognito-post-confirmation",
  "content-notice-core",
  "content-notice-postgres",
  "content-notice-service",
@@ -1923,10 +1925,9 @@ dependencies = [
  "application",
  "async-trait",
  "aws_lambda_events",
- "lambda_runtime",
+ "base64 0.23.1",
  "localization",
- "platform-lambda-bootstrap",
- "platform-observability",
+ "openssl",
  "platform-postgres",
  "serde-email",
  "serde_json",
@@ -1940,6 +1941,23 @@ dependencies = [
  "user-core",
  "user-postgres",
  "user-service",
+]
+
+[[package]]
+name = "cognito-post-confirmation-forwarder"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "cognito-post-confirmation",
+ "lambda_runtime",
+ "platform-lambda-bootstrap",
+ "platform-observability",
+ "reqwest 0.12.28",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
