@@ -1,5 +1,5 @@
 import { API_SELECTIVE_READ_PATH_PATTERNS } from "../src/constructs/api";
-import { POST_CONFIRMATION_ENDPOINT_PATH } from "../src/constructs/cognito-triggers";
+import { POST_CONFIRMATION_ENDPOINT_PATH, PRE_SIGN_UP_ENDPOINT_PATH } from "../src/constructs/cognito-triggers";
 import { axumInternalRouteKeys, axumRouteKeys, swaggerRouteKeys } from "./api-route-contract";
 
 const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
@@ -67,7 +67,7 @@ describe("REST route contract", () => {
 
   test("serves the internal routes outside the OpenAPI contract and outside shared caching", () => {
     const internal = axumInternalRouteKeys();
-    expect(internal).toEqual([`POST ${POST_CONFIRMATION_ENDPOINT_PATH}`]);
+    expect(internal).toEqual([`POST ${POST_CONFIRMATION_ENDPOINT_PATH}`, `POST ${PRE_SIGN_UP_ENDPOINT_PATH}`]);
     for (const key of internal) {
       expect(swaggerRouteKeys()).not.toContain(key);
       const path = key.slice(key.indexOf(" ") + 1);

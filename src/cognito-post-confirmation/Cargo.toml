@@ -6,9 +6,7 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["cognito"] }
-base64 = { workspace = true }
 localization = { workspace = true }
-openssl = { workspace = true, features = ["vendored"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 user-core = { workspace = true }

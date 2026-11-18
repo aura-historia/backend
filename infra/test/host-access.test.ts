@@ -162,7 +162,7 @@ describe("host access stack", () => {
     ]);
   });
 
-  test("generates the retained origin secret and post-confirmation signing key that the host requires", () => {
+  test("generates the retained origin secret and Cognito trigger signing key that the host requires", () => {
     const secrets = Object.values(host.findResources("AWS::SecretsManager::Secret")) as Resource[];
     expect(secrets.map((secret) => secret.Properties.Name).sort()).toEqual([
       "/aura-historia/prod/edge/origin-verify",

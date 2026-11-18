@@ -323,6 +323,7 @@ dependencies = [
  "billing-stripe",
  "classifier-model",
  "cognito-post-confirmation",
+ "cognito-trigger-signing",
  "content-notice-core",
  "content-notice-postgres",
  "content-notice-service",
@@ -1872,9 +1873,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws_lambda_events",
- "base64 0.23.1",
  "localization",
- "openssl",
  "platform-postgres",
  "serde-email",
  "serde_json",
@@ -1895,7 +1894,7 @@ name = "cognito-post-confirmation-forwarder"
 version = "0.1.0"
 dependencies = [
  "axum",
- "cognito-post-confirmation",
+ "cognito-trigger-signing",
  "lambda_runtime",
  "platform-lambda-bootstrap",
  "platform-observability",
@@ -1904,7 +1903,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -1915,17 +1913,31 @@ dependencies = [
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws_lambda_events",
+ "axum",
+ "cognito-trigger-signing",
  "lambda_runtime",
  "platform-lambda-bootstrap",
  "platform-observability",
+ "reqwest 0.12.28",
+ "serde",
  "serde-email",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-cognito",
- "user-postgres",
  "user-service",
+]
+
+[[package]]
+name = "cognito-trigger-signing"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "openssl",
+ "reqwest 0.12.28",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
@@ -6096,15 +6108,8 @@ name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
  "lambda_runtime",
- "platform-observability",
- "platform-postgres",
- "platform-process",
- "serial_test",
- "sqlx",
  "thiserror 2.0.21",
- "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]

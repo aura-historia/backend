@@ -8,6 +8,7 @@ use crate::error::{
     POST_CONFIRMATION_INVALID_EVENT, POST_CONFIRMATION_PAYLOAD_TOO_LARGE,
     POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE, POST_CONFIRMATION_UNAUTHORIZED,
 };
+use crate::internal::single_header;
 use crate::state::CognitoPostConfirmationState;
 use application::operation_context::{OperationContext, Principal};
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
@@ -15,9 +16,9 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use cognito_post_confirmation::{
-    PostConfirmationError, register_confirmed_user,
-    signature::{SIGNATURE_HEADER, SignatureError, TIMESTAMP_HEADER},
+use cognito_post_confirmation::{PostConfirmationError, register_confirmed_user};
+use cognito_trigger_signing::signature::{
+    SIGNATURE_HEADER, SignatureError, SignaturePurpose, TIMESTAMP_HEADER,
 };
 use std::time::Duration;
 use tracing::Instrument;
@@ -43,6 +44,7 @@ pub async fn post_cognito_post_confirmation(
     }
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     if let Err(error) = state.verifier.verify(
+        SignaturePurpose::PostConfirmation,
         single_header(&headers, TIMESTAMP_HEADER),
         single_header(&headers, SIGNATURE_HEADER),
         &body,
@@ -113,15 +115,6 @@ pub async fn post_cognito_post_confirmation(
     }
 }
 
-/// The header's value only when it is present exactly once.
-fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a [u8]> {
-    let mut values = headers.get_all(name).iter();
-    match (values.next(), values.next()) {
-        (Some(value), None) => Some(value.as_bytes()),
-        _ => None,
-    }
-}
-
 fn verification_error(error: SignatureError) -> ApiError {
     tracing::warn!(
         event = "cognito_post_confirmation.unauthorized",
@@ -179,8 +172,8 @@ mod tests {
     use application::operation_context::{OperationContext, Principal};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use cognito_post_confirmation::signature::{
-        SIGNATURE_HEADER, SignatureVerifier, SigningKey, TIMESTAMP_HEADER,
+    use cognito_trigger_signing::signature::{
+        SIGNATURE_HEADER, SignaturePurpose, SignatureVerifier, SigningKey, TIMESTAMP_HEADER,
         TIMESTAMP_TOLERANCE_SECONDS, sign,
     };
     use serde_json::{Value, json};
@@ -263,7 +256,13 @@ mod tests {
     }
 
     fn signed(body: Vec<u8>, key: &str, timestamp: i64) -> Request<Body> {
-        let signature = sign(&SigningKey::new(key).unwrap(), timestamp, &body).unwrap();
+        let signature = sign(
+            &SigningKey::new(key).unwrap(),
+            SignaturePurpose::PostConfirmation,
+            timestamp,
+            &body,
+        )
+        .unwrap();
         Request::post(PATH)
             .header("content-type", "application/json")
             .header("x-correlation-id", "lambda-request-id")

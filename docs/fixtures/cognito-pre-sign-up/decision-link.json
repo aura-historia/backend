@@ -1,0 +1,8 @@
+{
+  "decision": "LINK_EXISTING_ACCOUNT",
+  "identity": {
+    "issuer": "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool",
+    "subject": "canonical-subject"
+  },
+  "canonicalEmail": "ada@example.test"
+}

@@ -1,5 +1,5 @@
 //! The host side of Cognito's post-confirmation trigger. The trigger Lambda forwards each
-//! confirmation event, signed ([`signature`]), to the host's internal endpoint, which maps it to
+//! confirmation event, signed (`cognito-trigger-signing`), to the host's internal endpoint, which maps it to
 //! a registration here. The mapping trusts only the event of the configured user pool.
 use application::operation_context::OperationContext;
 use aws_lambda_events::cognito::{
@@ -12,8 +12,6 @@ use user_service::use_cases::{
     CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserError,
     RegisterCognitoUserResult, RegisterCognitoUserUseCase,
 };
-
-pub mod signature;
 
 /// The event cannot be registered. Messages name the field, never its value.
 #[derive(Debug, thiserror::Error)]

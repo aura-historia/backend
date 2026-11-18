@@ -2,17 +2,16 @@
 //! forwards each confirmation event, signed and timestamped, to the host's internal endpoint
 //! through the public API hostname. A failed or refused forward fails the confirmation, as a
 //! failed registration did when the trigger wrote to the database itself.
-use cognito_post_confirmation::signature::{
-    SIGNATURE_HEADER, SignatureError, SigningKey, TIMESTAMP_HEADER, sign,
+use cognito_trigger_signing::{
+    signature::{SignatureError, SignaturePurpose, SigningKey},
+    signed_request::{SignedHostClient, SignedHostClientConfigError, SignedRequestError},
 };
 use std::time::Duration;
-use url::{Host, Url};
 
 pub const ENDPOINT_URL_ENV: &str = "POST_CONFIRMATION_ENDPOINT_URL";
 pub const SIGNING_KEY_ENV: &str = "POST_CONFIRMATION_SIGNING_KEY";
 /// Cognito waits at most five seconds for the trigger, which also has to start and answer.
 pub const FORWARD_TIMEOUT: Duration = Duration::from_millis(4_200);
-const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 
 /// Safe to display: no configuration value is retained.
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +24,15 @@ pub enum ForwarderConfigError {
     WeakSigningKey,
     #[error("failed to build the HTTP client")]
     Client(#[source] reqwest::Error),
+}
+
+impl From<SignedHostClientConfigError> for ForwarderConfigError {
+    fn from(error: SignedHostClientConfigError) -> Self {
+        match error {
+            SignedHostClientConfigError::InvalidEndpoint => Self::InvalidEndpoint,
+            SignedHostClientConfigError::Client(source) => Self::Client(source),
+        }
+    }
 }
 
 /// Why a confirmation was not forwarded. Never carries the event, which holds the user's email.
@@ -40,6 +48,16 @@ pub enum ForwardError {
     Refused { status: u16 },
 }
 
+impl From<SignedRequestError> for ForwardError {
+    fn from(error: SignedRequestError) -> Self {
+        match error {
+            SignedRequestError::Sign(source) => Self::Sign(source),
+            SignedRequestError::Transport(source) => Self::Transport(source),
+            SignedRequestError::Refused { status } => Self::Refused { status },
+        }
+    }
+}
+
 impl ForwardError {
     /// A bounded label for the trigger's failure log.
     pub const fn category(&self) -> &'static str {
@@ -53,23 +71,18 @@ impl ForwardError {
 }
 
 pub struct Forwarder {
-    client: reqwest::Client,
-    endpoint: Url,
-    key: SigningKey,
+    client: SignedHostClient,
 }
 
 impl Forwarder {
     pub fn new(endpoint: &str, key: SigningKey) -> Result<Self, ForwarderConfigError> {
-        let endpoint = trusted_endpoint(endpoint).ok_or(ForwarderConfigError::InvalidEndpoint)?;
-        let client = reqwest::Client::builder()
-            .timeout(FORWARD_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(ForwarderConfigError::Client)?;
         Ok(Self {
-            client,
-            endpoint,
-            key,
+            client: SignedHostClient::new(
+                endpoint,
+                key,
+                SignaturePurpose::PostConfirmation,
+                FORWARD_TIMEOUT,
+            )?,
         })
     }
 
@@ -94,43 +107,9 @@ impl Forwarder {
         correlation_id: &str,
     ) -> Result<(), ForwardError> {
         let body = serde_json::to_vec(event).map_err(ForwardError::Serialize)?;
-        let signature = sign(&self.key, now, &body).map_err(ForwardError::Sign)?;
-        let response = self
-            .client
-            .post(self.endpoint.clone())
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header(TIMESTAMP_HEADER, now.to_string())
-            .header(SIGNATURE_HEADER, signature)
-            .header(CORRELATION_ID_HEADER, correlation_id)
-            .body(body)
-            .send()
-            .await
-            .map_err(|error| ForwardError::Transport(error.without_url()))?;
-        let status = response.status();
-        if status.is_success() {
-            Ok(())
-        } else {
-            Err(ForwardError::Refused {
-                status: status.as_u16(),
-            })
-        }
+        self.client.post_json(body, now, correlation_id).await?;
+        Ok(())
     }
-}
-
-fn trusted_endpoint(value: &str) -> Option<Url> {
-    let url = Url::parse(value).ok()?;
-    let loopback = match url.host()? {
-        Host::Domain(domain) => domain == "localhost",
-        Host::Ipv4(ip) => ip.is_loopback(),
-        Host::Ipv6(ip) => ip.is_loopback(),
-    };
-    let trusted_scheme = url.scheme() == "https" || (url.scheme() == "http" && loopback);
-    (trusted_scheme
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.query().is_none()
-        && url.fragment().is_none())
-    .then_some(url)
 }
 
 #[cfg(test)]
@@ -143,7 +122,10 @@ mod tests {
         http::{HeaderMap, StatusCode},
         routing::post,
     };
-    use cognito_post_confirmation::signature::SignatureVerifier;
+    use cognito_trigger_signing::{
+        signature::{SIGNATURE_HEADER, SignatureVerifier, TIMESTAMP_HEADER},
+        signed_request::CORRELATION_ID_HEADER,
+    };
     use std::sync::{Arc, Mutex};
 
     const KEY: &str = "forwarder-test-signing-key-0123456789";
@@ -211,6 +193,7 @@ mod tests {
         assert_eq!(
             Ok(()),
             SignatureVerifier::new(SigningKey::new(KEY).unwrap(), None).verify(
+                SignaturePurpose::PostConfirmation,
                 headers.get(TIMESTAMP_HEADER).map(|value| value.as_bytes()),
                 headers.get(SIGNATURE_HEADER).map(|value| value.as_bytes()),
                 body,
@@ -241,26 +224,5 @@ mod tests {
         assert!(matches!(outcome, Err(ForwardError::Transport(_))));
         assert!(started.elapsed() < FORWARD_TIMEOUT + Duration::from_secs(1));
         assert_eq!(1, received.lock().unwrap().len());
-    }
-
-    #[test]
-    fn should_accept_only_https_or_loopback_http_endpoints() {
-        for endpoint in [
-            "https://api.aura-historia.com/internal/cognito/post-confirmation",
-            "http://127.0.0.1:8080/internal/cognito/post-confirmation",
-            "http://localhost:8080/internal/cognito/post-confirmation",
-        ] {
-            assert!(trusted_endpoint(endpoint).is_some(), "{endpoint}");
-        }
-        for endpoint in [
-            "",
-            "api.aura-historia.com/internal",
-            "http://api.aura-historia.com/internal/cognito/post-confirmation",
-            "https://user:secret@api.aura-historia.com/internal",
-            "https://api.aura-historia.com/internal?next=x",
-            "https://api.aura-historia.com/internal#x",
-        ] {
-            assert!(trusted_endpoint(endpoint).is_none(), "{endpoint}");
-        }
     }
 }

@@ -29,7 +29,7 @@ export interface HostAccessProps {
 /**
  * What the self-hosted host needs from AWS before it serves traffic: an IAM user for its runtime
  * calls, the versioned bucket its backups go to, the secret CloudFront sends to its origin and
- * the key the Cognito post-confirmation forwarder signs with.
+ * the key both Cognito triggers sign their requests to the host with.
  * Access keys are created and rotated by an operator, never by CloudFormation. Each grant is
  * its own managed policy, which leaves room beyond the user's small inline-policy size limit.
  */
@@ -37,7 +37,7 @@ export class HostAccess extends Construct {
   readonly user: iam.User;
   readonly backupBucket: s3.Bucket;
   readonly originVerifySecret: secretsmanager.Secret;
-  readonly postConfirmationSigningSecret: secretsmanager.Secret;
+  readonly cognitoTriggerSigningSecret: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: HostAccessProps) {
     super(scope, id);
@@ -51,11 +51,12 @@ export class HostAccess extends Construct {
       credentialSecrets(config.stage).originVerify.secretName,
       "Header value CloudFront sends to the host origin; the host proxy rejects requests without it.",
     );
-    this.postConfirmationSigningSecret = generatedSecret(
+    this.cognitoTriggerSigningSecret = generatedSecret(
       this,
+      // The construct ID keeps the retained secret's logical ID.
       "PostConfirmationSigningSecret",
-      credentialSecrets(config.stage).postConfirmationSigning.secretName,
-      "Key the Cognito post-confirmation forwarder signs with; the host's internal endpoint verifies it.",
+      credentialSecrets(config.stage).cognitoTriggerSigning.secretName,
+      "Key both Cognito triggers sign their requests with; the host's internal endpoints verify it.",
     );
 
     grantBackups(this, this.user, this.backupBucket);

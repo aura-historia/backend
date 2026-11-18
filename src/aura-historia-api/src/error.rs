@@ -286,6 +286,16 @@ pub(crate) const POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const POST_CONFIRMATION_UNAUTHORIZED: ApiErrorCode =
     ApiErrorCode("POST_CONFIRMATION_UNAUTHORIZED");
+// The internal pre-sign-up endpoint's codes; it is not part of the public API contract.
+pub(crate) const PRE_SIGN_UP_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_INTERNAL_ERROR");
+pub(crate) const PRE_SIGN_UP_INVALID_REQUEST: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_INVALID_REQUEST");
+pub(crate) const PRE_SIGN_UP_PAYLOAD_TOO_LARGE: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_PAYLOAD_TOO_LARGE");
+pub(crate) const PRE_SIGN_UP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PRE_SIGN_UP_UNAUTHORIZED: ApiErrorCode = ApiErrorCode("PRE_SIGN_UP_UNAUTHORIZED");
 pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
