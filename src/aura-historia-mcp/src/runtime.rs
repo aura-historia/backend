@@ -5,7 +5,6 @@ use aura_historia_runtime::{
     RuntimeError, SearchIntentTranslatorConfigError,
 };
 use axum::Router;
-use platform_lambda_bootstrap::LazyComposition;
 use search_filter_service::ports::SearchIntentTranslator;
 use std::sync::Arc;
 
@@ -60,39 +59,6 @@ fn production_registry(
         runtime.notifications().clone(),
     )?);
     crate::Registry::new(registered)
-}
-
-/// Composes the router on the first invocation of an execution environment and serves every
-/// later invocation from it. A failed composition is retried by the next invocation.
-pub struct LambdaMcpRouter {
-    runtime: Runtime,
-    routers: LazyComposition<Router>,
-    transport: TransportConfig,
-    listings: ProductListingConfig,
-}
-
-impl LambdaMcpRouter {
-    pub fn new(
-        runtime: Runtime,
-        transport: TransportConfig,
-        listings: ProductListingConfig,
-    ) -> Self {
-        Self {
-            runtime,
-            routers: LazyComposition::new(),
-            transport,
-            listings,
-        }
-    }
-
-    pub async fn current(&self) -> Result<Router, McpStartupError> {
-        self.routers
-            .get_or_try_build(|| async {
-                let dependencies = McpDependencies::from_env(&self.listings)?;
-                mcp_router(self.transport.clone(), &self.runtime, dependencies)
-            })
-            .await
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

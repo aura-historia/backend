@@ -26,6 +26,10 @@ concurrent claimers never lease the same job. Only the current lease settles a j
 | Retry | The job is released after the scope's retry delay. With its budget spent it moves to custody. |
 | Park (can never succeed as delivered) | A first delivery is released like a retry, unless its budget is spent; a redelivered job moves to custody at once. |
 
+A worker that stops before a job finishes releases it: the job is claimable again at once and
+the interrupted attempt is not counted, except that a claimed job keeps at least one counted
+attempt so it never re-enters deduplication. Repeated releases therefore never spend its budget.
+
 A settlement with a superseded token, or a repeated one, reports a stale lease and changes
 nothing. A job whose lease expires unsettled becomes claimable again; if that was its last
 allowed attempt, the next claim moves it to custody instead. Handlers must still tolerate

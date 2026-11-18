@@ -1,35 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createHash } = require('node:crypto');
-const { runHook } = require('./codedeploy-hook.cjs');
 const { verifyHealth, fingerprint } = require('./health.cjs');
-
-test('candidate private dependency samples and actual front door are required even without organic traffic', async () => {
-  let invokes = 0, fronts = 0;
-  const content = JSON.stringify({ version: '0.0', Resources: [{ api: { Type: 'AWS::Lambda::Function',
-    Properties: { Name: 'api-prod', Alias: 'live', CurrentVersion: '1', TargetVersion: '2' } } }] });
-  const sha256 = createHash('sha256').update(content).digest('hex');
-  const api = async (_service, operation, input) => {
-    if (operation === 'GetDeployment') return { deploymentInfo: { deploymentId: 'd-1', applicationName: 'api',
-      revision: { revisionType: 'String', string: { sha256 } } } };
-    if (operation === 'GetApplicationRevision') return { applicationName: 'api',
-      revision: { revisionType: 'String', string: { content, sha256 } } };
-    if (operation === 'GetAlias') return { FunctionVersion: '2' };
-    invokes++;
-    const event = JSON.parse(input.Payload.toString());
-    return { ExecutedVersion: '2', Payload: Buffer.from(JSON.stringify({ statusCode:
-      event.rawPath === '/v1/ready' ? 204 : event.rawPath === '/v1/overview' ? 200 : 401, body: '{}' })) };
-  };
-  const config = { functionName: 'api-prod', kind: 'api', host: 'api.example.test', phase: 'post' };
-  const event = { DeploymentId: 'd-1', LifecycleEventHookExecutionId: 'hook-1' };
-  await runHook(event, config, api, async (url) => { fronts++; return {
-    status: url.endsWith('/ready') ? 204 : url.endsWith('/overview') ? 200 : 401, text: async () => '{}' }; });
-  assert.equal(invokes, 9); assert.equal(fronts, 3);
-  await assert.rejects(runHook(event, config, api, async () => ({ status: 503, text: async () => '' })), /unexpected status/);
-  await assert.rejects(runHook(event, config, async (service, operation, input) => operation === 'Invoke'
-    ? { FunctionError: 'Unhandled', ExecutedVersion: '2' } : api(service, operation, input)), /invocation failed/);
-});
 
 test('async failure or missing telemetry prevents a verified release while intentional disabled state is preserved', async () => {
   const settings = '{}', mappings = '{}';

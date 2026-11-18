@@ -277,7 +277,7 @@ mod tests {
             StatusCode::SERVICE_UNAVAILABLE
         );
         assert!(started.elapsed() >= READINESS_CHECK_TIMEOUT);
-        assert!(started.elapsed() < crate::transport::LAMBDA_REQUEST_TIMEOUT);
+        assert!(started.elapsed() < crate::transport::REQUEST_TIMEOUT);
         server.abort();
     }
 

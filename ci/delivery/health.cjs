@@ -1,7 +1,7 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
-const { probePublic } = require('./codedeploy-hook.cjs');
+const { probePublic } = require('./release-probes.cjs');
 
 function fingerprint(value) {
   const normalized = typeof value === 'string' ? JSON.parse(value) : value;

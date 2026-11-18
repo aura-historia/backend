@@ -1,0 +1,50 @@
+[package]
+name = "aura-historia-ops"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+aura-historia-jobs = { workspace = true }
+delivery-outbox = { workspace = true }
+fxrate-fxratesapi = { workspace = true }
+fxrate-postgres = { workspace = true }
+fxrate-service = { workspace = true }
+geo-postgres = { workspace = true }
+geo-service = { workspace = true }
+notification-postgres = { workspace = true }
+notification-service = { workspace = true }
+oauth-postgres = { workspace = true }
+oauth-service = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-queue = { workspace = true }
+platform-process = { workspace = true }
+platform-worker-queue-contract = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
+reqwest = { workspace = true }
+search-filter-periodic-match = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-service = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+money = { workspace = true }
+search-filter-core = { workspace = true }
+strum = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["io-util", "net"] }
+user-core = { workspace = true }

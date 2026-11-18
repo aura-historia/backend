@@ -29,7 +29,7 @@ It provides the APIs, event-driven pipelines, and data services that power the A
 # Check the workspace
 cargo check --locked --workspace
 
-# Build all Lambda functions and binaries
+# Build every binary (api, mcp, worker, ops and the Cognito trigger Lambdas)
 cargo build --locked --workspace
 
 # Use test credentials for local fixtures

@@ -50,7 +50,7 @@ oauth-core = { workspace = true }
 oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
-platform-lambda-bootstrap = { workspace = true }
+platform-process = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 
@@ -59,7 +59,6 @@ listing-source-core = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 localization = { workspace = true }
-lambda_http = { workspace = true }
 partnership-core = { workspace = true }
 partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }

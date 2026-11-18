@@ -676,51 +676,6 @@ mod tests {
         assert_eq!(PROCESSING_BUDGET, started.elapsed());
     }
 
-    /// API Gateway may base64-encode the body; the HMAC must still see Shopify's exact bytes.
-    #[tokio::test]
-    async fn should_verify_http_api_v2_base64_body_against_its_original_signature() {
-        let processor = FakeProcessor::new(Outcome::Admitted);
-        let body = "{ \"product_listing\" : { \"product_id\": 42, \"title\": \"Kommode \u{e9}\", \"handle\": \"kommode\" } }"
-            .as_bytes()
-            .to_vec();
-        let mut event: Value =
-            serde_json::from_str(include_str!("../../tests/fixtures/http_api_v2_health.json"))
-                .unwrap();
-        event["routeKey"] = "POST /v1/webhooks/shopify".into();
-        event["rawPath"] = "/v1/webhooks/shopify".into();
-        event["requestContext"]["http"]["method"] = "POST".into();
-        event["requestContext"]["http"]["path"] = "/v1/webhooks/shopify".into();
-        let mut headers = serde_json::Map::from_iter([
-            ("host".to_owned(), json!("api.example.test")),
-            (
-                "x-shopify-hmac-sha256".to_owned(),
-                json!(sign(SECRET, &body)),
-            ),
-        ]);
-        for (name, value) in delivery_headers("product_listings/add") {
-            headers.insert(name.to_ascii_lowercase(), json!(value));
-        }
-        event["headers"] = Value::Object(headers);
-        event["body"] = base64::engine::general_purpose::STANDARD
-            .encode(&body)
-            .into();
-        event["isBase64Encoded"] = true.into();
-        let request = lambda_http::request::from_str(&event.to_string()).unwrap();
-
-        let response = crate::lambda::handle_http_api_v2_request(
-            router(secrets(), processor.clone()),
-            request,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(StatusCode::OK, response.status());
-        assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap(),
-            processor.executions()[0].payload
-        );
-    }
-
     #[derive(Deserialize)]
     struct EventBridgeEvent {
         id: String,

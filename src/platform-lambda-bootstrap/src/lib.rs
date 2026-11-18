@@ -1,12 +1,7 @@
-mod failure_diagnostic;
-mod google_adc;
+//! Bootstrap of the Cognito triggers, the only Lambda functions left after the move to the
+//! host. Long-running processes start through `platform-process` instead.
 
-pub use failure_diagnostic::{
-    Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE, UNCLASSIFIED_FAILURE,
-};
-pub use google_adc::{
-    google_application_default_credentials, materialize_google_application_credentials_from_env,
-};
+use platform_process::FailureDiagnostic;
 
 use lambda_runtime::Context;
 use platform_postgres::{PostgresCredentials, PostgresPoolConfig};
@@ -14,7 +9,7 @@ use std::{
     env,
     future::Future,
     path::PathBuf,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
 use tokio::sync::OnceCell;
@@ -47,22 +42,6 @@ impl LambdaPostgresConfig {
             max_connections: optional_env("POSTGRES_MAX_CONNECTIONS", 1)?,
             root_certificate: PathBuf::from(required_env("POSTGRES_TLS_ROOT_CERT")?),
         })
-    }
-
-    pub fn migration_pool_config(
-        &self,
-        credentials: &PostgresCredentials,
-    ) -> Result<PostgresPoolConfig, LambdaBootstrapConfigError> {
-        PostgresPoolConfig::migration(
-            self.host.clone(),
-            self.port,
-            self.database.clone(),
-            credentials.username().to_owned(),
-            credentials.password().to_owned(),
-            self.max_connections,
-            self.root_certificate.clone(),
-        )
-        .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)
     }
 }
 
@@ -184,52 +163,6 @@ pub fn log_cold_start(component: &'static str, initialization_started_at: Instan
         component,
         cold_start_duration_ms = initialization_started_at.elapsed().as_millis(),
     );
-}
-
-#[derive(Debug)]
-pub struct LambdaInvocationBudget {
-    started_at: Instant,
-    available: Duration,
-}
-
-impl LambdaInvocationBudget {
-    pub fn from_context(context: &Context, cap: Duration, response_headroom: Duration) -> Self {
-        Self::from_context_at(
-            context,
-            epoch_millis(),
-            Instant::now(),
-            cap,
-            response_headroom,
-        )
-    }
-
-    pub fn remaining(&self) -> Duration {
-        self.available.saturating_sub(self.started_at.elapsed())
-    }
-
-    fn from_context_at(
-        context: &Context,
-        now_epoch_ms: u64,
-        started_at: Instant,
-        cap: Duration,
-        response_headroom: Duration,
-    ) -> Self {
-        Self {
-            started_at,
-            available: available_budget(context, now_epoch_ms, cap, response_headroom),
-        }
-    }
-}
-
-fn available_budget(
-    context: &Context,
-    now_epoch_ms: u64,
-    cap: Duration,
-    response_headroom: Duration,
-) -> Duration {
-    Duration::from_millis(context.deadline.saturating_sub(now_epoch_ms))
-        .min(cap)
-        .saturating_sub(response_headroom)
 }
 
 pub fn log_invocation_start(component: &'static str, context: &Context) {
@@ -432,44 +365,5 @@ mod tests {
     #[test]
     fn should_clamp_elapsed_invocation_deadline_to_zero() {
         assert_eq!(0, remaining_budget_ms(100, 101));
-    }
-
-    #[test]
-    fn should_cap_controlled_context_deadline_before_reserving_response_headroom() {
-        let context = context_with_deadline(6_000);
-
-        let available = available_budget(
-            &context,
-            1_000,
-            Duration::from_secs(3),
-            Duration::from_millis(500),
-        );
-
-        assert_eq!(Duration::from_millis(2_500), available);
-    }
-
-    #[test]
-    fn should_saturate_elapsed_deadline_and_response_headroom_to_zero() {
-        let elapsed = available_budget(
-            &context_with_deadline(1_000),
-            1_001,
-            Duration::from_secs(1),
-            Duration::from_millis(1),
-        );
-        let headroom = available_budget(
-            &context_with_deadline(2_000),
-            1_000,
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-        );
-
-        assert_eq!(Duration::ZERO, elapsed);
-        assert_eq!(Duration::ZERO, headroom);
-    }
-
-    fn context_with_deadline(deadline: u64) -> Context {
-        let mut context = Context::default();
-        context.deadline = deadline;
-        context
     }
 }

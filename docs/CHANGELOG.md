@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-18 — Request-rate limits in the API (#3027)
+
+- **Behavior change:** the API now enforces the request-rate limits that API Gateway's throttles enforced. When a limit is exhausted, every operation, and `POST /v1/address-suggestions` with its own lower limit, returns `429 REQUEST_RATE_LIMITED` with `Retry-After: 1` and the usual problem body, instead of the gateway's `{"message":"Too Many Requests"}`. Clients should back off and retry. Only `GET /v1/health` is not limited.
+
 ## 2026-11-17 — Shopify webhooks over HTTPS (#3024)
 
 - **New endpoint:** `POST /v1/webhooks/shopify` (`postShopifyWebhook`, tag `ProductListings`) receives the Shopify app's `product_listings/add`, `product_listings/update` and `product_listings/remove` webhooks directly, replacing delivery through the Amazon EventBridge partner source. It needs no Aura bearer; `X-Shopify-Hmac-Sha256` must be the base64 HMAC-SHA256 of the exact body bytes with the app's client secret, and the previous secret is accepted during rotation. The body is limited to 1 MiB.

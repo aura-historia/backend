@@ -101,6 +101,8 @@ pub struct ErrorClass(String);
 impl ErrorClass {
     /// Recorded when a claim finds a job whose last lease expired without a settlement.
     pub(crate) const LEASE_EXPIRED: &str = "lease_expired";
+    /// Recorded when a stopping worker gives a job back unfinished.
+    pub(crate) const RELEASED: &str = "released";
 
     pub fn new(class: impl Into<String>) -> Result<Self, JobError> {
         let class = class.into();
@@ -328,6 +330,7 @@ mod tests {
     fn should_accept_only_bounded_lower_case_error_classes() {
         assert!(ErrorClass::new("pool_timed_out").is_ok());
         assert!(ErrorClass::new(ErrorClass::LEASE_EXPIRED).is_ok());
+        assert!(ErrorClass::new(ErrorClass::RELEASED).is_ok());
         for class in ["", "Upper", "with space", "dash-ed", &"e".repeat(65)] {
             assert_eq!(Err(JobError::InvalidErrorClass), ErrorClass::new(class));
         }

@@ -10,8 +10,8 @@ fxrate-postgres = { workspace = true }
 classifier-model = { workspace = true }
 notification-postgres = { workspace = true }
 opensearch = { workspace = true }
-platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
+platform-process = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 search-filter-postgres = { workspace = true }
@@ -21,5 +21,5 @@ large-language-model = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 url = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tracing = { workspace = true }

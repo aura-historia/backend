@@ -2,14 +2,17 @@
 //! through the ingestion role, which may only call the enqueue function, and the ingestion
 //! consumer captures them from the job queue.
 
+use aura_historia_worker::scopes::product_listing_ingestion::{
+    ProductListingIngestionJobs, compose_ingestion_use_case,
+};
 use crawler::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
     ProductListingRawCaptureServiceImpl,
 };
 use listing_source_core::ListingSourceId;
 use platform_postgres_queue::{JobQueue, Settlement};
+use platform_worker::{Job, JobHandler};
 use platform_worker_queue_contract::job_queue::product_listing_ingestion_job_scope;
-use product_listing_ingestion_lambda::{compose_ingestion_use_case, process_queued_ingestion_job};
 use product_listing_ingestion_queue::QueueProductListingIngestionPublisher;
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
@@ -107,15 +110,15 @@ async fn should_capture_crawler_observations_admitted_through_the_ingestion_role
     );
 
     let queue = JobQueue::new(pool.clone(), product_listing_ingestion_job_scope());
-    let use_case = compose_ingestion_use_case(pool.clone());
+    let consumer = ProductListingIngestionJobs::new(compose_ingestion_use_case(pool.clone()));
     let jobs = queue.claim(10).await.unwrap();
     assert_eq!(2, jobs.len(), "each page is its own raw stream group");
     for job in jobs {
-        let disposition =
-            process_queued_ingestion_job(job.job_id(), job.payload(), use_case.as_ref()).await;
+        let lease = *job.lease();
+        let disposition = consumer.handle(&Job::from(job)).await;
         assert_eq!(
             Settlement::Acknowledged,
-            queue.settle(job.lease(), disposition).await.unwrap()
+            queue.settle(&lease, disposition).await.unwrap()
         );
     }
 

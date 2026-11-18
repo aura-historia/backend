@@ -14,7 +14,7 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 // child process; selected overview/account calls never contact this deliberately closed port.
 #[test]
 fn should_verify_generic_oauth_and_real_hybrid_mcp() {
-    run_isolated_cases("mcp_oauth::cases::", 10);
+    run_isolated_cases("mcp_oauth::cases::", 9);
 }
 
 #[test]

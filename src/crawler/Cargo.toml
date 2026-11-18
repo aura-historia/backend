@@ -73,8 +73,9 @@ crawler = { path = ".", features = ["test-data"] }
 platform-postgres = { workspace = true }
 platform-postgres-queue = { workspace = true }
 platform-worker-queue-contract = { workspace = true }
-# The ingestion consumer, until the worker runtime (#3027) owns it: the end-to-end admission test.
-product-listing-ingestion-lambda = { workspace = true }
+# The worker's ingestion consumer, for the end-to-end admission test.
+aura-historia-worker = { workspace = true }
+platform-worker = { workspace = true }
 product-listing-postgres = { workspace = true }
 rstest = { workspace = true }
 fake = { workspace = true }

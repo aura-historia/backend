@@ -1,10 +1,10 @@
 # MCP transport
 
 The canonical MCP endpoint is `https://mcp.aura-historia.com/v1`. The
-`aura-historia-mcp` crate serves the same `/v1` router natively and through
-Lambda HTTP API v2. The [front-door contract](http-api-front-door.md#mcp-front-door)
-owns hosting, certificates, Origin/CORS and stage verification. Native and Lambda entry
-points share one registry and authenticate each request independently. Configure a generic
+`aura-historia-mcp` crate serves the `/v1` router as a long-running process. The
+[front-door contract](http-api-front-door.md#mcp-front-door) owns hosting, certificates,
+Origin/CORS and stage verification. The process composes one registry and authenticates each
+request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
 The shared registry contains 37 operations: 11 public catalogue operations and 26 operations
@@ -35,7 +35,7 @@ HTTP+SSE transport is excluded.
 Legacy initialization negotiates a supported legacy revision through the SDK.
 No flow creates or requires a session ID; a supplied legacy session ID has no
 authorization meaning and is never echoed. Each request can reach a different
-Lambda invocation. Supplied routing headers must agree with body identity even
+process. Supplied routing headers must agree with body identity even
 on legacy calls. Duplicate routing or credential headers are rejected; encoded
 `Mcp-Name` values are decoded before comparison. The SDK additionally validates
 current per-request metadata and any schema-declared parameter headers.
@@ -208,8 +208,8 @@ are the complete shared request contracts.
 [`mcp-tools.json`](mcp-tools.json) is the `tools` array that an anonymous `tools/list` returns
 under revision `2026-07-28`, protected tools included. The website syncs it from this repository,
 like the OpenAPI document, and registers its WebMCP tools from it. It never lists tools at
-runtime: `tools/list` is a POST that the CDN cannot cache, so every page view would invoke the MCP
-Lambda and use up its small reserved concurrency.
+runtime: `tools/list` is a POST that the CDN cannot cache, so every page view would reach the MCP
+process and use up its admission capacity.
 
 The registry renders the file. [`tools_snapshot.rs`](../src/aura-historia-mcp/tests/tools_snapshot.rs)
 fails when the file differs from the registry's output. It also fails when production and stage
@@ -443,7 +443,7 @@ listing delivery are REST-only; see [OpenAPI](swagger.yaml). MCP registers no pa
 handlers and constructs no ingestion publisher. A `tools/call` naming a former partner
 operation is admitted like any other call and then fails as an unknown tool (`-32602`) without
 invoking a service. The [consumer release fixture](../src/aura-historia-mcp/tests/consumer_release.rs)
-checks the complete one-page catalogue through native HTTP, Lambda and official SDK clients
+checks the complete one-page catalogue through native HTTP and official SDK clients
 against isolated PostgreSQL, and that every removed name is unlisted and uncallable without
 side effects.
 
@@ -461,7 +461,7 @@ must validate the exact callback and state, handle `access_denied` without excha
 code, and keep its secret and verifier out of browser URLs and logs.
 
 The [local generic acceptance fixture](../src/aura-historia-api/tests/api_cases/mcp_oauth/mod.rs)
-drives actual OAuth/REST HTTP routes, native MCP HTTP and the actual Lambda adapter against
+drives actual OAuth/REST HTTP routes and native MCP HTTP against
 isolated local PostgreSQL. It checks the disjoint manifests against `tools/list`, validates
 published schemas and compares account schemas to the shared API contracts. Run it with Docker
 and the repository's test infrastructure available:
@@ -522,29 +522,23 @@ content, duplicate JSON text for generic clients and protocol framing. A 32–64
 response target is not a hard result limit, and client limits can differ. Library composition
 may lower these bounds. Body admission counts streamed bytes regardless of
 `Content-Length`; oversized input receives `413`. Output serialization stops
-at the limit and returns an explicit failure. With a 2 MiB JSON body, escaping
-that text inside the Lambda response envelope remains below the 6 MiB Lambda
-synchronous response limit. The actual Lambda adapter is exercised with escaped
-output in [`lambda.rs`](../src/aura-historia-mcp/tests/lambda.rs).
+at the limit and returns an explicit failure.
 
 With the pinned SDK, the local public fixtures preserve these complete responses above 64 KiB:
 
-| Local fixture | Complete JSON body | Lambda envelope |
-| --- | ---: | ---: |
-| Detail with 175 long image URLs | 201,666 bytes | 204,409 bytes |
-| Unpaginated history with 128 events | 114,848 bytes | 135,921 bytes |
+| Local fixture | Complete JSON body |
+| --- | ---: |
+| Detail with 175 long image URLs | 201,666 bytes |
+| Unpaginated history with 128 events | 114,848 bytes |
 
-The request deadline is 25 seconds at most, including router composition on the first Lambda
-invocation, body admission and the authentication gate. Lambda caps this by its remaining invocation
-time with one second reserved for response handling. Exhausted budgets receive HTTP
-`408`; work gets a cancellation token and an absolute deadline through
-`InvocationContext`. Native HTTP disconnects cancel active work; Lambda cannot
-observe a gateway client disconnect, so its deadline bounds that work. Separate
+The request deadline is 25 seconds at most, including body admission and the authentication
+gate. Exhausted budgets receive HTTP `408`; work gets a cancellation token and an absolute
+deadline through `InvocationContext`. Client disconnects cancel active work. Separate
 legacy cancellation notifications do not locate work in another invocation.
 Application wrappers must propagate the supplied deadline/token to external
 work and must not detach unbounded tasks.
 
-Requests get a new request ID (the invocation ID on Lambda) and a correlation ID.
+Requests get a new request ID and a correlation ID.
 An optional `X-Correlation-Id` is accepted only as a nonempty ASCII identifier
 of at most 128 letters, digits, dashes, underscores or periods. These values
 reach the shared `OperationContext` and successful responses carry both headers.
@@ -561,8 +555,9 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
+| `MCP_RATE_LIMIT_PER_SECOND`, `MCP_RATE_LIMIT_BURST` | The process's request-rate limit, which replaced the API Gateway stage throttle; defaults 20 per second, burst 10. An exhausted limit returns `429` with `Retry-After: 1`; `/health` is never limited |
 
-Configure the public hostname explicitly for Lambda. Missing Origin is accepted;
+Configure the public hostname explicitly in `MCP_ALLOWED_HOSTS`. Missing Origin is accepted;
 present Origin must be a valid allowed scheme/host/port tuple, except on the public server
 card, which accepts any Origin. No wildcard or
 opaque `null` origin is supported. Default ports compare by their effective
@@ -575,19 +570,17 @@ equivalent filter even when enabling debug/trace logs elsewhere. Never log
 Authorization values, protocol bodies, private arguments/results or technical
 error causes containing provider data.
 
-Native and Lambda startup use the shared explicit PostgreSQL configuration; Lambda receives its
-credentials at [deployment](infra.md#runtime-credentials) and composes the router once per warm
-execution environment, retrying a failed composition on the next invocation. Token
-authentication still reads authoritative state on every request. Infrastructure injects the
+Startup uses the shared PostgreSQL configuration of the
+[host process](../src/platform-process/README.md), composes the router once and fails if
+composition fails; on SIGTERM the server stops accepting connections and drains in-flight
+requests. Token authentication still reads authoritative state on every request. Infrastructure injects the
 same explicit `OAUTH_ISSUER_URL` into REST and MCP; native startup must supply it too. Listing startup additionally requires
 `OPENSEARCH_ENDPOINT_URL`, and `OPENSEARCH_USERNAME`/`OPENSEARCH_PASSWORD` outside `STAGE=ephemeral`.
 `VERTEX_AI_PROJECT_ID`/`VERTEX_AI_LOCATION` and the existing `PRODUCT_LISTING_SEARCH_*` cache/read
 settings use the [shared runtime configuration](../src/aura-historia-runtime/src/product_listing_config.rs).
-ADC construction remains lazy until an embedding is requested. Lambda prepares injected
-`AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON` privately before starting threads; native execution
-uses the configured Google ADC environment. No unrelated billing, newsletter or identity-provider
+ADC construction remains lazy until an embedding is requested; the process reads Google
+credentials from the file `GOOGLE_APPLICATION_CREDENTIALS` names. No unrelated billing, newsletter or identity-provider
 configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
 REST. `McpDependencies::from_env` constructs listing providers; library callers
-may inject typed dependencies. Native startup constructs these once; Lambda retains them
-with its router. MCP requires no queue configuration or queue
+may inject typed dependencies. Startup constructs these once. MCP requires no queue configuration or queue
 permission.

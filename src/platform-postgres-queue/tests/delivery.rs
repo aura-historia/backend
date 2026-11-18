@@ -219,3 +219,34 @@ async fn should_move_a_job_to_custody_when_its_last_allowed_lease_expires_unsett
         custody_row(&pool, exhausted).await
     );
 }
+
+#[aura_integration_test(services = [DATABASE], isolated = true)]
+async fn should_make_a_released_job_claimable_at_once_without_spending_its_budget() {
+    let pool = get_postgres_client().await;
+    let scope = scope(
+        "released",
+        QueueOrdering::Standard,
+        Duration::from_secs(300),
+        3,
+        Duration::from_secs(300),
+    );
+    let id = push(&pool, &scope, None, "{}").await;
+    let queue = JobQueue::new(pool, scope);
+
+    for expected_attempt in [1, 2, 2, 2] {
+        let job = claim_one(&queue).await.unwrap();
+        assert_eq!((id, expected_attempt), (job.job_id(), job.attempt()));
+        assert_eq!(
+            Settlement::Released,
+            queue.release(job.lease()).await.unwrap()
+        );
+        assert_eq!(
+            Settlement::StaleLease,
+            queue.release(job.lease()).await.unwrap()
+        );
+    }
+
+    let job = claim_one(&queue).await.unwrap();
+    ack(&queue, &job).await;
+    assert_eq!(None, claim_one(&queue).await);
+}

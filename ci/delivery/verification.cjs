@@ -401,7 +401,7 @@ function healthInventory(ctx, live, api) {
   };
 }
 async function smoke(config, fetchRequest = fetch) {
-  const { probes, assertResponse } = require("./codedeploy-hook.cjs");
+  const { probes, assertResponse } = require("./release-probes.cjs");
   const results = [];
   for (const [kind, url] of [
     ["api", config.apiUrl],

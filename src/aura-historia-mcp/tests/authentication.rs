@@ -748,23 +748,3 @@ fn issuer_configuration_probe() {
         )),
     }
 }
-
-#[tokio::test]
-async fn should_preserve_authentication_challenges_through_the_actual_lambda_adapter() {
-    let fixture = Fixture::new();
-    let request = request(
-        "tools/call",
-        json!({"name":"protectedFixture","arguments":{}}),
-        None,
-    );
-    let (parts, body) = request.into_parts();
-    let bytes = to_bytes(body, 1024).await.unwrap();
-    let request =
-        lambda_http::Request::from_parts(parts, lambda_http::Body::Binary(bytes.to_vec()));
-    let response =
-        aura_historia_mcp::lambda::handle_http_api_v2_request(fixture.app.clone(), request)
-            .await
-            .unwrap();
-    assert_rejection(response, StatusCode::UNAUTHORIZED, None, true).await;
-    assert_eq!(0, fixture.calls.load(Ordering::SeqCst));
-}

@@ -277,6 +277,8 @@ pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATI
 pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_ADDRESS_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_ADDRESS_NOT_FOUND");
+/// A process-wide request-rate limit is exhausted; see `rate_limit`.
+pub(crate) const REQUEST_RATE_LIMITED: ApiErrorCode = ApiErrorCode("REQUEST_RATE_LIMITED");
 pub(crate) const ADDRESS_SUGGESTIONS_RATE_LIMITED: ApiErrorCode =
     ApiErrorCode("ADDRESS_SUGGESTIONS_RATE_LIMITED");
 pub(crate) const ADDRESS_SUGGESTIONS_UNAVAILABLE: ApiErrorCode =

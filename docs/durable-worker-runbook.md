@@ -136,26 +136,27 @@ approved activation plan, not on every deployment.
 | --- | --- |
 | DMS / Kinesis | Task/slot health, retained WAL, capture lag, iterator age, checkpoint and transport retention |
 | Delivery outbox | Pending count and oldest age, and `delivery_outbox_failures` with its error classes; not a worker DLQ. See [delivery outbox recovery](#delivery-outbox-recovery) |
-| Worker source / DLQ | Oldest age, depth, receive/retry history, domain identity and PostgreSQL completion state |
-| Provider ingress | Upstream delivery history and its queue/DLQ as well as downstream command custody |
-| Scheduled work | Target-delivery DLQ **and** actual invocation/task exit/report; successful launch is not completed work |
+| Job queue | Per scope: depth, leased count, oldest waiting age and `job_queue_failures` (custody) with reasons and last error classes; `ops inspect` prints them |
+| Provider ingress | Upstream delivery history as well as downstream command custody |
+| Scheduled work | The `ops` command's exit status and JSON report from the host timer; a started timer is not completed work |
 
-Current recovery windows are defined in the constructs: Kinesis and CDC/command
-source queues retain seven days, worker DLQs 14 days, and router failure objects 90 days.
-Verify effective attributes before recovery.
-Standard SQS DLQ transfer preserves original enqueue time, so source/DLQ windows are not
-additive; FIFO transfer resets DLQ enqueue time but still does not guarantee recoverability.
-Router exhaustion archives the failed invocation; neither archives nor DLQs replay themselves.
-Archive-destination failure also needs investigation—an error does not prove an object exists.
+The [job queue](../src/platform-postgres-queue/README.md) keeps every job in PostgreSQL until
+it is acknowledged or moved to custody; nothing expires and custody is never purged. A job
+whose retry budget is spent (`RETRY_BUDGET_EXHAUSTED`) or that its consumer parked (`PARKED`)
+moves unchanged into `job_queue_failures`, with its attempt count and a bounded
+`last_error_class`. The class is the consumer's outcome label (for example
+`resolution_failed`, `projection_unavailable`, `timed_out`, `panicked`, `lease_expired` or
+`released`), never error text.
 
-Workers use partial batch responses. Only confirmed complete records acknowledge; setup,
-wire, timeout/panic, dependency, active-claim and uncertain-effect failures retain custody.
-An incomplete FIFO record retains every later record of its message group unstarted;
-other groups in the batch continue. Records without a group ID, and records after an
-exhausted invocation budget, are all retained. Partial failures need not increment Lambda `Errors`;
-monitor outcome counts, age/backlog, DLQs and provider failures too.
+The [worker](../src/aura-historia-worker/README.md) acknowledges only confirmed complete
+outcomes. Dependency, active-claim and uncertain-effect failures, timeouts and panics are
+retried after the scope's retry delay. A FIFO consumer parks a job that can never succeed as
+delivered on its first redelivery instead of retrying it for the whole budget; later jobs of its
+group then run without it, so check what they did before redriving it. On shutdown a worker
+stops claiming, lets in-flight jobs finish within its grace period and releases the rest, which
+other workers claim at once.
 
-Each worker or scheduled-job boundary records a failure in one event: the retained-record event,
+Each worker or scheduled-job boundary records a failure in one event: the retained-job event,
 or for workers without one, the event that names the failed work. `stage` names the failed step,
 `dependency` the system it called and `error_category` a bounded lower-case cause class such as
 `pool_timed_out`, `authentication` or `http_status`; `http_status`, `sqlstate` or a channel's
@@ -167,35 +168,22 @@ point to data to repair, not an outage. They never carry error messages, provide
 payloads. Expected claim, lease or version contention carries no failure diagnostic; identity
 deletion, geo resolution and ingestion record it at INFO, which production's `warn` level does not write until `LOG_LEVEL` is raised.
 
-A worker Lambda whose PostgreSQL pool cannot be created records one `lambda.setup.failed`
-event with `component` and the same fields (for example `pool_connect`/`postgres`) before
-failing the invocation. Pools connect lazily, so a login refused after a credential change
-appears in the first record's own diagnostic, such as `database` with SQLSTATE `28P01`; release
-the [changed credential](infra.md#runtime-credentials) rather than redriving. The router's `worker SQS
-publication finished` and `worker SQS queue validation failed` events carry the AWS SDK class
-(such as `throttled`, `access_denied`, `not_found` or `kms_unavailable`) and `http_status`.
-
-FIFO consumers park a record that can never succeed as delivered on its first redelivery
-instead of retaining it for the whole retry budget: they send the unchanged body to the
-source queue's own DLQ under the original message group, deduplicated by the original SQS
-message ID, and acknowledge it only after SQS confirms the send. The consumer logs
-`FIFO record moved to failure custody` with both message IDs; the DLQ alarm fires as for
-any dead letter. A first delivery, an unconfirmed transfer and a record without a group ID or
-with message attributes are retained and reach the DLQ only through the native redrive. The
-parked copy has a new message ID and receive count, and a lost acknowledgment can leave a
-duplicate copy. Later records of the group run without the parked one, so check what they
-did before redriving it.
+A process whose configuration or PostgreSQL pool is invalid fails at startup and logs the failed
+stage; the worker also names the scope whose composition failed. Pools connect lazily, so a login
+refused after a credential change appears in the first job's own diagnostic, such as `database`
+with SQLSTATE `28P01`; fix the credential file rather than redriving.
 
 For recovery:
 
 1. Locate **all** copies and custody boundaries; preserve original domain IDs, source
-   sequence, command fingerprint and FIFO grouping/order. A DLQ copy does not prove no
-   other copy completed. Expired transport cannot recreate absent authoritative history.
+   sequence, command fingerprint and FIFO grouping/order. A custody copy does not prove no
+   other copy completed.
 2. Inspect PostgreSQL receipts, revisions, leases and current eligibility with bounded,
    read-only queries. Use metadata/safe IDs, not exported raw records. A lost commit or
    provider reply is not proof of rollback or non-delivery.
 3. Repair the cause and test isolated replay using the real fail-closed decoder. Obtain
-   separate operator approval for a small ordered redrive within retention; observe
+   separate operator approval for a small ordered redrive (`ops redrive <scope> <job-id>...`,
+   or `--all`); it restores each job's identity and position in its FIFO group. Observe
    completion and downstream effects before expanding it.
 4. Preserve receipts and fences. Never fabricate success, reset an applied receipt,
    skip poison input, blindly resend historic mail, or purge to clear alarms. Runtime
@@ -219,7 +207,7 @@ source and IDs, not its whole snapshot, into evidence.
 Repair the cause first: deploy a codec or route that accepts the reviewed shape, or repair the
 source row and let its writer capture a fresh insert. Resolve custody promptly: it holds compact IDs of the source rows, including user IDs of
 search-filter matches and identity deletions, and ProductListing event payloads. Then redrive
-selected rows; redrive
+selected rows with `ops redrive delivery-outbox <outbox-id>...`; redrive
 restores each under its original outbox ID, ahead of every later snapshot still waiting, and
 the dispatcher treats it like a fresh capture. Custody is never deleted to clear an alarm.
 
@@ -236,12 +224,12 @@ and its matching `APPLIED` receipt. Those receipts survive business-row deletion
 
 Deterministic business rejections are acknowledged without a receipt and logged as
 `Ingestion command rejected without retry` with command identity and error code; the
-`rejected-records` alarm reports them. They never reach the DLQ: have the producer resubmit
+`rejected-records` alarm reports them. They never reach custody: have the producer resubmit
 corrected input. Invalid commands, identity conflicts and invalid persisted state are logged
-as `Ingestion command cannot apply as delivered` and parked in the DLQ on their first
+as `Ingestion command cannot apply as delivered` and parked in custody on their first
 redelivery. Later commands of their group then run, so a dependent update or withdraw may
 have been rejected and need resubmission once the cause is repaired. Technical failures reach
-the DLQ only after the retry budget and delay only later records of their own message group.
+custody only after the retry budget and delay only later commands of their own group.
 A consumer rolled back behind a producer that already sends a newer command version parks
 those commands on their next delivery; redrive them once a compatible consumer runs.
 
@@ -251,10 +239,8 @@ partnership/source grants and raw/provider/command receipts. FIFO does not order
 writes, normalization or manually reintroduced work. Pause producers/consumption only with
 an explicit backlog and retention plan; do not discard messages to stop traffic.
 
-Verify actual IAM/private SQS and database access, published
-mapping, partial failure behavior, retry/DLQ transfer and bounded concurrency. Keep
-acceptance fixtures isolated and record admissions, committed receipts and normalization
-separately.
+Keep acceptance fixtures isolated and record admissions, committed receipts and
+normalization separately.
 
 ## Shopify forwarding recovery
 

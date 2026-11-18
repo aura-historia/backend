@@ -10,7 +10,6 @@ mod partner_listing_management;
 mod partner_product_listing_batches;
 mod partner_product_listing_ingestion;
 mod party_locations;
-mod postgres;
 mod private_addresses;
 pub mod product_listing_config;
 mod product_listing_delivery;
@@ -37,7 +36,7 @@ pub use partner_product_listing_ingestion::{
     PartnerProductListingIngestion, ProductListingIngestionDependencies, with_publication_deadline,
 };
 pub use party_locations::PartyLocations;
-pub use postgres::PostgresConfigError;
+pub use platform_process::postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
 pub use product_listing_delivery::ProductListingDelivery;
@@ -70,6 +69,9 @@ pub use watchlist::Watchlist;
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
 use user_service::use_cases::AuthenticateAccessTokenUseCase;
+
+/// Pool size of an API or MCP process unless `POSTGRES_MAX_CONNECTIONS` sets it.
+const DEFAULT_POOL_SIZE: u32 = 10;
 
 /// One warm composition. Selecting a family constructs its handlers once for this pool.
 pub struct Runtime {
@@ -125,10 +127,10 @@ impl Runtime {
         }
     }
 
-    /// Startup with the explicit PostgreSQL environment configuration. Lambda functions receive
-    /// these credentials at deployment, so one warm composition serves every invocation.
+    /// Startup with the process's `POSTGRES_*` configuration: one fixed pool serves every
+    /// request of the process.
     pub async fn from_env() -> Result<Self, RuntimeError> {
-        let config = postgres::pool_config_from_env()?;
+        let config = platform_process::postgres::pool_config_from_env(DEFAULT_POOL_SIZE)?;
         let pool = config.connect().await.map_err(RuntimeError::Pool)?;
         Ok(Self::from_pool(pool))
     }
@@ -331,7 +333,6 @@ mod tests {
                 ("POSTGRES_DATABASE", "fixture"),
                 ("POSTGRES_USERNAME", "fixture"),
                 ("POSTGRES_PASSWORD", "fixture-password"),
-                ("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem"),
             ]);
         // Keep subprocess coverage in CI's per-process output directory.
         if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
