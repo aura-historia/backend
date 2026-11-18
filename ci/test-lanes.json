@@ -86,6 +86,7 @@
     "party-core",
     "party-service",
     "platform-aws",
+    "platform-cloudwatch-logs",
     "platform-observability",
     "platform-process",
     "product-listing-core",

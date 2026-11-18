@@ -64,6 +64,7 @@ members = [
     "src/platform-observability",
     "src/platform-lambda-bootstrap",
     "src/platform-aws",
+    "src/platform-cloudwatch-logs",
     "src/platform-opensearch",
     "src/platform-postgres",
     "src/platform-postgres-queue",
@@ -167,6 +168,7 @@ auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
+platform-cloudwatch-logs = { path = "src/platform-cloudwatch-logs" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 platform-process = { path = "src/platform-process" }
 platform-worker = { path = "src/platform-worker" }

@@ -1,11 +1,18 @@
+use aura_historia_api::consent_evidence::{
+    ConsentEvidenceConfigError, ConsentEvidenceLogGroups, init_logging,
+};
 use aura_historia_api::{ApiConfig, ApiConfigError, ApiRunError, run_until_shutdown};
-use platform_observability::{LoggingConfig, init_with_directives};
+use platform_observability::LoggingConfig;
 use platform_process::{Shutdown, ShutdownError, config::load_file_backed_environment};
-use user_service::use_cases::CONSENT_EVIDENCE_LOG_DIRECTIVE;
+use std::time::Duration;
+
+/// Shipping queued consent evidence after the drain; within the container's stop timeout.
+const EVIDENCE_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() -> Result<(), MainError> {
     load_file_backed_environment().map_err(|source| MainError::Config(Box::new(source)))?;
-    init_with_directives(LoggingConfig::from_env(), &[CONSENT_EVIDENCE_LOG_DIRECTIVE]);
+    let evidence_groups = ConsentEvidenceLogGroups::from_getter(|name| std::env::var(name).ok())?;
+    let evidence = init_logging(LoggingConfig::from_env(), evidence_groups);
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -14,8 +21,20 @@ fn main() -> Result<(), MainError> {
         .block_on(async move {
             // Registered before startup, so a stop request during composition is not lost.
             let shutdown = Shutdown::register()?;
+            let evidence = match evidence {
+                Some(evidence) => {
+                    let aws =
+                        aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+                    Some(evidence.start(aws_sdk_cloudwatchlogs::Client::new(&aws)))
+                }
+                None => None,
+            };
             let config = ApiConfig::from_env()?;
-            run_until_shutdown(config, shutdown.received()).await?;
+            let served = run_until_shutdown(config, shutdown.received()).await;
+            if let Some(evidence) = evidence {
+                evidence.close(EVIDENCE_CLOSE_TIMEOUT).await;
+            }
+            served?;
             Ok(())
         })
 }
@@ -24,6 +43,8 @@ fn main() -> Result<(), MainError> {
 enum MainError {
     #[error("invalid configuration")]
     Config(#[source] application::error::BoxError),
+    #[error(transparent)]
+    ConsentEvidence(#[from] ConsentEvidenceConfigError),
     #[error(transparent)]
     ApiConfig(#[from] ApiConfigError),
     #[error(transparent)]

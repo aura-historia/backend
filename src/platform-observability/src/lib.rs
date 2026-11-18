@@ -1,9 +1,12 @@
-use tracing::{Event, Level, Subscriber};
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::filter::Targets;
+use tracing::span::{Attributes, Id, Record};
+use tracing::subscriber::Interest;
+use tracing::{Level, Metadata, Subscriber};
+use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+use tracing_subscriber::layer::{Context, Filter, Layer, SubscriberExt};
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Registry};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LogLevel {
@@ -86,6 +89,9 @@ impl LoggingConfig {
     }
 }
 
+/// The process's other log destination, receiving the events of one target.
+pub type DedicatedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
+
 pub fn init(config: LoggingConfig) {
     init_with_directives(config, &[]);
 }
@@ -93,7 +99,26 @@ pub fn init(config: LoggingConfig) {
 /// Initializes the JSON log at `config`'s level plus `extra_directives`, such as `rmcp=off` or
 /// `some_target=info`, which can raise or silence one target.
 pub fn init_with_directives(config: LoggingConfig, extra_directives: &[&str]) {
-    subscriber(config, extra_directives, std::io::stdout).init();
+    subscriber(config, extra_directives, std::io::stdout, None).init();
+
+    tracing::debug!(log_level = ?config.level(), "Logger initialized.");
+}
+
+/// [`init_with_directives`], except that the events of `target` go only to `dedicated`, which
+/// filters them itself, so the configured level neither keeps them nor drops them.
+pub fn init_with_dedicated_target(
+    config: LoggingConfig,
+    extra_directives: &[&str],
+    target: &'static str,
+    dedicated: DedicatedLayer,
+) {
+    subscriber(
+        config,
+        extra_directives,
+        std::io::stdout,
+        Some((target, dedicated)),
+    )
+    .init();
 
     tracing::debug!(log_level = ?config.level(), "Logger initialized.");
 }
@@ -101,51 +126,104 @@ pub fn init_with_directives(config: LoggingConfig, extra_directives: &[&str]) {
 /// Spans are created at INFO or finer whatever the level: the request and correlation IDs of the
 /// request span are what ties a WARN or ERROR line to its request, and a span below the filter
 /// is never created, so it would vanish from the line's `span` field. A level above INFO then
-/// filters the events instead ([`EventLevelGate`]).
+/// filters the events instead ([`StdoutFilter`]).
 fn subscriber<W>(
     config: LoggingConfig,
     extra_directives: &[&str],
     writer: W,
+    dedicated: Option<(&'static str, DedicatedLayer)>,
 ) -> impl Subscriber + Send + Sync + 'static
 where
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
     let level = config.level();
+    let silenced = dedicated
+        .as_ref()
+        .map(|(target, _)| format!("{target}=off"));
     let with_extras = |base: &str| {
         std::iter::once(base)
             .chain(extra_directives.iter().copied())
+            .chain(silenced.as_deref())
             .collect::<Vec<_>>()
             .join(",")
     };
-    let gate = level.filters_above_spans().then(|| {
-        let events = with_extras(level.as_directive());
-        EventLevelGate(
-            events
-                .parse::<Targets>()
-                .unwrap_or_else(|_| Targets::new().with_default(level.as_level())),
-        )
+    let events = level.filters_above_spans().then(|| {
+        with_extras(level.as_directive())
+            .parse::<Targets>()
+            .unwrap_or_else(|_| Targets::new().with_default(level.as_level()))
     });
-    tracing_subscriber::fmt()
+    let stdout = tracing_subscriber::fmt::layer()
         .json()
-        .with_env_filter(EnvFilter::new(with_extras(
-            level.span_floor().as_directive(),
-        )))
         .with_current_span(true)
         .with_ansi(false)
         .without_time()
         .with_writer(writer)
-        .finish()
-        .with(gate)
+        .with_filter(StdoutFilter {
+            spans: EnvFilter::new(with_extras(level.span_floor().as_directive())),
+            events,
+        })
+        .boxed();
+    let layers: Vec<DedicatedLayer> = std::iter::once(stdout)
+        .chain(dedicated.map(|(_, layer)| layer))
+        .collect();
+    tracing_subscriber::registry().with(layers)
 }
 
-/// Drops the events the configured level excludes after their spans were created. It only gates
-/// events: spans, and so the context of every event that passes, are left to the base filter.
-struct EventLevelGate(Targets);
+/// The stdout log's filter: `spans` decides spans and events alike; `events`, when the level is
+/// above INFO, additionally drops the events it excludes after their spans were created.
+struct StdoutFilter {
+    spans: EnvFilter,
+    events: Option<Targets>,
+}
 
-impl<S: Subscriber> Layer<S> for EventLevelGate {
-    fn event_enabled(&self, event: &Event<'_>, _ctx: Context<'_, S>) -> bool {
-        let metadata = event.metadata();
-        self.0.would_enable(metadata.target(), metadata.level())
+impl<S> Filter<S> for StdoutFilter
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn enabled(&self, metadata: &Metadata<'_>, cx: &Context<'_, S>) -> bool {
+        Filter::<S>::enabled(&self.spans, metadata, cx)
+            && (!metadata.is_event()
+                || self
+                    .events
+                    .as_ref()
+                    .is_none_or(|events| events.would_enable(metadata.target(), metadata.level())))
+    }
+
+    fn callsite_enabled(&self, metadata: &'static Metadata<'static>) -> Interest {
+        if !metadata.is_event()
+            || self
+                .events
+                .as_ref()
+                .is_none_or(|events| events.would_enable(metadata.target(), metadata.level()))
+        {
+            Filter::<S>::callsite_enabled(&self.spans, metadata)
+        } else {
+            Interest::never()
+        }
+    }
+
+    fn max_level_hint(&self) -> Option<LevelFilter> {
+        Filter::<S>::max_level_hint(&self.spans)
+    }
+
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, cx: Context<'_, S>) {
+        Filter::<S>::on_new_span(&self.spans, attrs, id, cx);
+    }
+
+    fn on_record(&self, id: &Id, values: &Record<'_>, cx: Context<'_, S>) {
+        Filter::<S>::on_record(&self.spans, id, values, cx);
+    }
+
+    fn on_enter(&self, id: &Id, cx: Context<'_, S>) {
+        Filter::<S>::on_enter(&self.spans, id, cx);
+    }
+
+    fn on_exit(&self, id: &Id, cx: Context<'_, S>) {
+        Filter::<S>::on_exit(&self.spans, id, cx);
+    }
+
+    fn on_close(&self, id: Id, cx: Context<'_, S>) {
+        Filter::<S>::on_close(&self.spans, id, cx);
     }
 }
 
@@ -186,9 +264,12 @@ mod tests {
     fn logged(level: LogLevel, extra_directives: &[&str], emit: impl FnOnce()) -> Vec<String> {
         let buffer = SharedBuffer::default();
         let writer = buffer.clone();
-        let subscriber = subscriber(LoggingConfig::new(level), extra_directives, move || {
-            writer.clone()
-        });
+        let subscriber = subscriber(
+            LoggingConfig::new(level),
+            extra_directives,
+            move || writer.clone(),
+            None,
+        );
         tracing::subscriber::with_default(subscriber, emit);
         let output = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
         output.lines().map(str::to_owned).collect()
@@ -229,6 +310,58 @@ mod tests {
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(lines[0].contains(r#""message":"Kept""#), "{}", lines[0]);
         assert!(lines[1].contains(r#""message":"Reported""#), "{}", lines[1]);
+    }
+
+    #[test]
+    fn should_send_a_dedicated_target_only_to_its_layer_whatever_the_level() {
+        let stdout = SharedBuffer::default();
+        let dedicated = SharedBuffer::default();
+        let (stdout_writer, dedicated_writer) = (stdout.clone(), dedicated.clone());
+        let layer = tracing_subscriber::fmt::layer()
+            .json()
+            .without_time()
+            .with_writer(move || dedicated_writer.clone())
+            .with_filter(Targets::new().with_target("evidence", Level::INFO))
+            .boxed();
+        let subscriber = subscriber(
+            LoggingConfig::new(LogLevel::Warn),
+            &["evidence=info"],
+            move || stdout_writer.clone(),
+            Some(("evidence", layer)),
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _request = tracing::info_span!("http.request", request_id = "req-1").entered();
+            tracing::info!(target: "evidence", "Evidence");
+            tracing::info!("Routine line the quiet level drops");
+            tracing::warn!("Request failed");
+        });
+
+        let lines = |buffer: &SharedBuffer| {
+            String::from_utf8(buffer.0.lock().unwrap().clone())
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let (stdout, dedicated) = (lines(&stdout), lines(&dedicated));
+        assert_eq!(1, stdout.len(), "{stdout:?}");
+        assert!(
+            stdout[0].contains(r#""message":"Request failed""#),
+            "{}",
+            stdout[0]
+        );
+        assert!(
+            stdout[0].contains(r#""request_id":"req-1""#),
+            "{}",
+            stdout[0]
+        );
+        assert_eq!(1, dedicated.len(), "{dedicated:?}");
+        assert!(
+            dedicated[0].contains(r#""message":"Evidence""#),
+            "{}",
+            dedicated[0]
+        );
     }
 
     #[test]

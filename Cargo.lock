@@ -312,6 +312,7 @@ dependencies = [
  "aura-historia-mcp",
  "aura-historia-runtime",
  "aws-config",
+ "aws-sdk-cloudwatchlogs",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-geoplaces",
  "aws-sdk-sesv2",
@@ -361,6 +362,7 @@ dependencies = [
  "party-core",
  "party-postgres",
  "party-service",
+ "platform-cloudwatch-logs",
  "platform-observability",
  "platform-postgres",
  "platform-process",
@@ -398,6 +400,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
  "url",
  "user-cognito",
  "user-core",
@@ -883,6 +886,30 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
+name = "aws-sdk-cloudwatchlogs"
+version = "1.165.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "581cf82c1682f1251b910a32af5b19f9f5faed98c9117825391c1fcdfde21855"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-eventstream",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "fastrand",
  "regex-lite",
  "tracing",
 ]
@@ -6128,6 +6155,20 @@ version = "0.1.0"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
+]
+
+[[package]]
+name = "platform-cloudwatch-logs"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "aws-sdk-cloudwatchlogs",
+ "platform-aws",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

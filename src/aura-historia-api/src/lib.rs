@@ -24,6 +24,7 @@ pub mod product_listings;
 pub(crate) mod public_overview;
 mod rate_limit;
 pub use platform_process::{InvalidRateLimit, RateLimit};
+pub mod consent_evidence;
 pub mod internal;
 mod readiness;
 pub mod search_filters;
