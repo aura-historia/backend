@@ -16,7 +16,8 @@ use crawler::spider::crawl_frontier_repository::{
 };
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::{
-    CrawlBudgetScale, CrawlPace, CrawlerConfig, SpiderImpl, SpiderTransport, SpiderTransportError,
+    CrawlBudgetScale, CrawlPace, CrawlerConfig, SpiderClients, SpiderImpl, SpiderTransport,
+    SpiderTransportError,
 };
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use listing_source_core::ListingSourceId;
@@ -156,13 +157,9 @@ impl SpiderTransport for PinnedTransport {
         &self,
         _url: &Url,
         timeout: Duration,
-    ) -> Result<spider::reqwest::Client, SpiderTransportError> {
-        spider::reqwest::Client::builder()
-            .resolve(HOST, self.addr)
-            .redirect(spider::reqwest::redirect::Policy::none())
-            .timeout(timeout)
-            .no_proxy()
-            .build()
+    ) -> Result<SpiderClients, SpiderTransportError> {
+        let addr = self.addr;
+        SpiderClients::build(timeout, move |builder| builder.resolve(HOST, addr))
             .map_err(SpiderTransportError::Client)
     }
 }

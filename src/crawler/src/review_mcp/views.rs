@@ -380,6 +380,22 @@ pub(super) struct SourcePageAnswer {
     describes_one_product: bool,
     #[serde(default)]
     links: Vec<SourcePageLink>,
+    #[serde(default)]
+    links_offset: usize,
+    #[serde(default)]
+    links_total: usize,
+    #[serde(default)]
+    other_hosts: Vec<SourcePageOtherHost>,
+}
+
+/// The links of a page to another host than the shop's.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SourcePageOtherHost {
+    pub host: String,
+    /// How many distinct pages on the host the page links.
+    pub links: usize,
+    /// One of them.
+    pub example: String,
 }
 
 /// A page of the shop a page links, with the link's text.
@@ -403,8 +419,16 @@ pub struct SourcePage {
     /// Whether the page's structured data describes exactly one product.
     pub describes_one_product: bool,
     /// The shop's pages this page links, with their texts, which the projection leaves out: the
-    /// category, shop and item pages to read next.
+    /// category, shop and item pages to read next. The page's own content's links come first.
     pub links: Vec<SourcePageLink>,
+    /// The position of the first of `links` among the page's links.
+    pub links_offset: usize,
+    /// How many shop pages the page links; when more than `links_offset` plus `links` count, read
+    /// the page again with a later `links_offset` for the rest.
+    pub links_total: usize,
+    /// The other hosts the page links, the most linked first: when the item pages lie on one of
+    /// them, the crawler cannot reach them from this crawl root.
+    pub other_hosts: Vec<SourcePageOtherHost>,
 }
 
 impl From<SourcePageAnswer> for SourcePage {
@@ -418,6 +442,9 @@ impl From<SourcePageAnswer> for SourcePage {
             truncated,
             describes_one_product: answer.describes_one_product,
             links: answer.links,
+            links_offset: answer.links_offset,
+            links_total: answer.links_total,
+            other_hosts: answer.other_hosts,
         }
     }
 }

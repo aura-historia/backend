@@ -5,12 +5,13 @@
 //! as deny-list patterns.
 
 use super::website_spider::{
-    CrawlFailureKind, SpiderDiscoveryError, SpiderTransport, SpiderTransportError,
+    CrawlFailureKind, SpiderClients, SpiderDiscoveryError, SpiderTransport, SpiderTransportError,
 };
 use crate::network::policy::{
     NetworkErrorKind, classify_reqwest_error, is_same_or_www_host,
     network_error_kind_for_public_target_error,
 };
+use crate::network::response_body::{ShopBodyError, read_body_prefix};
 use crate::network::robots::{
     DenyList, MAX_CRAWL_DELAY, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep,
     RobotsPolicy, RobotsRules, robots_txt_url,
@@ -69,7 +70,10 @@ pub(super) async fn read_before_preflight(
     root: &Url,
     timeout: Duration,
 ) -> Result<Option<RobotsPolicy>, SpiderDiscoveryError> {
-    let Ok(client) = transport.client_for(root, timeout).await else {
+    let Ok(SpiderClients {
+        shop_body: client, ..
+    }) = transport.client_for(root, timeout).await
+    else {
         return Ok(None);
     };
     match fetch_robots_policy(transport, root, &client, timeout).await {
@@ -287,6 +291,7 @@ async fn robots_txt_step(
         transport
             .client_for(robots_url, timeout)
             .await
+            .map(|clients| clients.shop_body)
             .map_err(|error| {
                 let kind = match &error {
                     SpiderTransportError::Target(target) => {
@@ -297,7 +302,7 @@ async fn robots_txt_step(
                 (kind, Box::new(error) as application::error::BoxError)
             })?
     };
-    let mut response = client
+    let response = client
         .get(robots_url.clone())
         .send()
         .await
@@ -305,13 +310,9 @@ async fn robots_txt_step(
     let status = response.status();
     debug!(robots_url = %robots_url, status = status.as_u16(), "Fetched robots.txt for spider");
     if status.is_success() {
-        let mut body = Vec::new();
-        while body.len() < MAX_ROBOTS_TXT_BYTES {
-            match response.chunk().await.map_err(request_error)? {
-                Some(chunk) => body.extend_from_slice(&chunk),
-                None => break,
-            }
-        }
+        let body = read_body_prefix(response, MAX_ROBOTS_TXT_BYTES)
+            .await
+            .map_err(body_error)?;
         return Ok(RobotsStep::Fetched(RobotsFetchStep::Policy(
             RobotsPolicy::from_body(&body),
         )));
@@ -332,6 +333,15 @@ async fn robots_txt_step(
 
 fn request_error(error: spider::reqwest::Error) -> RobotsRequestError {
     (classify_reqwest_error(&error), Box::new(error))
+}
+
+fn body_error(error: ShopBodyError<spider::reqwest::Error>) -> RobotsRequestError {
+    match error {
+        ShopBodyError::Transport(error) => request_error(error),
+        error @ (ShopBodyError::TooLarge { .. } | ShopBodyError::Decode { .. }) => {
+            (NetworkErrorKind::Unknown, Box::new(error))
+        }
+    }
 }
 
 fn robots_unreachable_error(source: Option<application::error::BoxError>) -> SpiderDiscoveryError {
@@ -368,6 +378,49 @@ fn robots_request_failed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::local_tls;
+    use std::net::SocketAddr;
+
+    /// Pins `localhost` to a local TLS server whose certificate the clients accept.
+    struct LocalTlsTransport(SocketAddr);
+
+    #[async_trait::async_trait]
+    impl SpiderTransport for LocalTlsTransport {
+        async fn client_for(
+            &self,
+            _url: &Url,
+            timeout: Duration,
+        ) -> Result<SpiderClients, SpiderTransportError> {
+            let addr = self.0;
+            SpiderClients::build(timeout, move |builder| {
+                builder
+                    .resolve("localhost", addr)
+                    .tls_backend_preconfigured(local_tls::client_config())
+            })
+            .map_err(SpiderTransportError::Client)
+        }
+    }
+
+    /// A shop that ends robots.txt without `Content-Length` or chunked framing by closing TLS
+    /// without `close_notify` (#3008) is read like any other; Spider's own decoding client fails it.
+    #[tokio::test]
+    async fn should_read_robots_txt_when_a_close_delimited_answer_ends_without_close_notify() {
+        let answer = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nUser-agent: *\nDisallow: /private/\n".to_vec();
+        let transport = LocalTlsTransport(local_tls::serve_without_close_notify(answer, 1));
+        let root = Url::parse(&format!("https://localhost:{}/", transport.0.port())).unwrap();
+        let timeout = Duration::from_secs(5);
+        let clients = transport.client_for(&root, timeout).await.unwrap();
+
+        let fetched = fetch_robots_policy(&transport, &root, &clients.shop_body, timeout)
+            .await
+            .unwrap();
+
+        let FetchedRobots::Policy(policy) = fetched else {
+            panic!("robots.txt was read as unreachable");
+        };
+        assert!(policy.check(&root.join("/private/item").unwrap()).is_err());
+        assert!(policy.check(&root.join("/item").unwrap()).is_ok());
+    }
 
     #[test]
     fn should_name_the_robots_url_and_status_without_credentials() {

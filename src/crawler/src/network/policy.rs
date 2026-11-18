@@ -210,8 +210,8 @@ impl RequestTimeouts {
 
 /// Client settings every crawler request shares: the crawler identity and
 /// request headers, the platform trust store, HTTP/1.1, no automatic
-/// redirects and bounded timeouts. [`public_http_client`] adds the pinned
-/// public addresses; tests build local clients from the same base.
+/// redirects and bounded timeouts. Its responses are decoded transparently;
+/// requests to shops use [`shop_client_builder`].
 pub fn crawler_client_builder(
     timeouts: RequestTimeouts,
 ) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
@@ -227,12 +227,35 @@ pub fn crawler_client_builder(
         .http1_only())
 }
 
+/// The transfer encodings the scraper's clients name; [`response_body`](crate::network::response_body)
+/// decodes them.
+const SHOP_ACCEPT_ENCODING: &str = "gzip,br";
+
+/// Client settings of every scraper request to a shop: [`crawler_client_builder`] with reqwest's
+/// transparent decompression off, so that [`response_body`](crate::network::response_body) reads
+/// each body as the shop framed it and decodes it within its limit, and with `Accept-Encoding`
+/// naming the encodings it decodes. [`public_http_client`] adds the pinned public addresses;
+/// tests build local clients from the same base.
+pub fn shop_client_builder(
+    timeouts: RequestTimeouts,
+) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
+    Ok(crawler_client_builder(timeouts)?
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .no_zstd()
+        .default_headers(reqwest::header::HeaderMap::from_iter([(
+            reqwest::header::ACCEPT_ENCODING,
+            HeaderValue::from_static(SHOP_ACCEPT_ENCODING),
+        )])))
+}
+
 pub async fn public_http_client(
     url: &Url,
     timeouts: RequestTimeouts,
 ) -> Result<reqwest::Client, CrawlerClientError> {
     let target = resolve_public_http_target(url, timeouts.connect).await?;
-    crawler_client_builder(timeouts)?
+    shop_client_builder(timeouts)?
         .resolve_to_addrs(&target.host, &target.addresses)
         .build()
         .map_err(CrawlerClientError::Build)
@@ -710,6 +733,7 @@ pub fn url_retry_after_fetch_failure(kind: NetworkErrorKind, prior_page_errors: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::local_tls;
     use reqwest::header::HeaderValue;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -733,11 +757,11 @@ mod tests {
         assert_eq!(location_text(&location), None);
     }
 
-    /// Every crawler request identifies the crawler and sends the crawler
-    /// request headers and the transfer encodings the client decodes, nothing else; the scraper, image probes and review
-    /// inspection all build their clients from this base.
+    /// Every request to a shop identifies the crawler and sends the crawler request headers and
+    /// the transfer encodings the shop-body reader decodes, nothing else; the scraper, image
+    /// probes and review inspection all build their clients from this base.
     #[tokio::test]
-    async fn crawler_client_builder_should_send_the_crawler_identity_and_request_headers() {
+    async fn shop_client_builder_should_send_the_crawler_identity_and_request_headers() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -752,7 +776,7 @@ mod tests {
             String::from_utf8_lossy(&request[..read]).into_owned()
         });
 
-        let client = crawler_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
+        let client = shop_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
             .unwrap()
             .build()
             .unwrap();
@@ -788,23 +812,8 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
-            let certificate = rustls::pki_types::CertificateDer::from(
-                include_bytes!("testdata/untrusted-localhost-cert.der").to_vec(),
-            );
-            let key = rustls::pki_types::PrivatePkcs8KeyDer::from(
-                include_bytes!("testdata/untrusted-localhost-key.der").to_vec(),
-            );
-            let config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
-                rustls::crypto::ring::default_provider(),
-            ))
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(vec![certificate], key.into())
-            .unwrap();
             let (mut socket, _) = listener.accept().unwrap();
-            let mut connection =
-                rustls::ServerConnection::new(std::sync::Arc::new(config)).unwrap();
+            let mut connection = rustls::ServerConnection::new(local_tls::server_config()).unwrap();
             // The client aborts the handshake once it has seen the certificate.
             while connection.is_handshaking() && connection.complete_io(&mut socket).is_ok() {}
         });
@@ -825,45 +834,6 @@ mod tests {
         assert!(details.contains("UnknownIssuer"), "{details}");
     }
 
-    /// A test server certificate is no trust anchor, so the TLS test client accepts any.
-    #[derive(Debug)]
-    struct AcceptAnyCertificate(rustls::crypto::WebPkiSupportedAlgorithms);
-
-    impl rustls::client::danger::ServerCertVerifier for AcceptAnyCertificate {
-        fn verify_server_cert(
-            &self,
-            _: &rustls::pki_types::CertificateDer<'_>,
-            _: &[rustls::pki_types::CertificateDer<'_>],
-            _: &rustls::pki_types::ServerName<'_>,
-            _: &[u8],
-            _: rustls::pki_types::UnixTime,
-        ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-            Ok(rustls::client::danger::ServerCertVerified::assertion())
-        }
-
-        fn verify_tls12_signature(
-            &self,
-            message: &[u8],
-            certificate: &rustls::pki_types::CertificateDer<'_>,
-            signature: &rustls::DigitallySignedStruct,
-        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-            rustls::crypto::verify_tls12_signature(message, certificate, signature, &self.0)
-        }
-
-        fn verify_tls13_signature(
-            &self,
-            message: &[u8],
-            certificate: &rustls::pki_types::CertificateDer<'_>,
-            signature: &rustls::DigitallySignedStruct,
-        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-            rustls::crypto::verify_tls13_signature(message, certificate, signature, &self.0)
-        }
-
-        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-            self.0.supported_schemes()
-        }
-    }
-
     /// What a crawler request to a local server that reads the request and closes the
     /// connection without an answer fails with; `tls` serves it over TLS and closes the TCP
     /// connection without `close_notify`, as nginx's `return 444` does.
@@ -878,41 +848,16 @@ mod tests {
                 let _ = socket.read(&mut request);
                 return;
             }
-            let config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
-                rustls::crypto::ring::default_provider(),
-            ))
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(
-                vec![rustls::pki_types::CertificateDer::from(
-                    include_bytes!("testdata/untrusted-localhost-cert.der").to_vec(),
-                )],
-                rustls::pki_types::PrivatePkcs8KeyDer::from(
-                    include_bytes!("testdata/untrusted-localhost-key.der").to_vec(),
-                )
-                .into(),
-            )
-            .unwrap();
-            let mut connection =
-                rustls::ServerConnection::new(std::sync::Arc::new(config)).unwrap();
+            let mut connection = rustls::ServerConnection::new(local_tls::server_config()).unwrap();
             while connection.complete_io(&mut socket).is_ok()
                 && connection.reader().read(&mut request).is_err()
             {}
         });
 
-        let provider = rustls::crypto::ring::default_provider();
-        let algorithms = provider.signature_verification_algorithms;
-        let client_tls = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(provider))
-            .with_safe_default_protocol_versions()
-            .unwrap()
-            .dangerous()
-            .with_custom_certificate_verifier(std::sync::Arc::new(AcceptAnyCertificate(algorithms)))
-            .with_no_client_auth();
         let scheme = if tls { "https" } else { "http" };
         let error = crawler_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
             .unwrap()
-            .use_preconfigured_tls(client_tls)
+            .use_preconfigured_tls(local_tls::client_config())
             .resolve("localhost", addr)
             .build()
             .unwrap()

@@ -1,3 +1,4 @@
+use super::streamed_segments::place_streamed_segments;
 use crate::scraper::css_selector::rule::{has_known_image_extension, srcset_descriptor_width};
 use crate::scraper::css_selector::srcset::srcset_candidates;
 use kuchiki::traits::*;
@@ -61,18 +62,38 @@ pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
     project_children(&parsed_page(input))
 }
 
-/// The parsed page `input` without the elements of [`REMOVED_DSL_TAGS`] and comments, which every
-/// view of the page leaves out; an element named with a prefix of [`REMOVED_DSL_TAG_PREFIXES`]
-/// is still in it, for the walker to skip with [`is_removed_dsl_tag`].
+/// The parsed page `input` as the shop serves it, the tree the selectors of a schema run on,
+/// without what every view leaves out ([`without_removed_elements`]).
 pub(super) fn parsed_page(input: &str) -> NodeRef {
-    let document = parse_html().one(input);
+    without_removed_elements(parse_html().one(input))
+}
 
-    for selector in REMOVED_DSL_TAGS {
-        if let Ok(nodes) = document.select(selector) {
-            for node in nodes {
-                node.as_node().detach();
-            }
-        }
+/// The parsed page `input` as a browser shows it once its streamed segments are in place
+/// ([`place_streamed_segments`]), without what every view leaves out. Only for reading what the
+/// page shows: the moved content is not where a selector finds it on the served page.
+pub(super) fn parsed_page_as_shown(input: &str) -> NodeRef {
+    let document = parse_html().one(input);
+    place_streamed_segments(&document);
+    without_removed_elements(document)
+}
+
+/// `document` without the elements of [`REMOVED_DSL_TAGS`] and comments, which every view of the
+/// page leaves out; an element named with a prefix of [`REMOVED_DSL_TAG_PREFIXES`] is still in
+/// it, for the walker to skip with [`has_removed_tag_prefix`]. An `aside` inside `main` or an
+/// `article` stays unless it is a list of links ([`is_link_list`]): it is part of the page's
+/// content, often a product page's price and cart panel, where an `aside` outside them, or one
+/// that lists other pages, is the page's sidebar.
+fn without_removed_elements(document: NodeRef) -> NodeRef {
+    // Collected before detaching: detaching the node a selection stands on ends its traversal.
+    let removed: Vec<NodeRef> = REMOVED_DSL_TAGS
+        .iter()
+        .filter_map(|selector| document.select(selector).ok())
+        .flatten()
+        .map(|node| node.as_node().clone())
+        .filter(|node| !is_content_aside(node))
+        .collect();
+    for node in removed {
+        node.detach();
     }
     remove_comments(&document);
     document
@@ -153,7 +174,7 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
     };
 
     let tag = element.name.local.to_string();
-    if is_removed_dsl_tag(&tag) {
+    if has_removed_tag_prefix(&tag) {
         return Vec::new();
     }
 
@@ -180,11 +201,12 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
     }]
 }
 
-pub(super) fn is_removed_dsl_tag(tag: &str) -> bool {
-    REMOVED_DSL_TAGS.contains(&tag)
-        || REMOVED_DSL_TAG_PREFIXES
-            .iter()
-            .any(|prefix| tag.starts_with(prefix))
+/// Whether every view leaves out the element named `tag` by its prefix, such as a theme's
+/// `header-drawer`. [`parsed_page`] has already removed the elements of [`REMOVED_DSL_TAGS`].
+pub(super) fn has_removed_tag_prefix(tag: &str) -> bool {
+    REMOVED_DSL_TAG_PREFIXES
+        .iter()
+        .any(|prefix| tag.starts_with(prefix))
 }
 
 /// A layout wrapper the projection leaves out, showing its children in its place: a grouping
@@ -569,6 +591,56 @@ fn truncate_chars(value: &str, limit: usize) -> String {
     let mut truncated = value.chars().take(limit).collect::<String>();
     truncated.push('…');
     truncated
+}
+
+fn is_content_aside(node: &NodeRef) -> bool {
+    let is_named = |node: &NodeRef, tags: &[&str]| {
+        node.as_element()
+            .is_some_and(|element| tags.contains(&&*element.name.local))
+    };
+    is_named(node, &["aside"])
+        && node
+            .ancestors()
+            .any(|ancestor| is_named(&ancestor, &["main", "article"]))
+        && !is_link_list(node)
+}
+
+/// The fewest distinct pages a list of links names: a product's buy, enquiry or bidding panel
+/// links a few actions (enquire, place a bid, register, watch), a menu or a related items list
+/// more.
+const LINK_LIST_MIN_PAGES: usize = 5;
+
+/// Whether `node` is a list of other pages, such as a category menu or related items, rather than
+/// the page's own content: it links at least [`LINK_LIST_MIN_PAGES`] distinct pages and most of
+/// its text is their links' text.
+fn is_link_list(node: &NodeRef) -> bool {
+    let visible_chars = |text: String| {
+        text.split_whitespace()
+            .map(|word| word.chars().count())
+            .sum::<usize>()
+    };
+    let Ok(links) = node.select("a[href]") else {
+        return false;
+    };
+    let mut pages = std::collections::HashSet::new();
+    let mut linked = 0;
+    for link in links {
+        let href = link
+            .attributes
+            .borrow()
+            .get("href")
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let names_a_page = !href.is_empty()
+            && !href.starts_with('#')
+            && !href.to_ascii_lowercase().starts_with("javascript:");
+        if names_a_page {
+            pages.insert(href);
+            linked += visible_chars(link.as_node().text_contents());
+        }
+    }
+    pages.len() >= LINK_LIST_MIN_PAGES && linked * 2 > visible_chars(node.text_contents())
 }
 
 fn remove_comments(node: &NodeRef) {
