@@ -5,10 +5,9 @@ use crate::{
         EmailLanguage, EmailTemplateType, FrontendLinks, sender_name, ses_template_tag_value,
         subject, template_data, template_type,
     },
-    template_reader::TemplateReader,
+    template_reader::{EmailTemplateLoadError, TemplateReader},
 };
 use application::error::box_error;
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::{
     Client as SesClient,
     config::retry::RetryConfig,
@@ -26,7 +25,7 @@ use notification_service::ports::{
     },
 };
 use serde_email::Email;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use url::{Host, Url};
 
 /// Safe to display: invalid configuration values are not retained.
@@ -35,7 +34,7 @@ pub enum EmailDeliveryConfigError {
     InvalidConfigurationSetName,
     InvalidFrontendOrigin,
     InvalidSenderAddress,
-    InvalidTemplatePrefix,
+    InvalidTemplateDirectory,
 }
 
 impl std::fmt::Display for EmailDeliveryConfigError {
@@ -46,7 +45,9 @@ impl std::fmt::Display for EmailDeliveryConfigError {
             }
             Self::InvalidFrontendOrigin => "invalid notification email frontend origin",
             Self::InvalidSenderAddress => "invalid notification email sender address",
-            Self::InvalidTemplatePrefix => "invalid notification email template prefix",
+            Self::InvalidTemplateDirectory => {
+                "notification email template directory must be an absolute path"
+            }
         })
     }
 }
@@ -55,38 +56,32 @@ impl std::error::Error for EmailDeliveryConfigError {}
 
 #[derive(Clone)]
 pub struct EmailDeliveryConfig {
-    template_bucket: String,
+    template_directory: PathBuf,
     from_email_address: Email,
     reply_to_email_address: String,
     configuration_set_name: String,
-    template_prefix: String,
     frontend_origin: String,
 }
 
 impl EmailDeliveryConfig {
+    /// `template_directory` is the absolute root of the compiled templates baked into the
+    /// image, laid out like `mjml/` (`<area>/<kind>/<language>.html`).
+    ///
     /// `from_email_address` is the verified sender address. The display name of
     /// each email is chosen per template, so a name in the setting is ignored.
     ///
     /// `frontend_origin` is a trusted deployment setting (the web app origin
     /// email links point to): HTTPS, or HTTP on a loopback host for local runs.
     pub fn new(
-        template_bucket: impl Into<String>,
+        template_directory: impl Into<PathBuf>,
         from_email_address: impl Into<String>,
         reply_to_email_address: impl Into<String>,
         configuration_set_name: impl Into<String>,
-        template_prefix: impl Into<String>,
         frontend_origin: &str,
     ) -> Result<Self, EmailDeliveryConfigError> {
-        let template_prefix = template_prefix.into();
-        if !template_prefix.strip_suffix('/').is_some_and(|prefix| {
-            prefix.split('/').all(|part| {
-                !part.is_empty()
-                    && part
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-            })
-        }) {
-            return Err(EmailDeliveryConfigError::InvalidTemplatePrefix);
+        let template_directory = template_directory.into();
+        if !template_directory.is_absolute() {
+            return Err(EmailDeliveryConfigError::InvalidTemplateDirectory);
         }
         let configuration_set_name = configuration_set_name.into();
         if configuration_set_name.is_empty()
@@ -102,11 +97,10 @@ impl EmailDeliveryConfig {
         let from_email_address = validated_sender_address(&from_email_address.into())
             .ok_or(EmailDeliveryConfigError::InvalidSenderAddress)?;
         Ok(Self {
-            template_bucket: template_bucket.into(),
+            template_directory,
             from_email_address,
             reply_to_email_address: reply_to_email_address.into(),
             configuration_set_name,
-            template_prefix,
             frontend_origin,
         })
     }
@@ -168,12 +162,12 @@ pub struct SesNotificationChannelSender {
 }
 
 impl SesNotificationChannelSender {
+    /// Loads and compiles every template, so a missing or invalid one fails here.
     pub fn new(
-        s3: S3Client,
         ses: SesClient,
         config: EmailDeliveryConfig,
         targets: Arc<dyn EmailDeliveryTargetReader>,
-    ) -> Self {
+    ) -> Result<Self, EmailTemplateLoadError> {
         // SendEmail has no idempotency token. SDK retries can send again after an
         // accepted request loses its response, before service sees the ambiguity.
         let ses = SesClient::from_conf(
@@ -182,15 +176,15 @@ impl SesNotificationChannelSender {
                 .retry_config(RetryConfig::disabled())
                 .build(),
         );
-        Self {
+        Ok(Self {
             ses,
             from_email_address: config.from_email_address,
             reply_to_email_address: config.reply_to_email_address,
             configuration_set_name: config.configuration_set_name,
-            templates: TemplateReader::new(s3, config.template_bucket, config.template_prefix),
+            templates: TemplateReader::load(&config.template_directory)?,
             targets,
             frontend_origin: config.frontend_origin,
-        }
+        })
     }
 
     fn send_email_request(
@@ -213,16 +207,13 @@ impl SesNotificationChannelSender {
             .email_tags(email_tag)
     }
 
-    async fn render(
+    fn render(
         &self,
         template_type: EmailTemplateType,
         email_language: EmailLanguage,
         data: &serde_json::Value,
     ) -> Result<RenderedEmail, NotificationChannelSendError> {
-        let html_body = self
-            .templates
-            .render(template_type, email_language, data)
-            .await?;
+        let html_body = self.templates.render(template_type, email_language, data)?;
         Ok(RenderedEmail {
             template_type,
             subject: subject(template_type, email_language).to_owned(),
@@ -247,7 +238,7 @@ impl SesNotificationChannelSender {
             first_name,
             FrontendLinks::new(&self.frontend_origin, email_language),
         );
-        self.render(template_type, email_language, &data).await
+        self.render(template_type, email_language, &data)
     }
 
     /// The recipient and language come from the message; no user account is read.
@@ -260,13 +251,11 @@ impl SesNotificationChannelSender {
             source,
             FrontendLinks::new(&self.frontend_origin, email_language),
         );
-        let rendered = self
-            .render(
-                external_template_type(&source.content),
-                email_language,
-                &data,
-            )
-            .await?;
+        let rendered = self.render(
+            external_template_type(&source.content),
+            email_language,
+            &data,
+        )?;
         self.send_rendered(rendered, source.recipient.as_email())
             .await
     }
@@ -410,14 +399,28 @@ mod tests {
         configuration_set_name: &str,
     ) -> Result<EmailDeliveryConfig, EmailDeliveryConfigError> {
         EmailDeliveryConfig::new(
-            "test-templates",
+            crate::test_support::template_root("<p>{{title}}</p>", &[]).expect("template root"),
             // A configured display name must never reach the `From` header.
             "Configured Name <from@example.test>",
             "reply@example.test",
             configuration_set_name,
-            "mail/test-commit/",
             "https://stage.aura-historia.com",
         )
+    }
+
+    #[test]
+    fn should_require_an_absolute_template_directory() {
+        assert_eq!(
+            Some(EmailDeliveryConfigError::InvalidTemplateDirectory),
+            EmailDeliveryConfig::new(
+                "templates",
+                "from@example.test",
+                "reply@example.test",
+                "aura-historia-test-email",
+                "https://stage.aura-historia.com",
+            )
+            .err()
+        );
     }
 
     #[rstest]
@@ -477,11 +480,10 @@ mod tests {
     fn should_reject_sender_settings_without_a_valid_address(#[case] configured: &str) {
         assert_eq!(None, validated_sender_address(configured));
         let error = EmailDeliveryConfig::new(
-            "test-templates",
+            "/templates",
             configured,
             "reply@example.test",
             "aura-historia-test-email",
-            "mail/test-commit/",
             "https://stage.aura-historia.com",
         )
         .err()
@@ -516,11 +518,10 @@ mod tests {
     fn should_reject_frontend_origins_that_are_not_bare_trusted_origins(#[case] value: &str) {
         assert!(matches!(
             EmailDeliveryConfig::new(
-                "test-templates",
+                "/templates",
                 "from@example.test",
                 "reply@example.test",
                 "aura-historia-test-email",
-                "mail/test-commit/",
                 value,
             ),
             Err(EmailDeliveryConfigError::InvalidFrontendOrigin)
@@ -618,18 +619,12 @@ mod tests {
                 .interceptor(CaptureSerializedRequest(Arc::clone(&requests)))
                 .build(),
         );
-        let s3 = S3Client::from_conf(
-            aws_sdk_s3::Config::builder()
-                .behavior_version_latest()
-                .region(aws_sdk_s3::config::Region::new("eu-west-1"))
-                .build(),
-        );
         let sender = SesNotificationChannelSender::new(
-            s3,
             ses,
             email_config(name).expect("valid configuration"),
             Arc::new(NoEmailTarget),
-        );
+        )
+        .expect("templates load");
         for _ in 0..2 {
             let message = Message::builder()
                 .subject(
@@ -713,26 +708,12 @@ mod tests {
                 .retry_config(RetryConfig::standard().with_max_attempts(attempts))
                 .build(),
         );
-        let s3 = S3Client::from_conf(
-            aws_sdk_s3::Config::builder()
-                .behavior_version_latest()
-                .region(aws_sdk_s3::config::Region::new("eu-west-1"))
-                .build(),
-        );
         let sender = SesNotificationChannelSender::new(
-            s3,
             ses.clone(),
-            EmailDeliveryConfig::new(
-                "test-templates",
-                "from@example.test",
-                "reply@example.test",
-                "aura-historia-test-email",
-                "mail/test-commit/",
-                "https://stage.aura-historia.com",
-            )
-            .expect("valid email configuration"),
+            email_config("aura-historia-test-email").expect("valid email configuration"),
             Arc::new(NoEmailTarget),
-        );
+        )
+        .expect("templates load");
         assert_eq!(
             Some(1),
             sender

@@ -1,7 +1,6 @@
 //! SES v2 adapter for transient newsletter confirmation proofs. Only the service port
 //! crosses the boundary; token-bearing messages are neither cached nor logged.
 
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::{
     Client as SesClient,
     config::retry::RetryConfig,
@@ -12,8 +11,8 @@ use aws_sdk_sesv2::{
 use handlebars::Handlebars;
 use localization::Language;
 use serde_email::Email;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 use url::{Host, Url};
 use user_core::newsletter_confirmation::RawNewsletterConfirmationToken;
 use user_service::ports::{
@@ -21,9 +20,8 @@ use user_service::ports::{
     NewsletterConfirmationEmailSendOutcome, NewsletterConfirmationEmailSender,
 };
 
-// Includes the SDK call and response body. Leave room for service persistence
-// and HTTP response after these sequential deadlines (2s + 3s).
-const S3_DEADLINE: Duration = Duration::from_secs(2);
+// Includes the SDK call and response body. Leave room for service persistence and the HTTP
+// response after it.
 const SES_DEADLINE: Duration = Duration::from_secs(3);
 const MAX_TEMPLATE_BYTES: usize = 128 * 1024;
 const MAX_RENDERED_BYTES: usize = 256 * 1024;
@@ -52,11 +50,10 @@ impl std::error::Error for NewsletterConfirmationEmailConfigError {}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct NewsletterConfirmationEmailConfig {
-    bucket: String,
+    template_directory: PathBuf,
     from: Email,
     reply_to: String,
     configuration_set: String,
-    template_prefix: String,
     frontend_origin: Url,
 }
 
@@ -64,36 +61,34 @@ impl NewsletterConfirmationEmailConfig {
     /// `from` is the verified sender address. The display name is [`SENDER_NAME`], so a
     /// name in the setting is ignored.
     ///
+    /// `template_directory` is the absolute root of the compiled templates baked into the image,
+    /// laid out like `mjml/` (`newsletter/confirmation/<language>.html`).
+    ///
     /// `configuration_set` is a required trusted deployment setting, never user input.
     /// `frontend_origin` is a trusted deployment setting, never a request redirect.
     /// Real stages have pinned HTTPS origins; local/ephemeral require HTTP loopback.
     pub fn new(
-        bucket: impl Into<String>,
+        template_directory: impl Into<PathBuf>,
         from: impl Into<String>,
         reply_to: impl Into<String>,
         configuration_set: impl Into<String>,
         stage: impl Into<String>,
-        template_prefix: impl Into<String>,
         frontend_origin: &str,
     ) -> Result<Self, NewsletterConfirmationEmailConfigError> {
-        let (bucket, from, reply_to, configuration_set, stage, template_prefix) = (
-            bucket.into(),
+        let (template_directory, from, reply_to, configuration_set, stage) = (
+            template_directory.into(),
             from.into(),
             reply_to.into(),
             configuration_set.into(),
             stage.into(),
-            template_prefix.into(),
         );
         let from = validated_sender_address(&from)
             .ok_or(NewsletterConfirmationEmailConfigError::InvalidConfiguration)?;
-        if bucket.trim().is_empty()
+        if !template_directory.is_absolute()
             || reply_to.trim().is_empty()
             || configuration_set.len() > 64
             || !safe_key_component(&configuration_set)
             || !safe_key_component(&stage)
-            || !template_prefix
-                .strip_suffix('/')
-                .is_some_and(|prefix| prefix.split('/').all(safe_key_component))
         {
             return Err(NewsletterConfirmationEmailConfigError::InvalidConfiguration);
         }
@@ -132,11 +127,10 @@ impl NewsletterConfirmationEmailConfig {
             return Err(NewsletterConfirmationEmailConfigError::InvalidFrontendOrigin);
         }
         Ok(Self {
-            bucket,
+            template_directory,
             from,
             reply_to,
             configuration_set,
-            template_prefix,
             frontend_origin: origin,
         })
     }
@@ -185,6 +179,8 @@ enum EmailLanguage {
 }
 
 impl EmailLanguage {
+    const ALL: [Self; 5] = [Self::De, Self::En, Self::Es, Self::Fr, Self::It];
+
     fn resolve(language: Option<Language>) -> Self {
         match language {
             Some(Language::De) => Self::De,
@@ -219,20 +215,82 @@ impl EmailLanguage {
 /// Internal failure categories intentionally carry no provider error, recipient, token or URL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PreparationFailure {
-    TemplateMissing,
-    TemplateUnavailable,
     TemplateInvalid,
     InvalidLink,
 }
 
+/// A confirmation template that is missing or unsafe; it names the template, never its content.
+#[derive(Debug)]
+pub struct NewsletterConfirmationTemplateError {
+    template: String,
+    source: Option<std::io::Error>,
+}
+
+impl std::fmt::Display for NewsletterConfirmationTemplateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "newsletter confirmation template {} is missing or invalid",
+            self.template
+        )
+    }
+}
+
+impl std::error::Error for NewsletterConfirmationTemplateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source
+            .as_ref()
+            .map(|source| source as &(dyn std::error::Error + 'static))
+    }
+}
+
+fn template_path(language: EmailLanguage) -> String {
+    format!("newsletter/confirmation/{}.html", language.code())
+}
+
+/// Every language's template, compiled in strict mode. A template must put the link through
+/// `{{confirmation_url}}` and may not use unescaped `{{{…}}}` output.
+fn load_templates(
+    directory: &Path,
+) -> Result<Handlebars<'static>, NewsletterConfirmationTemplateError> {
+    let mut handlebars = Handlebars::new();
+    handlebars.set_strict_mode(true);
+    for language in EmailLanguage::ALL {
+        let template = template_path(language);
+        let invalid = |source| NewsletterConfirmationTemplateError {
+            template: template.clone(),
+            source,
+        };
+        let bytes =
+            std::fs::read(directory.join(&template)).map_err(|error| invalid(Some(error)))?;
+        let source = String::from_utf8(bytes)
+            .ok()
+            .filter(|source| {
+                source.len() <= MAX_TEMPLATE_BYTES
+                    && source.contains("{{confirmation_url}}")
+                    && !source.contains("{{{")
+            })
+            .ok_or_else(|| invalid(None))?;
+        handlebars
+            .register_template_string(language.code(), source)
+            .map_err(|_| invalid(None))?;
+    }
+    Ok(handlebars)
+}
+
 pub struct SesNewsletterConfirmationEmailSender {
-    s3: S3Client,
     ses: SesClient,
     config: NewsletterConfirmationEmailConfig,
+    templates: Handlebars<'static>,
 }
 
 impl SesNewsletterConfirmationEmailSender {
-    pub fn new(s3: S3Client, ses: SesClient, config: NewsletterConfirmationEmailConfig) -> Self {
+    /// Loads and compiles every language's template, so a missing or unsafe one fails here.
+    pub fn new(
+        ses: SesClient,
+        config: NewsletterConfirmationEmailConfig,
+    ) -> Result<Self, NewsletterConfirmationTemplateError> {
+        let templates = load_templates(&config.template_directory)?;
         // SendEmail has no idempotency key. A retry after response loss can send twice.
         let ses = SesClient::from_conf(
             ses.config()
@@ -240,15 +298,11 @@ impl SesNewsletterConfirmationEmailSender {
                 .retry_config(RetryConfig::disabled())
                 .build(),
         );
-        Self { s3, ses, config }
-    }
-
-    fn template_key(&self, language: EmailLanguage) -> String {
-        format!(
-            "{}mjml/newsletter/confirmation/{}.html",
-            self.config.template_prefix,
-            language.code()
-        )
+        Ok(Self {
+            ses,
+            config,
+            templates,
+        })
     }
 
     fn confirmation_url(
@@ -265,67 +319,18 @@ impl SesNewsletterConfirmationEmailSender {
         Ok(url)
     }
 
-    async fn rendered_body(
+    fn rendered_body(
         &self,
         language: EmailLanguage,
         email: &NewsletterConfirmationEmail,
     ) -> Result<String, PreparationFailure> {
-        // One deadline covers both the S3 request and streaming body consumption.
-        let bytes = tokio::time::timeout(S3_DEADLINE, async {
-            let response = self
-                .s3
-                .get_object()
-                .bucket(&self.config.bucket)
-                .key(self.template_key(language))
-                .send()
-                .await
-                .map_err(|error| {
-                    if error
-                        .as_service_error()
-                        .is_some_and(|service| service.is_no_such_key())
-                        || error
-                            .raw_response()
-                            .is_some_and(|response| response.status().as_u16() == 404)
-                    {
-                        PreparationFailure::TemplateMissing
-                    } else {
-                        PreparationFailure::TemplateUnavailable
-                    }
-                })?;
-            if response
-                .content_length()
-                .is_some_and(|len| len > MAX_TEMPLATE_BYTES as i64)
-            {
-                return Err(PreparationFailure::TemplateInvalid);
-            }
-            let mut bytes = Vec::new();
-            response
-                .body
-                .into_async_read()
-                .take((MAX_TEMPLATE_BYTES + 1) as u64)
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(|_| PreparationFailure::TemplateUnavailable)?;
-            Ok::<_, PreparationFailure>(bytes)
-        })
-        .await
-        .map_err(|_| PreparationFailure::TemplateUnavailable)??;
-        if bytes.len() > MAX_TEMPLATE_BYTES {
-            return Err(PreparationFailure::TemplateInvalid);
-        }
-        let template =
-            std::str::from_utf8(&bytes).map_err(|_| PreparationFailure::TemplateInvalid)?;
-        if !template.contains("{{confirmation_url}}") || template.contains("{{{") {
-            return Err(PreparationFailure::TemplateInvalid);
-        }
         let url = self.confirmation_url(language, &email.token)?;
         let mut home_url = self.config.frontend_origin.clone();
         home_url.set_path(language.code());
-        let mut handlebars = Handlebars::new();
-        handlebars.set_strict_mode(true);
-        let body = handlebars
-            .render_template(
-                template,
+        let body = self
+            .templates
+            .render(
+                language.code(),
                 &serde_json::json!({
                     "confirmation_url": url.as_str(),
                     "first_name": email.profile.first_name.as_ref().map(AsRef::as_ref),
@@ -344,7 +349,7 @@ impl SesNewsletterConfirmationEmailSender {
         email: NewsletterConfirmationEmail,
     ) -> NewsletterConfirmationEmailSendOutcome {
         let language = EmailLanguage::resolve(email.profile.language);
-        let body = match self.rendered_body(language, &email).await {
+        let body = match self.rendered_body(language, &email) {
             Ok(body) => body,
             Err(failure) => {
                 tracing::warn!(
@@ -353,12 +358,7 @@ impl SesNewsletterConfirmationEmailSender {
                     failure_category = ?failure,
                     "Newsletter confirmation email preparation failed"
                 );
-                let retryability = if failure == PreparationFailure::TemplateUnavailable {
-                    NewsletterConfirmationEmailRetryability::Retryable
-                } else {
-                    NewsletterConfirmationEmailRetryability::NotRetryable
-                };
-                return rejected(retryability);
+                return rejected(NewsletterConfirmationEmailRetryability::NotRetryable);
             }
         };
         let subject = match Content::builder().data(language.subject()).build() {
@@ -518,12 +518,11 @@ mod tests {
         origin: &str,
     ) -> Result<NewsletterConfirmationEmailConfig, NewsletterConfirmationEmailConfigError> {
         NewsletterConfirmationEmailConfig::new(
-            "bucket",
+            "/templates",
             "from@example.test",
             "reply@example.test",
             "aura-historia-test-email",
             stage,
-            "mail/abc123/",
             origin,
         )
     }
@@ -554,12 +553,11 @@ mod tests {
         assert!(config("prod", "http://localhost:3000").is_err());
         assert!(
             NewsletterConfirmationEmailConfig::new(
-                "bucket",
+                "/templates",
                 "from@example.test",
                 "reply",
                 "aura-historia-test-email",
                 "../prod",
-                "mail/abc123/",
                 "https://aura-historia.com"
             )
             .is_err()
@@ -605,12 +603,11 @@ mod tests {
         ] {
             assert_eq!(None, validated_sender_address(configured), "{configured}");
             let error = NewsletterConfirmationEmailConfig::new(
-                "bucket",
+                "/templates",
                 configured,
                 "reply@example.test",
                 "aura-historia-test-email",
                 "dev",
-                "mail/abc123/",
                 "https://stage.aura-historia.com",
             )
             .err()
@@ -631,19 +628,19 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_unsafe_or_unterminated_template_prefixes() {
-        for prefix in ["", "mail/id", "/mail/id/", "mail/../", "mail/id//"] {
-            assert!(
+    fn should_require_an_absolute_template_directory() {
+        for directory in ["", "templates", "./templates", "../templates"] {
+            assert_eq!(
+                Some(NewsletterConfirmationEmailConfigError::InvalidConfiguration),
                 NewsletterConfirmationEmailConfig::new(
-                    "bucket",
+                    directory,
                     "from@example.test",
                     "reply",
                     "mail-config",
                     "dev",
-                    prefix,
                     "https://stage.aura-historia.com",
                 )
-                .is_err()
+                .err()
             );
         }
     }
@@ -652,12 +649,11 @@ mod tests {
     fn requires_valid_ses_configuration_set_names_without_normalization() {
         let with_configuration_set = |name: &str| {
             NewsletterConfirmationEmailConfig::new(
-                "bucket",
+                "/templates",
                 "from@example.test",
                 "reply@example.test",
                 name,
                 "dev",
-                "mail/abc123/",
                 "https://stage.aura-historia.com",
             )
         };
@@ -713,12 +709,6 @@ mod tests {
             let language = EmailLanguage::resolve(input);
             let token = RawNewsletterConfirmationToken::from_entropy([90; 32]);
             let sender = SesNewsletterConfirmationEmailSender {
-                s3: S3Client::from_conf(
-                    aws_sdk_s3::Config::builder()
-                        .behavior_version_latest()
-                        .region(aws_sdk_s3::config::Region::new("eu-central-1"))
-                        .build(),
-                ),
                 ses: SesClient::from_conf(
                     aws_sdk_sesv2::Config::builder()
                         .behavior_version_latest()
@@ -726,6 +716,7 @@ mod tests {
                         .build(),
                 ),
                 config: config("dev", "https://stage.aura-historia.com").unwrap(),
+                templates: Handlebars::new(),
             };
             let email = NewsletterConfirmationEmail {
                 confirmation_id: NewsletterConfirmationId::new(),
@@ -737,8 +728,8 @@ mod tests {
                 },
             };
             assert_eq!(
-                sender.template_key(language),
-                format!("mail/abc123/mjml/newsletter/confirmation/{code}.html")
+                template_path(language),
+                format!("newsletter/confirmation/{code}.html")
             );
             let link = sender.confirmation_url(language, &email.token).unwrap();
             assert_eq!(link.path(), format!("/{code}/newsletter/confirm"));
@@ -760,17 +751,20 @@ mod tests {
                 .retry_config(RetryConfig::standard().with_max_attempts(3))
                 .build(),
         );
-        let s3 = S3Client::from_conf(
-            aws_sdk_s3::Config::builder()
-                .behavior_version_latest()
-                .region(aws_sdk_s3::config::Region::new("eu-central-1"))
-                .build(),
-        );
-        let sender = SesNewsletterConfirmationEmailSender::new(
-            s3,
-            ses,
-            config("prod", "https://aura-historia.com").unwrap(),
-        );
+        let directory = std::env::temp_dir().join(format!(
+            "newsletter-confirmation-templates-{}",
+            std::process::id()
+        ));
+        for language in EmailLanguage::ALL {
+            let path = directory.join(template_path(language));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "<a href=\"{{confirmation_url}}\">Confirm</a>").unwrap();
+        }
+        let config = NewsletterConfirmationEmailConfig {
+            template_directory: directory,
+            ..config("prod", "https://aura-historia.com").unwrap()
+        };
+        let sender = SesNewsletterConfirmationEmailSender::new(ses, config).unwrap();
         assert_eq!(
             sender
                 .ses

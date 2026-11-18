@@ -314,7 +314,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-geoplaces",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "axum",
  "base64 0.23.1",
@@ -691,7 +690,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-geoplaces",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-smithy-types",
  "content-notice-core",
@@ -5177,7 +5175,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "content-notice-core",
  "domain-primitives",
@@ -5196,6 +5193,7 @@ dependencies = [
  "serde-email",
  "serde_json",
  "strum 0.28.0",
+ "thiserror 2.0.21",
  "time",
  "tracing",
  "url",
@@ -9437,7 +9435,6 @@ name = "user-email-aws"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-smithy-runtime-api",
  "aws-smithy-types",

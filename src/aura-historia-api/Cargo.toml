@@ -22,7 +22,6 @@ async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-geoplaces = { workspace = true }
 aws-sdk-cognitoidentityprovider = { workspace = true }
-aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
 application = { workspace = true }
 auction-core = { workspace = true }

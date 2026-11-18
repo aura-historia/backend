@@ -1,8 +1,12 @@
 # Email templates
 
-The MJML sources of every email the backend sends. CI compiles each `*.mjml` file and uploads
-the HTML to the mail template bucket; the SES adapter
-([`notification-email-aws`](../src/notification-email-aws)) fills it with Handlebars data.
+The MJML sources of every email the backend sends. The image build ([`Dockerfile`](../Dockerfile))
+compiles each `*.mjml` file with the pinned MJML into the image's template directory
+(`MAIL_TEMPLATE_DIR`), as `<area>/<kind>/<language>.html`. The SES adapters
+([`notification-email-aws`](../src/notification-email-aws),
+[`user-email-aws`](../src/user-email-aws)) load and compile every template they send at
+startup, so a missing or broken template stops the process instead of failing deliveries, and
+fill it with Handlebars data.
 
 ## Design first
 

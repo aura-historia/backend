@@ -6,11 +6,6 @@ use aura_historia_jobs::{
 use aura_historia_worker::scopes::notification_delivery::{
     NotificationDeliveryJobs, compose_delivery_use_case,
 };
-use aws_sdk_s3::{
-    Client as S3Client,
-    config::Builder as S3ConfigBuilder,
-    types::{BucketLocationConstraint, CreateBucketConfiguration},
-};
 use aws_sdk_sesv2::Client as SesClient;
 use content_notice_core::content_notice::ContentNotice;
 use domain_primitives::event_id::EventId;
@@ -48,7 +43,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use test_api::{
-    IntegrationTestService, Postgres, S3, Ses, aura_integration_test, get_postgres_client,
+    IntegrationTestService, Postgres, Ses, aura_integration_test, get_postgres_client,
     get_sent_emails,
 };
 use time::OffsetDateTime;
@@ -57,7 +52,7 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, Ses()], isolated = true)]
 async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_duplicate_is_noop() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -111,8 +106,8 @@ async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_dupli
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
-async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend() {
+#[aura_integration_test(services = [BUSINESS_SCHEMA, Ses()], isolated = true)]
+async fn unrenderable_template_finalizes_permanent_failure_without_email_or_resend() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let handler = composition(pool.clone(), true).await?;
@@ -125,7 +120,7 @@ async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend
         let failed = snapshot(&pool, delivery).await?;
         assert_eq!("FAILED", failed["status"]);
         assert_eq!(1, failed["attempt_count"]);
-        assert_eq!("S3_TEMPLATE_INVALID_UTF8", failed["last_error_code"]);
+        assert_eq!("TEMPLATE_RENDER_FAILED", failed["last_error_code"]);
         assert!(failed["provider_message_id"].is_null());
         assert!(failed["lease_token"].is_null());
         assert_eq!(0, email_count(&recipient).await);
@@ -144,19 +139,18 @@ async fn invalid_s3_template_finalizes_permanent_failure_without_email_or_resend
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, Ses()], isolated = true)]
 async fn finalization_retry_keeps_the_original_ses_receipt_without_resending() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
-        let (s3, ses, email) = provider(false).await?;
+        let (ses, email) = provider(false).await?;
         let fault = Arc::new(FinalizationFault::default());
         let dispatcher =
             NotificationDeliveryDispatcher::new(vec![Arc::new(SesNotificationChannelSender::new(
-                s3,
                 ses,
                 email,
                 Arc::new(SqlxEmailDeliveryTargetReader::new(pool.clone())),
-            ))
+            )?)
                 as Arc<dyn NotificationChannelSender>])?;
         let handler = NotificationDeliveryJobs::new(Arc::new(DeliverNotificationHandler::new(
             FailFirstFinalization {
@@ -198,7 +192,7 @@ async fn finalization_retry_keeps_the_original_ses_receipt_without_resending() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, Ses()], isolated = true)]
 async fn content_notice_receipt_is_claimed_rendered_and_delivered_to_the_notifier_without_a_user() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
@@ -419,21 +413,19 @@ impl NotificationDeliveryRepository for FailFirstFinalization {
 
 async fn composition(
     pool: sqlx::PgPool,
-    invalid_template: bool,
+    unrenderable_template: bool,
 ) -> Result<NotificationDeliveryJobs, Box<dyn std::error::Error + Send + Sync>> {
-    let (s3, ses, email) = provider(invalid_template).await?;
+    let (ses, email) = provider(unrenderable_template).await?;
     Ok(NotificationDeliveryJobs::new(compose_delivery_use_case(
-        pool, s3, ses, email,
+        pool, ses, email,
     )?))
 }
 
 async fn provider(
-    invalid_template: bool,
-) -> Result<(S3Client, SesClient, EmailDeliveryConfig), Box<dyn std::error::Error + Send + Sync>> {
+    unrenderable_template: bool,
+) -> Result<(SesClient, EmailDeliveryConfig), Box<dyn std::error::Error + Send + Sync>> {
     let aws = test_api::aws::get_aws_config().await;
-    let s3 = S3Client::from_conf(S3ConfigBuilder::from(aws).force_path_style(true).build());
     let context = test_api::TestContext::current().expect("delivery test context");
-    let bucket = context.bucket_name("delivery").await?;
     let ses = SesClient::new(aws);
     let sender = context.sender_email()?;
     test_api::verify_sender_identity(&sender).await;
@@ -442,53 +434,21 @@ async fn provider(
         .configuration_set_name(&configuration_set)
         .send()
         .await?;
-    let stage = "test";
-    let commit = uuid::Uuid::new_v4().simple().to_string();
-    s3.create_bucket()
-        .bucket(&bucket)
-        .create_bucket_configuration(
-            CreateBucketConfiguration::builder()
-                .location_constraint(BucketLocationConstraint::EuCentral1)
-                .build(),
-        )
-        .send()
-        .await?;
-    let template = if invalid_template {
-        vec![0xff]
-    } else {
-        b"<html><body>{{listing_source_name}} {{first_name}} {{old_availability}} {{new_availability}} <a href=\"{{product_listing_url}}\">View</a></body></html>".to_vec()
-    };
-    s3.put_object()
-        .bucket(&bucket)
-        .key(format!(
-            "{stage}/{commit}/mjml/watchlist/product-update/availability/en.html"
-        ))
-        .body(template.into())
-        .send()
-        .await?;
-    // The receipt's MJML source renders like its compiled HTML: both hold the same
-    // Handlebars expressions.
-    s3.put_object()
-        .bucket(&bucket)
-        .key(format!(
-            "{stage}/{commit}/mjml/content-notice/receipt/it.html"
-        ))
-        .body(
-            include_bytes!("../../../mjml/content-notice/receipt/it.mjml")
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await?;
+    let templates = test_api::mail_templates::mjml_template_root()?;
+    if unrenderable_template {
+        // Compiles at startup but fails when rendered: `lookup` needs two parameters.
+        std::fs::write(
+            templates.join("watchlist/product-update/availability/en.html"),
+            "{{lookup}}",
+        )?;
+    }
     Ok((
-        s3,
         ses,
         EmailDeliveryConfig::new(
-            bucket,
+            templates,
             sender,
             "contact@aura-historia.test",
             configuration_set,
-            format!("{stage}/{commit}/"),
             "https://stage.aura-historia.com",
         )?,
     ))

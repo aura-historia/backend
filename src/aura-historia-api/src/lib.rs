@@ -273,7 +273,7 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO";
 pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
-pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const MAIL_TEMPLATE_DIR_ENV: &str = "MAIL_TEMPLATE_DIR";
 pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV: &str =
     "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED";
@@ -287,7 +287,6 @@ const MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS: u64 = 24 * 60 * 60;
 const MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS: u64 = 365 * 24 * 60 * 60;
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
-pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
 pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
@@ -421,7 +420,7 @@ impl ApiConfig {
         )
         .map_err(ApiConfigError::LoopsConfig)?;
         let newsletter_confirmation_email = NewsletterConfirmationEmailConfig::new(
-            required_config(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+            required_config(&mut get, MAIL_TEMPLATE_DIR_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV)?,
             required_config(
@@ -429,7 +428,6 @@ impl ApiConfig {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
             )?,
             required_config(&mut get, STAGE_ENV)?,
-            required_config(&mut get, MAIL_TEMPLATE_PREFIX_ENV)?,
             &required_config(&mut get, NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV)?,
         )
         .map_err(ApiConfigError::NewsletterConfirmationEmailConfig)?;
@@ -1672,10 +1670,10 @@ async fn app_state_from_config_and_runtime(
     );
     let newsletter_challenges = SqlxNewsletterConfirmationChallengesRepository::new();
     let newsletter_email_sender = SesNewsletterConfirmationEmailSender::new(
-        aws_sdk_s3::Client::new(&aws_client_config),
         aws_sdk_sesv2::Client::new(&aws_client_config),
         config.newsletter_confirmation_email().clone(),
-    );
+    )
+    .map_err(ApiStateError::NewsletterConfirmationTemplates)?;
     let request_newsletter_subscription = RequestNewsletterSubscriptionHandler::new(
         unit_of_work.clone(),
         newsletter_challenges,
@@ -2393,6 +2391,8 @@ pub enum ApiStateError {
     LoopsWebhookListConfiguration,
     #[error("failed to configure address suggestions")]
     AddressSuggestions(#[source] application::error::BoxError),
+    #[error("failed to load the newsletter confirmation email templates")]
+    NewsletterConfirmationTemplates(#[source] user_email_aws::NewsletterConfirmationTemplateError),
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
@@ -2509,8 +2509,8 @@ mod tests {
                 "test-shopify-client-secret".to_owned(),
             ),
             (
-                S3_BUCKET_NAME_TEMPLATES_ENV,
-                "test-mail-templates".to_owned(),
+                MAIL_TEMPLATE_DIR_ENV,
+                "/usr/share/aura-historia/mail-templates".to_owned(),
             ),
             (
                 NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV,
@@ -2530,7 +2530,6 @@ mod tests {
             ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
-            (MAIL_TEMPLATE_PREFIX_ENV, "mail/test-commit/".to_owned()),
             (
                 NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
                 "http://127.0.0.1:3000".to_owned(),
@@ -2751,12 +2750,11 @@ mod tests {
             let config = ApiConfig::from_getter(|name| values.get(name).cloned())
                 .unwrap_or_else(|error| panic!("valid API config rejected: {error}"));
             let expected = NewsletterConfirmationEmailConfig::new(
-                "test-mail-templates",
+                "/usr/share/aura-historia/mail-templates",
                 "Aura Historia <newsletter@example.test>",
                 "contact@example.test",
                 value,
                 "ephemeral",
-                "mail/test-commit/",
                 "http://127.0.0.1:3000",
             )
             .unwrap_or_else(|_| panic!("valid newsletter email config rejected"));
