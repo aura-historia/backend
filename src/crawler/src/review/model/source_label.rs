@@ -17,8 +17,9 @@ pub const MAX_SOURCE_LABEL_NOTE_CHARS: usize = 500;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SourceLabel {
     /// The site offers no items for sale, such as a brochure site or an artist's portfolio. A
-    /// catalogue of items bought by enquiry, each showing a price, price on request or an
-    /// availability status, is an e-shop.
+    /// catalogue of items that can be bought or enquired about, each showing a price, price on
+    /// request, an estimate or an availability status, is an e-shop: enquiry-only stock, an
+    /// auction's lots and a marketplace's items alike.
     NotAnEshop,
     /// The site offers items for sale, but not art or antiques; antique and vintage collectibles count as
     /// antiques, ordinary second-hand goods, new collectibles and reproductions do not.
