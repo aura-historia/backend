@@ -126,10 +126,69 @@ On the host, from the stable checkout of a reviewed ref, with the OpenSearch pro
 7. `sudo host/prod/backup.sh restore-check` once.
 8. Install the operators' OpenPGP public key as `backup-recipient.asc`, then
    `sudo host/install.sh prod-timers`.
+9. Set up [deploy access](#deploy-access); from then on every release is a deploy.
 
 The first time Caddy starts, the old OpenSearch gateway's certificates can be carried over so
 the `opensearch.` site has no gap: stop the gateway, copy the volume
 `aura-historia-opensearch-prod-gateway` into `aura-historia-prod-caddy-data`, start `caddy`.
+
+## Deploys
+
+The [Deploy workflow](../../.github/workflows/deploy.yml) deploys a branch, tag or commit:
+
+1. It builds the commit's image with the same image and Compose smoke tests as a pull request
+   and publishes it as `ghcr.io/aura-historia/aura-historia:<commit>`, or reuses the image
+   already published for that commit.
+2. A reviewer of the `prod` environment approves the deploy.
+3. It connects as the `deploy` user, whose only command is the installed deploy script,
+   [`deploy.sh`](deploy.sh). The script:
+   - checks the commit out in the stable checkout and pulls the image by digest, refusing an
+     image built from another commit;
+   - plans the migrations the database lacks from its ledger and the commit's migrations
+     ([`migration_plan.py`](migration_plan.py)) and applies them as the migrator, which checks
+     the plan against the migrations in the image. A failure up to here puts the checkout
+     back and changes nothing that runs;
+   - writes the image and commit to `compose.env`, so later restarts, timers and reboots use
+     them;
+   - restarts `api-a`, then `api-b`, each once the other answers `/v1/ready` and Caddy has
+     probed it again, so the API keeps serving; then the worker, which finishes its in-flight
+     jobs first; then `mcp`, which is briefly unavailable;
+   - records the deployment in `/var/lib/aura-historia/prod/deploys.log` and removes
+     application images unused for 30 days.
+
+Run it from the Actions tab or with
+`gh workflow run deploy.yml --ref develop -f ref=<branch, tag or commit>`. `--ref` selects the
+workflow definition, which must come from a branch the environment allows; `ref` selects what
+is deployed. One deploy runs at a time. `sudo /usr/local/sbin/aura-prod-deploy status` shows
+the deployed commit and the last deployments.
+
+**Rollback** is a deploy of an earlier commit. Migrations only expand the schema, so the
+earlier code runs on the newer schema and the deploy applies no migration. The deploy refuses
+a commit whose migrations the database lacks while it also has migrations that commit does
+not know.
+
+**Changes a deploy does not apply.** It restarts only `api-a`, `api-b`, the worker and `mcp`.
+Its output ends with the changed files that need an operator: `postgres/` and `caddy/` take
+`compose.sh build <service>` and `compose.sh up -d <service>`; the units and tmpfiles
+`install.sh prod`; the deploy script, the planner and [`host/deploy/`](../deploy)
+`install.sh deploy`, after the deploy that brings them.
+
+### Deploy access
+
+- The `deploy` user has no password and logs in only with the key in
+  `/etc/aura-historia/deploy/authorized_keys`. sshd forces its command and allows no TTY or
+  forwarding ([`sshd.conf`](../deploy/sshd.conf)); sudo lets it run the installed deploy
+  script as root and nothing else ([`sudoers`](../deploy/sudoers)). The script takes only
+  `deploy <commit> <image>` or `status` and validates both.
+- `sudo host/install.sh deploy < deploy.pub` installs the user, the script and the key's
+  public half. Rerun it, from the stable checkout, after a deploy that changes those files and
+  to rotate the key.
+- The `prod` GitHub environment requires a reviewer, allows the workflow only from `develop`,
+  and holds the secrets `PROD_DEPLOY_SSH_KEY` (the private key) and `PROD_DEPLOY_HOST` (the
+  host's address) and the variable `PROD_DEPLOY_KNOWN_HOSTS`: the host's ed25519 key as
+  `aura-prod ssh-ed25519 …`, under an alias so the address is never logged.
+- GitHub's runners have no fixed addresses, so port 22 stays open; SSH must accept keys only
+  (`install.sh ssh`).
 
 ## Scheduled jobs
 

@@ -85,6 +85,8 @@ From a checkout of a reviewed ref:
    caps and fails if a serving container was OOM-killed or restarted.
 5. `sudo host/install.sh ssh` once every SSH user logs in with a key, then
    `sudo host/install.sh firewall`.
+6. The [prod project's first start](prod/README.md#first-start), which ends with the deploy
+   user (`sudo host/install.sh deploy < deploy.pub`).
 
 `sudo host/install.sh check` prints the effective CPU masks, slice properties,
 container placement, SSH authentication settings, firewall rules and public
@@ -96,6 +98,8 @@ listeners without changing anything.
   account with a terminal login in wtmp or a password login in sshd's journal has
   no `authorized_keys`. Keep the current session open until a new key login
   succeeds; Hetzner's rescue system is the fallback.
+- **The `deploy` user** can only run the prod deploy; GitHub Actions logs in as it
+  ([deploy access](prod/README.md#deploy-access)).
 - **ufw denies inbound** except SSH and 443 (TCP and UDP). Docker-published ports
   bypass ufw's input rules, so a `DOCKER-USER` block applies the same rule to new
   connections that reach containers through the external interface. The step
