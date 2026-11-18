@@ -6,6 +6,7 @@
 //! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
 //! without them.
 
+use super::classifier_rejection::{admit_classification_actor, admit_classifier_rejection};
 use super::not_product_pages::retire_marked_pages;
 use super::rearm::rearm_pages_for_new_configuration;
 use super::rejected_pages::RejectedPages;
@@ -280,18 +281,32 @@ impl CrawlerReviewRepository {
     /// Closes the review without changing configuration and, as approval does, releases the work
     /// waiting on it: the review is decided, so a page that waited on a product-schema review is
     /// retried at once and the next crawl of a source that waited on a URL-pattern review may open
-    /// a new one. A review agent's rejection says why in its notes.
+    /// a new one. A review agent's rejection says why in its notes. A rejection that rests on the
+    /// page classifier's verdicts carries them as `classification`, which only the reviewer agent
+    /// sends and which the review must still admit under its row lock
+    /// ([`admit_classifier_rejection`]); its event keeps them.
     pub async fn reject_review(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
         notes: Option<&str>,
+        classification: Option<&PageClassification>,
     ) -> Result<(), ReviewRepositoryError> {
         admit_rejection(actor, notes)?;
+        admit_classification_actor(actor, classification)?;
         let mut transaction = self.pool.begin().await?;
         let review =
             lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions)
                 .await?;
+        if let Some(classification) = classification {
+            admit_classifier_rejection(
+                &mut transaction,
+                review_id,
+                &review.listing_source_id,
+                classification,
+            )
+            .await?;
+        }
         if actor.is_agent() {
             check_agent_decision_rate(
                 &mut transaction,
@@ -314,7 +329,10 @@ impl CrawlerReviewRepository {
             transaction,
             review_id,
             actor,
-            ReviewMutation::Rejected { notes },
+            ReviewMutation::Rejected {
+                notes,
+                classification,
+            },
         )
         .await?;
         Ok(())

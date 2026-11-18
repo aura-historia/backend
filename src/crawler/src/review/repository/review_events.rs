@@ -5,8 +5,9 @@
 use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, HandoverCause, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
-    ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection, SystemHandoverReason,
+    CrawlerReviewEvent, HandoverCause, LiveMatrixEvaluation, PageClassification, ReviewActor,
+    ReviewEventAction, ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection,
+    SystemHandoverReason,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -119,6 +120,9 @@ pub(super) enum ReviewMutation<'a> {
     Rejected {
         #[serde(skip)]
         notes: Option<&'a str>,
+        /// The page classifier's verdicts the rejection rests on, when it rests on them.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        classification: Option<&'a PageClassification>,
     },
     ProductSchemasRestored {
         #[serde(skip)]
@@ -261,7 +265,7 @@ impl ReviewMutation<'_> {
             Self::NoSoldPageRecorded { notes, .. } => Some(notes),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
-            | Self::Rejected { notes }
+            | Self::Rejected { notes, .. }
             | Self::ProductSchemasRestored { notes, .. }
             | Self::UrlPatternRestored { notes, .. }
             | Self::RejectionRevoked { notes, .. } => *notes,
@@ -401,7 +405,8 @@ pub(super) async fn fetch_review_events<'e>(
 
 /// The events of all reviews created at or after `since`, oldest first, at most `limit`, each
 /// with its review's artifact type and ListingSource and, of its details, only the URL-pattern
-/// state an approval made live, and whether later events were left out.
+/// state an approval made live and whether a rejection rests on the page classifier's verdicts,
+/// and whether later events were left out.
 pub(super) async fn fetch_review_events_since<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     since: time::OffsetDateTime,
@@ -414,13 +419,15 @@ pub(super) async fn fetch_review_events_since<'e>(
                 s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, \
                 CASE WHEN e.action = 'APPROVED' \
                      THEN e.details -> 'approved_url_pattern' ->> 'url_pattern_state' \
-                END AS approved_url_pattern_state, e.created \
+                END AS approved_url_pattern_state, {classifier_rejection} AS classifier_rejection, \
+                e.created \
          FROM crawler_review_events e \
          JOIN crawler_reviews r ON r.review_id = e.review_id \
          LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
          WHERE e.created >= $1 \
          ORDER BY e.created {order}, e.event_id {order} \
-         LIMIT $2"
+         LIMIT $2",
+        classifier_rejection = super::classifier_rejection_event!(),
     )))
     .bind(since)
     .bind(i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX))
@@ -449,6 +456,7 @@ pub(super) async fn fetch_review_events_since<'e>(
                 candidate_version: row.try_get("candidate_version")?,
                 notes: row.try_get("notes")?,
                 approved_url_pattern_state: row.try_get("approved_url_pattern_state")?,
+                classifier_rejection: row.try_get("classifier_rejection")?,
                 created: row.try_get("created")?,
             })
         })
@@ -572,6 +580,15 @@ mod tests {
             not_evaluated: 1,
         };
         let event_id = CrawlerReviewEventId::new();
+        let classified_page = CrawlerReviewPageId::new();
+        let classification: PageClassification = serde_json::from_value(json!({
+            "pages": [{
+                "review_page_id": classified_page.to_string(),
+                "verdict": "LISTING",
+                "reason": "Lists twelve chairs.",
+            }]
+        }))
+        .expect("classification");
         for (mutation, action, notes, expected) in [
             (
                 ReviewMutation::CandidateEdited {
@@ -725,10 +742,26 @@ mod tests {
             (
                 ReviewMutation::Rejected {
                     notes: Some("not a shop page"),
+                    classification: None,
                 },
                 ReviewEventAction::Rejected,
                 Some("not a shop page"),
                 json!({}),
+            ),
+            (
+                ReviewMutation::Rejected {
+                    notes: Some("classifier: LISTING"),
+                    classification: Some(&classification),
+                },
+                ReviewEventAction::Rejected,
+                Some("classifier: LISTING"),
+                json!({
+                    "classification": { "pages": [{
+                        "review_page_id": classified_page.to_string(),
+                        "verdict": "LISTING",
+                        "reason": "Lists twelve chairs.",
+                    }] },
+                }),
             ),
             (
                 ReviewMutation::RejectionRevoked {

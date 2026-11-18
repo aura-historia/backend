@@ -114,6 +114,7 @@ mod tests {
                     agent_rounds: 0,
                     human_required: true,
                     handed_back: None,
+                    classification_due: false,
                     created,
                     updated: created,
                 })

@@ -265,7 +265,7 @@ async fn should_refuse_reviewer_page_when_review_is_not_open_for_schema_review()
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
     repository
-        .reject_review(review_id, ReviewActor::Human, None)
+        .reject_review(review_id, ReviewActor::Human, None, None)
         .await
         .unwrap();
 
@@ -307,7 +307,7 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
     );
 
     repository
-        .reject_review(review_id, ReviewActor::Human, None)
+        .reject_review(review_id, ReviewActor::Human, None, None)
         .await
         .unwrap();
 
@@ -360,6 +360,7 @@ async fn should_treat_rejected_page_as_rejected_in_every_spelling_of_the_page() 
             unslashed_review,
             ReviewActor::Human,
             Some("not a product page"),
+            None,
         )
         .await
         .unwrap();
@@ -382,6 +383,7 @@ async fn should_treat_rejected_page_as_rejected_in_every_spelling_of_the_page() 
             slashed_review,
             ReviewActor::Human,
             Some("not a product page"),
+            None,
         )
         .await
         .unwrap();
@@ -896,7 +898,12 @@ async fn should_not_join_when_no_product_schema_review_is_pending() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap();
 
@@ -988,7 +995,12 @@ async fn should_not_treat_rejection_as_verdict_on_waiting_pages() {
         .unwrap();
 
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap();
 
@@ -1056,7 +1068,7 @@ async fn should_keep_a_page_other_when_another_rejection_still_covers_it() {
     // The other review rejects https://www.example.com/products/1.
     let (listing_source_id, other_review) = pending_schema_review(&pool).await;
     repository
-        .reject_review(other_review, ReviewActor::Human, None)
+        .reject_review(other_review, ReviewActor::Human, None, None)
         .await
         .unwrap();
     sqlx::query(
@@ -1090,7 +1102,7 @@ async fn should_keep_a_page_other_when_another_rejection_still_covers_it() {
         .await
         .unwrap();
     repository
-        .reject_review(revoked_review, ReviewActor::Human, None)
+        .reject_review(revoked_review, ReviewActor::Human, None, None)
         .await
         .unwrap();
     for crawler_url in [
@@ -1128,7 +1140,7 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, unrelated_review) = pending_schema_review(&pool).await;
     repository
-        .reject_review(unrelated_review, ReviewActor::Human, None)
+        .reject_review(unrelated_review, ReviewActor::Human, None, None)
         .await
         .unwrap();
     sqlx::query(
@@ -1178,7 +1190,12 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
         .await
         .unwrap();
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap();
     for (crawler_url, class) in [
@@ -1320,7 +1337,7 @@ async fn should_refuse_to_revoke_a_review_whose_rejection_classified_no_page() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, pending) = pending_schema_review(&pool).await;
     repository
-        .reject_review(pending, ReviewActor::Human, None)
+        .reject_review(pending, ReviewActor::Human, None, None)
         .await
         .unwrap();
     let generated = repository
@@ -1341,7 +1358,7 @@ async fn should_refuse_to_revoke_a_review_whose_rejection_classified_no_page() {
         .revoke_rejection(generated, ReviewActor::Human, None)
         .await;
     repository
-        .reject_review(generated, ReviewActor::Human, None)
+        .reject_review(generated, ReviewActor::Human, None, None)
         .await
         .unwrap();
 
@@ -1386,7 +1403,12 @@ async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhil
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap();
     let rejected_page = "https://www.example.com/products/1";

@@ -587,7 +587,10 @@ mod tests {
     #[test]
     fn should_log_the_decision_with_the_source_and_the_actor_when_a_review_is_decided() {
         let (events, _guard) = LoggedEvents::capture();
-        let mutation = ReviewMutation::Rejected { notes: None };
+        let mutation = ReviewMutation::Rejected {
+            notes: None,
+            classification: None,
+        };
 
         for entry in ReviewLogEntry::of_mutation(ReviewActor::AgentReviewer, &mutation) {
             prepared(entry).emit();
@@ -817,7 +820,7 @@ mod tests {
         let (events, _guard) = LoggedEvents::capture();
 
         repository
-            .reject_review(review_id, ReviewActor::Human, None)
+            .reject_review(review_id, ReviewActor::Human, None, None)
             .await
             .unwrap_or_else(|error| panic!("the decision commits: {error}"));
 
