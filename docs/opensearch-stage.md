@@ -24,8 +24,9 @@ Keep that checkout in place for Docker's configuration and certificate bind moun
 switch development branches in a separate checkout. Production uses
 `https://opensearch.aura-historia.com` on HTTPS 443, which already matches the AWS
 application egress policy. Point its DNS A record directly at the approved host,
-with Cloudflare proxying disabled, and keep TCP 80/443 reachable for Caddy's
-automatic public certificate issuance and renewal. Administration is available
+with Cloudflare proxying disabled, and keep TCP 443 reachable for Caddy's
+automatic public certificate issuance and renewal through the TLS-ALPN challenge;
+port 80 stays closed. Administration is available
 only at `https://localhost:19201` with the private operator client certificate.
 Transport/node/admin keys and runtime credentials are generated independently of
 dev; production does not load demo certificates or demo users.
@@ -33,35 +34,18 @@ dev; production does not load demo certificates or demo users.
 The [production bootstrap](../opensearch/prod/bootstrap.py) requires Python 3,
 OpenSSL, Docker Compose and the normal OpenSearch host prerequisites below. It
 checks for at least 100 GiB free Docker storage and enough available RAM for the
-configured container limit plus 8 GiB host headroom. The default container limit
-is 32 GiB, with a 16 GiB heap and no swap. Its CPU quota is eight logical CPUs;
-the host CPU allocation below reserves six and permits two shared CPUs.
+configured container limit plus 8 GiB host headroom. The container runs without
+swap; its heap and memory limits follow the host's memory plan.
 
-### Production CPU allocation
+### Production resource allocation
 
-The production host has six physical cores with two hardware threads each. Keep
-sibling threads together: CPUs `3-5,9-11` are reserved for OpenSearch, `2,8` are
-shared for bursting, and `0-1,6-7` remain available exclusively to other host
-workloads. OpenSearch runs in its own top-level systemd slice on `2-5,8-11`;
-ordinary host services, user sessions and other containers use `0-2,6-8`.
-This reserves three physical cores (six logical CPUs); kernel and interrupt
-activity can still occur there. CPU shares alone do not provide this reservation.
-
-Require cgroup v2 and Docker's systemd cgroup driver. Verify CPU topology before
-using these host-specific masks on another machine, and keep the slice, Compose
-`OPENSEARCH_CPUSET` and host exclusions consistent. Install and enable the slice
-before first bootstrap, then apply host exclusions after bootstrap reports a
-healthy node.
-
-The enabled slice, persistent slice properties and `init.scope` drop-in survive
-reboot; `set-property` alone is transient for `init.scope`. Every
-additional top-level slice or scope must also exclude the reserved CPUs. Verify
-`EffectiveCPUs` for the host slices and the running container's `cpuset.cpus.effective`
-and `cpu.max`; the latter must allow eight CPUs (`800000 100000`). Changing the
-container's parent slice requires recreation and a brief search outage; preserve
-its existing external volumes. To remove the reservation, restore prior host CPU
-masks, recreate OpenSearch without the dedicated parent slice and CPU mask, then
-disable and remove the slice.
+OpenSearch runs in the host's serving tier, `aura_serving.slice`, with no CPU
+pinning or quota: CPU and IO weights rank it with PostgreSQL above the pipeline,
+batch and interactive tiers, and its memory reservation is protected from their
+pressure. The [host tiers](../host/README.md) own the slices, the memory plan and
+their verification. Install the tiers before first bootstrap. Changing the
+container's parent slice or memory settings requires recreation and a brief search
+outage; preserve its existing external volumes.
 
 ### Production storage and bootstrap
 

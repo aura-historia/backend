@@ -1,0 +1,12 @@
+# BEGIN aura-historia docker ingress
+# Docker publishes ports through FORWARD, which ufw's INPUT policy never sees. New
+# connections from the external interface may reach containers only on 443.
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -i @EXTERNAL_INTERFACE@ -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -i @EXTERNAL_INTERFACE@ -p tcp -m conntrack --ctorigdstport 443 --ctdir ORIGINAL -j RETURN
+-A DOCKER-USER -i @EXTERNAL_INTERFACE@ -p udp -m conntrack --ctorigdstport 443 --ctdir ORIGINAL -j RETURN
+-A DOCKER-USER -i @EXTERNAL_INTERFACE@ -j DROP
+-A DOCKER-USER -j RETURN
+COMMIT
+# END aura-historia docker ingress

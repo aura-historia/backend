@@ -39,6 +39,8 @@ For the same local trial, `server` with `CRAWLER_START_REVIEW_AGENT_RUNNER=true`
 
 The container runs Postgres with `max_connections=300`. The crawler's [pools](#postgres-pools) together default to the sum of the spider and scraper concurrency plus 18, which is 128 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pools' sum plus the sessions you open yourself.
 
+The container is capped at 3 GiB. On the production host, set `CRAWLER_POSTGRES_CGROUP_PARENT=aura_batch.slice` in the environment or the compose project's `.env` before `db-up`, so the database runs in the host's batch tier with the crawler units ([host tiers](../../host/README.md)).
+
 The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From `src/crawler`, use the matching scripts in `scripts/linux/` or `scripts/windows/`:
 
 - `db-up` starts Postgres and creates local databases.
@@ -398,7 +400,7 @@ Each crawler outcome an operator needs is one record with a stable `event` field
 
 ### systemd unit
 
-The example unit runs `server` as the unprivileged `crawler` user with `EnvironmentFile=/etc/crawler/crawler.env`, `Restart=on-failure`, `KillSignal=SIGTERM` and `TimeoutStopSec=90s`, a margin above the 60-second graceful-shutdown period before systemd sends SIGKILL. Its working directory is the empty state directory because `server` also loads a `.env` from its working directory or a parent; variables already in the environment take precedence. It starts after `network-online.target` and after `postgresql.service` when Postgres runs on the same host. A database that is still unreachable at start fails startup, and `Restart=on-failure` retries.
+The example unit runs `server` as the unprivileged `crawler` user with `EnvironmentFile=/etc/crawler/crawler.env`, `Restart=on-failure`, `KillSignal=SIGTERM` and `TimeoutStopSec=90s`, a margin above the 60-second graceful-shutdown period before systemd sends SIGKILL. Its working directory is the empty state directory because `server` also loads a `.env` from its working directory or a parent; variables already in the environment take precedence. It starts after `network-online.target` and after `postgresql.service` when Postgres runs on the same host. On the production host, [`host/install.sh`](../../host/install.sh) adds drop-ins that run `crawler-server`, `review-agent-runner`, `crawler-backup` and `crawler-autodeploy` in the batch tier; the example units stay unchanged. A database that is still unreachable at start fails startup, and `Restart=on-failure` retries.
 
 Run exactly one instance: no second host and no manual `server` next to the unit. The scheduler coordinates only through process-local locks ([scheduling and retries](scheduling-and-retries.md)), so a second process would crawl and capture the same work concurrently.
 
