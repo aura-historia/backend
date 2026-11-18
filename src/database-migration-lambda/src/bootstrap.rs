@@ -386,6 +386,24 @@ mod tests {
                     Err(error) => panic!("failed to check inherited replication capability: {error}"),
                 };
 
+                let crawler_privileges: (bool, bool, bool, bool) = match sqlx::query_as(
+                    "SELECT has_database_privilege('aura_crawler_ingestion', current_database(), 'CONNECT'), \
+                            has_function_privilege('aura_crawler_ingestion', \
+                                'public.job_queue_enqueue_product_listing_ingestion(text, text, text)', 'EXECUTE'), \
+                            has_table_privilege('aura_crawler_ingestion', 'public.job_queue_jobs', 'SELECT, INSERT'), \
+                            (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'aura_crawler_ingestion')",
+                )
+                .fetch_one(&mut *connection)
+                .await
+                {
+                    Ok(value) => value,
+                    Err(error) => panic!("failed to check crawler ingestion role grants: {error}"),
+                };
+                assert_eq!(
+                    (true, true, false, false),
+                    crawler_privileges,
+                    "the crawler role connects and enqueues only, and logs in only with a password"
+                );
                 assert!(replication_inherits_capability);
                 assert_eq!(schema_owner, "aura_migrator");
                 assert_eq!(users_owner, "aura_migrator");

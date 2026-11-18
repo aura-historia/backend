@@ -11,7 +11,7 @@ use axum::{
 };
 use listing_source_core::ListingSourceId;
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
-use product_listing_ingestion_sqs::delivery::encode_command;
+use product_listing_ingestion_queue::delivery::encode_command;
 use product_listing_service::{
     ports::{
         ProductListingIngestionPublishError, ProductListingIngestionPublisher,
@@ -276,7 +276,7 @@ async fn async_failures_retain_admission_reports_and_bound_echoed_listing_identi
         (
             ProductListingIngestionOutcome::Rejected {
                 reason: ProductListingIngestionRejectionReason::Publisher {
-                    code: "SQS_SENDER_FAILURE".into(),
+                    code: "QUEUE_REFUSED".into(),
                 },
                 retryable: false,
             },

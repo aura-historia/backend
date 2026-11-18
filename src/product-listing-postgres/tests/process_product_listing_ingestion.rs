@@ -19,7 +19,7 @@ use product_listing_core::{
     product_listing_id::{ProductListingId, ProductListingKey},
     source_listing_id::SourceListingId,
 };
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,

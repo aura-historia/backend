@@ -11,7 +11,8 @@ platform-lambda-bootstrap = { workspace = true }
 platform-lambda-sqs = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-product-listing-ingestion-sqs = { workspace = true }
+platform-postgres-queue = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
 sqlx = { workspace = true }
@@ -20,6 +21,8 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 application = { workspace = true }
+platform-worker-queue-contract = { workspace = true }
+product-listing-normalization = { workspace = true }
 async-trait = { workspace = true }
 listing-source-core = { workspace = true }
 product-listing-core = { workspace = true }

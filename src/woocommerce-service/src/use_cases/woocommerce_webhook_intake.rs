@@ -842,7 +842,7 @@ mod tests {
             let outcome = match self.reply {
                 IntakeReply::Rejected | IntakeReply::TooLarge | IntakeReply::EncodingFailed | IntakeReply::InvalidInput => {
                     let reason = match self.reply {
-                        IntakeReply::Rejected => ProductListingIngestionRejectionReason::Publisher { code: "SQS_SENDER_FAILURE".to_owned() },
+                        IntakeReply::Rejected => ProductListingIngestionRejectionReason::Publisher { code: "QUEUE_REFUSED".to_owned() },
                         IntakeReply::TooLarge => ProductListingIngestionRejectionReason::Publisher { code: "INVALID_MESSAGE_SIZE".to_owned() },
                         IntakeReply::EncodingFailed => ProductListingIngestionRejectionReason::Publisher { code: "ENCODING_FAILED".to_owned() },
                         _ => ProductListingIngestionRejectionReason::InvalidNormalizationInput,

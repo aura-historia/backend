@@ -1,24 +1,11 @@
 //! WooCommerce deadline regression through the HTTP API v2 adapter, real intake service,
-//! partner submission handler, and scoped SQS SDK publisher. Only external ports are faked.
+//! partner submission handler, and scoped queue publisher. Only external ports are faked.
 use application::operation_context::CredentialCapability;
 use aura_historia_api::{
     app,
     auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
     lambda::handle_http_api_v2_request,
     state::{AppState, WebhooksState},
-};
-use aws_sdk_sqs::config::{Credentials, Region};
-use aws_smithy_runtime_api::{
-    client::{
-        http::{
-            HttpClient, HttpConnector, HttpConnectorFuture, HttpConnectorSettings,
-            SharedHttpConnector,
-        },
-        orchestrator::{HttpRequest, HttpResponse},
-        result::ConnectorError,
-        runtime_components::RuntimeComponents,
-    },
-    shared::IntoShared,
 };
 use axum::{Router, body::to_bytes, http::StatusCode};
 use base64::Engine;
@@ -31,8 +18,9 @@ use listing_source_service::ports::{
 use localization::Language;
 use money::Currency;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
-use product_listing_ingestion_sqs::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher, codec,
+use product_listing_ingestion_queue::{
+    AdmissionError, IngestionAdmission, IngestionJob, QueueProductListingIngestionPublisher,
+    ScopedProductListingIngestionPublisher, codec,
 };
 use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureError, AuthorizeProductListingRawCaptureRequest,
@@ -50,7 +38,6 @@ use tokio::sync::{mpsc, oneshot};
 use user_core::user_id::UserId;
 use woocommerce_service::WoocommerceWebhookIntake;
 
-const QUEUE_URL: &str = "https://sqs.us-east-1.amazonaws.com/123456789012/ingestion.fifo";
 const SOURCE_ID: &str = "ls_01h455vb4pex5vy7enb1p677vn";
 const SECRET: &str = "woocommerce-deadline-test-secret";
 const RAW_BODY: &[u8] = br#"{ "id": 901, "name": "Lambda \u00e9 cabinet", "permalink": "https://partner.example/901", "price": "42.00", "status": "publish", "stock_status": "instock", "images": [], "futureWooKey": "\u00e9" }"#;
@@ -154,39 +141,18 @@ impl AuthorizeProductListingRawCaptureUseCase for UnexpectedIgnoredStatusAuthori
     }
 }
 
-// The request still traverses SDK serialization and signing; no SQS receipt is ever returned.
-#[derive(Clone, Debug)]
-struct PendingSqsHttp {
-    requests: mpsc::UnboundedSender<Value>,
+// The job still goes through the publisher's encoding and FIFO keys; the enqueue never returns.
+struct PendingAdmission {
+    bodies: mpsc::UnboundedSender<String>,
 }
 
-impl HttpConnector for PendingSqsHttp {
-    fn call(&self, request: HttpRequest) -> HttpConnectorFuture {
-        assert_eq!(request.method(), "POST");
-        assert_eq!(request.uri(), "https://sqs.us-east-1.amazonaws.com/");
-        assert_eq!(
-            request.headers().get("x-amz-target"),
-            Some("AmazonSQS.SendMessageBatch")
-        );
-        assert!(request.headers().get("authorization").is_some());
-        let body: Value = serde_json::from_slice(request.body().bytes().unwrap()).unwrap();
-        assert_eq!(body["QueueUrl"], QUEUE_URL);
-        self.requests
-            .send(body)
-            .expect("test must observe all SDK calls");
-        HttpConnectorFuture::new(async {
-            std::future::pending::<Result<HttpResponse, ConnectorError>>().await
-        })
-    }
-}
-
-impl HttpClient for PendingSqsHttp {
-    fn http_connector(
-        &self,
-        _: &HttpConnectorSettings,
-        _: &RuntimeComponents,
-    ) -> SharedHttpConnector {
-        self.clone().into_shared()
+#[async_trait::async_trait]
+impl IngestionAdmission for PendingAdmission {
+    async fn enqueue(&self, job: &IngestionJob) -> Result<(), AdmissionError> {
+        self.bodies
+            .send(job.body().to_owned())
+            .expect("test must observe all enqueues");
+        std::future::pending().await
     }
 }
 
@@ -202,22 +168,10 @@ fn router(
     user_id: UserId,
     gate: Arc<SourceGate>,
     verified: Arc<Mutex<Vec<Vec<u8>>>>,
-    requests: mpsc::UnboundedSender<Value>,
+    bodies: mpsc::UnboundedSender<String>,
 ) -> Router {
-    let config = aws_sdk_sqs::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new(
-            "test",
-            "test",
-            None,
-            None,
-            "deadline-test",
-        ))
-        .http_client(PendingSqsHttp { requests })
-        .build();
-    let publisher = ScopedSqsProductListingIngestionPublisher::new(
-        SqsProductListingIngestionPublisher::new(aws_sdk_sqs::Client::from_conf(config), QUEUE_URL),
+    let publisher = ScopedProductListingIngestionPublisher::new(
+        QueueProductListingIngestionPublisher::new(PendingAdmission { bodies }),
     );
     let intake = WoocommerceWebhookIntake::new(
         SourceReader { source_id, gate },
@@ -269,7 +223,7 @@ type TestSetup = (
     Arc<Mutex<Vec<Vec<u8>>>>,
     oneshot::Receiver<()>,
     oneshot::Sender<()>,
-    mpsc::UnboundedReceiver<Value>,
+    mpsc::UnboundedReceiver<String>,
 );
 
 fn setup() -> TestSetup {
@@ -313,7 +267,7 @@ async fn assert_unavailable(response: axum::response::Response) -> String {
 }
 
 #[tokio::test(start_paused = true)]
-async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambda_timeout() {
+async fn delayed_woocommerce_lookup_and_pending_enqueue_return_503_before_lambda_timeout() {
     let (app, user_id, verified, entered, release, mut calls) = setup();
     let response = tokio::spawn(handle_http_api_v2_request(
         app,
@@ -328,14 +282,11 @@ async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambd
     assert!(verified.lock().unwrap().is_empty());
     release.send(()).unwrap();
 
-    let call = calls
+    let wire = calls
         .recv()
         .await
-        .expect("mapped webhook must reach the SDK");
-    let entries = call["Entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1);
-    let wire = entries[0]["MessageBody"].as_str().unwrap();
-    let message = codec::decode(wire).unwrap();
+        .expect("mapped webhook must reach the queue");
+    let message = codec::decode(&wire).unwrap();
     assert_eq!(
         message.actor().unwrap(),
         ProductListingIngestionActor::DelegatedUser(user_id)
@@ -354,7 +305,7 @@ async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambd
     assert_eq!(verified.lock().unwrap().as_slice(), &[RAW_BODY.to_vec()]);
     assert!(
         !response.is_finished(),
-        "pending SDK request cannot acknowledge custody"
+        "pending enqueue cannot acknowledge custody"
     );
 
     // 5s Lambda deadline minus 1s response headroom, then 300ms for error reporting.
@@ -368,7 +319,7 @@ async fn delayed_woocommerce_lookup_and_pending_sdk_send_return_503_before_lambd
 }
 
 #[tokio::test(start_paused = true)]
-async fn source_lookup_finishing_after_publication_deadline_does_not_start_an_sqs_send() {
+async fn source_lookup_finishing_after_publication_deadline_does_not_start_an_enqueue() {
     let (app, _, verified, entered, release, mut calls) = setup();
     let response = tokio::spawn(handle_http_api_v2_request(
         app,

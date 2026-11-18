@@ -983,7 +983,7 @@ async fn delivery_queue_replay_uses_the_committed_receipt_and_rejects_changed_re
     .with_delivery_references(SqlxProductListingDeliveryReferencesFactory);
     let messages = publisher.0.lock().unwrap().clone();
     let envelope = |m: &ProductListingIngestionMessage| {
-        product_listing_ingestion_sqs::codec::envelope(m)
+        product_listing_ingestion_queue::codec::envelope(m)
             .unwrap()
             .into_service_envelope()
             .unwrap()
@@ -1478,7 +1478,7 @@ async fn incremental_imports_preserve_manual_components_and_observations_without
         },
     };
     let envelope = || {
-        product_listing_ingestion_sqs::codec::envelope(&message)
+        product_listing_ingestion_queue::codec::envelope(&message)
             .unwrap()
             .into_service_envelope()
             .unwrap()

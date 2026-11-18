@@ -21,6 +21,17 @@ const POSTGRES_DB: &str = "postgres";
 const POSTGRES_CONTAINER_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
 const POSTGRES_IMAGE: &str = "postgres:16-bookworm";
+
+/// Creates the deployment-managed roles that business migrations grant to, without login, so
+/// fixtures can apply them. Roles are cluster-wide: concurrent fixtures may race to create one.
+pub(crate) const BUSINESS_SCHEMA_ROLES_SQL: &str = "DO $$ DECLARE role_name text; BEGIN \
+     FOREACH role_name IN ARRAY ARRAY['aura_replication', 'aura_runtime', 'aura_crawler_ingestion'] LOOP \
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN \
+     BEGIN \
+     EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE', role_name); \
+     EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; \
+     END; \
+     END IF; END LOOP; END $$;";
 const IMAGE_PULL_RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(2)];
 const HOST_GATEWAY: &str = "host.docker.internal";
 use self::tls::{POSTGRES_TLS_ENTRYPOINT, POSTGRES_TLS_ROOT_CERTIFICATE};
@@ -409,17 +420,12 @@ async fn apply_migrations(migrations_dir: &'static str) {
 
     let mut connection = open_connection().await;
     if migrations_dir == "migrations" {
-        // Business-schema fixtures need the deployment-managed heartbeat grantee.
-        // Role-bootstrap tests create and own this role through their own setup.
+        // Business-schema fixtures need the deployment-managed grantees of the migrations.
+        // Role-bootstrap tests create and own these roles through their own setup.
         connection
-            .execute(AssertSqlSafe(
-                "DO $$ BEGIN \
-                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN \
-                 CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; \
-                 END IF; END $$;",
-            ))
+            .execute(AssertSqlSafe(BUSINESS_SCHEMA_ROLES_SQL))
             .await
-            .expect("shouldn't fail provisioning the replication role for test migrations");
+            .expect("shouldn't fail provisioning the deployment roles for test migrations");
     }
     for path in &entries {
         let sql = std::fs::read_to_string(path).unwrap_or_else(|error| {
