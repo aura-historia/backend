@@ -93,6 +93,11 @@ async fn should_release_conflicted_urls_and_record_the_page_identity_of_the_othe
     .execute(&pool)
     .await
     .unwrap();
+    // Before the migration no row records the identity its page showed.
+    sqlx::query("UPDATE listing_source_urls SET last_extracted_source_listing_id = NULL")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     run(&pool, RELEASE_CONFLICTS).await;
     run(&pool, RELEASE_CONFLICTS).await;
