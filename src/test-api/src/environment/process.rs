@@ -197,7 +197,7 @@ mod tests {
     use super::*;
     #[test]
     fn should_replace_credential_sources_and_service_overrides_with_fixed_test_identity() {
-        let config=ManagedEnvironment::from_json(br#"{"schema_version":1,"run_id":"0123456789abcdef0123456789abcdef","profile":"AWS","slots":4,"postgres":null,"aws_endpoint":"http://127.0.0.1:4567","opensearch_endpoint":null,"aws_services":["eventbridge","s3","sesv2","sqs"]}"#).unwrap();
+        let config=ManagedEnvironment::from_json(br#"{"schema_version":1,"run_id":"0123456789abcdef0123456789abcdef","profile":"AWS","slots":4,"postgres":null,"aws_endpoint":"http://127.0.0.1:4567","opensearch_endpoint":null,"aws_services":["s3","sesv2"]}"#).unwrap();
         let original = [
             ("AWS_PROFILE", "canary"),
             ("AWS_ENDPOINT_URL_S3", "https://foreign.invalid"),

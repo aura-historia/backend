@@ -1,5 +1,5 @@
 use super::{Kind, Manifest, Resource, Result, failure};
-#[cfg(any(feature = "sqs", feature = "s3", feature = "ses"))]
+#[cfg(any(feature = "s3", feature = "ses"))]
 use aws_sdk_account::error::ProvideErrorMetadata;
 use futures_util::FutureExt;
 
@@ -44,14 +44,6 @@ async fn clean_resource(resource: &Resource) -> Result<()> {
                 "slot recovery needs the opensearch fixture feature",
             ))
         }
-        Kind::Queue => {
-            #[cfg(feature = "sqs")]
-            {
-                delete_queue(&resource.name).await
-            }
-            #[cfg(not(feature = "sqs"))]
-            Err(failure("slot recovery needs the sqs fixture feature"))
-        }
         Kind::Bucket => {
             #[cfg(feature = "s3")]
             {
@@ -79,18 +71,11 @@ async fn clean_resource(resource: &Resource) -> Result<()> {
     }
 }
 
-#[cfg(any(feature = "sqs", feature = "s3", feature = "ses"))]
+#[cfg(any(feature = "s3", feature = "ses"))]
 fn missing(error: &impl ProvideErrorMetadata) -> bool {
     matches!(
         error.code(),
-        Some(
-            "NoSuchBucket"
-                | "NoSuchKey"
-                | "NotFound"
-                | "NotFoundException"
-                | "QueueDoesNotExist"
-                | "AWS.SimpleQueueService.NonExistentQueue"
-        )
+        Some("NoSuchBucket" | "NoSuchKey" | "NotFound" | "NotFoundException")
     )
 }
 
@@ -104,22 +89,6 @@ async fn delete_index(name: &str) -> Result<()> {
         .await?;
     if response.status_code().as_u16() != 404 {
         response.error_for_status_code()?;
-    }
-    Ok(())
-}
-
-#[cfg(feature = "sqs")]
-async fn delete_queue(name: &str) -> Result<()> {
-    let url = format!("{}/000000000000/{name}", crate::aws::get_endpoint_url());
-    if let Err(error) = crate::get_sqs_client()
-        .await
-        .delete_queue()
-        .queue_url(url)
-        .send()
-        .await
-        && !error.as_service_error().is_some_and(missing)
-    {
-        return Err(error.into());
     }
     Ok(())
 }

@@ -34,11 +34,7 @@ aws-sdk-s3 = { workspace = true, optional = true }
 uuid = { workspace = true }
 
 # Optional deps
-aws_lambda_events = { workspace = true, optional = true, features = ["apigw"] }
 opensearch = { workspace = true, optional = true, features = ["aws-auth"] }
-aws-sdk-opensearch = { workspace = true, optional = true }
-aws-sdk-sqs = { workspace = true, optional = true }
-aws-sdk-eventbridge = { workspace = true, optional = true }
 futures-util = { workspace = true }
 
 reqwest = { workspace = true, optional = true, features = ["json"] }
@@ -46,24 +42,20 @@ aws-sdk-sesv2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = [
-    "api-gateway",
     "opensearch",
     "postgres",
+    "s3",
     "ses",
-    "sqs",
 ]}
 rstest = { workspace = true }
 product-listing-core = { workspace = true }
 
 [features]
 default = []
-api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 aura-historia-api = ["dep:axum"]
-opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
+opensearch = ["dep:opensearch"]
 postgres = ["dep:sqlx", "dep:sha2"]
-sqs = ["dep:aws-sdk-sqs"]
-eventbridge = ["dep:aws-sdk-eventbridge"]
 s3 = ["dep:aws-sdk-s3"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
 
-supervisor = ["postgres", "opensearch", "sqs"]
+supervisor = ["postgres", "opensearch", "s3", "ses"]
