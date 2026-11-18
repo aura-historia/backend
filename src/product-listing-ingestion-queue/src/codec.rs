@@ -881,7 +881,7 @@ pub fn semantic_fingerprint(value: &IngestionEnvelopeV2) -> Result<String> {
 }
 
 /// Stable per-listing FIFO partition; raw observations partition by method and raw source key.
-/// Hashing keeps opaque keys out of SQS message attributes and within the 128-byte FIFO limit.
+/// Hashing keeps opaque keys out of the queue's group key and within its 128-byte limit.
 pub fn fifo_group_id(value: &IngestionEnvelopeV2) -> Result<String> {
     value.validate()?;
     let source = value.listing_source_id.as_bytes();
@@ -903,8 +903,8 @@ pub fn fifo_group_id(value: &IngestionEnvelopeV2) -> Result<String> {
     Ok(format!("pli1_{}", digest(GROUP_DOMAIN, &fields)))
 }
 
-/// Command identity plus semantic fingerprint, not SQS's content-based deduplication (which
-/// would change when request/correlation IDs change). Different commands on the same key survive.
+/// Command identity plus semantic fingerprint, not a hash of the body (which would change when
+/// request/correlation IDs change). Different commands on the same key survive.
 pub fn fifo_deduplication_id(value: &IngestionEnvelopeV2) -> Result<String> {
     value.validate()?;
     let fingerprint = value.verified_fingerprint()?;

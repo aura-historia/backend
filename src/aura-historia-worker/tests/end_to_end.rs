@@ -37,7 +37,7 @@ use opensearch::GetParts;
 use platform_postgres_queue::{EnqueueOutcome, GroupKey, NewJob, enqueue};
 use platform_worker::{ConsumerConfig, JobHandler};
 use platform_worker_queue_contract::job_queue::product_listing_ingestion_job_scope;
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,

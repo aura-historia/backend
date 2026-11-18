@@ -269,8 +269,8 @@ mod tests {
         let calls = sent.lock().unwrap();
         let messages = &calls[0];
         for message in messages {
-            let wire = product_listing_ingestion_sqs::codec::encode(message).unwrap();
-            let decoded = product_listing_ingestion_sqs::codec::decode(&wire).unwrap();
+            let wire = product_listing_ingestion_queue::codec::encode(message).unwrap();
+            let decoded = product_listing_ingestion_queue::codec::decode(&wire).unwrap();
             let ProductListingIngestionIntent::Update { command, .. } =
                 decoded.into_intent().unwrap()
             else {

@@ -60,7 +60,11 @@ insert-or-nothing. A claimed job leaves that set, so a retry never collides with
 ## Enqueue and wake-up
 
 `enqueue` accepts a transaction's connection, making the job commit or roll back with the
-caller's writes, or a pool. A statement trigger notifies the channel `job_queue:<scope>` once
+caller's writes, or a pool. Job bodies are 1 byte to 1 MiB. The `product-listing-ingestion` scope
+is filled only through the `SECURITY DEFINER` function
+`job_queue_enqueue_product_listing_ingestion` ([migration](../../migrations/20261117140000_product_listing_ingestion_admission.sql)),
+which takes the same group lock, so a producer role needs no table privilege
+([admission](../../docs/product-listing.md#asynchronous-ingestion-submission)). A statement trigger notifies the channel `job_queue:<scope>` once
 per committing transaction. PostgreSQL serializes the commits of transactions that notify, which
 bounds enqueue throughput across all scopes. `JobWakeups` listens on a worker's scopes; workers also poll, since
 retries, expired leases and unblocked FIFO groups become claimable without a notification and a

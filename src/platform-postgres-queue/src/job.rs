@@ -6,8 +6,9 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 const MAX_KEY_BYTES: usize = 128;
-/// The SQS message size limit the job bodies were designed for.
-pub const MAX_PAYLOAD_BYTES: usize = 262_144;
+/// The largest job body: the 1 MiB limit of the ProductListing ingestion wire codec, the
+/// largest SQS message body the jobs were designed for.
+pub const MAX_PAYLOAD_BYTES: usize = 1_048_576;
 const MAX_ERROR_CLASS_BYTES: usize = 64;
 
 /// A job's identity. It survives retries, custody and redrive.
@@ -249,7 +250,7 @@ pub enum JobError {
     InvalidGroupKey,
     #[error("job dedup key must be 1 to 128 bytes of printable ASCII without spaces")]
     InvalidDedupKey,
-    #[error("job payload must be 1 to 262144 bytes")]
+    #[error("job payload must be 1 to 1048576 bytes")]
     InvalidPayload,
     #[error("job error class must be 1 to 64 bytes of lower-case ASCII, digits or underscores")]
     InvalidErrorClass,

@@ -10,8 +10,7 @@ The `server` binary needs:
 |---|---|
 | `LOCAL_DB_URL` | Required connection URL of the crawler-local Postgres database. The operator creates the database; `server` only migrates it. Unset or blank fails startup; see [single-server deployment](#single-server-deployment). |
 | `AURA_API_BASE_URL`, `CRAWLER_API_TOKEN` | Base URL of the Aura Historia API (`https`; `http` only for a loopback host) and a bearer token that may read admin ListingSources (`GET /v1/admin/listing-sources`, scope `listing-sources:read` for a delegated token). The token is never logged. Unset or invalid values fail startup. |
-| `PRODUCT_LISTING_INGESTION_QUEUE_URL` | Required URL of the product-listing ingestion FIFO queue that receives raw observations. |
-| AWS credentials | The SDK default credential chain, allowed `sqs:SendMessage` on that queue and nothing broader. |
+| `PRODUCT_LISTING_INGESTION_DATABASE_URL` | Required business PostgreSQL URL for the role `aura_crawler_ingestion`, over the host's internal network. The role may only execute the [ingestion enqueue function](../product-listing.md#asynchronous-ingestion-submission) and holds no table privilege; the URL is never logged. Unset or malformed fails startup; an unreachable database leaves submissions retryable. |
 | `SPIDER_MAX_SIZE_BYTES` | Required spider page-body ceiling; use a value from 1 MiB through 8 MiB. |
 | `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` | Vertex AI configuration; not read with `CRAWLER_AUTHORING_MODE` `manual` or `agent`. |
 | Application Default Credentials | Vertex AI authentication; `GOOGLE_APPLICATION_CREDENTIALS` is one local option. |
@@ -20,9 +19,9 @@ The `server` binary needs:
 
 `VERTEX_AI_MODEL` selects the schema model. `CRAWLER_VERTEX_AI_CHEAP_MODEL` and operation-specific model settings can select lower-cost models. `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` and `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` bound all crawler LLM calls.
 
-Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enable CloudWatch log export. That deployment needs permission to create the group and stream and put log events. Logs must expose operational outcomes and identifiers without raw source payloads.
+The crawler needs no AWS credentials. It logs JSON to stdout; logs must expose operational outcomes and identifiers without raw source payloads.
 
-The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces the API, the ingestion queue and CloudWatch export with demo ListingSources, which carry their shops' presentation URLs, a raw-observation file and stdout logging, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it. Without `LOCAL_DB_URL`, `dev` starts the [local database](#local-database) itself and uses its `crawler_demo` database. With it, `dev` uses that database as given, like `server`: a run against a copy of `crawler_demo` leaves the demo state untouched, and a `.env` written for `server` points `dev` at the server database.
+The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces the API and the ingestion queue with demo ListingSources, which carry their shops' presentation URLs, a raw-observation file and stdout logging, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it. Without `LOCAL_DB_URL`, `dev` starts the [local database](#local-database) itself and uses its `crawler_demo` database. With it, `dev` uses that database as given, like `server`: a run against a copy of `crawler_demo` leaves the demo state untouched, and a `.env` written for `server` points `dev` at the server database.
 
 `server` and `dev` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
@@ -324,7 +323,7 @@ CREATE DATABASE crawler_server OWNER crawler;
 
 Set `LOCAL_DB_URL=postgres://crawler:<password>@127.0.0.1:5432/crawler_server` in the environment file; percent-encode reserved characters in the password. A missing or blank value fails startup with `missing required environment variable: LOCAL_DB_URL`. Keep the Postgres port closed to the outside. The database holds all crawler state; back it up.
 
-The host needs outbound HTTPS to the API and to SQS, and no route to the business PostgreSQL. A scope refresh that cannot reach the API or receives a failed or malformed page skips that pass and is retried at the next one; startup stops only on a missing or invalid setting. Raw capture into the business database is the ingestion consumer's job, so a failure there is not visible to the crawler.
+The host needs outbound HTTPS to the API and the internal network route to the business PostgreSQL. A scope refresh that cannot reach the API or receives a failed or malformed page skips that pass and is retried at the next one; startup stops only on a missing or invalid setting. Raw capture into business tables is the ingestion consumer's job, so a failure there is not visible to the crawler.
 
 Prepare the host once:
 
@@ -360,9 +359,7 @@ For launch, keep the loopback bind, set a random token, and tunnel: `ssh -L 7878
 
 ### Logging
 
-Logs are JSON on stdout, stored by the journal (`journalctl -u crawler-server`). `LOG_LEVEL` sets the base filter level (default `info`) in [`server.rs`](../../src/crawler/src/bin/server.rs); `RUST_LOG` is not read.
-
-Setting `CRAWLER_CLOUDWATCH_LOG_GROUP` adds CloudWatch Logs export, which needs `logs:CreateLogGroup`, `logs:CreateLogStream` and `logs:PutLogEvents`; `server` creates the group and stream at every start and fails startup if that fails or either name is blank ([`logging.rs`](../../src/crawler/src/logging.rs)). Set `CRAWLER_CLOUDWATCH_LOG_STREAM`: its fallback, `HOSTNAME`, is not set by systemd, so the stream would be `unknown-host`. Credentials and region come from the AWS SDK default chain: an EC2 instance profile, a profile in the service user's `~/.aws` selected with `AWS_PROFILE` (including `credential_process`, for example IAM Roles Anywhere off AWS), or access keys in the environment file. Set `AWS_REGION` unless the profile or instance provides it.
+Logs are JSON on stdout, stored by the journal (`journalctl -u crawler-server`); the host's log shipping, not the crawler, forwards them to CloudWatch. `LOG_LEVEL` sets the base filter level (default `info`) in [`server.rs`](../../src/crawler/src/bin/server.rs); `RUST_LOG` is not read.
 
 #### Outcome events
 
@@ -487,7 +484,7 @@ To restore, stop `crawler-server`, restore the dump (`pg_restore --clean --if-ex
 
 ## Metrics and alarms
 
-The crawler publishes metrics as CloudWatch [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html) records in its JSON log: each record is one log line whose top-level `_aws` block names the metrics, so the [CloudWatch log export](#runtime-prerequisites) turns them into metrics without a metrics client or extra permission. Without log export the records stay on stdout. Metric records ignore `LOG_LEVEL`, so a quiet log level cannot read as a metric gap.
+The crawler publishes metrics as CloudWatch [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html) records in its JSON log: each record is one log line whose top-level `_aws` block names the metrics, so CloudWatch turns them into metrics once the host's log shipping delivers the log, without a metrics client or extra permission. Without log shipping the records stay on stdout. Metric records ignore `LOG_LEVEL`, so a quiet log level cannot read as a metric gap.
 
 All metrics use the namespace `AuraHistoria/Crawler` and are crawler-wide: **none has a dimension**. CloudWatch bills every metric, and every distinct dimension value of a metric, as one custom metric, so a ListingSource, domain, URL or failure-kind dimension multiplies the bill by the number of its values. Each scheduler pass aggregates in process and publishes one record when it ends, also a pass that finds no work. Adding a metric or a dimension is a cost decision: the free tier covers ten custom metrics for the account and the ingestion Lambda's metric filters use some of them, so the crawler keeps to the metrics below. Per-source detail is in the log's [outcome events](#outcome-events), never in a metric.
 

@@ -170,7 +170,7 @@ mod tests {
                         },
                         3 => ProductListingIngestionOutcome::Rejected {
                             reason: ProductListingIngestionRejectionReason::Publisher {
-                                code: "SQS_RETRYABLE_FAILURE".into(),
+                                code: "QUEUE_RETRYABLE_FAILURE".into(),
                             },
                             retryable: true,
                         },
@@ -279,8 +279,8 @@ mod tests {
                 };
                 assert_eq!(key.listing_source_id, source);
                 assert_eq!(key.source_listing_id.as_ref(), id);
-                let wire = product_listing_ingestion_sqs::codec::encode(message).unwrap();
-                let decoded = product_listing_ingestion_sqs::codec::decode(&wire).unwrap();
+                let wire = product_listing_ingestion_queue::codec::encode(message).unwrap();
+                let decoded = product_listing_ingestion_queue::codec::decode(&wire).unwrap();
                 let ProductListingIngestionIntent::Withdraw(decoded_key) =
                     decoded.into_intent().unwrap()
                 else {

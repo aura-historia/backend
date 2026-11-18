@@ -8,7 +8,7 @@ use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_queue::Disposition;
 use platform_process::FailureDiagnostic;
 use platform_worker::{Job, JobHandler, error_class};
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingCommandReceiptStoreFactory,
     SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
@@ -320,7 +320,7 @@ mod tests {
     use test_api::CapturedLogs;
 
     const GOLDEN: &str =
-        include_str!("../../../product-listing-ingestion-sqs/tests/fixtures/ingestion_v2.json");
+        include_str!("../../../product-listing-ingestion-queue/tests/fixtures/ingestion_v2.json");
 
     #[derive(Clone, Copy)]
     enum Mode {

@@ -14,7 +14,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use listing_source_core::Domain;
-use product_listing_ingestion_sqs::with_publication_deadline;
+use product_listing_ingestion_queue::with_publication_deadline;
 use product_listing_normalization::SourcePayload;
 use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerificationError;
 use product_listing_service::use_cases::commands::process_shopify_product_listing::{

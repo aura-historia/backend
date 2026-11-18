@@ -10,7 +10,7 @@ files as in [host process startup](../platform-process/README.md).
 | --- | --- |
 | `migrate --plan <file>` | Applies a reviewed migration plan as the migrator role (`POSTGRES_MIGRATOR_USERNAME`/`_PASSWORD`, `DATABASE_TARGET`) |
 | `inspect-schema` | Prints the migration ledger and schema fingerprint as the read-only inspector role (`POSTGRES_INSPECTOR_USERNAME`/`_PASSWORD`) |
-| `bootstrap` | On a new database, creates the runtime, migrator and inspector roles as an administrator (`POSTGRES_ADMIN_USERNAME`/`_PASSWORD`, `POSTGRES_RUNTIME_PASSWORD`, `POSTGRES_MIGRATOR_PASSWORD`, `POSTGRES_INSPECTOR_PASSWORD`) from [the host role SQL](../../infra/sql/host-bootstrap-roles-core.sql) and applies every migration |
+| `bootstrap` | On a new database, creates the runtime, migrator and inspector roles as an administrator (`POSTGRES_ADMIN_USERNAME`/`_PASSWORD`, `POSTGRES_RUNTIME_PASSWORD`, `POSTGRES_MIGRATOR_PASSWORD`, `POSTGRES_INSPECTOR_PASSWORD`, and optionally `POSTGRES_CRAWLER_INGESTION_PASSWORD` so the crawler's enqueue-only role can log in) from [the host role SQL](../../infra/sql/host-bootstrap-roles-core.sql) and applies every migration |
 | `inspect` | Per job scope: depth, leased count, oldest waiting age and custody; outbox pending count, oldest age and custody |
 | `redrive <scope> --all \| <job-id>...` | Moves custody jobs back with their identity and order; `<scope>` `delivery-outbox` takes outbox IDs |
 | `reproject-all (--live \| --generation <g>) [--page-size <n>] [--start-after <listing-id>]` | Enqueues one projector job per listing; the target is never implicit. Pass the report's `last` as `--start-after` to resume |

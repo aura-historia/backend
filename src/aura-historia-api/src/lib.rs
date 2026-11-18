@@ -288,7 +288,6 @@ const MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS: u64 = 365 * 24 * 60 * 60;
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
-pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
 pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
@@ -1491,10 +1490,7 @@ async fn app_state_from_config_and_runtime(
     let public_listing_sources = runtime.public_listing_sources();
     let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let ingestion_dependencies =
-        aura_historia_runtime::ProductListingIngestionDependencies::from_sqs(
-            aws_sdk_sqs::Client::new(&aws_client_config),
-            ingestion_queue_url_from_env()?,
-        );
+        aura_historia_runtime::ProductListingIngestionDependencies::from_postgres(pool.clone());
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&aws_client_config),
         config.cognito_user_pool_id(),
@@ -2345,31 +2341,6 @@ async fn app_state_from_config_and_runtime(
         .with_readiness(readiness))
 }
 
-fn ingestion_queue_url_from_env() -> Result<String, ApiStateError> {
-    let url = std::env::var(PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV).map_err(|_| {
-        ApiStateError::MissingEnv {
-            name: PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV,
-        }
-    })?;
-    if !valid_ingestion_queue_url(&url) {
-        return Err(ApiStateError::InvalidIngestionQueueUrl);
-    }
-    Ok(url)
-}
-
-fn valid_ingestion_queue_url(value: &str) -> bool {
-    url::Url::parse(value).is_ok_and(|url| {
-        matches!(url.scheme(), "http" | "https")
-            && url.host_str().is_some()
-            && url.query().is_none()
-            && url.fragment().is_none()
-            && url
-                .path_segments()
-                .and_then(|mut segments| segments.next_back())
-                .is_some_and(|name| !name.is_empty() && name.ends_with(".fifo"))
-    })
-}
-
 fn compose_authenticator<P, R, A, U>(
     config: &ApiConfig,
     jwks_provider: P,
@@ -2408,8 +2379,6 @@ pub enum ApiStateError {
     Config(#[from] ApiConfigError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
-    #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]
-    InvalidIngestionQueueUrl,
     #[error(transparent)]
     ListingProviders(#[from] aura_historia_runtime::ProductListingProviderError),
     #[error(transparent)]
@@ -2994,26 +2963,6 @@ mod tests {
 
         assert!(!error.to_string().contains(sentinel));
         assert!(!format!("{error:?}").contains(sentinel));
-    }
-
-    #[test]
-    fn should_require_valid_fifo_ingestion_queue_url_without_leaking_url() {
-        assert!(valid_ingestion_queue_url(
-            "https://sqs.eu-west-1.amazonaws.com/123456789012/product-listing-ingestion.fifo"
-        ));
-        for value in [
-            "",
-            "https://sqs.eu-west-1.amazonaws.com/123456789012/standard",
-            "https://sqs.eu-west-1.amazonaws.com/123456789012/ingestion.fifo?token=secret",
-            "ftp://sqs.example.test/ingestion.fifo",
-        ] {
-            assert!(!valid_ingestion_queue_url(value));
-        }
-        assert!(
-            !ApiStateError::InvalidIngestionQueueUrl
-                .to_string()
-                .contains("secret")
-        );
     }
 
     #[test]

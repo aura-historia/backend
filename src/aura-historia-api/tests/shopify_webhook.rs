@@ -20,7 +20,7 @@ use listing_source_core::{Domain, ListingSourceId};
 use listing_source_postgres::SqlxListingSourceReaders;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_normalization::SourcePayload;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxPendingProductListingRawStreamReader,

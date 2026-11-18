@@ -379,8 +379,8 @@ mod tests {
         let calls = sent.lock().unwrap();
         let commands = &calls[0];
         for message in commands {
-            let encoded = product_listing_ingestion_sqs::codec::encode(message).unwrap();
-            let decoded = product_listing_ingestion_sqs::codec::decode(&encoded)
+            let encoded = product_listing_ingestion_queue::codec::encode(message).unwrap();
+            let decoded = product_listing_ingestion_queue::codec::decode(&encoded)
                 .unwrap()
                 .into_intent()
                 .unwrap();

@@ -8,7 +8,7 @@ use base64::Engine;
 use listing_source_core::ListingSourceId;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_normalization::SourcePayload;
 use product_listing_postgres::{
     SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,

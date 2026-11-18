@@ -13,6 +13,8 @@ const ADMIN_USERNAME_ENV: &str = "POSTGRES_ADMIN_USERNAME";
 const ADMIN_PASSWORD_ENV: &str = "POSTGRES_ADMIN_PASSWORD";
 const RUNTIME_PASSWORD_ENV: &str = "POSTGRES_RUNTIME_PASSWORD";
 const INSPECTOR_PASSWORD_ENV: &str = "POSTGRES_INSPECTOR_PASSWORD";
+/// Optional: without it the crawler's ingestion role exists but cannot log in.
+const CRAWLER_INGESTION_PASSWORD_ENV: &str = "POSTGRES_CRAWLER_INGESTION_PASSWORD";
 /// The role the bootstrap SQL creates for migrations.
 const MIGRATOR_ROLE: &str = "aura_migrator";
 const INITIALIZATION_ADVISORY_LOCK: &str = "aura_historia_database_initialize";
@@ -71,6 +73,11 @@ impl BootstrapConfig {
                 runtime_password: required(RUNTIME_PASSWORD_ENV)?,
                 migrator_password: required(MIGRATOR_PASSWORD_ENV)?,
                 inspector_password: required(INSPECTOR_PASSWORD_ENV)?,
+                crawler_ingestion_password: platform_process::config::optional(
+                    CRAWLER_INGESTION_PASSWORD_ENV,
+                    String::new(),
+                )
+                .map_err(|error| OpsError::Config(error.into()))?,
             },
         })
     }
@@ -83,6 +90,8 @@ struct RoleCredentials {
     runtime_password: String,
     migrator_password: String,
     inspector_password: String,
+    /// Empty when the crawler's role is not to log in yet.
+    crawler_ingestion_password: String,
 }
 
 pub(super) struct BootstrapOutcome {
@@ -180,11 +189,13 @@ async fn bootstrap_roles_inner(
     sqlx::query(
         "SELECT set_config('aura.bootstrap.runtime_password', $1, true), \
                 set_config('aura.bootstrap.migrator_password', $2, true), \
-                set_config('aura.bootstrap.inspection_password', $3, true)",
+                set_config('aura.bootstrap.inspection_password', $3, true), \
+                set_config('aura.bootstrap.crawler_ingestion_password', $4, true)",
     )
     .bind(&credentials.runtime_password)
     .bind(&credentials.migrator_password)
     .bind(&credentials.inspector_password)
+    .bind(&credentials.crawler_ingestion_password)
     .execute(&mut *transaction)
     .await?;
 
@@ -279,6 +290,7 @@ mod tests {
                     runtime_password: "runtime-password".into(),
                     migrator_password: "migrator-password".into(),
                     inspector_password: "inspection-password".into(),
+                    crawler_ingestion_password: String::new(),
                 };
 
                 sqlx::query("SET ROLE aura_admin")
@@ -387,6 +399,21 @@ mod tests {
                 .await
                 .expect("check replication role attributes");
                 assert!(no_replication_login);
+                let crawler_privileges: (bool, bool, bool, bool) = sqlx::query_as(
+                    "SELECT has_database_privilege('aura_crawler_ingestion', current_database(), 'CONNECT'), \
+                            has_function_privilege('aura_crawler_ingestion', \
+                                'public.job_queue_enqueue_product_listing_ingestion(text, text, text)', 'EXECUTE'), \
+                            has_table_privilege('aura_crawler_ingestion', 'public.job_queue_jobs', 'SELECT, INSERT'), \
+                            (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'aura_crawler_ingestion')",
+                )
+                .fetch_one(&mut *connection)
+                .await
+                .expect("check crawler ingestion role grants");
+                assert_eq!(
+                    (true, true, false, false),
+                    crawler_privileges,
+                    "the crawler role connects and enqueues only, and logs in only with a password"
+                );
                 sqlx::query("SET ROLE aura_inspector").execute(&mut *connection).await.expect("assume inspector");
                 sqlx::query("SELECT version, checksum, success FROM _sqlx_migrations").fetch_all(&mut *connection).await.expect("read sanitized ledger");
                 assert!(sqlx::query("SELECT * FROM users").fetch_all(&mut *connection).await.is_err());

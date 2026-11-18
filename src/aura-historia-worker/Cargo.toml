@@ -33,7 +33,7 @@ platform-postgres-queue = { workspace = true }
 platform-process = { workspace = true }
 platform-worker = { workspace = true }
 platform-worker-queue-contract = { workspace = true }
-product-listing-ingestion-sqs = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }

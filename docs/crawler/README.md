@@ -2,7 +2,7 @@
 
 The `crawler` crate discovers and extracts generic product evidence from enabled `WEB_CRAWL` ListingSources. It has its own Postgres state for crawl roots, URLs, schemas, retries, budgets, and review artifacts.
 
-It is not a ProductListing writer and holds no business database credentials. It reads its ListingSource scope from the admin API and submits immutable raw observations to the shared product-listing ingestion queue; the normalization Lambda is the sole authority that turns raw evidence into canonical ProductListings after CDC activation. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts. R17 crawler-local scheduling, review and raw-capture completion remain independent of the worker transport: an accepted submission is not proof of capture, and a capture is not proof of normalization.
+It is not a ProductListing writer: its business database role may only enqueue ingestion commands and can read or write no table. It reads its ListingSource scope from the admin API and submits immutable raw observations to the shared product-listing ingestion queue; the normalization Lambda is the sole authority that turns raw evidence into canonical ProductListings after CDC activation. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts. R17 crawler-local scheduling, review and raw-capture completion remain independent of the worker transport: an accepted submission is not proof of capture, and a capture is not proof of normalization.
 
 ## Flow
 
@@ -13,7 +13,7 @@ flowchart LR
     Spider --> Urls[Local URL state]
     Urls --> Scraper[Scraper]
     Scraper --> Raw[Immutable raw observation]
-    Raw --> Queue[Ingestion FIFO queue]
+    Raw --> Queue[Ingestion FIFO job queue in PostgreSQL]
     Queue --> Capture[Ingestion consumer: transactional raw capture]
     Capture --> CDC[Delivery outbox and dispatcher]
     CDC --> SQS[Normalization job scope]
@@ -62,7 +62,7 @@ Crawler IDs exposed by the review service use TypeIDs: reviews `cr`, review page
 
 ## Binaries
 
-- `server` runs the scheduled crawler and review console. It reads its scope from the admin API and submits raw observations to the ingestion queue; it needs no business database.
+- `server` runs the scheduled crawler and review console. It reads its scope from the admin API and submits raw observations to the ingestion queue through a business database role that may only enqueue.
 - `dev` runs the same crawler locally against demo ListingSources, writes raw observations to a file, and needs neither AWS nor the API.
 - `dev-spider` and `dev-scraper` are focused development entry points for their respective passes.
 - `fetch-fixture` saves source HTML for stable parser and schema snapshots; it is not a production ingestion path.

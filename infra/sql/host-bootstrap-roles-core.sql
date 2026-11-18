@@ -1,5 +1,7 @@
 -- Role bootstrap of the self-hosted PostgreSQL. Run inside one transaction as the administrator
--- after the caller sets the three aura.bootstrap.* password settings. Derived from
+-- after the caller sets the three aura.bootstrap.* password settings. An optional fourth,
+-- aura.bootstrap.crawler_ingestion_password, lets the crawler's ingestion role log in; without it
+-- the role exists but cannot log in. Derived from
 -- rds-bootstrap-roles-core.sql without logical replication: the delivery outbox replaced DMS.
 --
 -- The immutable initial business schema still grants the retired DMS heartbeat schema to
@@ -17,6 +19,8 @@ DECLARE
     runtime_password text := current_setting('aura.bootstrap.runtime_password', true);
     migrator_password text := current_setting('aura.bootstrap.migrator_password', true);
     inspection_password text := current_setting('aura.bootstrap.inspection_password', true);
+    crawler_ingestion_password text :=
+        current_setting('aura.bootstrap.crawler_ingestion_password', true);
 BEGIN
     IF runtime_password IS NULL OR runtime_password = ''
         OR migrator_password IS NULL OR migrator_password = ''
@@ -33,6 +37,19 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_inspector') THEN
         CREATE ROLE aura_inspector LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
     END IF;
+    -- The crawler's only right is EXECUTE on the ingestion enqueue function
+    -- (migrations/20261117140000_product_listing_ingestion_admission.sql).
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_crawler_ingestion') THEN
+        CREATE ROLE aura_crawler_ingestion NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
+            CONNECTION LIMIT 8;
+    END IF;
+    -- Bound how long a crawler session can hold an enqueue's group lock.
+    ALTER ROLE aura_crawler_ingestion SET statement_timeout = '30s';
+    ALTER ROLE aura_crawler_ingestion SET idle_in_transaction_session_timeout = '30s';
+    IF crawler_ingestion_password IS NOT NULL AND crawler_ingestion_password <> '' THEN
+        EXECUTE format('ALTER ROLE aura_crawler_ingestion LOGIN PASSWORD %L',
+            crawler_ingestion_password);
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN
         CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
     END IF;
@@ -48,7 +65,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 DO $$
 BEGIN
     EXECUTE format(
-        'GRANT CONNECT ON DATABASE %I TO aura_runtime, aura_migrator, aura_inspector',
+        'GRANT CONNECT ON DATABASE %I TO aura_runtime, aura_migrator, aura_inspector, aura_crawler_ingestion',
         current_database()
     );
     EXECUTE format('GRANT CREATE ON DATABASE %I TO aura_migrator', current_database());
@@ -61,7 +78,7 @@ GRANT USAGE, CREATE ON SCHEMA public TO aura_migrator;
 ALTER SCHEMA public OWNER TO aura_migrator;
 
 SET LOCAL ROLE aura_migrator;
-GRANT USAGE ON SCHEMA public TO aura_runtime, aura_inspector;
+GRANT USAGE ON SCHEMA public TO aura_runtime, aura_inspector, aura_crawler_ingestion;
 DO $$ BEGIN
     IF to_regclass('public._sqlx_migrations') IS NOT NULL THEN
         GRANT SELECT (version, checksum, success) ON public._sqlx_migrations TO aura_inspector;

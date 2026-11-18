@@ -8,7 +8,7 @@ use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue, Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use product_listing_ingestion_sqs::with_publication_deadline;
+use product_listing_ingestion_queue::with_publication_deadline;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;

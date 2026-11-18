@@ -53,7 +53,7 @@ members = [
     "src/product-listing-core",
     "src/product-listing-normalization",
     "src/product-listing-shopify",
-    "src/product-listing-ingestion-sqs",
+    "src/product-listing-ingestion-queue",
     "src/product-service",
     "src/product-listing-service",
     "src/woocommerce-service",
@@ -206,7 +206,7 @@ http-body-util = "0.1.5"
 hyper = "1.11.0"
 hyper-util = "0.1.20"
 product-listing-core = { path = "src/product-listing-core" }
-product-listing-ingestion-sqs = { path = "src/product-listing-ingestion-sqs" }
+product-listing-ingestion-queue = { path = "src/product-listing-ingestion-queue" }
 product-listing-shopify = { path = "src/product-listing-shopify" }
 product-listing-normalization = { path = "src/product-listing-normalization" }
 product-service = { path = "src/product-service" }
@@ -264,7 +264,6 @@ tokio = { version = "1.52.3", default-features = false }
 tower = "0.5.2"
 tower-http = { version = "0.7.0", features = ["cors", "limit", "sensitive-headers", "timeout", "trace"] }
 tracing = "0.1.44"
-tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 typed-builder = "0.23.2"
 percent-encoding = "2.3.2"
