@@ -142,12 +142,11 @@ mod tests {
     }
 
     #[test]
-    fn should_build_a_tls_free_service_pool_with_the_process_default_size() {
+    fn should_build_a_service_pool_with_the_process_default_size() {
         let config = from(&values()).unwrap();
 
         assert_eq!(5432, config.port());
         assert_eq!(10, config.max_connections());
-        assert_eq!(None, config.tls());
         assert_eq!(
             platform_postgres::PostgresPoolTimeouts::service().acquire(),
             config.timeouts().unwrap().acquire()

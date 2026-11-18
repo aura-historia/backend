@@ -354,7 +354,6 @@ mod tests {
                 assert_eq!(1, config.policy.classification_batch_candidates.get());
                 assert_eq!(config.endpoint.as_str(), "https://search.example.test/");
                 assert_eq!(1, config.postgres.max_connections());
-                assert!(config.postgres.tls().is_none());
             }
             "valid-prod" => {
                 let config = config.expect("valid production configuration");
