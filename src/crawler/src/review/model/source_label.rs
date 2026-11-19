@@ -38,6 +38,11 @@ pub enum SourceLabel {
     JavascriptRendered,
     /// The products are behind a login.
     LoginRequired,
+    /// The review agents could not finish the source's review or qualification, even in their
+    /// final round: the author and the reviewer still disagreed, or the obstacle fits no other
+    /// label. The note names both sides' last positions. Unlike `OTHER`, a human's catch-all, the
+    /// agents retry it on their own once it expires.
+    AgentsUnresolved,
     /// Any other cause; the note names it.
     Other,
     /// Retired: the shop sells online, but one of the crawler's approaches does not fit it. It
@@ -49,7 +54,7 @@ pub enum SourceLabel {
 
 impl SourceLabel {
     /// Every label a ListingSource may carry, the retired one included.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::NotAnEshop,
         Self::NotAnAntiqueShop,
         Self::UrlPatternApproachNotApplicable,
@@ -59,12 +64,13 @@ impl SourceLabel {
         Self::BotProtection,
         Self::JavascriptRendered,
         Self::LoginRequired,
+        Self::AgentsUnresolved,
         Self::Other,
         Self::ApproachNotApplicable,
     ];
 
     /// The labels a new label may use: every label but the retired one.
-    pub const OFFERED: [Self; 10] = [
+    pub const OFFERED: [Self; 11] = [
         Self::NotAnEshop,
         Self::NotAnAntiqueShop,
         Self::UrlPatternApproachNotApplicable,
@@ -74,6 +80,7 @@ impl SourceLabel {
         Self::BotProtection,
         Self::JavascriptRendered,
         Self::LoginRequired,
+        Self::AgentsUnresolved,
         Self::Other,
     ];
 
@@ -89,6 +96,7 @@ impl SourceLabel {
             Self::BotProtection => "BOT_PROTECTION",
             Self::JavascriptRendered => "JAVASCRIPT_RENDERED",
             Self::LoginRequired => "LOGIN_REQUIRED",
+            Self::AgentsUnresolved => "AGENTS_UNRESOLVED",
             Self::Other => "OTHER",
             Self::ApproachNotApplicable => "APPROACH_NOT_APPLICABLE",
         }
@@ -232,6 +240,7 @@ impl super::QueryValue for SourceLabel {
         ("BOT_PROTECTION", Self::BotProtection),
         ("JAVASCRIPT_RENDERED", Self::JavascriptRendered),
         ("LOGIN_REQUIRED", Self::LoginRequired),
+        ("AGENTS_UNRESOLVED", Self::AgentsUnresolved),
         ("OTHER", Self::Other),
         ("APPROACH_NOT_APPLICABLE", Self::ApproachNotApplicable),
     ];

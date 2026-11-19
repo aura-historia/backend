@@ -1706,6 +1706,7 @@ const SOURCE_LABELS = {
     BOT_PROTECTION: 'BOT PROTECTION',
     JAVASCRIPT_RENDERED: 'JAVASCRIPT RENDERED',
     LOGIN_REQUIRED: 'LOGIN REQUIRED',
+    AGENTS_UNRESOLVED: 'AGENTS UNRESOLVED',
     OTHER: 'OTHER',
 };
 
@@ -1716,13 +1717,13 @@ const RETIRED_SOURCE_LABELS = {
 
 // A label's colour says what kind of reason it is: blue for a site that is not an art and antiques e-shop,
 // nothing broken; amber where the crawler's technique does not fit the shop; red where the shop
-// keeps the crawler out or is gone; grey for any other reason.
+// keeps the crawler out or is gone; grey for any other reason, the agents' unresolved park included.
 const SOURCE_LABEL_TONES = {
     NOT_AN_ESHOP: 'info', NOT_AN_ANTIQUE_SHOP: 'info',
     URL_PATTERN_APPROACH_NOT_APPLICABLE: 'warn', PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE: 'warn',
     APPROACH_NOT_APPLICABLE: 'warn', JAVASCRIPT_RENDERED: 'warn',
     ROBOTS_DISALLOWED: 'bad', SHOP_CLOSED: 'bad', BOT_PROTECTION: 'bad', LOGIN_REQUIRED: 'bad',
-    OTHER: 'neutral'
+    AGENTS_UNRESOLVED: 'neutral', OTHER: 'neutral'
 };
 
 function sourceLabelTone(label) {
