@@ -4567,6 +4567,33 @@ Origin: http://127.0.0.1:7878/x
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {parked}");
             assert_eq!(parked["labelled_by"], "AGENT_AUTHOR");
             assert!(parked["retry_at"].is_string(), "{parked}");
+
+            // A human who clears the park hands the source's reviews back to the regular rounds:
+            // the ended final round no longer lets an agent park the source again.
+            let listing_source_id = detail["review"]["listing_source_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{detail}"))
+                .to_owned();
+            let (status, cleared) = send_as(
+                &server,
+                TOKEN,
+                &format!("DELETE /api/listing-sources/{listing_source_id}/label"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {cleared}");
+            let (_, handed_back) = send_as(&server, TOKEN, &review, "").await;
+            assert_eq!(
+                (
+                    &handed_back["review"]["agent_rounds"],
+                    &handed_back["review"]["human_required"]
+                ),
+                (&json!(0), &json!(false))
+            );
+            let (status, refused) =
+                send_as(&server, AUTHOR_TOKEN, &source_label, &unresolved).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "FINAL_ROUND_ONLY_LABEL");
         }
     }
 

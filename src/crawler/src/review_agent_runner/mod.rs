@@ -2126,6 +2126,15 @@ echo "end $role $review" >> "$dir/order.log"
         );
 
         let refused = summary(&run_with(&settings).await);
+        let mut state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            state.cooldowns.contains_key(&ended.review_id),
+            "a failed park cools the review down: {state:?}"
+        );
+        let cooling = summary(&run_with(&settings).await);
+        assert_eq!(cooling.parked, 0, "no park while it cools down");
+        state.cooldowns.clear();
+        save_state(fixture.state.path(), &state).unwrap_or_else(|e| panic!("{e}"));
         std::fs::remove_file(
             fixture
                 .claude
@@ -2164,6 +2173,38 @@ echo "end $role $review" >> "$dir/order.log"
                 parking::FinalRoundOutcome::Parked
             ]
         );
+    }
+
+    /// When the park after a final round fails, the runner ends the round with a hand-over, so the
+    /// next run only parks instead of running the round's processes again, and the review cools
+    /// down meanwhile.
+    #[tokio::test]
+    async fn should_end_the_round_and_cool_down_when_its_park_fails() {
+        let stuck = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![stuck.clone()]).await;
+        fixture.claude.mark("human", stuck.review_id);
+        fixture.claude.mark("final_due", stuck.review_id);
+        fixture.claude.mark("park_refused", stuck.review_id);
+        fixture.claude.answer(
+            "reviewer",
+            reviewer_envelope("NEEDS_REPAIR", "ACCEPTED", 0.25),
+        );
+        fixture.claude.decide("reviewer", "REPAIR_REQUESTED");
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.final_rounds, run.parked, run.processes), (1, 0, 2));
+        let handovers = fixture.claude.handovers();
+        assert_eq!(handovers.len(), 1, "{handovers:?}");
+        assert!(
+            handovers[0].starts_with(&format!(
+                "{} NEEDS_HUMAN OTHER The final round ended without an approval.",
+                stuck.review_id
+            )),
+            "{handovers:?}"
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.contains_key(&stuck.review_id), "{state:?}");
     }
 
     /// The day's cap on final rounds holds back the reviews due for one beyond it; they wait for

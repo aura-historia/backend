@@ -12,16 +12,27 @@ use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds, FinalRoun
 use crate::review::model::{ReviewActor, ReviewEventAction, STATUS_PENDING_REVIEW};
 use std::collections::HashMap;
 
-/// The part of a review's event trail that follows its latest `HUMAN` event, or all of it when no
-/// human acted on it, and that lies within the round window: a `WHERE` condition on the event `e`
-/// of the review aliased `r`. Binds `$3`, the human actor, and `$4`, the window in days or null for
-/// none ([`AgentDecisionPolicy::repair_round_window_days`]).
+/// The part of a review's event trail that follows the latest act of a human on it, or all of it
+/// when no human acted, and that lies within the round window: a `WHERE` condition on the event
+/// `e` of the review aliased `r`. A human acts on a review with an event of its own, and on every
+/// review of its ListingSource by labelling the source, clearing its label or deciding or clearing
+/// its qualification, which hands the source's reviews back to the agents' regular rounds, so no
+/// final round or park outlives it. Binds `$3`, the human actor, and `$4`, the window in days or
+/// null for none ([`AgentDecisionPolicy::repair_round_window_days`]).
 macro_rules! after_last_human_event {
     () => {
         "e.created > GREATEST( \
             COALESCE( \
                 (SELECT MAX(h.created) FROM crawler_review_events h \
                  WHERE h.review_id = r.review_id AND h.actor = $3), \
+                '-infinity'::timestamptz), \
+            COALESCE( \
+                (SELECT MAX(l.occurred_at) FROM listing_source_label_events l \
+                 WHERE l.listing_source_id = r.listing_source_id AND l.actor = $3), \
+                '-infinity'::timestamptz), \
+            COALESCE( \
+                (SELECT MAX(q.occurred_at) FROM listing_source_qualification_events q \
+                 WHERE q.listing_source_id = r.listing_source_id AND q.actor = $3), \
                 '-infinity'::timestamptz), \
             COALESCE(NOW() - make_interval(days => $4::int), '-infinity'::timestamptz))"
     };

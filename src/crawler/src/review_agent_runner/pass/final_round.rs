@@ -8,11 +8,13 @@
 
 use super::{Pass, Step};
 use crate::review::model::{
-    FinalRoundStatus, HandoverCategory, MAX_SOURCE_LABEL_NOTE_CHARS, SourceLabel,
+    FinalRoundStatus, HandoverCategory, HandoverCause, HandoverReason, MAX_SOURCE_LABEL_NOTE_CHARS,
+    SourceLabel,
 };
 use crate::review_agent_runner::parking::{self, FinalRoundOutcome, ParkingEvent, ParkingRecord};
 use crate::review_agent_runner::queue::{
-    QueuedReview, ReviewArtifact, TrailEvent, approval_failures, review_trail, waits_for_human,
+    QueuedReview, ReviewArtifact, TrailEvent, approval_failures, hand_to_human, review_trail,
+    waits_for_human,
 };
 use crate::review_agent_runner::reports::{
     AgentReport, AuthorAction, AuthorReport, ReviewerReport,
@@ -29,6 +31,16 @@ const MAX_TRAIL_EVENTS: usize = 30;
 const MAX_TRAIL_NOTE_CHARS: usize = 600;
 /// The guard's refusal of an agent's `NO_PATTERN`, which only a label resolves.
 const NO_PATTERN_NEEDS_HUMAN: &str = "NO_PATTERN_NEEDS_HUMAN";
+
+/// What the review's trail says before the runner parks its source.
+enum TrailCheck {
+    /// The final round still runs; the trail, oldest first.
+    Runs(Vec<TrailEvent>),
+    /// A human changed or judged the review after its final round started.
+    HumanTookOver,
+    /// The trail cannot be read.
+    Unknown,
+}
 
 /// Why the runner parks a source after a final round.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,8 +59,11 @@ impl Pass<'_> {
         need: Vec<QueuedReview>,
         free: usize,
     ) -> Vec<QueuedReview> {
+        let mut sources = std::collections::BTreeSet::new();
         let (ended, due): (Vec<_>, Vec<_>) = need
             .into_iter()
+            // One review per ListingSource: a park takes the source's other reviews with it.
+            .filter(|review| sources.insert(review.listing_source_id))
             .partition(|review| review.final_round == FinalRoundStatus::Ended);
         let mut taken: Vec<QueuedReview> = ended.into_iter().take(free).collect();
         let free = free - taken.len();
@@ -87,12 +102,11 @@ impl Pass<'_> {
             self.cool_down(&review);
             return;
         }
-        self.with(|shared| shared.summary.final_rounds += 1);
         if review.final_round == FinalRoundStatus::Ended {
-            let park = unresolved("The final round ended without a decision.", None, None);
-            self.park(&review, park).await;
+            self.park_ended_round(&review).await;
             return;
         }
+        self.with(|shared| shared.summary.final_rounds += 1);
         let author = match self.run_process(AgentRole::Author, &review).await.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {
                 self.finish_final_round(&review, FinalRoundOutcome::Open, None);
@@ -247,9 +261,17 @@ impl Pass<'_> {
     /// Parks the review's source with `park`'s label and note as the author agent, and records
     /// how the final round ended.
     async fn park(&self, review: &QueuedReview, park: Park) {
-        if !self.final_round_still_runs(review).await {
-            self.finish_final_round(review, FinalRoundOutcome::HandedBack, None);
-            return;
+        match self.trail_check(review).await {
+            TrailCheck::Runs(_) => {}
+            TrailCheck::HumanTookOver => {
+                self.finish_final_round(review, FinalRoundOutcome::HandedBack, None);
+                return;
+            }
+            TrailCheck::Unknown => {
+                self.finish_final_round(review, FinalRoundOutcome::NotParked, None);
+                self.cool_down(review);
+                return;
+            }
         }
         match self.label_source(review, &park).await {
             Ok(applied) => {
@@ -267,27 +289,76 @@ impl Pass<'_> {
                     label = park.label.as_str(),
                     error = %error,
                     cause = ?std::error::Error::source(&error),
-                    "Cannot park the source after the review's final round; the review waits for a human"
+                    "Cannot park the source after the review's final round; the round is ended so the next run only parks, after the cooldown"
                 );
+                if review.final_round != FinalRoundStatus::Ended {
+                    self.end_final_round(review, &park).await;
+                }
                 self.finish_final_round(review, FinalRoundOutcome::NotParked, None);
+                self.cool_down(review);
             }
+        }
+    }
+
+    /// Parks the source of `review`, whose final round ended on an earlier run without a park,
+    /// with the last positions the round's trail records; no process starts and no final round of
+    /// the day's cap is spent.
+    async fn park_ended_round(&self, review: &QueuedReview) {
+        let events = match self.trail_check(review).await {
+            TrailCheck::Runs(events) => events,
+            TrailCheck::HumanTookOver => {
+                self.finish_final_round(review, FinalRoundOutcome::HandedBack, None);
+                return;
+            }
+            TrailCheck::Unknown => {
+                self.finish_final_round(review, FinalRoundOutcome::NotParked, None);
+                self.cool_down(review);
+                return;
+            }
+        };
+        let park = Park {
+            label: SourceLabel::AgentsUnresolved,
+            note: note_with_sides(
+                "The final round ended without a decision.",
+                &final_round_positions(&events),
+            ),
+        };
+        self.park(review, park).await;
+    }
+
+    /// Ends the open final round of `review` with a hand-over of the author agent carrying the
+    /// park's note, so the next run only parks the source instead of running the round's processes
+    /// again; a hand-over the console does not take is logged, and the cooldown bounds the reruns.
+    async fn end_final_round(&self, review: &QueuedReview, park: &Park) {
+        let cause = HandoverCause {
+            reason: HandoverReason::NeedsHuman,
+            category: HandoverCategory::Other,
+        };
+        if let Err(error) = hand_to_human(self.console, review.review_id, cause, &park.note).await {
+            warn!(
+                review_id = %review.review_id,
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Cannot end the review's final round after its park failed; it is worked again after the cooldown"
+            );
         }
     }
 
     /// Whether the review's trail still holds the final round it was given: a `FINAL_ROUND_STARTED`
     /// event no `HUMAN` event follows. A human who changed or judged the review meanwhile took it
     /// over, so the runner parks nothing; a trail it cannot read parks nothing either, and the
-    /// review stays with the agents for the next run.
-    async fn final_round_still_runs(&self, review: &QueuedReview) -> bool {
+    /// review cools down before the next run tries again.
+    async fn trail_check(&self, review: &QueuedReview) -> TrailCheck {
         match review_trail(self.console, review.review_id).await {
-            Ok(events) => final_round_runs_in(&events),
+            Ok(events) if final_round_runs_in(&events) => TrailCheck::Runs(events),
+            Ok(_) => TrailCheck::HumanTookOver,
             Err(error) => {
                 warn!(
                     review_id = %review.review_id,
                     error = %error,
-                    "Cannot read the review's trail before parking its source; the next run tries again"
+                    "Cannot read the review's trail before parking its source; it cools down and the next run tries again"
                 );
-                false
+                TrailCheck::Unknown
             }
         }
     }
@@ -471,8 +542,36 @@ fn park_note(
     ]
     .into_iter()
     .flatten()
-    .filter(|(_, text)| !text.trim().is_empty())
     .collect();
+    note_with_sides(why, &sides)
+}
+
+/// The last notes the author and the reviewer agent gave in the final round `events` record, the
+/// events after its latest `FINAL_ROUND_STARTED`, as the sides of a park note.
+fn final_round_positions(events: &[TrailEvent]) -> Vec<(&'static str, &str)> {
+    let started = events
+        .iter()
+        .rposition(|event| event.action == "FINAL_ROUND_STARTED")
+        .unwrap_or(0);
+    [("AGENT_AUTHOR", "Author"), ("AGENT_REVIEWER", "Reviewer")]
+        .into_iter()
+        .filter_map(|(actor, side)| {
+            events[started..]
+                .iter()
+                .rev()
+                .filter(|event| event.actor == actor)
+                .find_map(|event| event.notes.as_deref())
+                .map(|notes| (side, notes))
+        })
+        .collect()
+}
+
+/// `why`, then each side's position, shortened so the whole fits the console's label note.
+fn note_with_sides(why: &str, sides: &[(&str, &str)]) -> String {
+    let sides: Vec<&(&str, &str)> = sides
+        .iter()
+        .filter(|(_, text)| !text.trim().is_empty())
+        .collect();
     let mut note = why.to_owned();
     if !sides.is_empty() {
         let room = MAX_SOURCE_LABEL_NOTE_CHARS.saturating_sub(why.chars().count()) / sides.len();
@@ -698,6 +797,47 @@ mod tests {
             "AGENT_REVIEWER",
             "REPAIR_REQUESTED"
         )]));
+    }
+
+    /// A park after an ended round names the last positions the round's author and reviewer gave,
+    /// not those before it.
+    #[test]
+    fn should_name_the_last_positions_of_the_final_round_in_a_later_park() {
+        let event = |actor: &str, action: &str, notes: Option<&str>| TrailEvent {
+            actor: actor.to_owned(),
+            action: action.to_owned(),
+            candidate_version: 1,
+            notes: notes.map(str::to_owned),
+            created: OffsetDateTime::UNIX_EPOCH,
+        };
+        let events = [
+            event(
+                "AGENT_REVIEWER",
+                "REPAIR_REQUESTED",
+                Some("before the round"),
+            ),
+            event("AGENT_AUTHOR", "FINAL_ROUND_STARTED", None),
+            event(
+                "AGENT_AUTHOR",
+                "HANDED_TO_HUMAN",
+                Some("no shop-wide pattern"),
+            ),
+            event(
+                "AGENT_REVIEWER",
+                "REPAIR_REQUESTED",
+                Some("takes category pages"),
+            ),
+        ];
+
+        let note = note_with_sides(
+            "The final round ended without a decision.",
+            &final_round_positions(&events),
+        );
+
+        assert_eq!(
+            note,
+            "The final round ended without a decision. Author: no shop-wide pattern Reviewer: takes category pages"
+        );
     }
 
     #[test]

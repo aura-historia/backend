@@ -22,7 +22,7 @@ pub enum ReviewServerConfigError {
     #[error("invalid {name} value {value:?}; expected a whole number of at least 1")]
     InvalidPositiveNumber { name: &'static str, value: String },
     #[error(
-        "CRAWLER_REVIEW_AGENT_PARK_MAX_AGE_DAYS ({park_days}) must be at least CRAWLER_REVIEW_AGENT_REPAIR_ROUND_WINDOW_DAYS ({window_days}): a park that expires within the round window would bring its review back with the final round it already had, so it would be parked again without an agent trying it"
+        "the agents' first park of a source, CRAWLER_REVIEW_AGENT_PARK_MAX_AGE_DAYS at most 180 days ({park_days}), must last at least CRAWLER_REVIEW_AGENT_REPAIR_ROUND_WINDOW_DAYS ({window_days}): a park that expires within the round window would bring its review back with the final round it already had, so it would be parked again without an agent trying it"
     )]
     ParkShorterThanRoundWindow { park_days: u32, window_days: u32 },
 }

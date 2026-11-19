@@ -979,14 +979,28 @@ async fn should_refuse_a_retry_time_without_the_park_it_retries() {
     )
     .await;
 
-    for column in ["source_label_retry_at", "qualification_retry_at"] {
+    for (column, constraint) in [
+        (
+            "source_label_retry_at",
+            "listing_sources_source_label_retry_check",
+        ),
+        (
+            "qualification_retry_at",
+            "listing_sources_qualification_retry_check",
+        ),
+    ] {
         let refused = sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE listing_sources SET {column} = NOW() WHERE listing_source_id = $1"
         )))
         .bind(listing_source_id.as_uuid())
         .execute(&pool)
-        .await;
-        assert!(refused.is_err(), "{column} without its park");
+        .await
+        .expect_err(column);
+        let database = refused
+            .as_database_error()
+            .unwrap_or_else(|| panic!("{column}: {refused}"));
+        assert_eq!(database.code().as_deref(), Some("23514"), "{column}");
+        assert_eq!(database.constraint(), Some(constraint), "{column}");
     }
 }
 

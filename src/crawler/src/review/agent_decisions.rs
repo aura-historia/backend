@@ -10,7 +10,7 @@
 
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::access::{ReviewServerConfigError, positive_number};
-use crate::review::model::{ParkSchedule, STATUS_PENDING_REVIEW};
+use crate::review::model::{MAX_PARK_INTERVAL_DAYS, ParkSchedule, STATUS_PENDING_REVIEW};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::time::Duration;
@@ -103,9 +103,10 @@ impl AgentLimits {
             )?,
             park_max_age_days: read(AGENT_PARK_MAX_AGE_DAYS_ENV, defaults.park_max_age_days)?,
         };
-        if limits.park_max_age_days < limits.repair_round_window_days {
+        let first_park_days = limits.park_max_age_days.get().min(MAX_PARK_INTERVAL_DAYS);
+        if first_park_days < limits.repair_round_window_days.get() {
             return Err(ReviewServerConfigError::ParkShorterThanRoundWindow {
-                park_days: limits.park_max_age_days.get(),
+                park_days: first_park_days,
                 window_days: limits.repair_round_window_days.get(),
             });
         }
@@ -337,22 +338,29 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn should_refuse_a_park_shorter_than_the_round_window() {
-        let error = limits_from(&[
-            (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, "7"),
-            (AGENT_PARK_MAX_AGE_DAYS_ENV, "3"),
-        ])
-        .err()
-        .unwrap_or_else(|| panic!("a 3-day park under a 7-day window must fail startup"));
+        for (window, park, first_park) in [("7", "3", 3), ("200", "200", 180)] {
+            let error = limits_from(&[
+                (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, window),
+                (AGENT_PARK_MAX_AGE_DAYS_ENV, park),
+            ])
+            .err()
+            .unwrap_or_else(|| panic!("a {park}-day park under a {window}-day window"));
 
+            assert!(
+                matches!(
+                    error,
+                    ReviewServerConfigError::ParkShorterThanRoundWindow { park_days, .. }
+                        if park_days == first_park
+                ),
+                "{error}"
+            );
+        }
         assert!(
-            matches!(
-                error,
-                ReviewServerConfigError::ParkShorterThanRoundWindow {
-                    park_days: 3,
-                    window_days: 7
-                }
-            ),
-            "{error}"
+            limits_from(&[
+                (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, "180"),
+                (AGENT_PARK_MAX_AGE_DAYS_ENV, "400"),
+            ])
+            .is_ok()
         );
     }
 
