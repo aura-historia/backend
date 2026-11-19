@@ -25,7 +25,10 @@ test('the deploy workflow publishes only tested images and deploys them through 
   const deploy = read('.github/workflows/deploy.yml');
   assert.match(deploy, /^on:\n  workflow_dispatch:/m);
   assert.doesNotMatch(deploy, /^  (push|pull_request|schedule):/m);
-  assert.doesNotMatch(deploy, /id-token:\s*write|configure-aws-credentials/);
+  // AWS credentials only in the approved deploy job, and only for publishing the trigger zips.
+  assert.equal(deploy.match(/id-token:\s*write/g)?.length, 1);
+  assert.match(deploy, /role-to-assume: \$\{\{ secrets\.PROD_TRIGGER_PUBLISHER_ROLE_ARN \}\}/);
+  assert.match(deploy, /--if-none-match '\*'/);
   assert.match(deploy, /uses: \.\/\.github\/workflows\/container-images\.yml\n    with:\n      source_sha: .*\n      export_image: true/);
   // Only the publish job, which runs none of the commit's code, may write the package.
   assert.equal(deploy.match(/packages: write/g)?.length, 1);

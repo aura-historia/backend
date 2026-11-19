@@ -1,9 +1,11 @@
 name: Deploy
 run-name: Deploy ${{ inputs.ref }} to prod
 # Builds the image for one commit, publishes it to GHCR and deploys it to the prod host over SSH
-# (host/prod/README.md#deploys); deploying an earlier commit is the rollback. The `prod`
-# environment's reviewers approve every deploy; its branch policy limits which branches may run
-# this workflow, and DEPLOY_BRANCHES which commits it deploys.
+# (host/prod/README.md#deploys); deploying an earlier commit is the rollback. It also publishes
+# the commit's Cognito trigger zips, which an operator's `cdk deploy` of the identity stack
+# selects by commit (docs/infra.md#deploying-the-reduced-app). The `prod` environment's
+# reviewers approve every deploy; its branch policy limits which branches may run this
+# workflow, and DEPLOY_BRANCHES which commits it deploys.
 on:
   workflow_dispatch:
     inputs:
@@ -23,6 +25,7 @@ env:
   IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/aura-historia
   # The host enforces the same list (host/prod/deploy.sh); this only fails earlier.
   DEPLOY_BRANCHES: develop epic/aws-exit-single-host
+  TRIGGER_BUCKET: aura-historia-binary-artifacts-eu-central-1
 
 jobs:
   resolve:
@@ -107,17 +110,86 @@ jobs:
           [[ ${image} =~ ^${IMAGE_REPOSITORY}@sha256:[0-9a-f]{64}$ ]]
           echo "image=${image}" >> "$GITHUB_OUTPUT"
 
-  deploy:
-    name: Deploy ${{ needs.resolve.outputs.sha }}
-    needs: [resolve, publish]
-    # Either the image this run published, or the one already published for the commit.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && needs.resolve.outputs.image != '')) }}
+  triggers:
+    name: Build the Cognito triggers
+    needs: resolve
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - name: Install toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: cognito-triggers
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - name: Build the trigger zips
+        env:
+          CARGO_PROFILE_RELEASE_LTO: true
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+        run: |
+          set -euo pipefail
+          if ! cargo lambda --version 2>/dev/null | grep -Eq '^cargo-lambda 1\.9\.0($| )'; then
+            cargo install cargo-lambda --version 1.9.0 --locked
+          fi
+          mapfile -t binaries < <(jq -r '.[]' ci/lambda-binaries.json)
+          arguments=()
+          for binary in "${binaries[@]}"; do arguments+=(--package "$binary" --bin "$binary"); done
+          cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip "${arguments[@]}"
+          mkdir -p triggers
+          for binary in "${binaries[@]}"; do cp "target/lambda/${binary}/bootstrap.zip" "triggers/${binary}.zip"; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cognito-triggers-${{ github.run_id }}-${{ github.run_attempt }}
+          path: triggers/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy ${{ needs.resolve.outputs.sha }}
+    needs: [resolve, publish, triggers]
+    # Either the image this run published, or the one already published for the commit.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.triggers.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && needs.resolve.outputs.image != '')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Only for the trigger publisher role, which trusts this environment alone.
+      id-token: write
     environment:
       name: prod
       url: https://api.aura-historia.com/v1/health
     steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: cognito-triggers-${{ github.run_id }}-${{ github.run_attempt }}
+          path: triggers
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.PROD_TRIGGER_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-central-1
+      - name: Publish the Cognito triggers
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          for zip in triggers/*.zip; do
+            key="$(basename "$zip" .zip)-prod-${SHA}.zip"
+            # A commit's zip is published once; a rebuilt one never replaces it.
+            if output="$(aws s3api put-object --bucket "$TRIGGER_BUCKET" --key "$key" --body "$zip" --if-none-match '*' 2>&1)"; then
+              echo "published s3://${TRIGGER_BUCKET}/${key}"
+            elif grep -q PreconditionFailed <<<"$output"; then
+              echo "kept the published s3://${TRIGGER_BUCKET}/${key}"
+            else
+              echo "$output" >&2
+              exit 1
+            fi
+          done
       - name: Deploy over SSH
         env:
           SHA: ${{ needs.resolve.outputs.sha }}

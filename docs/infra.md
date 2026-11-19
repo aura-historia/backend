@@ -21,7 +21,7 @@ composes three stacks:
 
 | Stack suffix under `application-prod` | Ownership |
 | --- | --- |
-| `host` | The host's IAM user, the versioned backup bucket, the CloudFront origin secret and the Cognito triggers' signing key |
+| `host` | The host's IAM user, the versioned backup bucket, the CloudFront origin secret, the Cognito triggers' signing key and the role that publishes their code |
 | `identity` | Cognito pool, client, domains, identity providers and both Cognito triggers; the SES configuration set; the host user's Cognito admin grant |
 | `api` | CloudFront distributions and Web ACLs for `api.` and `mcp.`, both on the host origin |
 
@@ -53,6 +53,13 @@ The `host` stack deploys independently of the others and before the host serves 
   An operator installs its `value` in the host proxy's secret file. To rotate, put a new value,
   let the proxy accept both, deploy `api` with the new version in `OriginVerifyCredentialVersion`,
   then drop the old value from the proxy.
+- **Trigger artifact publisher.** The Deploy workflow's approved `prod` job assumes this role
+  through the account's GitHub OIDC provider and publishes both triggers' zips as
+  `<binary>-prod-<commit>.zip` in `aura-historia-binary-artifacts-eu-central-1`, a versioned
+  bucket outside the app. The role may only create such objects with `If-None-Match: *`, so it
+  can never replace or delete them; set its ARN (`TriggerArtifactPublisherRoleArn`) as the `prod`
+  environment's `PROD_TRIGGER_PUBLISHER_ROLE_ARN` secret, a secret because the ARN names the
+  account and Actions logs are public.
 - **Cognito trigger signing key.** `/aura-historia/prod/edge/post-confirmation-signing` is
   generated once and retained; its name predates the pre-sign-up trigger. Both triggers sign
   their requests to the host with it, each under its own purpose label, so a request signed for
@@ -161,8 +168,10 @@ An update that intentionally replaces or removes an `identity` resource other th
 The reduced `identity` and `api` stacks reach prod only at the cutover, after the host serves
 the application; `host` may deploy earlier. Keep the retained stack names. Deploy each stack
 with `cdk deploy` from `infra/`, passing its parameters: `identity` takes the
-`CognitoIdentityProvidersCredentialVersion`, the `PostConfirmationSigningCredentialVersion` and both
-triggers' artifact key, version and SHA-256; `api` takes `OriginVerifyCredentialVersion`. Before the first reduced deployment:
+`CognitoIdentityProvidersCredentialVersion`, the `PostConfirmationSigningCredentialVersion` and
+`CognitoTriggersRevision`, a commit the [Deploy workflow](../host/prod/README.md#deploys)
+deployed, which published both triggers' zips; `api` takes `OriginVerifyCredentialVersion`.
+Before the first reduced deployment:
 
 - Both trigger artifacts must be built from code that runs without the database: a
   pre-sign-up trigger that asks the host's endpoint and a configured post-confirmation

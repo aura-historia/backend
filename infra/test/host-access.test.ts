@@ -45,10 +45,14 @@ describe("host access stack", () => {
     expect(user.Properties.UserName).toBe("aura-historia-prod-host");
     expect(user.Properties.Policies).toBeUndefined();
     // Grants are managed policies, leaving IAM's 2,048-character aggregate inline limit unused.
-    expect(host.findResources("AWS::IAM::Policy")).toEqual({});
-    expect(identity.findResources("AWS::IAM::Policy", { Properties: { Users: ["aura-historia-prod-host"] } })).toEqual({});
+    for (const template of [host, identity]) {
+      const inline = Object.values(template.findResources("AWS::IAM::Policy")) as Resource[];
+      expect(inline.filter((policy) => JSON.stringify(policy.Properties.Users ?? []).match(/HostUser|aura-historia-prod-host/))).toEqual([]);
+    }
     expect(host.findResources("AWS::IAM::AccessKey")).toEqual({});
-    expect(host.findResources("AWS::IAM::Role")).toEqual({});
+    // The only role is the trigger artifact publisher, which GitHub assumes, never the host.
+    expect(Object.values(host.findResources("AWS::IAM::Role")).map((role: any) => role.Properties.RoleName))
+      .toEqual(["aura-historia-prod-trigger-artifact-publisher"]);
   });
 
   test("keeps every backup version: versioned, TLS-only, private and retained with its stack", () => {
@@ -177,5 +181,30 @@ describe("host access stack", () => {
     }
     // The host user never reads them; an operator installs them in the host's secret files.
     expect(JSON.stringify(hostUserStatements())).not.toContain("secretsmanager:");
+  });
+});
+
+describe("trigger artifact publisher", () => {
+  const [, role] = only(host, "AWS::IAM::Role");
+  const policies = Object.values(host.findResources("AWS::IAM::Policy")) as Resource[];
+  const statements = policies.flatMap((policy) => policy.Properties.PolicyDocument.Statement as Statement[]);
+
+  test("is assumable only by the Deploy workflow's prod environment through GitHub's OIDC provider", () => {
+    const [trust] = role.Properties.AssumeRolePolicyDocument.Statement as Statement[];
+    expect(trust.Action).toBe("sts:AssumeRoleWithWebIdentity");
+    expect(JSON.stringify(trust.Principal)).toContain("oidc-provider/token.actions.githubusercontent.com");
+    expect(trust.Condition).toEqual({
+      StringEquals: {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:aura-historia/backend:environment:prod",
+      },
+    });
+  });
+
+  test("may only create trigger zips in the artifact bucket", () => {
+    expect(statements).toHaveLength(1);
+    expect(actions(statements[0])).toEqual(["s3:PutObject"]);
+    expect(JSON.stringify(statements[0].Resource)).toContain(":s3:::aura-historia-binary-artifacts-eu-central-1/cognito-*-prod-*.zip");
+    expect(statements[0].Condition).toEqual({ StringEquals: { "s3:if-none-match": "*" } });
   });
 });
