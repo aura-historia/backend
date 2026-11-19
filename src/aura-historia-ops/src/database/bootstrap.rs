@@ -21,9 +21,10 @@ const INITIALIZATION_ADVISORY_LOCK: &str = "aura_historia_database_initialize";
 const ROLE_BOOTSTRAP_SQL: &str =
     include_str!("../../../../infra/sql/host-bootstrap-roles-core.sql");
 /// Drops the replication placeholder the role bootstrap created for the initial schema, once
-/// the DMS retirement migration removed what it was granted. A role still referenced by another
-/// database of the cluster is left alone; one this administrator may not drop is kept with a
-/// warning, as the retirement migration does.
+/// the DMS retirement migration removed what it was granted, revoking what a database restored
+/// from RDS still grants it. A role still referenced by another database of the cluster is left
+/// alone; one this administrator may not drop is kept with a warning, as the retirement
+/// migration does.
 const RETIRE_REPLICATION_PLACEHOLDER_SQL: &str = r#"
 DO $$
 DECLARE
@@ -42,6 +43,10 @@ BEGIN
         DROP ROLE aura_replication;
     EXCEPTION
         WHEN dependent_objects_still_exist THEN
+            -- Privileges restored from the RDS dump still name the role. Revoking them takes the
+            -- role's privileges, which its creator's ADMIN option lets the administrator grant
+            -- itself; the administrator is a member of the owner that granted them.
+            EXECUTE format('GRANT aura_replication TO %I', current_user);
             DROP OWNED BY aura_replication;
             DROP ROLE aura_replication;
     END;
