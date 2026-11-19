@@ -70,20 +70,3 @@ mcp.aura-historia.com {
 		respond 403
 	}
 }
-
-# Until the cutover (#3037) the AWS runtime still searches through this site; remove the block
-# then. The host's own processes reach OpenSearch directly on the search network.
-opensearch.aura-historia.com {
-	@runtime path /product-listings/_search /product-listings/_doc/*
-	handle @runtime {
-		reverse_proxy https://opensearch:9200 {
-			transport http {
-				tls_trust_pool file /etc/caddy/opensearch-root-ca.pem
-				tls_server_name opensearch
-			}
-		}
-	}
-	handle {
-		respond 403
-	}
-}

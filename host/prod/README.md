@@ -108,9 +108,6 @@ everything else, including any request while the secret is unset, gets 403. The 
 removed before the request is forwarded. The API is balanced over both replicas, and a replica
 that fails `/v1/health` is taken out until it passes again.
 
-Until the cutover (#3037), Caddy also serves `opensearch.` with the read paths the AWS runtime
-uses. Remove that site block afterwards.
-
 ## First start
 
 On the host, from the stable checkout of a reviewed ref, with the OpenSearch project running:
@@ -178,7 +175,8 @@ and it needs a reviewed manual procedure.
 
 **Changes a deploy does not apply.** It restarts only `api-a`, `api-b`, the worker and `mcp`.
 Its output ends with the changed files that need an operator: `postgres/` and `caddy/` take
-`compose.sh build <service>` and `compose.sh up -d <service>`; the units and tmpfiles
+`compose.sh build <service>` and `compose.sh up -d --force-recreate <service>` (a changed
+bind-mounted file alone does not recreate the container); the units and tmpfiles
 `install.sh prod`; the deploy script, the planner and [`host/deploy/`](../deploy)
 `install.sh deploy`, after the deploy that brings them.
 
