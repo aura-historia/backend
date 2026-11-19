@@ -204,14 +204,12 @@ services:
     logging: *logging
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - <<: *opensearch-root-ca
-        target: /etc/caddy/opensearch-root-ca.pem
       - caddy-data:/data
     tmpfs: [/config:size=16m, /tmp:size=16m]
     ports:
       - 443:443
       - 443:443/udp
-    networks: [default, search]
+    networks: [default]
 
   # One-shot commands: `compose.sh run --rm ops <command>`. Host timers run the scheduled ones.
   ops:

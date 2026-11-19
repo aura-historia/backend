@@ -24,10 +24,7 @@ Keep that checkout in place for Docker's configuration and certificate bind moun
 switch development branches in a separate checkout. The node publishes no public port:
 the prod project's application containers reach it at `https://opensearch:9200` on the
 shared `search` network and trust its private CA
-([prod networks](../host/prod/README.md#networks)). Until the cutover, the
-[prod project's Caddy](../host/prod/README.md#caddy) also serves restricted read routes at
-`https://opensearch.aura-historia.com` for the AWS runtime; that public site is removed
-afterwards. Administration is available
+([prod networks](../host/prod/README.md#networks)). Administration is available
 only at `https://localhost:19201` with the private operator client certificate.
 Transport/node/admin keys and runtime credentials are generated independently of
 dev; production does not load demo certificates or demo users.
