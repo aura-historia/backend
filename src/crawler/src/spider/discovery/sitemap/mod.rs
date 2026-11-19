@@ -11,12 +11,14 @@ pub mod locations;
 pub mod parser;
 pub mod reader;
 
+use std::collections::HashSet;
 use url::Url;
 
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::discovery::frontier::SeedAdmission;
 use crate::spider::discovery::known_pages::KnownPages;
 use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::canonical::without_language_segment;
 use reader::SitemapDiagnostics;
 
 /// What a crawl does with the pages its sitemaps list.
@@ -32,6 +34,11 @@ pub(in crate::spider::discovery) struct SitemapRegistration {
 /// Splits the sitemap `pages` into product URLs and seeds. A page must pass the rules a found
 /// link passes (`admission`: stored spelling, the root's host and scheme, the URL blacklist and
 /// robots.txt); a product page the crawl already `known`s is neither registered nor seeded.
+///
+/// A product page listed both with and without a language segment before its path (`/x` and
+/// `/en/x`, as multilingual Shopify sitemaps list every product) is registered once, without
+/// the segment: the sitemap is the evidence the hreflang canonical rule reads from a page's head
+/// for a fetched page (`docs/crawler/networking.md#canonical-product-urls`).
 pub(in crate::spider::discovery) fn register(
     pages: &[Url],
     admission: &SeedAdmission<'_>,
@@ -40,13 +47,22 @@ pub(in crate::spider::discovery) fn register(
     diagnostics: &mut SitemapDiagnostics,
 ) -> SitemapRegistration {
     let mut registration = SitemapRegistration::default();
+    let mut taken = Vec::new();
     for page in pages {
         let Some(stored) = admission.admit(page) else {
             diagnostics.urls_refused += 1;
             continue;
         };
-        if !product_pattern.is_some_and(|pattern| stored.matches_pattern(pattern)) {
+        if product_pattern.is_some_and(|pattern| stored.matches_pattern(pattern)) {
+            taken.push(stored);
+        } else {
             registration.seeds.push(stored.as_url().clone());
+        }
+    }
+    let taken_pages: HashSet<Url> = taken.iter().map(CrawledUrl::page_spelling).collect();
+    for stored in taken {
+        if without_language_segment(&stored).is_some_and(|page| taken_pages.contains(&page)) {
+            diagnostics.products_language_copies += 1;
         } else if known.page_of(stored.as_url()).is_some() {
             diagnostics.products_known += 1;
         } else {
@@ -56,4 +72,88 @@ pub(in crate::spider::discovery) fn register(
     diagnostics.products_registered = registration.products.len();
     diagnostics.seeds = registration.seeds.len();
     registration
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::robots::DenyList;
+    use crate::spider::discovery::frontier::{CrawlSeeds, FollowRules};
+    use crate::spider::discovery::robots::CrawlRobots;
+    use crate::spider::discovery::website_spider::configured_host_whitelist;
+    use regex::{Regex, RegexSet};
+    use std::sync::Arc;
+
+    fn url(path: &str) -> Url {
+        Url::parse(&format!("https://shop.example{path}")).unwrap()
+    }
+
+    fn register_listed(paths: &[&str]) -> (SitemapRegistration, SitemapDiagnostics) {
+        let root = url("/");
+        let rules = FollowRules::new(
+            root.clone(),
+            Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap(),
+            Arc::new(RegexSet::empty()),
+        );
+        let robots = CrawlRobots {
+            deny_list: DenyList::default(),
+            crawl_delay: None,
+            rules: None,
+            policy: "unavailable_allow_all",
+        };
+        let admission = SeedAdmission {
+            rules: &rules,
+            robots: &robots,
+        };
+        let known = KnownPages::new(
+            &root,
+            &CrawlSeeds {
+                known: vec![url("/products/stored")],
+                ..CrawlSeeds::default()
+            },
+        );
+        let pattern = ProductUrlPattern::parse("/products/[^/]+$").unwrap();
+        let mut diagnostics = SitemapDiagnostics::default();
+        let pages: Vec<Url> = paths.iter().map(|path| url(path)).collect();
+        let registration = register(&pages, &admission, Some(&pattern), &known, &mut diagnostics);
+        (registration, diagnostics)
+    }
+
+    fn registered(registration: &SitemapRegistration) -> Vec<&str> {
+        registration
+            .products
+            .iter()
+            .map(|page| page.as_url().path())
+            .collect()
+    }
+
+    #[test]
+    fn should_register_a_product_listed_with_and_without_a_language_segment_once() {
+        let (registration, diagnostics) = register_listed(&[
+            "/products/chair",
+            "/en/products/chair",
+            "/de-at/products/chair",
+            "/en/products/only-in-english",
+            "/en/collections/chairs",
+        ]);
+
+        assert_eq!(
+            registered(&registration),
+            ["/products/chair", "/en/products/only-in-english"]
+        );
+        assert_eq!(diagnostics.products_language_copies, 2);
+        assert_eq!(diagnostics.products_registered, 2);
+        assert_eq!(diagnostics.seeds, 1);
+    }
+
+    #[test]
+    fn should_neither_register_nor_seed_a_product_the_listing_source_stores() {
+        let (registration, diagnostics) =
+            register_listed(&["/products/stored/", "/en/products/stored", "/products/new"]);
+
+        assert_eq!(registered(&registration), ["/products/new"]);
+        assert_eq!(diagnostics.products_known, 1);
+        assert_eq!(diagnostics.products_language_copies, 1);
+        assert!(registration.seeds.is_empty());
+    }
 }

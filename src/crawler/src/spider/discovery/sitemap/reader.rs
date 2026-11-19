@@ -41,7 +41,7 @@ pub struct SitemapLimits {
 impl Default for SitemapLimits {
     fn default() -> Self {
         Self {
-            max_requests: 25,
+            max_requests: 60,
             max_file_bytes: 50 * 1024 * 1024,
             max_urls_per_file: 50_000,
             max_urls: 100_000,
@@ -139,6 +139,9 @@ pub struct SitemapDiagnostics {
     pub products_registered: usize,
     /// Product URLs the ListingSource already stores, which were not registered again.
     pub products_known: usize,
+    /// Product URLs listed with a language segment before their path that the sitemaps also
+    /// list without it, which were not registered.
+    pub products_language_copies: usize,
     /// URLs handed to the crawl as seeds.
     pub seeds: usize,
     pub failures: Vec<SitemapFailure>,
