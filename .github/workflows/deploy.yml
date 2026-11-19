@@ -171,7 +171,7 @@ jobs:
           path: triggers
       - uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ vars.PROD_TRIGGER_PUBLISHER_ROLE_ARN }}
+          role-to-assume: ${{ secrets.PROD_TRIGGER_PUBLISHER_ROLE_ARN }}
           aws-region: eu-central-1
       - name: Publish the Cognito triggers
         env:

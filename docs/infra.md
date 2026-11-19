@@ -56,9 +56,10 @@ The `host` stack deploys independently of the others and before the host serves 
 - **Trigger artifact publisher.** The Deploy workflow's approved `prod` job assumes this role
   through the account's GitHub OIDC provider and publishes both triggers' zips as
   `<binary>-prod-<commit>.zip` in `aura-historia-binary-artifacts-eu-central-1`, a versioned
-  bucket outside the app. The role may only create such objects, never replace or delete them;
-  set its ARN (`TriggerArtifactPublisherRoleArn`) as the `prod` environment's
-  `PROD_TRIGGER_PUBLISHER_ROLE_ARN` variable.
+  bucket outside the app. The role may only create such objects with `If-None-Match: *`, so it
+  can never replace or delete them; set its ARN (`TriggerArtifactPublisherRoleArn`) as the `prod`
+  environment's `PROD_TRIGGER_PUBLISHER_ROLE_ARN` secret, a secret because the ARN names the
+  account and Actions logs are public.
 - **Cognito trigger signing key.** `/aura-historia/prod/edge/post-confirmation-signing` is
   generated once and retained; its name predates the pre-sign-up trigger. Both triggers sign
   their requests to the host with it, each under its own purpose label, so a request signed for

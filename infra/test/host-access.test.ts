@@ -205,5 +205,6 @@ describe("trigger artifact publisher", () => {
     expect(statements).toHaveLength(1);
     expect(actions(statements[0])).toEqual(["s3:PutObject"]);
     expect(JSON.stringify(statements[0].Resource)).toContain(":s3:::aura-historia-binary-artifacts-eu-central-1/cognito-*-prod-*.zip");
+    expect(statements[0].Condition).toEqual({ StringEquals: { "s3:if-none-match": "*" } });
   });
 });

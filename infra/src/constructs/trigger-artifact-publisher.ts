@@ -38,11 +38,12 @@ export class TriggerArtifactPublisher extends Construct {
         },
       }),
     });
-    // Creation only: the workflow writes with If-None-Match, so a published zip is never replaced.
+    // Creation only: a write without If-None-Match, which could replace a published zip, is denied.
     const keys = triggerArtifactKey("cognito-*", props.config.stage, "*");
     this.role.addToPolicy(new iam.PolicyStatement({
       actions: ["s3:PutObject"],
       resources: [`arn:${stack.partition}:s3:::${LAMBDA_ARTIFACT_BUCKET_NAME}/${keys}`],
+      conditions: { StringEquals: { "s3:if-none-match": "*" } },
     }));
   }
 }
