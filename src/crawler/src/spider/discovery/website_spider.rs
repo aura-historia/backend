@@ -960,7 +960,7 @@ impl SpiderImpl {
             listing = reading => listing,
             () = shutdown_requested(&mut shutdown) => SitemapListing::default(),
         };
-        if listing.diagnostics.requests > 0 {
+        if listing.diagnostics.requests > 0 && listing.rate_limit.is_none() {
             tokio::select! {
                 () = tokio::time::sleep_until(fetcher.next_start()) => {}
                 () = shutdown_requested(&mut shutdown) => {}
@@ -969,6 +969,15 @@ impl SpiderImpl {
         // The wait for the crawl's delay after the last sitemap request comes off its budget too.
         listing.diagnostics.elapsed_ms = duration_millis(started.elapsed());
         listing
+    }
+}
+
+impl SpiderImpl {
+    /// Whether the crawler's shutdown has been requested.
+    fn shutdown_requested(&self) -> bool {
+        self.shutdown
+            .as_ref()
+            .is_some_and(|shutdown| *shutdown.borrow())
     }
 }
 
@@ -1504,9 +1513,10 @@ struct CrawlSeedUrls {
     /// What the previous crawl left unvisited; visited first, and carried over again when
     /// not reached.
     frontier: Vec<String>,
-    /// The URLs the shop's sitemaps list that are no registered product URL; visited after the
-    /// links the crawl found, and never carried over: the next crawl reads them from the sitemaps
-    /// again, so they never keep a crawl from completing (`docs/crawler/networking.md#sitemaps`).
+    /// The URLs the shop's sitemaps list that are no registered product URL: visited only with
+    /// the time and pages a crawl that completed its own discovery leaves, without recording
+    /// what they link, and never carried over, so they never keep a crawl from completing
+    /// (`docs/crawler/networking.md#sitemaps`).
     sitemaps: Vec<String>,
 }
 
@@ -1531,12 +1541,15 @@ fn sitemap_seeds(
 /// snapshots what the library learned about the site. Spider's broadcast
 /// closes with the unsubscribe, which ends the filter task's page loop.
 ///
-/// The crawl runs in two phases on one `Website`, so the second skips every
-/// link the first visited. Link discovery from the root runs first, for its
-/// share of the budget when there are seeds. The seeds, with the links the
-/// first phase found but did not reach, follow for the rest of the budget,
-/// unless the first phase failed at the root or was stopped. The filter task
-/// tells, once it has relayed every page, what both phases left unvisited.
+/// The crawl runs in up to three phases on one `Website`, so each skips every
+/// link an earlier one visited. Link discovery from the root runs first, for its
+/// share of the budget when there are frontier seeds. The frontier seeds, with the
+/// links the first phase found but did not reach, follow for the rest of the
+/// budget, unless the first phase failed at the root or was stopped. The crawl's
+/// completion is judged then; only a crawl that completed turns to the sitemap
+/// seeds with the time and pages it has left, without recording what they link,
+/// so they never make a crawl truncated. The filter task tells, once it has
+/// relayed every page, what the crawl left unvisited.
 /// Spider reports a root answered with a challenge as idle, like a healthy
 /// one, so the seed phase waits for the filter task's judgement of the root.
 ///
@@ -1568,33 +1581,24 @@ async fn run_library_crawl(
         && root_outcome.status == CrawlStatus::Idle
         && pages_visited(&website) < bounds.max_pages_per_crawl as usize
         && !remaining().is_zero();
+    let mut root_accepted = false;
     if seed_phase_allowed {
         match judged_root(&mut root_judgement, &stop, remaining()).await {
             None => stopped = true,
             Some(RootVerdict::Refused) => {}
             Some(RootVerdict::Accepted) => {
+                root_accepted = true;
                 // Pages the filter task has not relayed yet miss here; what their
                 // links lead to carries over in the frontier instead.
                 let visited = website.get_links();
-                let pending = found.unvisited(&seeds.frontier, &seeds.sitemaps, |link| {
-                    visited.contains(link)
-                });
-                let remaining = remaining();
-                if !pending.is_empty() && !remaining.is_zero() {
-                    website.persist_links();
-                    website.set_extra_links(pending.into_iter().map(Into::into).collect());
-                    website.with_crawl_timeout(Some(remaining));
-                    // Spider gives every crawl it runs the whole page limit again.
-                    website.with_limit(seed_phase_page_limit(
-                        bounds.max_pages_per_crawl,
-                        pages_visited(&website),
-                    ));
-                    stopped = crawl_until_stopped(&mut website, &stop).await;
-                }
+                let pending = found.unvisited(&seeds.frontier, |link| visited.contains(link));
+                stopped =
+                    crawl_extra_links(&mut website, pending, &bounds, remaining(), &stop).await;
             }
         }
     }
 
+    // The crawl is judged on its own discovery, before it turns to the sitemap seeds.
     let completion = if stopped {
         CrawlCompletion::HardTimeoutTruncated
     } else {
@@ -1605,12 +1609,50 @@ async fn run_library_crawl(
             bounds.max_pages_per_crawl,
         )
     };
+    if root_accepted && completion == CrawlCompletion::Completed && !seeds.sitemaps.is_empty() {
+        found.stop_recording();
+        let visited = website.get_links();
+        let pending = found.unvisited_among(&seeds.sitemaps, |link| visited.contains(link));
+        stopped = crawl_extra_links(&mut website, pending, &bounds, remaining(), &stop).await;
+    }
+    let completion = match stopped {
+        true => CrawlCompletion::HardTimeoutTruncated,
+        false => completion,
+    };
     website.unsubscribe();
     LibraryOutcome {
         completion,
         stopped,
         ..root_outcome
     }
+}
+
+/// Crawls the `links` Spider has not visited for at most `remaining`, within the pages the crawl
+/// has left; true when the filter task stopped it. Nothing to crawl, or no time left, is no
+/// stop.
+async fn crawl_extra_links(
+    website: &mut Website,
+    links: Vec<String>,
+    bounds: &CrawlBounds,
+    remaining: Duration,
+    stop: &Notify,
+) -> bool {
+    let pages_visited = website.size().saturating_sub(bounds.known_links);
+    if links.is_empty()
+        || remaining.is_zero()
+        || pages_visited >= bounds.max_pages_per_crawl as usize
+    {
+        return false;
+    }
+    website.persist_links();
+    website.set_extra_links(links.into_iter().map(Into::into).collect());
+    website.with_crawl_timeout(Some(remaining));
+    // Spider gives every crawl it runs the whole page limit again.
+    website.with_limit(seed_phase_page_limit(
+        bounds.max_pages_per_crawl,
+        pages_visited,
+    ));
+    crawl_until_stopped(website, stop).await
 }
 
 /// The page limit that leaves the seed phase the pages link discovery did not
@@ -2038,7 +2080,8 @@ impl SpiderImpl {
         );
         let seed_urls = admission.admit_all(&seeds.frontier);
         let sitemap_seed_urls = sitemap_seeds(&admission, &registration.seeds, &seed_urls);
-        let link_discovery_duration = match seed_urls.is_empty() && sitemap_seed_urls.is_empty() {
+        sitemap_listing.diagnostics.seeds = sitemap_seed_urls.len();
+        let link_discovery_duration = match seed_urls.is_empty() {
             true => crawl_duration,
             false => crawl_duration / LINK_DISCOVERY_BUDGET_DIVISOR,
         };
@@ -2097,9 +2140,15 @@ impl SpiderImpl {
         let crawl_found_links = found_links.clone();
         let frontier_seeds = seed_urls.clone();
         let sitemap_rate_limit = sitemap_listing.rate_limit;
+        // A rate-limit answer to a sitemap request, or the crawler's shutdown while the crawl read
+        // the sitemaps, stops the crawl before Spider starts.
+        let stopped_before_spider = match sitemap_rate_limit {
+            Some(_) => Some(CrawlStopReason::RateLimited),
+            None if self.shutdown_requested() => Some(CrawlStopReason::Shutdown),
+            None => None,
+        };
         tokio::spawn(async move {
-            // A rate-limit answer to a sitemap request stops the crawl before Spider starts.
-            let outcome = match sitemap_rate_limit {
+            let outcome = match stopped_before_spider {
                 Some(_) => skipped_library_crawl(website),
                 None => {
                     run_library_crawl(
@@ -2173,7 +2222,7 @@ impl SpiderImpl {
                 &root_verdict,
             )
             .await
-            .or(sitemap_rate_limit.map(|_| CrawlStopReason::RateLimited));
+            .or(stopped_before_spider);
             // Spider's crawl has ended once its outcome arrives, so the
             // diagnostics never reach the consumer while it still fetches.
             match outcome_rx.await {
@@ -2406,7 +2455,9 @@ async fn relay_library_pages(
             // Seeds cannot help a crawl whose root failed or refused it.
             let refused =
                 diagnostics.failure_kind.is_some() || is_access_denied_status(status_code);
-            root_accepted = !refused;
+            // Only the shop's own page lets the sitemap products in: not an error, a redirect
+            // the crawl did not follow, or a status Spider made up for a failed fetch.
+            root_accepted = !refused && (200..300).contains(&status_code);
             root_verdict.send_replace(Some(match refused {
                 true => RootVerdict::Refused,
                 false => RootVerdict::Accepted,
@@ -2415,6 +2466,9 @@ async fn relay_library_pages(
         }
 
         let rate_limit_answer = RateLimitSignal::from_page(status_code, page.headers.as_ref());
+        if is_root && rate_limit_answer.is_some() {
+            root_accepted = false;
+        }
         filter.report_answer(page.get_url(), status_code, rate_limit_answer);
         if diagnostics.rate_limit.is_none()
             && let Some(signal) = rate_limit_answer
@@ -4483,6 +4537,110 @@ mod tests {
         assert_eq!(crawl.diagnostics.sitemaps.seeds, 50);
         assert!(crawl.delivered(PageOrigin::Fetched).len() < 50);
         assert!(crawl.discovery.frontier.is_empty(), "{:?}", crawl.discovery);
+    }
+
+    /// Sitemap seeds take only the time a crawl that completed its own discovery leaves: a crawl
+    /// that runs out of time among them is still complete.
+    #[tokio::test]
+    async fn should_complete_a_crawl_whose_leftover_time_ran_out_among_sitemap_seeds() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/sitemap.xml" => SiteResponse::Html(
+                "200 OK",
+                (1..=200)
+                    .map(|n| format!("<url><loc>http://example.com/page/{n}</loc></url>"))
+                    .fold("<urlset>".to_owned(), |body, entry| body + &entry)
+                    + "</urlset>",
+            ),
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/about">about</a>"#.to_string()),
+            path if path.starts_with("/page/") => SiteResponse::SlowHtml(
+                Duration::from_millis(100),
+                "200 OK",
+                format!(r#"<a href="{path}/more">more</a>"#),
+            ),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            CrawlerConfig {
+                concurrency_limit: 2,
+                max_pages_per_crawl: 1_000,
+                max_crawl_duration: Duration::from_secs(3),
+                ..with_sitemaps(test_config())
+            },
+            site.transport(&["example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, Some("/products/"), CrawlSeeds::default()).await;
+        site.finish().await;
+
+        let fetched = crawl.delivered(PageOrigin::Fetched);
+        assert!(fetched.contains("http://example.com/about"), "{fetched:?}");
+        assert!(
+            fetched.len() > 3 && fetched.len() < 200,
+            "{}",
+            fetched.len()
+        );
+        assert_eq!(crawl.diagnostics.completion, CrawlCompletion::Completed);
+        assert!(!crawl.diagnostics.ran_out_of_time);
+        assert!(crawl.discovery.frontier.is_empty(), "{:?}", crawl.discovery);
+    }
+
+    /// A root Spider is refused with a rate limit lets no sitemap product in.
+    #[tokio::test]
+    async fn should_store_no_sitemap_product_when_spider_meets_a_rate_limited_root() {
+        let site = TestSite::spawn(Arc::new(|target: &str, previous: usize| match target {
+            // The preflight's request is answered; Spider's is refused.
+            "/" if previous > 0 => {
+                SiteResponse::WithHeaders("429 Too Many Requests", "Retry-After: 60\r\n")
+            }
+            other => shop_with_sitemaps(other, previous),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, Some("/products/"), CrawlSeeds::default()).await;
+        site.finish().await;
+
+        assert_eq!(crawl.diagnostics.sitemaps.products_registered, 3);
+        assert!(
+            crawl.delivered(PageOrigin::Sitemap).is_empty(),
+            "{:?}",
+            crawl.pages
+        );
+        assert!(matches!(
+            crawl.diagnostics.completion,
+            CrawlCompletion::RateLimited(_)
+        ));
+    }
+
+    /// The crawler's shutdown while a crawl reads the sitemaps ends the crawl before Spider
+    /// fetches anything.
+    #[tokio::test]
+    async fn should_not_start_spider_when_the_shutdown_came_while_sitemaps_were_read() {
+        let site = TestSite::spawn(Arc::new(shop_with_sitemaps)).await;
+        let (_shutdown_tx, shutdown) = watch::channel(true);
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com", "www.example.com"]),
+        )
+        .with_shutdown(shutdown);
+
+        let crawl = run_sitemap_crawl(&spider, Some("/products/"), CrawlSeeds::default()).await;
+        let requests = site.finish().await;
+
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(_, target, ..)| target == "/")
+                .count(),
+            1,
+            "only the preflight: {requests:?}"
+        );
+        assert!(crawl.pages.is_empty(), "{:?}", crawl.pages);
+        assert_eq!(crawl.diagnostics.completion, CrawlCompletion::Stopped);
     }
 
     /// Sitemap requests keep the crawl's delay between request starts, as its pages do, and the

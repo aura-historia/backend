@@ -131,6 +131,8 @@ pub struct SitemapDiagnostics {
     pub files_truncated: usize,
     /// Page URLs the files listed, entries without a readable location excluded.
     pub urls_listed: usize,
+    /// Entries left out because their location could not be read or was too long.
+    pub entries_unreadable: usize,
     /// Listed URLs that are no URL, or not on the crawl root's host or its `www` twin.
     pub urls_off_host: usize,
     /// Listed URLs dropped once the crawl took [`SitemapLimits::max_urls`].
@@ -166,6 +168,11 @@ impl SitemapDiagnostics {
             url: CrawledUrl::new(url.clone()).to_string(),
             kind,
         });
+    }
+
+    /// How many sitemaps failed, named or only counted.
+    pub fn failure_count(&self) -> usize {
+        self.failures.len() + self.failures_omitted
     }
 
     /// The failures as `url (kind)` labels, for logs.
@@ -350,6 +357,7 @@ impl Reader<'_, '_> {
         let diagnostics = &mut self.listing.diagnostics;
         diagnostics.files_read += 1;
         diagnostics.files_truncated += usize::from(parsed.truncated);
+        diagnostics.entries_unreadable += parsed.invalid_entries;
         match parsed.kind {
             SitemapKind::Index if file.listed_by_index => {
                 diagnostics.fail(&url, SitemapFailureKind::NestedIndex);

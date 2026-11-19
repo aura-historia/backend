@@ -1335,7 +1335,7 @@ fn log_crawl_outcome(
         sitemap_products_registered = diagnostics.sitemaps.products_registered,
         product_urls_outside_sitemaps = state.products_outside_sitemaps(),
         sitemap_seeds = diagnostics.sitemaps.seeds,
-        sitemap_failures = diagnostics.sitemaps.failures.len(),
+        sitemap_failures = diagnostics.sitemaps.failure_count(),
         sitemap_files_skipped = diagnostics.sitemaps.files_skipped,
         sample_match_ratio = state.sample_match_ratio(),
         query_url_share = state.query_url_share(),
@@ -1389,7 +1389,8 @@ fn log_crawl_outcome(
         sitemap_products_known = diagnostics.sitemaps.products_known,
         sitemap_products_language_copies = diagnostics.sitemaps.products_language_copies,
         sitemap_elapsed_ms = diagnostics.sitemaps.elapsed_ms,
-        sitemap_failures = ?diagnostics.sitemaps.failure_labels(),
+        sitemap_entries_unreadable = diagnostics.sitemaps.entries_unreadable,
+        sitemap_failure_details = ?diagnostics.sitemaps.failure_labels(),
         "Crawl diagnostics"
     );
 }
@@ -1487,7 +1488,33 @@ fn mostly_bot_challenges(diagnostics: &CrawlDiagnostics) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::spider::classification::url_metadata::UrlClass;
+
+    fn page(path: &str) -> CrawledUrl {
+        CrawledUrl::new(Url::parse(&format!("https://example.com{path}")).unwrap())
+    }
+
+    /// A stale sitemap still lists URLs the stored pattern takes; only the pages the crawl
+    /// fetched show whether the pattern fits what the shop serves.
+    #[test]
+    fn should_take_no_sitemap_product_as_evidence_that_the_pattern_matches() {
+        let pattern = ProductListingPattern::Known(ProductUrlPattern::parse("/product/").unwrap());
+        let pages = vec![
+            CrawledPage::new(page("/p/moved-1")),
+            CrawledPage::listed_in_sitemap(page("/product/1")),
+        ];
+        let mut matched = HashSet::new();
+
+        record_pattern_matches(&pages, &pattern, &mut matched);
+
+        assert!(matched.is_empty());
+        assert!(!has_pattern_match(&pages, &pattern));
+        assert!(has_pattern_match(
+            &[CrawledPage::new(page("/product/2"))],
+            &pattern
+        ));
+    }
 
     #[test]
     fn should_map_known_db_value_when_loading_url_class() {
@@ -5144,36 +5171,6 @@ fn crawl_failure_error(
         total_links,
         diagnostics: Box::new(diagnostics.clone()),
     })
-}
-
-#[cfg(test)]
-mod pattern_evidence_tests {
-    use super::*;
-
-    fn page(path: &str) -> CrawledUrl {
-        CrawledUrl::new(Url::parse(&format!("https://example.com{path}")).unwrap())
-    }
-
-    /// A stale sitemap still lists URLs the stored pattern takes; only the pages the crawl
-    /// fetched show whether the pattern fits what the shop serves.
-    #[test]
-    fn should_take_no_sitemap_product_as_evidence_that_the_pattern_matches() {
-        let pattern = ProductListingPattern::Known(ProductUrlPattern::parse("/product/").unwrap());
-        let pages = vec![
-            CrawledPage::new(page("/p/moved-1")),
-            CrawledPage::listed_in_sitemap(page("/product/1")),
-        ];
-        let mut matched = HashSet::new();
-
-        record_pattern_matches(&pages, &pattern, &mut matched);
-
-        assert!(matched.is_empty());
-        assert!(!has_pattern_match(&pages, &pattern));
-        assert!(has_pattern_match(
-            &[CrawledPage::new(page("/product/2"))],
-            &pattern
-        ));
-    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@
 use regex::{Regex, RegexSet};
 use spider::CaseInsensitiveString;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
 
@@ -169,6 +170,8 @@ pub(super) struct FoundLinks {
     /// The pages Spider delivered. Spider counts a link visited once it starts
     /// the fetch, also when its crawl ended before the page arrived.
     delivered: Arc<Mutex<HashSet<CaseInsensitiveString>>>,
+    /// Set once the crawl turns to the sitemap seeds ([`Self::stop_recording`]).
+    recording_stopped: Arc<AtomicBool>,
 }
 
 impl FoundLinks {
@@ -178,6 +181,7 @@ impl FoundLinks {
             rules,
             links: Arc::default(),
             delivered: Arc::default(),
+            recording_stopped: Arc::default(),
         }
     }
 
@@ -191,33 +195,48 @@ impl FoundLinks {
         }
     }
 
-    /// The seeds, the found links and then the `extra` URLs whose page the crawl neither
-    /// delivered nor `visited` counts, each once, at most [`MAX_FRONTIER_URLS`]. A page arrives
-    /// in the spelling the crawler stores, which differs from the link Spider counts visited when
-    /// the link carried parameters that do not identify the page.
+    /// The seeds and found links whose page the crawl neither delivered nor `visited` counts,
+    /// each once, at most [`MAX_FRONTIER_URLS`]. A page arrives in the spelling the crawler
+    /// stores, which differs from the link Spider counts visited when the link carried
+    /// parameters that do not identify the page.
     pub(super) fn unvisited(
         &self,
         seeds: &[String],
-        extra: &[String],
         visited: impl Fn(&CaseInsensitiveString) -> bool,
     ) -> Vec<String> {
         let found = self.snapshot();
+        self.unvisited_among(seeds.iter().chain(found.iter()), visited)
+    }
+
+    /// The `candidates` whose page the crawl neither delivered nor `visited` counts, each once,
+    /// at most [`MAX_FRONTIER_URLS`].
+    pub(super) fn unvisited_among<'a>(
+        &self,
+        candidates: impl IntoIterator<Item = &'a String>,
+        visited: impl Fn(&CaseInsensitiveString) -> bool,
+    ) -> Vec<String> {
         let delivered = self
             .delivered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         unvisited(
-            seeds.iter().chain(found.iter()).chain(extra),
+            candidates,
             |link| delivered.contains(link) || visited(link),
             MAX_FRONTIER_URLS,
         )
     }
 
+    /// Stops recording links: what the crawl finds from now on, while it visits the sitemap
+    /// seeds in its leftover time, is no frontier for the next crawl.
+    pub(super) fn stop_recording(&self) {
+        self.recording_stopped.store(true, Ordering::Relaxed);
+    }
+
     /// The seeds and found links whose page the crawl neither delivered nor already knew, at
     /// most [`MAX_FRONTIER_URLS`].
     pub(super) fn frontier(&self, seeds: &[String], known: &KnownPages) -> Vec<Url> {
-        self.unvisited(seeds, &[], |link| {
+        self.unvisited(seeds, |link| {
             Url::parse(link.inner()).is_ok_and(|url| known.page_of(&url).is_some())
         })
         .iter()
@@ -278,6 +297,9 @@ impl FoundLinks {
     }
 
     fn remember(&self, stored: impl IntoIterator<Item = String>) {
+        if self.recording_stopped.load(Ordering::Relaxed) {
+            return;
+        }
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
         for link in stored {
             if links.len() >= MAX_FOUND_LINKS {

@@ -61,7 +61,9 @@ pub(in crate::spider::discovery) fn register(
     }
     let taken_pages: HashSet<Url> = taken.iter().map(CrawledUrl::page_spelling).collect();
     for stored in one_spelling_per_page(taken) {
-        if without_language_segment(&stored).is_some_and(|page| taken_pages.contains(&page)) {
+        let language_copy = without_language_segment(&stored)
+            .is_some_and(|page| taken_pages.contains(&page) || known.page_of(&page).is_some());
+        if language_copy {
             diagnostics.products_language_copies += 1;
         } else if known.page_of(stored.as_url()).is_some() {
             diagnostics.products_known += 1;
@@ -196,6 +198,14 @@ mod tests {
 
         assert_eq!(registered(&registration), ["/products/twice/"]);
         assert_eq!(diagnostics.products_registered, 1);
+    }
+
+    #[test]
+    fn should_not_register_a_language_copy_of_a_product_the_listing_source_stores() {
+        let (registration, diagnostics) = register_listed(&["/en/products/stored"]);
+
+        assert!(registration.products.is_empty());
+        assert_eq!(diagnostics.products_language_copies, 1);
     }
 
     #[test]
