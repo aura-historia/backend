@@ -241,9 +241,9 @@ mod tests {
         let page = page("£795", "3C264776", "1793103358", "Subject Name Message");
         let events = Arc::new(AtomicUsize::new(0));
         let subscriber = tracing_subscriber::registry().with(CountEvents(Arc::clone(&events)));
+        crate::test_support::logged_events::keep_every_callsite_interested();
 
         tracing::subscriber::with_default(subscriber, || {
-            tracing::callsite::rebuild_interest_cache();
             hash_page(&page, std::slice::from_ref(&schema));
             let logged_by_hash = events.load(Ordering::SeqCst);
             apply_schema_to_document(&schema, &scraper::Html::parse_document(&page))

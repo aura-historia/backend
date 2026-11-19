@@ -125,13 +125,15 @@ pub(crate) mod logged_events {
         }
     }
 
-    /// `tracing` caches each callsite's interest once for the whole process. While a single
-    /// dispatcher is alive, the thread that reaches a callsite first decides that interest from
-    /// its own default alone: a parallel test thread without a subscriber caches "never", and a
-    /// capture on another thread then misses the callsite's events. A global subscriber that
-    /// wants every event and records nothing is the default of every thread without its own,
-    /// so no cached interest is ever "never" and each event asks its thread's default.
-    fn keep_every_callsite_interested() {
+    /// `tracing` caches each callsite's interest once for the whole process. While at most one
+    /// dispatcher was alive at the last subscriber registration, the thread that reaches a
+    /// callsite first decides that interest from its own default alone: a parallel test thread
+    /// without a subscriber caches "never", and a capture on another thread then misses the
+    /// callsite's events. A global subscriber that wants every event and records nothing is the
+    /// default of every thread without its own, so no cached interest is ever "never" and each
+    /// event asks its thread's default. Call it before installing a test's own subscriber; that
+    /// installation rebuilds the cached interests.
+    pub(crate) fn keep_every_callsite_interested() {
         static INSTALLED: Once = Once::new();
         INSTALLED.call_once(|| {
             tracing::subscriber::set_global_default(tracing_subscriber::registry()).unwrap_or_else(
@@ -305,6 +307,8 @@ mod tests {
         tracing::info!(event = "interest_probe");
     }
 
+    /// Proves the fix when run alone: in a parallel run, other tests' subscribers usually hide
+    /// the race this reproduces.
     #[test]
     fn should_capture_a_callsite_that_a_thread_without_a_subscriber_reached_first() {
         let (events, _guard) = LoggedEvents::capture();

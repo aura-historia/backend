@@ -294,13 +294,13 @@ mod tests {
     /// certificates and every other target's errors stay.
     #[test]
     fn should_drop_only_the_tls_verifier_handshake_error() {
+        crate::test_support::logged_events::keep_every_callsite_interested();
         let events = LoggedEvents::default();
         let _guard = tracing::subscriber::set_default(
             tracing_subscriber::registry()
                 .with(tls_verifier_handshake_error_filter())
                 .with(events.clone()),
         );
-        tracing::callsite::rebuild_interest_cache();
 
         tracing::error!(target: "rustls_platform_verifier::verification::others",
             "failed to verify TLS certificate: invalid peer certificate");
