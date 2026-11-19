@@ -191,13 +191,14 @@ impl FoundLinks {
         }
     }
 
-    /// The seeds and found links whose page the crawl neither delivered nor `visited` counts,
-    /// each once, at most [`MAX_FRONTIER_URLS`]. A page arrives in the spelling the crawler
-    /// stores, which differs from the link Spider counts visited when the link carried
-    /// parameters that do not identify the page.
+    /// The seeds, the found links and then the `extra` URLs whose page the crawl neither
+    /// delivered nor `visited` counts, each once, at most [`MAX_FRONTIER_URLS`]. A page arrives
+    /// in the spelling the crawler stores, which differs from the link Spider counts visited when
+    /// the link carried parameters that do not identify the page.
     pub(super) fn unvisited(
         &self,
         seeds: &[String],
+        extra: &[String],
         visited: impl Fn(&CaseInsensitiveString) -> bool,
     ) -> Vec<String> {
         let found = self.snapshot();
@@ -207,7 +208,7 @@ impl FoundLinks {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         unvisited(
-            seeds.iter().chain(found.iter()),
+            seeds.iter().chain(found.iter()).chain(extra),
             |link| delivered.contains(link) || visited(link),
             MAX_FRONTIER_URLS,
         )
@@ -216,7 +217,7 @@ impl FoundLinks {
     /// The seeds and found links whose page the crawl neither delivered nor already knew, at
     /// most [`MAX_FRONTIER_URLS`].
     pub(super) fn frontier(&self, seeds: &[String], known: &KnownPages) -> Vec<Url> {
-        self.unvisited(seeds, |link| {
+        self.unvisited(seeds, &[], |link| {
             Url::parse(link.inner()).is_ok_and(|url| known.page_of(&url).is_some())
         })
         .iter()

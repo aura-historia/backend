@@ -1073,7 +1073,7 @@ impl SpiderServiceImpl {
         if let Some(error) = crawl_failure_error(
             crawl_root_url,
             state.total_crawled,
-            skipped_known_products + state.sitemap_product_pages.len(),
+            skipped_known_products,
             diagnostics,
         ) {
             log_crawl_stopped_early(diagnostics, &error);
@@ -1227,8 +1227,11 @@ impl SpiderService for SpiderServiceImpl {
     }
 }
 
-/// Adds the pages among `pages` the product pattern matches to `matched` by their page spelling,
-/// so a page a shop links with and without its trailing slash, in one batch or two, counts once.
+/// Adds the fetched pages among `pages` the product pattern matches to `matched` by their page
+/// spelling, so a page a shop links with and without its trailing slash, in one batch or two,
+/// counts once. A product page a sitemap listed matches the pattern by construction and is no
+/// evidence that the pattern still fits what the shop serves; the crawl is judged on the pages it
+/// fetched and the known product pages they link (`docs/crawler/networking.md#sitemaps`).
 fn record_pattern_matches(
     pages: &[CrawledPage],
     pattern: &ProductListingPattern,
@@ -1240,7 +1243,7 @@ fn record_pattern_matches(
     matched.extend(
         pages
             .iter()
-            .filter(|page| page.url.matches_pattern(regex))
+            .filter(|page| page.origin == PageOrigin::Fetched && page.url.matches_pattern(regex))
             .map(|page| page.url.page_spelling()),
     );
 }
@@ -1261,10 +1264,14 @@ fn record_stored_products(stored: &[SpiderUrlRecord], products: &mut HashSet<Url
     );
 }
 
+/// Whether the pattern matches a fetched page among `pages`, as [`record_pattern_matches`]
+/// counts them.
 fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
-    pattern
-        .as_pattern()
-        .is_some_and(|regex| pages.iter().any(|page| page.url.matches_pattern(regex)))
+    pattern.as_pattern().is_some_and(|regex| {
+        pages
+            .iter()
+            .any(|page| page.origin == PageOrigin::Fetched && page.url.matches_pattern(regex))
+    })
 }
 
 pub(crate) const CRAWL_COMPLETED_EVENT: &str = "crawler.spider.crawl_completed";
@@ -3650,9 +3657,15 @@ mod service_tests {
         assert_eq!(run_result.product_urls_count, 20);
     }
 
-    /// A crawl asked for with the stored `/product/` pattern that fetches the `fetched` paths and
-    /// delivers the product pages at the `listed` paths the shop's sitemaps list.
-    fn setup_mock_sitemap_crawl(mock: &mut MockSpider, fetched: &[&str], listed: &[&str]) {
+    /// A crawl asked for with the stored `/product/` pattern that fetches the `fetched` paths,
+    /// delivers the product pages at the `listed` paths the shop's sitemaps list and reports
+    /// `known_skipped` known product pages the fetched pages link.
+    fn setup_mock_sitemap_crawl(
+        mock: &mut MockSpider,
+        fetched: &[&str],
+        listed: &[&str],
+        known_skipped: usize,
+    ) {
         let pages: Vec<CrawledPage> = fetched
             .iter()
             .map(|path| crawled_page(path))
@@ -3673,7 +3686,12 @@ mod service_tests {
                     tx.try_send(page).unwrap();
                 }
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
-                diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
+                diagnostics_tx
+                    .send(CrawlDiagnostics {
+                        known_skipped,
+                        ..CrawlDiagnostics::default()
+                    })
+                    .unwrap();
                 Box::pin(async {
                     Ok(SpiderCrawl {
                         pages: rx,
@@ -3684,9 +3702,13 @@ mod service_tests {
             });
     }
 
-    async fn run_sitemap_crawl(fetched: &[&str], listed: &[&str]) -> SpiderRunResult {
+    async fn run_sitemap_crawl(
+        fetched: &[&str],
+        listed: &[&str],
+        known_skipped: usize,
+    ) -> SpiderRunResult {
         let mut spider = MockSpider::new();
-        setup_mock_sitemap_crawl(&mut spider, fetched, listed);
+        setup_mock_sitemap_crawl(&mut spider, fetched, listed, known_skipped);
         let mut pattern_service = pattern_service_with_stored_pattern();
         pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
@@ -3718,6 +3740,7 @@ mod service_tests {
         let run = run_sitemap_crawl(
             &["/", "/category/chairs", "/product/3"],
             &["/product/1", "/product/2"],
+            0,
         )
         .await;
 
@@ -3725,11 +3748,11 @@ mod service_tests {
         assert_eq!(run.total_links, 3);
     }
 
-    /// A crawl whose healthy root is the only page it fetched reached the shop when the shop's
-    /// sitemaps listed product pages, as when it links stored ones.
+    /// A crawl whose healthy root is the only page it fetched reached the shop when the root
+    /// links product pages its sitemaps registered, as when it links stored ones.
     #[tokio::test]
-    async fn should_not_fail_a_root_only_crawl_whose_sitemaps_listed_products() {
-        let run = run_sitemap_crawl(&["/"], &["/product/1", "/product/2"]).await;
+    async fn should_not_fail_a_root_only_crawl_that_links_its_sitemap_products() {
+        let run = run_sitemap_crawl(&["/"], &["/product/1", "/product/2"], 2).await;
 
         assert_eq!(run.product_urls_count, 2);
         assert_eq!(run.total_links, 1);
@@ -5098,8 +5121,8 @@ fn no_product_urls_error(
 
 /// A crawl with at most one usable page is a failure. A library or local
 /// diagnostic explains it when present; otherwise the size alone does. A crawl whose healthy
-/// root reached product pages it did not fetch, the stored ones an incremental crawl links or
-/// those the shop's sitemaps list, reached the shop, although it fetched nothing else.
+/// root links product pages it did not fetch, stored ones or ones its sitemaps registered
+/// ([`CrawlDiagnostics::known_skipped`]), reached the shop, although it fetched nothing else.
 fn crawl_failure_error(
     crawl_root_url: &str,
     total_links: usize,
@@ -5121,6 +5144,36 @@ fn crawl_failure_error(
         total_links,
         diagnostics: Box::new(diagnostics.clone()),
     })
+}
+
+#[cfg(test)]
+mod pattern_evidence_tests {
+    use super::*;
+
+    fn page(path: &str) -> CrawledUrl {
+        CrawledUrl::new(Url::parse(&format!("https://example.com{path}")).unwrap())
+    }
+
+    /// A stale sitemap still lists URLs the stored pattern takes; only the pages the crawl
+    /// fetched show whether the pattern fits what the shop serves.
+    #[test]
+    fn should_take_no_sitemap_product_as_evidence_that_the_pattern_matches() {
+        let pattern = ProductListingPattern::Known(ProductUrlPattern::parse("/product/").unwrap());
+        let pages = vec![
+            CrawledPage::new(page("/p/moved-1")),
+            CrawledPage::listed_in_sitemap(page("/product/1")),
+        ];
+        let mut matched = HashSet::new();
+
+        record_pattern_matches(&pages, &pattern, &mut matched);
+
+        assert!(matched.is_empty());
+        assert!(!has_pattern_match(&pages, &pattern));
+        assert!(has_pattern_match(
+            &[CrawledPage::new(page("/product/2"))],
+            &pattern
+        ));
+    }
 }
 
 #[cfg(test)]

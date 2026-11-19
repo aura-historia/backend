@@ -60,7 +60,7 @@ pub(in crate::spider::discovery) fn register(
         }
     }
     let taken_pages: HashSet<Url> = taken.iter().map(CrawledUrl::page_spelling).collect();
-    for stored in taken {
+    for stored in one_spelling_per_page(taken) {
         if without_language_segment(&stored).is_some_and(|page| taken_pages.contains(&page)) {
             diagnostics.products_language_copies += 1;
         } else if known.page_of(stored.as_url()).is_some() {
@@ -72,6 +72,28 @@ pub(in crate::spider::discovery) fn register(
     diagnostics.products_registered = registration.products.len();
     diagnostics.seeds = registration.seeds.len();
     registration
+}
+
+/// Each page of `pages` once, in the order first listed, under its slashed spelling when the
+/// sitemaps list both, as a crawl that meets both stores it
+/// (`docs/crawler/networking.md#stored-urls`).
+fn one_spelling_per_page(pages: Vec<CrawledUrl>) -> Vec<CrawledUrl> {
+    let mut kept: Vec<CrawledUrl> = Vec::new();
+    let mut index_of_page = std::collections::HashMap::new();
+    for page in pages {
+        match index_of_page.get(&page.page_spelling()) {
+            Some(&index) => {
+                if page.as_url().path().ends_with('/') {
+                    kept[index] = page;
+                }
+            }
+            None => {
+                index_of_page.insert(page.page_spelling(), kept.len());
+                kept.push(page);
+            }
+        }
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -89,6 +111,10 @@ mod tests {
     }
 
     fn register_listed(paths: &[&str]) -> (SitemapRegistration, SitemapDiagnostics) {
+        register_listed_urls(paths.iter().map(|path| url(path)).collect())
+    }
+
+    fn register_listed_urls(pages: Vec<Url>) -> (SitemapRegistration, SitemapDiagnostics) {
         let root = url("/");
         let rules = FollowRules::new(
             root.clone(),
@@ -114,7 +140,6 @@ mod tests {
         );
         let pattern = ProductUrlPattern::parse("/products/[^/]+$").unwrap();
         let mut diagnostics = SitemapDiagnostics::default();
-        let pages: Vec<Url> = paths.iter().map(|path| url(path)).collect();
         let registration = register(&pages, &admission, Some(&pattern), &known, &mut diagnostics);
         (registration, diagnostics)
     }
@@ -144,6 +169,33 @@ mod tests {
         assert_eq!(diagnostics.products_language_copies, 2);
         assert_eq!(diagnostics.products_registered, 2);
         assert_eq!(diagnostics.seeds, 1);
+    }
+
+    #[test]
+    fn should_register_a_product_listed_under_the_other_scheme_on_the_roots_scheme() {
+        let listed = Url::parse("http://shop.example/products/legacy").unwrap();
+        let (registration, _) = register_listed_urls(vec![listed]);
+
+        assert_eq!(
+            registration
+                .products
+                .iter()
+                .map(|page| page.as_url().as_str())
+                .collect::<Vec<_>>(),
+            ["https://shop.example/products/legacy"]
+        );
+    }
+
+    #[test]
+    fn should_register_a_page_listed_in_several_spellings_once() {
+        let (registration, diagnostics) = register_listed(&[
+            "/products/twice",
+            "/products/twice/",
+            "/products/twice?utm_source=feed",
+        ]);
+
+        assert_eq!(registered(&registration), ["/products/twice/"]);
+        assert_eq!(diagnostics.products_registered, 1);
     }
 
     #[test]

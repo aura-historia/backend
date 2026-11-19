@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use url::Url;
 
 use super::locations::{SitemapSource, on_shop_host, products_first, starting_sitemaps};
-use super::parser::{SitemapKind, SitemapParseError, parse_sitemap};
+use super::parser::{ParsedSitemap, SitemapKind, SitemapParseError, parse_sitemap};
 use crate::network::policy::NetworkErrorKind;
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::robots::CrawlRobots;
@@ -21,6 +21,9 @@ use crate::spider::utils::url::CrawledUrl;
 
 /// Redirects one sitemap request may follow, each hop a request of its own.
 const MAX_SITEMAP_REDIRECTS: usize = 3;
+
+/// Failures the diagnostics name one by one; further ones are counted.
+const MAX_RECORDED_FAILURES: usize = 20;
 
 /// The bounds of one crawl's sitemap reading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,8 +115,8 @@ impl std::fmt::Display for SitemapFailure {
     }
 }
 
-/// What a crawl's sitemap reading did. Bounded by [`SitemapLimits`]: at most one failure per
-/// request or listed sitemap, and counters only.
+/// What a crawl's sitemap reading did: counters and at most [`MAX_RECORDED_FAILURES`] failures,
+/// so its size does not grow with what a sitemap lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SitemapDiagnostics {
     /// Where the crawl looked; `None` when it did not read sitemaps.
@@ -144,13 +147,21 @@ pub struct SitemapDiagnostics {
     pub products_language_copies: usize,
     /// URLs handed to the crawl as seeds.
     pub seeds: usize,
+    /// The first [`MAX_RECORDED_FAILURES`] sitemaps that gave the crawl nothing.
     pub failures: Vec<SitemapFailure>,
+    /// Further failures, counted only: an index may list thousands of children off the shop's
+    /// host.
+    pub failures_omitted: usize,
     /// Wall-clock time sitemap reading took from the crawl's budget.
     pub elapsed_ms: u64,
 }
 
 impl SitemapDiagnostics {
     fn fail(&mut self, url: &Url, kind: SitemapFailureKind) {
+        if self.failures.len() >= MAX_RECORDED_FAILURES {
+            self.failures_omitted += 1;
+            return;
+        }
         self.failures.push(SitemapFailure {
             url: CrawledUrl::new(url.clone()).to_string(),
             kind,
@@ -322,24 +333,16 @@ impl Reader<'_, '_> {
             return ReadFile::Nothing;
         };
         let limits = self.reading.limits;
-        let body = match decompressed(body, limits.max_file_bytes) {
-            Ok(body) => body,
-            Err(kind) => {
-                self.listing.diagnostics.fail(&url, kind);
-                return ReadFile::Nothing;
-            }
-        };
-        let parsed = match parse_sitemap(&body, limits.max_urls_per_file) {
+        // Decoding up to the byte limit and parsing up to the entry limit is CPU work; it runs
+        // off the async runtime.
+        let parsed = tokio::task::spawn_blocking(move || {
+            read_sitemap_body(body, limits.max_file_bytes, limits.max_urls_per_file)
+        })
+        .await
+        .unwrap_or(Err(SitemapFailureKind::Malformed));
+        let parsed = match parsed {
             Ok(parsed) => parsed,
-            Err(error) => {
-                let kind = match error {
-                    SitemapParseError::NotASitemap { .. } | SitemapParseError::NoDocument => {
-                        SitemapFailureKind::NotASitemap
-                    }
-                    SitemapParseError::Malformed(_) | SitemapParseError::Unterminated => {
-                        SitemapFailureKind::Malformed
-                    }
-                };
+            Err(kind) => {
                 self.listing.diagnostics.fail(&url, kind);
                 return ReadFile::Nothing;
             }
@@ -494,6 +497,24 @@ fn on_root_host(root: &Url, mut page: Url) -> Option<Url> {
         page.set_host(Some(root_host)).ok()?;
     }
     Some(page)
+}
+
+/// The sitemap in `body`, decompressed when it is a gzip file within `max_bytes`, with at most
+/// `max_entries` entries.
+fn read_sitemap_body(
+    body: Vec<u8>,
+    max_bytes: usize,
+    max_entries: usize,
+) -> Result<ParsedSitemap, SitemapFailureKind> {
+    let body = decompressed(body, max_bytes)?;
+    parse_sitemap(&body, max_entries).map_err(|error| match error {
+        SitemapParseError::NotASitemap { .. } | SitemapParseError::NoDocument => {
+            SitemapFailureKind::NotASitemap
+        }
+        SitemapParseError::Malformed(_) | SitemapParseError::Unterminated => {
+            SitemapFailureKind::Malformed
+        }
+    })
 }
 
 /// The gzip magic bytes; a sitemap may be served as a `.xml.gz` file.
@@ -940,6 +961,22 @@ mod tests {
                 "https://www.shop.example/tls.xml (tls)",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn should_name_at_most_the_failure_limit_and_count_the_rest() {
+        let children: Vec<String> = (0..MAX_RECORDED_FAILURES + 30)
+            .map(|n| format!("https://cdn.example/sitemap-{n}.xml"))
+            .collect();
+        let shop = FakeShop::default().xml(
+            "https://www.shop.example/sitemap.xml",
+            &index(&children.iter().map(String::as_str).collect::<Vec<_>>()),
+        );
+
+        let listing = read(&shop, "").await;
+
+        assert_eq!(listing.diagnostics.failures.len(), MAX_RECORDED_FAILURES);
+        assert_eq!(listing.diagnostics.failures_omitted, 30);
     }
 
     #[tokio::test]

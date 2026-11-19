@@ -255,15 +255,22 @@ impl EntryReader {
 #[derive(Debug, Default)]
 struct LocationText {
     text: String,
+    /// Part of the text could not be read, or it grew past any location the protocol allows;
+    /// either spoils the location rather than leaving a cut-off URL.
     unreadable: bool,
 }
+
+/// The most text a `<loc>` keeps before it counts as too long: the longest location in its
+/// widest UTF-8 spelling, with room for the whitespace around it.
+const MAX_LOCATION_TEXT_BYTES: usize = 4 * MAX_LOCATION_CHARS + 1024;
 
 impl LocationText {
     fn push(&mut self, text: Option<&str>) {
         match text {
-            Some(text) if self.text.len() <= MAX_LOCATION_CHARS => self.text.push_str(text),
-            Some(_) => {}
-            None => self.unreadable = true,
+            Some(text) if self.text.len() + text.len() <= MAX_LOCATION_TEXT_BYTES => {
+                self.text.push_str(text);
+            }
+            Some(_) | None => self.unreadable = true,
         }
     }
 
@@ -444,6 +451,20 @@ mod tests {
         let sitemap = parse(&body).unwrap();
 
         assert!(sitemap.locations.is_empty());
+        assert_eq!(sitemap.invalid_entries, 1);
+    }
+
+    #[test]
+    fn should_leave_out_a_long_multi_byte_location_rather_than_cut_it() {
+        let body = format!(
+            "<urlset><url><loc>https://shop.example/{}&amp;{}</loc></url></urlset>",
+            "\u{e9}".repeat(1_100),
+            "\u{e9}".repeat(1_100),
+        );
+
+        let sitemap = parse(&body).unwrap();
+
+        assert!(sitemap.locations.is_empty(), "{:?}", sitemap.locations);
         assert_eq!(sitemap.invalid_entries, 1);
     }
 
