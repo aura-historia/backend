@@ -2,8 +2,8 @@
 
 ## Layout
 
-- This is a Rust workspace for an AWS serverless backend.
-- `src/` contains workspace crates; `infra/` contains CDK infrastructure; `migrations/` contains business PostgreSQL migrations; `docs/` contains durable architecture and public-contract documentation.
+- This is a Rust workspace for a backend that runs as long-lived processes on one self-hosted host, with identity, CDN and email on AWS.
+- `src/` contains workspace crates; `host/` contains the host's Compose project, scripts and units; `infra/` contains CDK for the resources that stay on AWS; `migrations/` contains business PostgreSQL migrations; `docs/` contains durable architecture and public-contract documentation.
 - `mjml/` and `opensearch/` contain shared email and OpenSearch assets.
 - Email templates are designed on the Aura Historia Redesign design canvas first and mirrored in `mjml/`; follow [mjml/README.md](mjml/README.md) before adding or changing any email.
 
@@ -18,7 +18,7 @@
 ## Architecture
 
 - Preserve dependency direction: domain code does not depend on infrastructure.
-- Keep API, Lambda, worker, and other runtime code thin. Business use cases belong in service crates; domain behavior belongs in core crates.
+- Keep API, MCP, worker, ops and other runtime code thin. Business use cases belong in service crates; domain behavior belongs in core crates.
 - Service code owns use-case orchestration and transaction boundaries.
 - Repositories persist aggregates; readers build read models. Do not use repositories for presentation reads.
 - Keep storage rows, provider payloads, search documents, and transport DTOs within their adapter boundaries. Map them explicitly.

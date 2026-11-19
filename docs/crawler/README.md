@@ -2,7 +2,7 @@
 
 The `crawler` crate discovers and extracts generic product evidence from enabled `WEB_CRAWL` ListingSources. It has its own Postgres state for crawl roots, URLs, schemas, retries, budgets, and review artifacts.
 
-It is not a ProductListing writer: its business database role may only enqueue ingestion commands and can read or write no table. It reads its ListingSource scope from the admin API and submits immutable raw observations to the shared product-listing ingestion queue; the normalization Lambda is the sole authority that turns raw evidence into canonical ProductListings after CDC activation. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts. R17 crawler-local scheduling, review and raw-capture completion remain independent of the worker transport: an accepted submission is not proof of capture, and a capture is not proof of normalization.
+It is not a ProductListing writer: its business database role may only enqueue ingestion commands and can read or write no table. It reads its ListingSource scope from the admin API and submits immutable raw observations to the shared product-listing ingestion queue; the normalization worker is the sole authority that turns raw evidence into canonical ProductListings. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts. R17 crawler-local scheduling, review and raw-capture completion remain independent of the worker transport: an accepted submission is not proof of capture, and a capture is not proof of normalization.
 
 ## Flow
 
@@ -15,9 +15,9 @@ flowchart LR
     Scraper --> Raw[Immutable raw observation]
     Raw --> Queue[Ingestion FIFO job queue in PostgreSQL]
     Queue --> Capture[Ingestion consumer: transactional raw capture]
-    Capture --> CDC[Delivery outbox and dispatcher]
-    CDC --> SQS[Normalization job scope]
-    SQS --> Normalizer[ProductListing normalization Lambda]
+    Capture --> Outbox[Delivery outbox and dispatcher]
+    Outbox --> Scope[Normalization job scope]
+    Scope --> Normalizer[ProductListing normalization worker]
 ```
 
 Each spider or scraper pass first refreshes the complete ListingSource scope from the admin API. A failed or partial refresh skips that pass; a scope is applied only whole. `crawl_enabled` admits work only; disabling a source retains its crawler history and configuration.

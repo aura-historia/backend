@@ -213,7 +213,7 @@ Profile revisions never become global OpenSearch versions.
 Membership, counts and order remain eventually consistent. Returned terms use current
 PostgreSQL state without post-filtering indexed pages, so an old-rate hit can already show
 new terms. Anonymous caches can retain earlier responses only within their bounded TTL.
-Shipping work relies on CDC/SQS, durable continuations, retries and controlled DLQ redrive;
+Shipping work relies on the outbox and job queue, durable continuations, retries and controlled redrive from custody;
 there is no scheduled shipping expiry or pending-work scan. Geography owns evidence-retention
 invalidation. [The worker runbook](durable-worker-runbook.md#listing-shipping-recovery) owns
 monitoring, bounded rebuilds and recovery of both projection stages.
@@ -278,7 +278,7 @@ freshness, while FX-only threshold crossings never reopen older listings. Author
 evaluation cutoff and existing candidate/scan limits apply. FX matches retain immutable snapshot ID/time and target maximum separately from item
 price valuation. Listing responses expose `userState.searchFilter.shippingMatchValuation`;
 feedback responses expose `shippingMatchValuation`. Later FX/filter edits do not rewrite it.
-Private snapshots/valuation stay outside public documents, ordinary CDC and logs.
+Private snapshots/valuation stay outside public documents, the outbox and logs.
 [Matching](events/flow.md#periodic-saved-filter-matching) owns idempotency and notifications.
 
 ## Independent assertions

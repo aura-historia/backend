@@ -5,7 +5,7 @@ CloudFront and its Web ACLs, Cognito with its triggers, the SES configuration se
 backup bucket and the host's IAM user. It declares `prod` in `eu-central-1` only.
 
 For stack ownership, the origin lock and deployment order, start with the
-[infrastructure runbook](../docs/infra.md#infrastructure-boundary). Source and synth
+[infrastructure runbook](../docs/infra.md#remaining-aws-resources). Source and synth
 describe intended configuration, not verified AWS state.
 
 ## Local checks

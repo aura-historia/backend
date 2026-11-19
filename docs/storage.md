@@ -7,7 +7,7 @@ This guide owns durable persistence rules, not a table or port inventory. [Archi
 - PostgreSQL owns business state and durable execution intent unless a bounded context explicitly documents another authority. Projections and caches are rebuildable, never substitute write models.
 - Service-owned transactions commit authoritative changes, required events and local delivery intent together. No database transaction spans provider I/O or claims atomicity with another system.
 - External execution must tolerate possible acceptance followed by lost finalization: fence claims/completion, preserve idempotency evidence and define recovery. Queue admission and diagnostic logs are not committed business completion.
-- Keep operational receipts, secrets and raw provider evidence out of CDC, projections and public history unless a separately designed contract requires them.
+- Keep operational receipts, secrets and raw provider evidence out of the outbox, projections and public history unless a separately designed contract requires them.
 
 ## Integrity and concurrency
 
@@ -28,7 +28,7 @@ single-use or private evidence MUST NOT silently become reusable dealer data. Th
 - Enforce logical expiry when credentials, proofs or receipts are used, independently of physical cleanup. Cleanup is bounded and recoverable; unfinished work is not successful housekeeping.
 - Retention windows must cover the documented replay/recovery horizon. Cleanup or owner deletion MUST NOT erase an independently required ordering, withdrawal, deletion or successful-command fence.
 - Domain withdrawal, physical deletion and personal-data erasure have different contracts. Define reference, history and external-effect consequences before deletion; retained facts must not depend on accidental cascades.
-- Store hashes rather than reusable bearer secrets. Where short-lived raw exchange material is unavoidable, restrict it to that exchange and exclude it from logs, CDC and projections. Consume one-time credentials atomically, roll back failed exchanges and revoke related credentials on owner deletion.
+- Store hashes rather than reusable bearer secrets. Where short-lived raw exchange material is unavoidable, restrict it to that exchange and exclude it from logs, the outbox and projections. Consume one-time credentials atomically, roll back failed exchanges and revoke related credentials on owner deletion.
 
 ## Users and email-marketing consent
 
@@ -42,7 +42,7 @@ Provider-observation receipts enforce their logical replay window on use. Expiry
 
 ## ProductListing ingestion command receipts
 
-Successful execution and its receipt commit together. Matching commands replay without effects; conflicting verified semantics fail closed. Receipts are not admission or rejection history, have no TTL and survive listing/source deletion so an executed command cannot become executable again. They remain outside CDC and public history; see [ingestion submission](product-listing.md#asynchronous-ingestion-submission).
+Successful execution and its receipt commit together. Matching commands replay without effects; conflicting verified semantics fail closed. Receipts are not admission or rejection history, have no TTL and survive listing/source deletion so an executed command cannot become executable again. They remain outside the outbox and public history; see [ingestion submission](product-listing.md#asynchronous-ingestion-submission).
 
 ## Historical facts and valuations
 
@@ -51,4 +51,4 @@ Successful execution and its receipt commit together. Matching commands replay w
 
 ## Evolution and operations
 
-Schema and CDC selection changes require compatibility, migration and activation review. A migration or CDK declaration is not proof that a route or cleanup job runs. [Event flow](events/flow.md) owns propagation contracts, the [worker runbook](durable-worker-runbook.md) owns custody/recovery, and [infrastructure](infra.md) owns deployment operations.
+Schema changes and changes to the outbox trigger selection require compatibility, migration and activation review: a capture trigger and its dispatcher codec ship together. A migration is not proof that a route or cleanup job runs. [Event flow](events/flow.md) owns propagation contracts, the [worker runbook](durable-worker-runbook.md) owns custody/recovery, and [infrastructure](infra.md) owns deployment operations.

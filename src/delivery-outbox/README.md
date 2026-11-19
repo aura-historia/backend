@@ -1,8 +1,8 @@
 # Delivery outbox
 
-`delivery-outbox` carries committed inserts of the CDC source tables into the
-[job queue](../platform-postgres-queue/README.md) without logical replication. It replaces DMS,
-Kinesis and the CDC router Lambda. [Event flow](../../docs/events/flow.md#cdc-routing) owns the
+`delivery-outbox` carries committed inserts of the selected source tables into the
+[job queue](../platform-postgres-queue/README.md) without logical replication.
+[Event flow](../../docs/events/flow.md#outbox-routing) owns the
 selected sources and routes, the [worker runbook](../../docs/durable-worker-runbook.md#delivery-outbox-recovery)
 owns recovery, and the [migration](../../migrations/20261118090000_delivery_outbox.sql) owns
 the schema.
@@ -24,7 +24,7 @@ channel `delivery_outbox`.
 3. decode each with its source's strict [codec](src/snapshot.rs) and route it with
    `aura-historia-cdc-routing`, building and validating all of its jobs;
 4. enqueue every job; a FIFO job keeps its ordering key as group key and its idempotency key
-   as dedup key, as its SQS FIFO did;
+   as dedup key;
 5. move each snapshot that cannot be decoded, routed or encoded into failure custody;
 6. delete the claimed snapshots and commit.
 

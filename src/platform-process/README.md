@@ -23,8 +23,8 @@ name only the setting.
 | `POSTGRES_USERNAME`, `POSTGRES_PASSWORD` | The process role; usually `POSTGRES_PASSWORD_FILE` |
 | `POSTGRES_MAX_CONNECTIONS` | The process's fixed pool size; each process type has a default |
 
-PostgreSQL is reachable only on internal networks, so connections use no TLS. Pools keep the
-statement (5 s), lock (1 s) and idle-in-transaction (10 s) bounds the Lambda runtime had, wait up
+PostgreSQL is reachable only on internal networks, so connections use no TLS. Pools set
+statement (5 s), lock (1 s) and idle-in-transaction (10 s) timeouts, wait up
 to 5 s for a pooled connection and connect lazily. Each process has a fixed pool, so the sum over
 all processes must stay below the server's `max_connections` with headroom for operators,
 migrations and the crawler. The defaults are: `api` and `mcp` 10 each, `worker` one connection per

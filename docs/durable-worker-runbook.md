@@ -1,141 +1,41 @@
-# Durable CDC and worker operations
+# Outbox, queue and worker operations
 
-Use this runbook for activation, custody and recovery—not as evidence that a stage is
-running. [Event flow](events/flow.md) owns routes/completion;
-[infrastructure](infra.md) owns releases and DMS operations; [marketing consent](marketing-consent.md)
-owns consent-specific recovery. Record the approved stage/account, release SHA, operator,
-checks and omissions. Keep payloads, credentials and personal content out of evidence.
+Use this runbook for custody and recovery, not as evidence that the host is processing work.
+[Event flow](events/flow.md) owns routes and completion; the [outbox](../src/delivery-outbox/README.md)
+and the [job queue](../src/platform-postgres-queue/README.md) own their mechanics;
+[infrastructure](infra.md) owns the host and its deploys; [marketing consent](marketing-consent.md)
+owns consent-specific recovery. Record the deployed commit, operator, checks and omissions. Keep
+payloads, credentials and personal content out of evidence.
 
-Routine delivery observes DMS while applying reviewed forward migrations and deploying
-compatible workloads. It preserves capture identity, selections, slot/checkpoint, mappings,
-worker activation and schedules. Captured-table shape changes, consumer retirement and
-platform changes require separately approved maintenance; an HTTP smoke does not establish
-queued-message compatibility or CDC health.
+A deploy applies reviewed forward migrations and restarts the worker, which finishes its in-flight
+jobs first. Queued jobs and custody outlive the deploy, so the deployed dispatcher and consumers
+must still decode what earlier commits captured and enqueued, and a rollback must decode what the
+newer commit wrote ([schema evolution](arch.md#128-schema-evolution)). An HTTP smoke test does not
+prove queued-job compatibility or outbox health; `ops inspect` after the deploy does.
 
-Routine and maintenance operations share one durable environment admission record.
-`IN_PROGRESS`, `NEEDS_ATTENTION` and `MAINTENANCE` block another candidate. Cancellation,
-runner loss and elapsed time never release a hold. Inspect native pipeline/actions,
-CloudFormation, CodeDeploy alias versions and the actual SQLx ledger before reconciliation;
-SQL may have committed even when application rollout failed. Preserve the last verified
-application release separately from observed schema. The usual remedy is a reviewed forward
-fix or safe native retry, with fresh review when the baseline changes.
+## Outbox source changes
 
-### Approved DMS maintenance
+A selected source is a capture trigger, its snapshot codec in the dispatcher and its route; the
+three ship together, with the trigger in a migration and the codec and route in the same commit.
 
-Record the exact task/endpoints/instance/slot and recovery checkpoint, prior lifecycle,
-maintenance owner/request, current retained WAL/free storage, pause budget and monitoring.
-Enter the environment maintenance hold before privileged operations. Pause only when the
-reviewed work requires it; retain an intentional prior stopped state. The small
-maintenance helper records durable pause intent through
-its required evidence writer before calling DMS, observes ambiguous responses and resumes
-only its owned pause on the same task/checkpoint using `resume-processing`. It pauses only
-a task that reports a recovery checkpoint, and a running task can report none until it
-stops.
-
-The helper's resume and the maintenance reconciliation compare the capture identity
-recorded at entry, including table mappings and task settings, so they cannot complete a
-reviewed capture-configuration change such as new removed columns. Such a change needs
-separate approval for an operator stop, the data change set and `resume-processing`, with
-the stop intent, stopped checkpoint and resume evidence written under the hold's
-maintenance prefix, and for an operator reconciliation through the delivery library after
-health verification against the reviewed post-change baseline. A CloudFormation task update
-re-sends the template's task settings and DMS merges them with its current defaults, so
-record the raw task settings before the update. A captured-table column change without a
-mapping change needs no stop: the source endpoint does not capture DDL, so the router never
-receives a schema control record; verify table states and the router failure archive
-afterwards.
-
-A changed identity/checkpoint, exceeded WAL budget, task/table error or ambiguous recovery
-retains the hold. Inspect actual native state before retrying. Never create a start LSN,
-reset/recreate a slot/task, purge transport or restart an intentionally stopped subsystem
-to satisfy a release. Verify capture progress or measured healthy idleness, retained WAL,
-free storage and downstream routing after work; only then record observed state and
-explicitly reconcile the hold under the protected maintenance identity.
-
-## Activation and CDC source retirement
-
-1. Follow the [first-time sequence](infra.md#first-time-environment-and-maintenance). Verify schema/job
-   compatibility, FX, OpenSearch, provider/SES prerequisites and connection capacity
-   **before** an approved platform activation creates active mappings and integrations. Deployment is not
-   a readiness probe; if required checks are unavailable, hold activation.
-2. Coordinate selected-source changes with DMS task state. Separately approve its actual
-   slot/start position and router activation; do not invent an LSN or restart from a new
-   first-start point. Verify real CDC operation/control shapes, checkpoints and failure
-   archive delivery. Router and periodic-matcher enablement are independent release gates.
-   Complete source/destination retirement **before** a data-stack update removes queues
-   or access policies: exclude retiring sources from effective capture under the approved
-   checkpoint plan, then drain previously captured records through the compatible router.
-   Verify per-shard router checkpoints passed those records, pause the old router so it cannot
-   publish to retiring destinations, and settle queue/DLQ/in-flight and retained archive custody
-   before resource removal. A new router rejects retired-source records and stops later records
-   in that batch; selection exclusion alone is not a safe cutover. Preserve unrelated records
-   and never purge a shared stream. Resume routing only with the compatible destination catalog.
-
-## First CDC start on a new stage
-
-CDK configures the source endpoint's slot name and a stopped CDC-only task. Neither
-exceptional deployment nor Migrate creates the PostgreSQL slot or performs first start. Do this once under the
-approved activation plan, not on every deployment.
-
-1. Verify account/stage, deployed release, endpoint connection tests, selected tables,
-   router mapping and retained failure destinations. Confirm the task has never started
-   and has no recovery checkpoint. The source login must inherit the `rds_replication`
-   capability: verify `pg_has_role(current_user, 'rds_replication', 'USAGE')` through
-   its connection. Membership alone is insufficient when its grant is non-inherited.
-   Inventory existing selected-source rows and old consumers; CDC-only capture does not backfill those rows.
-2. Through an authenticated private PostgreSQL connection, inspect the configured slot:
-
-   ```sql
-   SELECT slot_name, slot_type, plugin, database, active, restart_lsn, confirmed_flush_lsn, wal_status
-   FROM pg_replication_slots
-   WHERE slot_name = '<approved-slot-name>';
-   ```
-
-   An absent slot on an approved new stage needs explicit creation and reconciliation
-   of preexisting state. An unexpectedly missing slot on a previously running stage
-   is recovery: stop and use a fenced replay/rebuild plan. Never automatically recreate
-   a lost slot or treat a configured endpoint slot name as proof that the slot exists.
-3. For approved new capture only, use a database administrator or an identity with
-   the required slot-creation privileges. Create the configured slot with the configured
-   plugin; the current DMS endpoint uses PostgreSQL `test_decoding`:
-
-   ```sql
-   SELECT * FROM pg_create_logical_replication_slot('<approved-slot-name>', 'test_decoding');
-   ```
-
-   Requery the slot. Require the correct database/plugin, an inactive healthy logical
-   slot, and non-null restart/confirmed positions. Record its actual `confirmed_flush_lsn`;
-   do not substitute the current WAL position or a timestamp. Start promptly and monitor
-   retained WAL while capture is stopped.
-4. Start the existing task from the recorded position:
-
-   ```sh
-   aws dms start-replication-task \
-     --region <stage-region> \
-     --replication-task-arn <existing-task-arn> \
-     --start-replication-task-type start-replication \
-     --cdc-start-position <confirmed-flush-lsn>
-   ```
-
-   Confirm running state, source-slot activity and checkpoint progress. Subsequent
-   recovery uses `resume-processing` and the task checkpoint, not a fresh first start.
-5. Reconcile approved preexisting state through its owning consumer contract. CDC-only
-   capture does not backfill immutable history or notification intents; do not mutate
-   business rows merely to manufacture delivery. Recheck source inventory at the capture
-   boundary; additional preexisting work needs its own reconciliation plan.
-6. Trace a real selected-source change through DMS, Kinesis, confirmed router publication,
-   SQS and the owning worker's completed outcome. Connection tests, control records,
-   an enabled mapping or a successful invocation alone do not prove completion. Check
-   lag, retained WAL, queue/DLQ custody and router archive failures without exporting
-   payloads or consuming live messages for inspection. Record safe evidence and remove
-   temporary query infrastructure and its credentials access.
+- **Adding a source** captures only inserts committed after its trigger exists. Rows that existed
+  before are never captured: reconcile approved preexisting state through the owning consumer's
+  contract, never by rewriting business rows to manufacture captures.
+- **Changing a source's snapshot** is expand-and-contract: deploy a codec that accepts both the
+  old and the new shape before the trigger writes the new one, and remove the old shape only once
+  no pending snapshot or custody row has it.
+- **Retiring a source or a destination scope** drops the trigger first, then lets the dispatcher
+  drain the outbox and the consumers drain the scope, settles its custody, and only then removes
+  the codec, route or consumer. A dispatcher that no longer knows a pending snapshot's source moves
+  it to custody as `unsupported_source`; a job whose scope has no consumer waits forever.
+- A rollback to a commit that does not know a newer source does the same: its snapshots move to
+  custody, and the redeployed newer commit takes them back with `ops redrive delivery-outbox`.
 
 ## Failure custody and controlled redrive
 
 | Failure location | What to inspect |
 | --- | --- |
-| DMS / Kinesis | Task/slot health, retained WAL, capture lag, iterator age, checkpoint and transport retention |
-| Delivery outbox | Pending count and oldest age, and `delivery_outbox_failures` with its error classes; not a worker DLQ. See [delivery outbox recovery](#delivery-outbox-recovery) |
+| Delivery outbox | Pending count and oldest age, and `delivery_outbox_failures` with its error classes, separate from job custody. See [delivery outbox recovery](#delivery-outbox-recovery) |
 | Job queue | Per scope: depth, leased count, oldest waiting age and `job_queue_failures` (custody) with reasons and last error classes; `ops inspect` prints them |
 | Provider ingress | Upstream delivery history as well as downstream command custody |
 | Scheduled work | The `ops` command's exit status and JSON report from the host timer; a started timer is not completed work |
@@ -186,8 +86,8 @@ For recovery:
    or `--all`); it restores each job's identity and position in its FIFO group. Observe
    completion and downstream effects before expanding it.
 4. Preserve receipts and fences. Never fabricate success, reset an applied receipt,
-   skip poison input, blindly resend historic mail, or purge to clear alarms. Runtime
-   roles do not have operator replay/redrive/purge authority.
+   skip poison input, blindly resend historic mail, or delete custody to clear a backlog. Only an
+   operator runs `ops redrive`; the runtime never redrives.
 
 ## Delivery outbox recovery
 
@@ -209,11 +109,7 @@ source row and let its writer capture a fresh insert. Resolve custody promptly: 
 search-filter matches and identity deletions, and ProductListing event payloads. Then redrive
 selected rows with `ops redrive delivery-outbox <outbox-id>...`; redrive
 restores each under its original outbox ID, ahead of every later snapshot still waiting, and
-the dispatcher treats it like a fresh capture. Custody is never deleted to clear an alarm.
-
-The outbox replaces DMS capture only on the host. Its cutover migration drops the
-`dms_heartbeat` schema and, when it runs as an administrator, the `aura_replication` role. If
-it warns that the role was kept, drop the role as an administrator after the migration.
+the dispatcher treats it like a fresh capture. Custody is never deleted to clear a backlog.
 
 ## ProductListing ingestion FIFO command recovery
 
@@ -223,8 +119,8 @@ known-invalid items separately with a new key. Consumer success requires atomic 
 and its matching `APPLIED` receipt. Those receipts survive business-row deletion.
 
 Deterministic business rejections are acknowledged without a receipt and logged as
-`Ingestion command rejected without retry` with command identity and error code; the
-`rejected-records` alarm reports them. They never reach custody: have the producer resubmit
+`Ingestion command rejected without retry` with command identity and error code. They never
+reach custody: have the producer resubmit
 corrected input. Invalid commands, identity conflicts and invalid persisted state are logged
 as `Ingestion command cannot apply as delivered` and parked in custody on their first
 redelivery. Later commands of their group then run, so a dependent update or withdraw may
@@ -236,8 +132,8 @@ those commands on their next delivery; redrive them once a compatible consumer r
 A completed old command replays as a no-op; an old **unfinished** command can still apply
 against newer state or fail guards. Before redrive, inspect source-order barriers, current
 partnership/source grants and raw/provider/command receipts. FIFO does not order synchronous
-writes, normalization or manually reintroduced work. Pause producers/consumption only with
-an explicit backlog and retention plan; do not discard messages to stop traffic.
+writes, normalization or manually reintroduced work. Pause producers or consumption only with
+an explicit backlog plan; never delete jobs to stop traffic.
 
 Keep acceptance fixtures isolated and record admissions, committed receipts and
 normalization separately.
@@ -254,48 +150,23 @@ app's secret rotates, set the old one as `SHOPIFY_APP_PREVIOUS_CLIENT_SECRET` un
 signs only with the new one. A `401` burst means neither matches the app's secret.
 
 On failure, inspect the app's webhook delivery metrics in the Shopify Partner Dashboard, the
-API's `post_shopify_webhook` events and the ingestion queue age/DLQ. Shopify stops retrying a
+API's `post_shopify_webhook` events and the ingestion scope in `ops inspect`. Shopify stops retrying a
 delivery after about four hours and may remove a subscription that keeps failing, so after a
 longer outage confirm the app's subscriptions still point at the HTTPS endpoint and re-import
 the affected shops through the canonical asynchronous upsert and withdrawal endpoints.
-
-Cut over from EventBridge only after the HTTPS route serves with the secret configured, and
-switch the app's subscriptions right after the release that removes the Shopify Lambda:
-EventBridge deliveries in between stay unconsumed in the retained `shopify-lambda-queue`
-(four-day retention) and are recovered by re-importing. Once the app uses HTTPS, rolling the
-API back past the route loses deliveries after Shopify's retry window; re-import afterwards.
 
 ## WooCommerce webhook queue recovery
 
 Use isolated exact-byte signed probes with valid partner/source authorization. Authorized
 ignored inputs produce no command/receipt; a mapped `204` means confirmed admission only.
-Deterministic source-order rejections are logged and alarmed instead of retried; receipt
-identity conflicts and technical capture failures can still reach the FIFO DLQ without a
-provider retry.
+Deterministic source-order rejections are logged instead of retried; receipt
+identity conflicts and technical capture failures can still reach the ingestion scope's custody
+without a provider retry.
 
 After an uncertain HTTP reply, preserve signed bytes, source, topic, caller and delivery ID.
 Without a provider delivery ID, the original command identity may not be recoverable. Inspect
-FIFO and database state before redrive. Fence only this producer for rollback, not shared
+the queue and database state before redrive. Fence only this producer for rollback, not shared
 consumption, and do not run concurrent immediate capture of the same observations.
-
-## Retained CDC archive resource import recovery
-
-Retained archives/logs/queues can outlive a failed or deleted stack. Do not delete history,
-rename resources or enable broad auto-import to make deployment pass.
-
-1. Hold deployment; inventory physical resources, account/region, exact ownership and
-   failed/pending CloudFormation state. Verify policy, encryption, public-access blocks,
-   retention and contents without exporting events.
-2. Review the selected template and exact logical/physical resource identity. Under
-   separate approval prepare an **import-only** change set for the verified ownerless
-   resource; reject unrelated imports, creations, changes, replacement or deletion.
-3. Verify completion, ownership, settings and drift. Review full-template reconciliation
-   separately and reach an acceptable normal stack state before Release. Import-only
-   completion is not application readiness and does not replay archived work.
-
-Apply the same narrow ownership procedure to other retained resources; archive adoption
-alone does not settle log-group or queue collisions. [Stack recovery](infra.md#rollback-and-stack-recovery)
-also requires checking partial activation and release prerequisites.
 
 ## Projection fences and rebuild
 
@@ -315,7 +186,7 @@ to rebuild search after the index was lost. Each page commits on its own and the
 the last listing, so an interrupted run resumes after it. Catch up by rerunning once old
 writers are fenced: listings whose job is still waiting are skipped, every other listing is
 enqueued again, and the projector completes the ones already current as stale. Withdrawn listings retain authoritative source state.
-Index reset, expired queues and absent history cannot restore missing authoritative facts.
+Index reset, the queue and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
 
 ## Listing shipping recovery
@@ -325,14 +196,13 @@ index subset, observation eligibility and distinction between current listing
 responses and delayed indexed discovery. The worker accepts only compact work ID/generation
 wake-ups, rereads canonical PostgreSQL and commits a bounded page with its checkpoint.
 It never calls providers or writes OpenSearch. Stale/superseded work cannot commit a page;
-active claims, malformed input and dependency failures retain SQS retry/DLQ custody.
-Shipping processing relies on CDC/SQS delivery, retries and controlled DLQ redrive. There
+active claims, malformed input and dependency failures are retried and then kept in custody.
+Shipping processing relies on outbox delivery, retries and controlled redrive. There
 is no scheduled shipping expiry or pending-work recovery scan.
 
 Original shipping journals, policies, observations, dependency rows and checkpoints stay
-outside DMS. The router publishes the address-free wake-up pair only; its existing private
-archive retains router failures. Worker source/DLQ retention and scoped runtime/operator
-permissions follow the shared queue contract.
+outside the outbox. The dispatcher publishes the address-free wake-up pair only; snapshots it
+cannot route stay in outbox custody.
 
 For bounded rebuilds, enqueue selected source UUIDs in reviewed keyset pages with `SELECT enqueue_listing_shipping('SOURCE', $1)` in the
 operational transaction. Preserve work generations, live leases, reverse references,
@@ -349,15 +219,15 @@ country-service-price nesting and deletion visibility. Runtime acknowledgment me
 accepted or externally fenced write, not search visibility.
 
 Monitor oldest pending work, expired leases, changed/scanned page counts and shipping
-and product-projector queue age/depth/DLQs. Repair both pipeline stages; queries remain available during catch-up. Use only identities,
+and product-projector scope age, depth and custody. Repair both pipeline stages; queries remain available during catch-up. Use only identities,
 revision/generation, policy and failure categories in operator evidence. Never
 export terms, addresses, producer ownership keys, buyer data or provider payloads.
 
 ## Periodic matching recovery
 
 [Event flow](events/flow.md#periodic-saved-filter-matching) owns matching semantics;
-[infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
-runs, verify private PostgreSQL access, ProductListing search with reader credentials,
+[infrastructure](infra.md#scheduled-work) owns the schedule. Before enabling
+runs, verify PostgreSQL access, ProductListing search with reader credentials,
 complete persisted FX and classifier configuration. Filter candidates and progress come
 from PostgreSQL. Every filter with text intent retrieves with its stored embedding; one
 without a valid embedding fails as invalid persisted state. The update use case repairs missing
@@ -369,11 +239,11 @@ image fetching adds bounded preparation time. The two-hour run deadline also bou
 Free/Pro coverage: monitor selected/attempted counts, failed filters and timeout outcomes for
 saturation. Candidate/scan caps are successful bounded discovery, not exhaustive coverage.
 
-Inspect Scheduler delivery failures separately from actual ECS task exit and application
-completion reports. Failed filters, cancellation or timeout are incomplete work even if
+Inspect the timer's unit result and the command's completion report separately; a started
+unit is not a completed run. Failed filters, cancellation or timeout are incomplete work even if
 other matches committed; overlapping-run exclusion is not evidence that a run advanced
 progress. Verify per-filter progress and persisted matches with bounded read-only checks.
-Repair the dependency and use the next scheduled run or an approved bounded invocation;
+Repair the dependency and use the next scheduled run or an approved `ops periodic-match` run;
 preserve checkpoints and match identities instead of resetting progress or deleting
 matches to force a replay. The replay overlap tolerates bounded projection lag, not an
 unlimited outage: review uncovered windows after prolonged search/projection failures.
@@ -402,15 +272,15 @@ The API's search-filter previews use the same Workers AI account. A classifier o
 limit also fails previews with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`, logged by the API as
 `search_filter.preview.failed`; preview traffic counts against the same provider limits as runs.
 
-Match INSERTs normally wake generation through healthy CDC/router/notification workers;
+Match INSERTs normally wake generation through the outbox and healthy notification workers;
 [digest recovery](#saved-search-digest-recovery) owns unfinished selection
-and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
+and finalization. Verify the outbox and notification scopes independently. Rerunning matching
 is not a substitute for recovering retained notification jobs and must not blindly resend
 historical mail.
 
 ### Saved-search batching quality gate
 
-`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50).
+`PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50) configures the periodic matcher.
 Search-filter previews in the API always send single candidates; they share only the model,
 threshold and Workers AI token with the matcher.
 The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
@@ -518,18 +388,17 @@ approved recovery. Never interpret timeout as definitely unsent or automatically
 historic customer mail. An SES account-level or configuration refusal (sending paused,
 account suspended, unverified MAIL FROM domain, missing configuration resource) is retried
 with error code `SES_SENDING_UNAVAILABLE` and leaves the delivery `PENDING`; once its jobs
-are dead-lettered, fix the account or configuration, then redrive them.
+are in custody, fix the account or configuration, then redrive them.
 
 External email deliveries ([event flow](events/flow.md#external-email-delivery)) follow
 the same rules. Their message rows hold the recipient address and payload: triage by
 delivery ID, source type and error code, and never export or log addresses or payloads.
-A dead-lettered `delivery_state_invalid` job with source type `external` points to a
+A `delivery_state_invalid` job in custody with source type `external` points to a
 corrupt or missing message; fix the persisted state through a reviewed change before
-redrive. Exception: a release that adds a delivery source or template kind together with
-its producer can briefly run the new producer next to an older delivery Lambda, which
-dead-letters those jobs as `delivery_state_invalid`, possibly without a source type. Such
-jobs from the rollout window need no state change: redrive them once the new delivery
-Lambda is live.
+redrive. Exception: a rollback past a release that added a delivery source or template kind
+leaves the older worker unable to handle those jobs, and it moves them to custody as
+`delivery_state_invalid`, possibly without a source type. They need no state change: redrive
+them once a worker that knows them runs again.
 
 ## Saved-search digest recovery
 
@@ -537,9 +406,9 @@ Normal filter completion and notification selection finalize ready digests
 immediately; delivery then follows the existing asynchronous outbox path. The hourly
 cleanup is the fallback for interrupted work, performing bounded
 notification-selection recovery and digest finalization using PostgreSQL,
-independently of CDC wake-ups. Failed selections are deferred for 15 minutes and
+independently of outbox wake-ups. Failed selections are deferred for 15 minutes and
 reordered behind untouched work so they cannot starve the queue. Monitor cleanup
-invocation failures and backlog capacity: a healthy bounded invocation does not
+run failures and backlog capacity: a healthy bounded run does not
 prove that all pending groups completed. A run retains its identity on retry until
 its fixed 24-hour recovery deadline. At expiry successful persisted matches can
 finalize even with unfinished filters; subsequent matching keeps ordinary
@@ -551,16 +420,16 @@ and digest/delivery identities, pending filters/selections, group age, full elig
 membership, distinct listings and delivery state/attempts/errors. Structured
 `saved_search.digest.*` events report finalization, rendering counts and current
 eligibility suppression; generator outcomes expose quota and other selection
-suppression. These observations do not provision CloudWatch metrics or alarms.
+suppression. These are log events, not provisioned metrics or alarms.
 Investigate groups approaching the deadline, old unassigned members, stalled
-selection, delivery queues/DLQs and expired processing leases. Do not export snapshot
+selection, delivery scopes and their custody, and expired processing leases. Do not export snapshot
 payloads, authored search instructions or private email addresses for diagnostics.
 
-Repair failed dependencies, then use the next cleanup/matcher invocation or an
-approved bounded recovery invocation. Preserve run keys, match keys, membership,
+Repair failed dependencies, then use the next cleanup or matcher run or an
+approved `ops backend-cleanup` run. Preserve run keys, match keys, membership,
 finalized groups and delivery leases/receipts. Never reset a finalized group or clear
 members to force another email. A delivery remains pending/processing/failed until
-the established delivery handler confirms its outcome; outbox insertion and CDC
+the established delivery handler confirms its outcome; outbox capture and job
 publication are not provider acceptance. Reconcile ambiguous SES sends under
 [notification recovery](#notification-recovery-limits) before approved replay.
 
@@ -573,16 +442,16 @@ Only the automatic circuit breaker pauses calls, for five minutes after three co
 provider-health failures. Stopping paid calls or withdrawing retention rights requires a
 reviewed release that removes the calls and purges retained evidence.
 
-Keep private inputs, bindings, work checkpoints and evidence outside CDC. The
+Keep private inputs, bindings, work checkpoints and evidence outside the outbox. The
 administrator resolution `request` operation establishes work for preexisting eligible
-PartyLocations; CDC-only capture does not backfill them. Review `AMBIGUOUS` locations and retry
+PartyLocations; the outbox captures only new inserts and never backfills them. Review `AMBIGUOUS` locations and retry
 `BLOCKED` or `FAILED` ones through the administrator review queue (see `docs/swagger.yaml`),
 never through direct SQL.
 
 The hourly backend cleanup purges orphaned evidence and requeues bounded runnable work
-whose provider circuit is closed. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
+whose provider circuit is closed. Fresh wake-ups require a healthy outbox and queue. Recovery preserves
 attempts, pending age and backoff; live leases keep their claims. Additional bounded cleanup
-invocations follow ordinary operational approval when backlog requires faster recovery or
+runs follow ordinary operational approval when backlog requires faster recovery or
 purging. Readers suppress ineligible evidence immediately;
 listing search accepts projection lag while removal propagates.
 
@@ -596,7 +465,7 @@ detaches selected-place bindings.
 
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
 deadline and circuit state. Monitor resolution reuse/outcomes, oldest pending age, maintenance
-counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
+counts, scope age, depth and custody, and cleanup failures. Structured log fields are observations, not
 provisioned metric filters; BLOCKED/FAILED work is acknowledged rather than retained, so inspect
 the recorded `geo_resolution_outcome` and resolution state for it. Never include private input
 or provider payloads in logs, operator evidence or replay messages.
@@ -607,8 +476,8 @@ unbound or superseded. A redelivery of settled work
 makes no provider call. It retains a
 wake-up whose lease another claim holds or whose retry backoff is running, and a transient
 provider failure with its diagnostic. Provider-gated wake-ups (provider circuit open) are
-retained with reason `provider_gated` while the DLQ alarm is the only signal of a stalled
-resolution backlog. Cleanup recovery republishes their PostgreSQL work regardless.
+retained with reason `provider_gated`; growing custody of the scope is then the signal of a
+stalled resolution backlog. Cleanup recovery republishes their PostgreSQL work regardless.
 
 An active claim is incomplete. A paid-call/commit crash may repeat charging after lease
 expiry; attempts are not refunded. Business Retry/selection requires current location
@@ -622,7 +491,7 @@ reference-release correction until protected Retry, changed input, or approved o
 recovery that reproduces Retry's generation fence, invalidation and wake-up. Each recovery is
 a paid call and blocks again when no candidate is retainable.
 
-Redrive a small approved DLQ sample with original identities/generations: superseded and
+Redrive a small approved custody sample with original identities/generations: superseded and
 terminal work completes without a provider call, completed work reuses evidence, active leases
 defer and malformed jobs retain custody. Provider-gated copies need no redrive: once the circuit
 closes, cleanup republishes their work and the old copies complete as stale. Confirm
@@ -646,7 +515,7 @@ projection versions and deletion tombstones. Repeat source traversal if source c
 overlaps it; listing journals independently cover concurrent listings.
 
 Monitor oldest pending work, expired claims, projection queue lag and
-backlog age, failures/DLQ, version/fence correctness and rebuildability. Product projector
+backlog age, failures and custody, version/fence correctness and rebuildability. Product projector
 acknowledgment means OpenSearch accepted the write or external versioning fenced it as stale.
 Search visibility follows the normal refresh cycle; no persisted acknowledgment claims
 search visibility. Queries continue during catch-up; repair/replay stalled geography and product
@@ -654,8 +523,7 @@ projectors to propagate retirement, applicability and evidence removal.
 
 ## User identity deletion recovery
 
-The `user-identity-deletion` scope uses the existing source/DLQ retention and replay
-procedures. Fix failures before redrive; preserve the deleted user ID, checkpointed
+The `user-identity-deletion` scope uses the shared custody and redrive procedure. Fix failures before redrive; preserve the deleted user ID, checkpointed
 provider target and claim/completion fences. An active claim remains unfinished until
 its lease expires, while completed redelivery performs no provider I/O. A lost provider
 response is reconciled using the saved target on retry. Never recreate the business

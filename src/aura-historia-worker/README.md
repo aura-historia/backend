@@ -2,17 +2,15 @@
 
 `aura-historia-worker` (the image's `worker` entrypoint) runs the
 [delivery outbox](../delivery-outbox/README.md) dispatcher and one consumer per job scope on the
-[consumer runtime](../platform-worker/README.md). It replaces the SQS-triggered Lambda
-functions; each scope's module in [`src/scopes`](src/scopes) keeps that function's job logic and
-maps its outcomes to a queue disposition exactly as the Lambda adapter acknowledged, retained or
-parked its SQS record. Business logic stays in the service crates.
+[consumer runtime](../platform-worker/README.md). Each scope's module in [`src/scopes`](src/scopes)
+decodes its jobs, invokes the service use case and maps every outcome to a queue disposition
+(complete, retry or park). Business logic stays in the service crates.
 
 ## Scopes
 
 Every [CDC worker scope](../aura-historia-jobs/src/scope.rs) and the ProductListing ingestion
-command FIFO have a consumer. Concurrency starts from each function's production reserved
-concurrency, where every invocation processed its records one at a time, and the job timeout is
-the adapter's per-record budget:
+command FIFO have a consumer. Each unit of concurrency processes one job at a time within the
+job timeout:
 
 | Scope | Concurrency | Job timeout |
 | --- | ---: | ---: |
@@ -40,7 +38,7 @@ used to rebuild into an isolated index with `ops reproject-all --generation <g>`
 | `AURA_HISTORIA_WORKER_POLL_INTERVAL_MS` | Longest idle wait without a notification; default 5000 |
 | `AURA_HISTORIA_WORKER_SHUTDOWN_GRACE_SECONDS` | In-flight completion window on SIGTERM; default 25. The container's stop timeout must exceed it, or jobs are killed instead of released and return only after their lease |
 
-Each scope also reads its providers' settings, unchanged from its Lambda function (for example
+Each scope also reads its providers' settings (for example
 `ANTHROPIC_API_KEY`, `VERTEX_AI_PROJECT_ID`, `LOOPS_API_KEY`, `OPENSEARCH_ENDPOINT_URL`, the
 notification email settings and `AURA_HISTORIA_COGNITO_USER_POOL_ID`). Composition reads and
 validates them at startup; a missing setting stops the worker and names the scope. The optional
@@ -56,9 +54,8 @@ scope that no longer consumes.
 
 ## PostgreSQL pool
 
-Each Lambda invocation held one connection, so the worker's fixed pool is one connection per
-concurrent job plus four for the wake-up listeners, the dispatcher and settlement: 76 with every
-scope at its default. Override it with `POSTGRES_MAX_CONNECTIONS` only together with the
+The worker's fixed pool is one connection per concurrent job plus four for the wake-up listeners,
+the dispatcher and settlement: 76 with every scope at its default. Override it with `POSTGRES_MAX_CONNECTIONS` only together with the
 concurrency.
 
 ## Tests

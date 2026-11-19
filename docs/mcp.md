@@ -555,7 +555,7 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
-| `MCP_RATE_LIMIT_PER_SECOND`, `MCP_RATE_LIMIT_BURST` | The process's request-rate limit, which replaced the API Gateway stage throttle; defaults 20 per second, burst 10. An exhausted limit returns `429` with `Retry-After: 1`; `/health` is never limited |
+| `MCP_RATE_LIMIT_PER_SECOND`, `MCP_RATE_LIMIT_BURST` | The process's request-rate limit; defaults 20 per second, burst 10. An exhausted limit returns `429` with `Retry-After: 1`; `/health` is never limited |
 
 Configure the public hostname explicitly in `MCP_ALLOWED_HOSTS`. Missing Origin is accepted;
 present Origin must be a valid allowed scheme/host/port tuple, except on the public server

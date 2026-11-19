@@ -1,7 +1,7 @@
 # PostgreSQL job queue
 
-`platform-postgres-queue` is the durable job queue that replaces the SQS worker queues, the
-ProductListing ingestion and marketing-consent FIFO queues and their dead-letter queues. It
+`platform-postgres-queue` is the durable job queue of every worker scope, including the
+ProductListing ingestion and marketing-consent FIFO scopes, and their failure custody. It
 keeps the delivery and custody rules of [architecture §12.2–12.4](../../docs/arch.md#122-routing-acknowledgment-and-durable-custody);
 the [worker runbook](../../docs/durable-worker-runbook.md) owns operator procedures. The
 [migration](../../migrations/20261117130000_job_queue.sql) owns the schema.
@@ -10,9 +10,8 @@ the [worker runbook](../../docs/durable-worker-runbook.md) owns operator procedu
 
 A scope is one logical queue with a name, an ordering (standard or FIFO), a lease, a retry
 budget and a retry delay. [`platform-worker-queue-contract::job_queue`](../platform-worker-queue-contract/src/job_queue.rs)
-catalogues the production scopes: each keeps its SQS queue's name, ordering, visibility timeout
-as the lease and `maxReceiveCount` as the attempt budget. A failed SQS attempt became visible
-again when its visibility timeout passed, so the retry delay equals the lease.
+catalogues the production scopes with their ordering, lease and attempt budget; each scope's
+retry delay equals its lease.
 
 ## Delivery
 

@@ -121,7 +121,7 @@ proper name with a language-specific letter would decide it. The
 [reviewed fixtures](normalization-replay.md#reviewed-fixtures) pin repaired, unchanged and
 mixed-language examples.
 
-Stored titles and events, and in-flight ingestion and CDC payloads, written by an earlier
+Stored titles and events, and in-flight ingestion jobs and outbox snapshots, written by an earlier
 constructor remain readable when they satisfy the structural rules, including the bounded
 trailing whitespace of the old constructor and shortened ellipses from prior rehydration.
 Readers present the current canonical value without rewriting immutable history; a later
