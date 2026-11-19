@@ -12,7 +12,7 @@ use super::invocation::qualifier_command;
 use super::ledger::ProcessEnd;
 use super::process::ChildStop;
 use super::process::run_agent;
-use super::settings::RunnerSettings;
+use super::settings::{AgentRound, RunnerSettings};
 use super::state::{Pause, QualificationFailures, RunnerState};
 use super::stop::RunnerStop;
 use super::usage_pacing::UsageWindows;
@@ -47,6 +47,20 @@ pub struct QueuedSource {
     /// The note of the agents' earlier `NEEDS_HUMAN` this try follows, if any.
     #[serde(default)]
     pub earlier_note: Option<String>,
+    /// Whether this try is the agents' final round on the source.
+    #[serde(default)]
+    pub final_round: bool,
+}
+
+impl QueuedSource {
+    /// The round the source's qualifier works.
+    pub fn round(&self) -> AgentRound {
+        if self.final_round {
+            AgentRound::Final
+        } else {
+            AgentRound::Regular
+        }
+    }
 }
 
 /// The label a queued source carries, by its persisted names.
@@ -149,10 +163,13 @@ pub struct QualificationRecord {
     /// What the console stored after the process; `None` when the runner could not read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored: Option<StoredOutcome>,
-    /// Whether the runner handed the source to a human after this process, the last of
-    /// [`MAX_QUALIFIER_FAILURES`] without a decision.
+    /// Whether the runner decided `NEEDS_HUMAN` for the source after this process, the last of
+    /// [`MAX_QUALIFIER_FAILURES`] without a decision, which parks it until the agents' next try.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub handed_over: bool,
+    /// Whether the process was the agents' final round on the source.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub final_round: bool,
     #[serde(default)]
     pub num_turns: u64,
     #[serde(default)]
@@ -272,6 +289,10 @@ pub struct QualificationSummary {
     /// Whether the agents' hourly decision cap held sources back: the pass started no more
     /// qualifiers than decisions were left, so none is refused after reading the shop.
     pub decision_capped: bool,
+    /// Final rounds the pass started.
+    pub final_rounds: usize,
+    /// Sources due for their final round that the day's cap on final rounds held back.
+    pub final_rounds_held_back: usize,
 }
 
 /// The sources a pass starts qualifiers for, in queue order: at most `per_run`, and no more than
@@ -310,6 +331,7 @@ pub async fn qualify_waiting_sources(
     console: &ConsoleClient,
     stop: &RunnerStop,
     state: &mut RunnerState,
+    final_rounds_left: &mut usize,
 ) -> Result<QualificationSummary, QualificationError> {
     let mut summary = QualificationSummary::default();
     if state.pause_at(OffsetDateTime::now_utc()).is_some() || stop.is_requested() {
@@ -340,6 +362,12 @@ pub async fn qualify_waiting_sources(
     let (to_qualify, decision_capped) =
         sources_to_qualify(workable, per_run, queue.agent_decisions_left);
     summary.decision_capped = decision_capped;
+    let (to_qualify, held_back) = within_final_round_cap(to_qualify, final_rounds_left);
+    summary.final_rounds_held_back = held_back;
+    summary.final_rounds = to_qualify
+        .iter()
+        .filter(|source| source.final_round)
+        .count();
     let mut waiting = to_qualify.into_iter();
     // A rolling pool: a slot that frees starts the next source at once, so one slow process
     // never holds back the others.
@@ -359,6 +387,9 @@ pub async fn qualify_waiting_sources(
             break;
         };
         count_attempt(settings, console, state, &mut record, attempt).await;
+        if record.final_round && attempt != Attempt::NotCounted {
+            record_final_round(settings, &record);
+        }
         summary.processes += 1;
         summary.decided += usize::from(attempt == Attempt::Decided);
         if let Some(pause) = pause
@@ -372,6 +403,54 @@ pub async fn qualify_waiting_sources(
         append(&ledger_path, &record)?;
     }
     Ok(summary)
+}
+
+/// The `sources` whose qualifier may start, in their order: every one in a regular round, and as
+/// many final rounds as `left` admits, which it counts down; answers how many final rounds the
+/// cap held back.
+fn within_final_round_cap(
+    sources: Vec<QueuedSource>,
+    left: &mut usize,
+) -> (Vec<QueuedSource>, usize) {
+    let mut held_back = 0;
+    let admitted = sources
+        .into_iter()
+        .filter(|source| {
+            if !source.final_round {
+                return true;
+            }
+            if *left == 0 {
+                held_back += 1;
+                return false;
+            }
+            *left -= 1;
+            true
+        })
+        .collect();
+    (admitted, held_back)
+}
+
+/// Records the final round `record` worked on its source in the parking ledger, with what the
+/// console stored.
+fn record_final_round(settings: &RunnerSettings, record: &QualificationRecord) {
+    info!(
+        event = "crawler.review_agent.final_qualification_finished",
+        listing_source_id = %record.listing_source_id,
+        listing_source_name = %record.listing_source_name,
+        decided = record.decided(),
+        "Final round of a qualification finished"
+    );
+    super::parking::record(
+        &settings.state_dir,
+        &super::parking::ParkingRecord {
+            at: record.finished,
+            listing_source_id: record.listing_source_id,
+            listing_source_name: record.listing_source_name.clone(),
+            event: super::parking::ParkingEvent::FinalQualification {
+                decided: record.decided().map(str::to_owned),
+            },
+        },
+    );
 }
 
 /// Runs the qualifier on `source` and answers its record, with the pause its stream asks for and
@@ -487,7 +566,7 @@ async fn hand_over(console: &ConsoleClient, record: &QualificationRecord, in_a_r
             listing_source_id = %record.listing_source_id,
             listing_source_name = %record.listing_source_name,
             failures = in_a_row,
-            "Qualifier processes kept ending without a decision; the source waits for a human"
+            "Qualifier processes kept ending without a decision; the source is parked until the agents try it again"
             );
             true
         }
@@ -520,6 +599,7 @@ async fn run_qualifier(
         report: None,
         stored: None,
         handed_over: false,
+        final_round: source.final_round,
         num_turns: 0,
         usage: TokenUsage::default(),
         total_cost_usd: 0.0,
@@ -859,6 +939,7 @@ mod tests {
         other_reason: &str,
     ) -> QualificationRecord {
         QualificationRecord {
+            final_round: false,
             finished: time::macros::datetime!(2026-11-14 10:00:00 UTC),
             listing_source_id: ListingSourceId::new(),
             listing_source_name: "Shop".to_owned(),
@@ -888,6 +969,7 @@ mod tests {
 
     fn waiting_source(index: usize) -> QueuedSource {
         QueuedSource {
+            final_round: false,
             listing_source_id: ListingSourceId::new(),
             listing_source_name: format!("Shop {index}"),
             crawl_root_url: format!("https://shop{index}.example/"),

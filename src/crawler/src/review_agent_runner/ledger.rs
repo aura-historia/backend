@@ -77,6 +77,9 @@ pub struct ProcessRecord {
     /// the runner recorded it.
     #[serde(default)]
     pub repair_round: bool,
+    /// Whether the process worked the agents' final round on the review.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub final_round: bool,
     pub end: ProcessEnd,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<ProcessLimit>,
@@ -347,6 +350,7 @@ pub(super) mod tests {
         cost: f64,
     ) -> ProcessRecord {
         ProcessRecord {
+            final_round: false,
             finished,
             review_id: CrawlerReviewId::new(),
             artifact_type: None,

@@ -23,6 +23,7 @@ mod invocation;
 mod ledger;
 mod login;
 mod page_classification;
+mod parking;
 mod pass;
 mod process;
 mod qualification;
@@ -176,6 +177,13 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
             "Cannot prune the qualification ledger; the next run tries again"
         );
     }
+    if let Err(error) = parking::prune(&settings.state_dir, started - LEDGER_RETENTION) {
+        warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Cannot prune the parking ledger; the next run tries again"
+        );
+    }
     if let Err(error) = page_classification::prune(&settings.state_dir, started - LEDGER_RETENTION)
     {
         warn!(
@@ -191,10 +199,29 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     classify_due_reviews(settings, &console, stop, &mut state).await;
     save_state(&settings.state_dir, &state)?;
 
+    // Parks that expired go back to qualification first, so this run's qualification pass tries
+    // them; a console that does not take the retry leaves them for the next run.
+    if let Err(error) = parking::retry_expired_parks(&console, &settings.state_dir).await {
+        warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Cannot send the expired parks back to qualification; the next run tries again"
+        );
+    }
+    let mut final_rounds_left = final_rounds_left(settings, started);
+
     // New sources are not crawled until they are qualified, so they come before the reviews; a
     // failed qualification pass leaves them waiting for the next run and does not hold up the
     // reviews.
-    match qualification::qualify_waiting_sources(settings, &console, stop, &mut state).await {
+    match qualification::qualify_waiting_sources(
+        settings,
+        &console,
+        stop,
+        &mut state,
+        &mut final_rounds_left,
+    )
+    .await
+    {
         Ok(summary) if summary.processes > 0 || summary.decision_capped => info!(
             event = "crawler.review_agent.qualification_pass_completed",
             waiting = summary.waiting,
@@ -202,6 +229,8 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
             decided = summary.decided,
             stopped = summary.stopped,
             decision_capped = summary.decision_capped,
+            final_rounds = summary.final_rounds,
+            final_rounds_held_back = summary.final_rounds_held_back,
             "Qualification pass finished"
         ),
         Ok(_) => {}
@@ -213,8 +242,16 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     }
     save_state(&settings.state_dir, &state)?;
 
-    let (pass, mut state, ledger) =
-        work_pending_reviews(settings, &console, limits, stop, state, ledger).await;
+    let (pass, mut state, ledger) = work_pending_reviews(
+        settings,
+        &console,
+        limits,
+        stop,
+        state,
+        ledger,
+        final_rounds_left,
+    )
+    .await;
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
@@ -231,6 +268,17 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
         save_state(&settings.state_dir, &state)?;
     }
     Ok(RunOutcome::Ran { summary, digest })
+}
+
+/// How many final rounds, of reviews and qualifications, the day's cap still admits at `now`, from
+/// the parking ledger, which records each when it ends.
+fn final_rounds_left(settings: &RunnerSettings, now: OffsetDateTime) -> usize {
+    let since = now - Duration::days(1);
+    let ran =
+        parking::final_rounds_since(&parking::records_since(&settings.state_dir, since), since);
+    usize::try_from(settings.final_round.max_per_day.get())
+        .unwrap_or(usize::MAX)
+        .saturating_sub(ran)
 }
 
 /// Runs the classification pass with the reviewer's token for the rejections, and logs how it
@@ -317,6 +365,10 @@ fn log_pass_finished(
                 waiting_for_human = summary.waiting_for_human,
                 handed_to_human = summary.handed_to_human,
                 guard_blocked = summary.guard_blocked,
+                final_rounds = summary.final_rounds,
+                final_rounds_approved = summary.final_rounds_approved,
+                final_rounds_held_back = summary.final_rounds_held_back,
+                parked = summary.parked,
                 reviewers_held_back = summary.reviewers_held_back,
                 cooling_down = summary.cooling_down,
                 worked = summary.worked,
@@ -446,6 +498,11 @@ async fn write_digest(
             .cloned()
             .collect::<Vec<_>>(),
     ));
+    let parking = parking::digest_section(
+        &parking::records_since(&settings.state_dir, from),
+        &digest.agent_approved_sources(),
+    );
+    let digest = digest.with_parking(parking);
     match digest.write(&settings.state_dir) {
         Ok(path) => {
             info!(
@@ -630,6 +687,20 @@ mod tests {
                                 hand_over(review, &body, &claude_dir)
                             } else if let Some(review) = path
                                 .strip_prefix("/api/reviews/")
+                                .and_then(|rest| rest.strip_suffix("/final-round"))
+                                .filter(|_| request.starts_with("POST "))
+                            {
+                                start_final_round(review, &claude_dir)
+                            } else if let Some(review) = path
+                                .strip_prefix("/api/reviews/")
+                                .and_then(|rest| rest.strip_suffix("/source-label"))
+                                .filter(|_| request.starts_with("POST "))
+                            {
+                                park(review, &body, &claude_dir)
+                            } else if path == "/api/source-qualifications/retry-parked" {
+                                (200, json!({ "retried": [] }).to_string())
+                            } else if let Some(review) = path
+                                .strip_prefix("/api/reviews/")
                                 .and_then(|rest| rest.strip_suffix("/approval-checks"))
                                 .and_then(|id| {
                                     reviews
@@ -691,12 +762,23 @@ mod tests {
                     .is_ok_and(|rejected| rejected.contains(&review.review_id.to_string()))
             })
             .collect();
+        let marked = |kind: &str, review: &CrawlerReview| {
+            claude_dir
+                .join(kind)
+                .join(review.review_id.to_string())
+                .exists()
+        };
         let waits = |review: &CrawlerReview| {
-            review.human_required
-                || claude_dir
-                    .join("human")
-                    .join(review.review_id.to_string())
-                    .exists()
+            (review.human_required || marked("human", review)) && !marked("final_open", review)
+        };
+        let final_round = |review: &CrawlerReview| {
+            if marked("final_open", review) {
+                crate::review::model::FinalRoundStatus::Open
+            } else if waits(review) && marked("final_due", review) {
+                crate::review::model::FinalRoundStatus::Due
+            } else {
+                crate::review::model::FinalRoundStatus::None
+            }
         };
         let count = |human_required: bool| {
             i64::try_from(
@@ -756,7 +838,7 @@ mod tests {
                     .join("classify")
                     .join(review.review_id.to_string())
                     .exists(),
-                final_round: crate::review::model::FinalRoundStatus::None,
+                final_round: final_round(review),
                 created: review.created,
                 updated: review.updated,
             })
@@ -789,6 +871,45 @@ mod tests {
         (200, "{\"ok\":true}".to_owned())
     }
 
+    /// `POST /api/reviews/{id}/final-round`: logs `final-round <review id>` to `order.log` and
+    /// opens the round, so the review is the agents' again.
+    fn start_final_round(review_id: &str, claude_dir: &Path) -> (u16, String) {
+        let mut order = std::fs::read_to_string(claude_dir.join("order.log")).unwrap_or_default();
+        order.push_str(&format!("final-round {review_id}\n"));
+        let _ = std::fs::write(claude_dir.join("order.log"), order);
+        let _ = std::fs::write(claude_dir.join("final_open").join(review_id), "");
+        (
+            200,
+            json!({ "ok": true, "after": "REPAIR_CAP" }).to_string(),
+        )
+    }
+
+    /// `POST /api/reviews/{id}/source-label`: logs `<review id> <label> <note>` to `parked.log` and
+    /// answers the label as an agent's park that expires in 30 days.
+    fn park(review_id: &str, body: &str, claude_dir: &Path) -> (u16, String) {
+        let body = serde_json::from_str::<Value>(body).unwrap_or_default();
+        let (label, note) = (
+            body["label"].as_str().unwrap_or_default(),
+            body["note"].as_str().unwrap_or_default(),
+        );
+        let mut log = std::fs::read_to_string(claude_dir.join("parked.log")).unwrap_or_default();
+        log.push_str(&format!("{review_id} {label} {note}\n"));
+        let _ = std::fs::write(claude_dir.join("parked.log"), log);
+        let now = OffsetDateTime::now_utc();
+        let time = |at: OffsetDateTime| {
+            at.format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default()
+        };
+        (
+            200,
+            json!({
+                "label": label, "note": note, "labelled_at": time(now),
+                "labelled_by": "AGENT_AUTHOR", "retry_at": time(now + Duration::days(30)),
+            })
+            .to_string(),
+        )
+    }
+
     /// `POST /api/reviews/{id}/reject` with the reviewer's token, as the runner sends the page
     /// classifier's rejection: logs `<review id> <body>` to `rejected.log`, after which the review
     /// leaves the queue, or answers `reject_answer/<review id>`, a status line and a body, without
@@ -813,7 +934,9 @@ mod tests {
             return (500, "{\"error\":\"failed\"}".to_owned());
         }
         let mut review = review.clone();
-        if claude_dir.join("human").join(&id).exists() {
+        if claude_dir.join("human").join(&id).exists()
+            && !claude_dir.join("final_open").join(&id).exists()
+        {
             review.agent_rounds = 3;
             review.human_required = true;
         }
@@ -843,7 +966,7 @@ mod tests {
                 list.push(json!({
                     "event_id": crate::CrawlerReviewEventId::new().to_string(),
                     "review_id": review_id, "artifact_type": "PRODUCT_SCHEMA",
-                    "listing_source_id": "ls_x", "listing_source_name": "Antiques",
+                    "listing_source_id": listing_source_core::ListingSourceId::new().to_string(), "listing_source_name": "Antiques",
                     "actor": "AGENT_REVIEWER", "action": action, "candidate_version": 2,
                     "notes": null,
                     "created": OffsetDateTime::now_utc()
@@ -979,6 +1102,8 @@ echo "end $role $review" >> "$dir/order.log"
                 "late",
                 "classify",
                 "reject_answer",
+                "final_due",
+                "final_open",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -1166,6 +1291,15 @@ echo "end $role $review" >> "$dir/order.log"
                 .unwrap_or_default();
         }
 
+        /// Marks `review_id` with `kind`, such as `final_due`, in the fake console.
+        fn mark(&self, kind: &str, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory.path().join(kind).join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
         /// Marks `review_id` as due for the page classifier in the fake console's queue.
         fn classification_due(&self, review_id: CrawlerReviewId) {
             std::fs::write(
@@ -1281,7 +1415,7 @@ echo "end $role $review" >> "$dir/order.log"
                 "events": [{
                     "event_id": crate::CrawlerReviewEventId::new().to_string(),
                     "review_id": CrawlerReviewId::new().to_string(),
-                    "artifact_type": "URL_PATTERN", "listing_source_id": "ls_x",
+                    "artifact_type": "URL_PATTERN", "listing_source_id": listing_source_core::ListingSourceId::new().to_string(),
                     "listing_source_name": "Antiques", "actor": "HUMAN", "action": "RESTORED",
                     "candidate_version": 4, "notes": "pattern took categories",
                     "created": (OffsetDateTime::now_utc() - Duration::hours(1))
@@ -1836,6 +1970,139 @@ echo "end $role $review" >> "$dir/order.log"
             ]
         );
         assert!(fixture.claude.handovers().is_empty());
+    }
+
+    /// A review that waits for a human and is due for its final round gets it: the runner starts
+    /// the round on the console, then a fresh author and a fresh reviewer on the final round's model
+    /// and effort, each told it is the final round and given the review's trail. The final-round
+    /// reviewer's approval, which the console takes through the unchanged guard, ends it.
+    #[tokio::test]
+    async fn should_give_a_review_the_agents_stopped_on_one_final_round_on_the_final_model() {
+        let stuck = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![stuck.clone()]).await;
+        fixture.claude.mark("human", stuck.review_id);
+        fixture.claude.mark("final_due", stuck.review_id);
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (
+                run.final_rounds,
+                run.final_rounds_approved,
+                run.parked,
+                run.decided
+            ),
+            (1, 1, 0, 1)
+        );
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("final-round {}", stuck.review_id),
+                format!("start author {}", stuck.review_id),
+                format!("end author {}", stuck.review_id),
+                format!("start reviewer {}", stuck.review_id),
+                format!("end reviewer {}", stuck.review_id),
+            ]
+        );
+        for call in fixture.claude.calls() {
+            let argv = &call["argv"];
+            assert!(argv.contains("--model\nclaude-opus-5-5\n"), "{argv}");
+            assert!(argv.contains("--effort\nhigh\n"), "{argv}");
+            assert!(
+                call["stdin"].contains("This is the agents' final round"),
+                "{}",
+                call["stdin"]
+            );
+            assert!(
+                call["stdin"].contains("The review's event trail"),
+                "{}",
+                call["stdin"]
+            );
+        }
+        assert!(fixture.claude.handovers().is_empty());
+        let ledger = ProcessLedger::open(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            ledger
+                .since(OffsetDateTime::UNIX_EPOCH)
+                .all(|record| record.final_round)
+        );
+    }
+
+    /// A final round that does not approve leaves no review waiting for a human: the runner parks
+    /// the source with `AGENTS_UNRESOLVED` and a note naming both sides' last positions, and records
+    /// the park for the digest.
+    #[tokio::test]
+    async fn should_park_the_source_when_the_final_round_does_not_approve() {
+        let stuck = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![stuck.clone()]).await;
+        fixture.claude.mark("human", stuck.review_id);
+        fixture.claude.mark("final_due", stuck.review_id);
+        fixture.claude.answer(
+            "reviewer",
+            reviewer_envelope("NEEDS_REPAIR", "ACCEPTED", 0.25),
+        );
+        fixture.claude.decide("reviewer", "REPAIR_REQUESTED");
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (run.final_rounds, run.final_rounds_approved, run.parked),
+            (1, 0, 1)
+        );
+        let parked = std::fs::read_to_string(fixture.claude.directory.path().join("parked.log"))
+            .unwrap_or_default();
+        assert!(
+            parked.starts_with(&format!(
+                "{} AGENTS_UNRESOLVED The final round ended without an approval. Author: ",
+                stuck.review_id
+            )),
+            "{parked}"
+        );
+        assert!(parked.contains(" Reviewer: "), "{parked}");
+        let records = parking::records_since(fixture.state.path(), OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(records.len(), 1, "{records:?}");
+        assert!(matches!(
+            &records[0].event,
+            parking::ParkingEvent::FinalRound {
+                outcome: parking::FinalRoundOutcome::Parked,
+                label: Some(label),
+                parked_again: false,
+                ..
+            } if label == "AGENTS_UNRESOLVED"
+        ));
+    }
+
+    /// The day's cap on final rounds holds back the reviews due for one beyond it; they wait for
+    /// the next day's budget and no process starts for them.
+    #[tokio::test]
+    async fn should_start_no_more_final_rounds_a_day_than_the_cap() {
+        let stuck = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![stuck.clone()]).await;
+        fixture.claude.mark("human", stuck.review_id);
+        fixture.claude.mark("final_due", stuck.review_id);
+        parking::record(
+            fixture.state.path(),
+            &parking::ParkingRecord {
+                at: OffsetDateTime::now_utc(),
+                listing_source_id: listing_source_core::ListingSourceId::new(),
+                listing_source_name: "Earlier".to_owned(),
+                event: parking::ParkingEvent::FinalQualification { decided: None },
+            },
+        );
+
+        let run = summary(
+            &run_with(&fixture.settings(
+                &[],
+                &[("CRAWLER_REVIEW_AGENT_RUNNER_MAX_FINAL_ROUNDS_PER_DAY", "1")],
+            ))
+            .await,
+        );
+
+        assert_eq!(
+            (run.final_rounds, run.final_rounds_held_back, run.processes),
+            (0, 1, 0)
+        );
+        assert!(fixture.claude.order().is_empty());
     }
 
     /// A candidate the approval guard already refuses gets no reviewer process, which could only

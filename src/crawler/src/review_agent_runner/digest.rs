@@ -15,6 +15,7 @@ use super::queue::{
 use super::reports::{AgentReport, ServerOutcome, TrailVerdict};
 use super::wire_name;
 use crate::CrawlerReviewId;
+use listing_source_core::ListingSourceId;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -128,6 +129,8 @@ pub struct Digest {
     qualifications: String,
     /// The classification pass's section, which its own ledger feeds; empty without one.
     classifications: String,
+    /// The final rounds, parks and retries, which the parking ledger feeds; empty without it.
+    parking: String,
 }
 
 impl Digest {
@@ -206,6 +209,7 @@ impl Digest {
             events_truncated: events.truncated,
             qualifications: String::new(),
             classifications: String::new(),
+            parking: String::new(),
             refusals_by_check: BTreeMap::new(),
             refusals_by_kind: BTreeMap::new(),
             processes_by_end: BTreeMap::new(),
@@ -294,6 +298,7 @@ impl Digest {
         self.write_reports(&mut out);
         out.push_str(&self.classifications);
         out.push_str(&self.qualifications);
+        out.push_str(&self.parking);
         self.write_rolling_cost(&mut out);
         out
     }
@@ -312,6 +317,25 @@ impl Digest {
             qualifications: section,
             ..self
         }
+    }
+
+    /// The digest with the final rounds' and parks' Markdown `section` after the qualifications.
+    pub fn with_parking(self, section: String) -> Self {
+        Self {
+            parking: section,
+            ..self
+        }
+    }
+
+    /// The ListingSources of the agents' approvals in the window.
+    pub fn agent_approved_sources(&self) -> Vec<ListingSourceId> {
+        self.decisions
+            .iter()
+            .filter(|event| {
+                event.action == "APPROVED" && AGENT_ACTORS.contains(&event.actor.as_str())
+            })
+            .filter_map(|event| event.listing_source_id)
+            .collect()
     }
 
     /// When the oldest pending review that waits for a human opened, if any waits.
@@ -738,6 +762,7 @@ mod tests {
 
     fn event(actor: &str, action: &str, hours_before: i64) -> ReviewEventEntry {
         ReviewEventEntry {
+            listing_source_id: None,
             event_id: crate::CrawlerReviewEventId::new(),
             review_id: CrawlerReviewId::new(),
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
@@ -783,12 +808,14 @@ mod tests {
     #[test]
     fn should_list_agent_no_patterns_and_the_schema_review_wait() {
         let approval = |actor: &str, state: Option<&str>| ReviewEventEntry {
+            listing_source_id: None,
             artifact_type: "URL_PATTERN".to_owned(),
             approved_url_pattern_state: state.map(str::to_owned),
             ..event(actor, "APPROVED", 2)
         };
         let agent_no_pattern = approval("AGENT_REVIEWER", Some("NO_PATTERN"));
         let queued = |artifact_type, hours_before| QueuedReview {
+            final_round: crate::review::model::FinalRoundStatus::None,
             review_id: CrawlerReviewId::new(),
             listing_source_id: listing_source_core::ListingSourceId::new(),
             artifact_type,
@@ -799,6 +826,7 @@ mod tests {
             classification_due: false,
         };
         let queue = ReviewQueue {
+            final_round_due: Vec::new(),
             workable: vec![
                 queued(ReviewArtifact::UrlPattern, 100),
                 queued(ReviewArtifact::ProductSchema, 30),
@@ -1079,6 +1107,7 @@ mod tests {
             },
             vec![],
             ReviewQueue {
+                final_round_due: Vec::new(),
                 workable: vec![],
                 waiting_for_human: vec![waiting],
             },
@@ -1181,6 +1210,7 @@ mod tests {
             },
             vec![],
             ReviewQueue {
+                final_round_due: Vec::new(),
                 workable: vec![],
                 waiting_for_human: vec![waiting],
             },

@@ -81,14 +81,19 @@ pub fn log_reviewer_pause_ended(ended: ReviewerPause) {
     );
 }
 
-/// Whether the console's cap counts `event`: an agent's approval or rejection.
+/// Whether the console's cap counts `event`: an agent's approval, rejection or start of a final
+/// round.
 fn is_counted_decision(event: &ReviewEventEntry) -> bool {
     ReviewActor::AGENTS
         .iter()
         .any(|actor| event.actor == actor.as_str())
-        && [ReviewEventAction::Approved, ReviewEventAction::Rejected]
-            .iter()
-            .any(|action| event.action == action.as_str())
+        && [
+            ReviewEventAction::Approved,
+            ReviewEventAction::Rejected,
+            ReviewEventAction::FinalRoundStarted,
+        ]
+        .iter()
+        .any(|action| event.action == action.as_str())
 }
 
 #[cfg(test)]
@@ -106,6 +111,7 @@ mod tests {
 
     fn event(actor: ReviewActor, action: ReviewEventAction, minutes_ago: i64) -> ReviewEventEntry {
         ReviewEventEntry {
+            listing_source_id: None,
             event_id: CrawlerReviewEventId::new(),
             review_id: CrawlerReviewId::new(),
             artifact_type: "PRODUCT_SCHEMAS".to_owned(),
