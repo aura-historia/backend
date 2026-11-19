@@ -59,7 +59,9 @@ use carried_identity::{CarriedIdentity, settle_carried_identity};
 use identity_claims::{ClaimedIdentities, IdentityClaim};
 
 use page_directive_withdrawal::page_directive_withdrawal;
-use page_identity_change::{PageIdentityChange, report_page_identity_change};
+use page_identity_change::{
+    PageIdentity, PageIdentityChange, report_page_identity_change, settle_page_identity,
+};
 use pass_summary::{PASS_COMPLETED_EVENT, PassSummary};
 
 use url_outcome::{SkipReason, UrlOutcome, log_url_outcome};
@@ -1272,7 +1274,10 @@ async fn handle_successful_scrape(
         CarriedIdentity::Capture(claim) => claim,
         CarriedIdentity::Settled(outcome) => return *outcome,
     };
-    let page_identity_change = PageIdentityChange::of(candidate, &scraped).map(Box::new);
+    let page_identity_change = match settle_page_identity(candidate, ctx, &scraped).await {
+        PageIdentity::Capture(change) => change,
+        PageIdentity::Parked(outcome) => return *outcome,
+    };
     let provenance = match crawler_provenance(
         Some(scraped.hash.as_str()),
         Some(scraped.schema_fingerprint.as_str()),

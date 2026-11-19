@@ -87,6 +87,30 @@ pub fn same_product_evidence(
     }
 }
 
+/// The signal that shows a captured URL whose page derives `page_identity` under unchanged
+/// schemas, where its last capture derived another, still shows the product captured under
+/// `captured`: the page identity is a token of the captured link ([`is_identity_token_of`]), or
+/// the page's title equals the captured one and names something on a URL that is no list page
+/// ([`is_list_page`]). Spelling shows nothing for one URL, and a missing title shows nothing, so
+/// a page with no signal is taken for another product
+/// (`docs/crawler/scheduling-and-retries.md#captured-identity`).
+pub fn same_product_after_identity_change(
+    captured: ProductUrlIdentity<'_>,
+    page_identity: &str,
+    page_title: Option<&str>,
+) -> Option<SameProductEvidence> {
+    if captured
+        .captured_identity
+        .is_some_and(|identity| is_identity_token_of(page_identity, identity))
+    {
+        Some(SameProductEvidence::IdentityToken)
+    } else if titles_agree(captured.title, page_title) && !is_list_page(captured.url) {
+        Some(SameProductEvidence::Title)
+    } else {
+        None
+    }
+}
+
 /// `url` in the spelling two URLs of one product share: the [stored spelling](CrawledUrl)
 /// without a trailing slash, doubled slashes in its path collapsed, without a language segment
 /// before its path and without language and pager parameters ([`is_noise_parameter`]).
@@ -634,5 +658,79 @@ mod tests {
             "identity_token"
         );
         assert_eq!(SameProductEvidence::Title.as_str(), "title");
+    }
+
+    mod after_identity_change {
+        use super::*;
+
+        const PRODUCT: &str = "https://shop.example/products/chair";
+
+        fn captured<'a>(
+            url: &'a Url,
+            identity: &'a str,
+            title: Option<&'a str>,
+        ) -> ProductUrlIdentity<'a> {
+            ProductUrlIdentity {
+                url,
+                captured_identity: Some(identity),
+                title,
+            }
+        }
+
+        /// A shop that renumbers its products without a schema change keeps their titles.
+        #[test]
+        fn should_take_a_renumbered_page_with_its_title_for_its_product() {
+            let url = Url::parse(PRODUCT).unwrap();
+
+            assert_eq!(
+                same_product_after_identity_change(
+                    captured(&url, "SKU-1", Some("Walnut chair")),
+                    "A-1001",
+                    Some("Walnut chair"),
+                ),
+                Some(SameProductEvidence::Title)
+            );
+        }
+
+        #[test]
+        fn should_take_a_page_identity_read_from_the_captured_link_for_its_product() {
+            let url = Url::parse("https://shop.example/ukiyoe_detail.php?print_id=40475").unwrap();
+
+            assert_eq!(
+                same_product_after_identity_change(
+                    captured(&url, "/ukiyoe_detail.php?print_id=40475", None),
+                    "40475",
+                    Some("Hokusai"),
+                ),
+                Some(SameProductEvidence::IdentityToken)
+            );
+        }
+
+        #[rstest::rstest]
+        #[case::another_title(PRODUCT, Some("Walnut chair"), Some("Oak table"))]
+        #[case::no_page_title(PRODUCT, Some("Walnut chair"), None)]
+        #[case::no_captured_title(PRODUCT, None, Some("Walnut chair"))]
+        #[case::bare_year(PRODUCT, Some("1893"), Some("1893"))]
+        #[case::list_page(
+            "https://www.gillmark.com/book/hertfordshire-countryside-238/page-14/",
+            Some("June 1971"),
+            Some("June 1971")
+        )]
+        fn should_take_a_page_without_a_signal_for_another_product(
+            #[case] url: &str,
+            #[case] captured_title: Option<&str>,
+            #[case] page_title: Option<&str>,
+        ) {
+            let url = Url::parse(url).unwrap();
+
+            assert_eq!(
+                same_product_after_identity_change(
+                    captured(&url, "5168", captured_title),
+                    "5169",
+                    page_title,
+                ),
+                None
+            );
+        }
     }
 }
