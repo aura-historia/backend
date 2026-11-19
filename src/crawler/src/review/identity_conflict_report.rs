@@ -2,8 +2,8 @@
 //! `SourceListingIdConflict`, the console warns on every report with how many sources and URLs
 //! are stuck, the most conflicted sources and since when, so a conflict nothing waits on still
 //! reaches an operator without the console. A URL keeps its captured identity on its own page, so
-//! a conflict is a redirect to a page with another identity, or a page that shows the identity of
-//! another known product (`docs/crawler/scheduling-and-retries.md#identity-conflicts`). It is a log
+//! a conflict is a redirect to a page with another identity, a page that shows the identity of
+//! another known product, or a page that shows another product under unchanged schemas (`docs/crawler/scheduling-and-retries.md#identity-conflicts`). It is a log
 //! event and no metric, because every metric is billed. The event is in
 //! `docs/crawler/operations.md` (outcome events).
 

@@ -1071,7 +1071,7 @@ function sourceConditions(source) {
             key: 'identity_conflict', text: 'Identity conflict',
             more: `${formatCount(conflicted)} of ${formatCount(Number(source.product_urls) || 0)} URLs not captured`,
             since: source.identity_conflict_since, sinceLabel: 'In conflict since',
-            title: 'These URLs redirect to a page that derives another identity than the one their listings were captured under, or show the identity another product URL of the source carries without evidence of the same product, so they are not captured; check the pages'
+            title: 'These URLs redirect to a page that derives another identity than the one their listings were captured under, show the identity another product URL of the source carries without evidence of the same product, or show another product than at their last capture while the schemas stayed the same, so they are not captured; check the pages'
         });
     }
     const pageIdentityChanged = Number(source.page_identity_changed_urls) || 0;
@@ -1079,7 +1079,7 @@ function sourceConditions(source) {
         conditions.push({
             key: 'page_identity_changed', text: 'Another product at a URL?',
             more: `${formatCount(pageIdentityChanged)} URL${pageIdentityChanged === 1 ? '' : 's'} in the last 7 days`,
-            title: 'These pages showed another product identity than at their previous capture while the schemas stayed the same, but kept their title, as when a shop renumbers its products. They are still captured under their captured identity; check the pages (crawler.product_url_page_identity_changed in the log names them). Pages that showed another product are parked in an identity conflict instead.'
+            title: 'These pages showed another product identity than at their previous capture while the schemas stayed the same, but still showed the captured product (the same title, or the new identity in the captured link), as when a shop renumbers its products. They are still captured under their captured identity; check the pages (crawler.product_url_page_identity_changed in the log names them). Pages that showed another product are parked in an identity conflict instead.'
         });
     }
     const held = Number(source.held_removal_urls) || 0;

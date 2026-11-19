@@ -36,14 +36,20 @@ pub(super) struct PageIdentityChange {
 
 impl PageIdentityChange {
     /// The change the scrape of `candidate` shows, when the identity its unredirected page shows
-    /// under the same schema set differs from the one recorded at its last capture.
+    /// under the same schema set differs from the one recorded at its last capture and from the
+    /// one the URL's listing was captured under: a page that shows the captured identity again
+    /// shows the captured product.
     pub(super) fn of(candidate: &ScraperCandidate, scraped: &ScrapedProduct) -> Option<Self> {
         let previous = candidate.last_extracted_source_listing_id.as_deref()?;
         let current = scraped.extracted_source_listing_id.as_deref()?;
         let same_schemas = candidate.last_scraped_schema_fingerprint.as_deref()
             == Some(&scraped.schema_fingerprint);
-        (previous != current && same_schemas && candidate.url == scraped.effective_url).then(|| {
-            Self {
+        let shows_captured = candidate.last_source_listing_id.as_deref() == Some(current);
+        (previous != current
+            && !shows_captured
+            && same_schemas
+            && candidate.url == scraped.effective_url)
+            .then(|| Self {
                 listing_source_id: candidate.listing_source_id,
                 url: candidate.url.clone(),
                 listing_source_name: candidate.listing_source_name.clone(),
@@ -60,8 +66,7 @@ impl PageIdentityChange {
                     current,
                     scraped.title.as_deref(),
                 ),
-            }
-        })
+            })
     }
 
     fn evidence_name(&self) -> &'static str {
@@ -291,7 +296,12 @@ mod tests {
         match &outcome.capture.expect("the page is captured").on_success {
             RawCaptureSuccessAction::MarkScraped(meta) => {
                 assert_eq!(meta.source_listing_id, "SKU-1");
-                assert!(meta.page_identity_change.is_some());
+                assert_eq!(
+                    meta.page_identity_change
+                        .as_ref()
+                        .and_then(|change| change.evidence),
+                    Some(SameProductEvidence::Title)
+                );
             }
             _ => panic!("a product page is marked scraped after capture"),
         }
@@ -376,5 +386,41 @@ mod tests {
         assert_eq!(logged[0].level, level);
         assert_eq!(logged[0].field("outcome"), Some("identity_conflict"));
         assert_eq!(logged[0].field("evidence"), Some("none"));
+    }
+
+    /// A renumbered page captured as `SKU-1` and since showing `A-1001` that shows `SKU-1`
+    /// again shows the captured product, whatever its title now.
+    #[test]
+    fn should_report_nothing_when_the_page_shows_the_captured_identity_again() {
+        let mut candidate = candidate();
+        candidate.last_extracted_source_listing_id = Some("A-1001".to_owned());
+        let scraped = titled(scraped(Some("SKU-1"), "schemas", URL), "Chair - sold");
+
+        assert_eq!(PageIdentityChange::of(&candidate, &scraped), None);
+    }
+
+    /// A parked URL whose page shows its previous identity again is captured: nothing parks it.
+    #[tokio::test]
+    async fn should_capture_a_parked_url_once_its_page_shows_its_previous_identity_again() {
+        let mut candidate = candidate();
+        candidate.identity_conflict_streak = 2;
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|_| {
+            let scraped = titled(scraped(Some("SKU-1"), "schemas", URL), "Table");
+            Box::pin(async { scrape_outcome(Ok(Some(scraped))) })
+        });
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates.expect_mark_fetch_failure().never();
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        match &outcome.capture.expect("the page is captured").on_success {
+            RawCaptureSuccessAction::MarkScraped(meta) => {
+                assert_eq!(meta.source_listing_id, "SKU-1");
+                assert!(meta.page_identity_change.is_none());
+            }
+            _ => panic!("a product page is marked scraped after capture"),
+        }
     }
 }
