@@ -423,8 +423,9 @@ pub struct CrawlDiagnostics {
     /// Seed URLs carried over from the previous crawl, which the crawl visits
     /// after link discovery from the root.
     pub seeds: usize,
-    /// Known product pages the delivered pages link that an incremental
-    /// crawl did not fetch again, each page once.
+    /// Known product pages the delivered pages link that the crawl did not
+    /// fetch, each page once: the stored ones an incremental crawl skips and
+    /// those the crawl's sitemaps registered.
     pub known_skipped: usize,
     /// Links to known pages an incremental crawl answered itself instead of
     /// requesting them, each link once: links Spider meets in a spelling
