@@ -181,8 +181,15 @@ approved reader/alias target.
 withdrawn ones included, naming the listing's current event, so the projector writes current
 state or the versioned tombstone. A separate generation `<g>` receives its jobs in the scope
 `product-listing-opensearch-<g>`, consumed by a projector bound to the index
-`product-listings-<g>`; the live index and its scope are untouched. Target the live scope only
-to rebuild search after the index was lost. Each page commits on its own and the run reports
+`product-listings-<g>`; the live index and its scope are untouched. Nothing creates that index:
+before the run, create it through the loopback administration endpoint
+([OpenSearch operations](opensearch-stage.md)) from
+[`product_listings.json`](../opensearch/mappings/product_listings.json) with
+`index.number_of_replicas` 0, as the single node's live index has, and start a worker with
+`AURA_HISTORIA_WORKER_PROJECTION_GENERATIONS=<g>`. The projector role may write every
+`product-listings-*` index ([role](../opensearch/roles/product-projector.json)). Readers query the
+index `product-listings` by name, not an alias, so a generation cannot yet replace it; target the
+live scope to rebuild search after the index was lost. Each page commits on its own and the run reports
 the last listing, so an interrupted run resumes after it. Catch up by rerunning once old
 writers are fenced: listings whose job is still waiting are skipped, every other listing is
 enqueued again, and the projector completes the ones already current as stale. Withdrawn listings retain authoritative source state.
