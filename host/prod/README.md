@@ -56,8 +56,8 @@ file. Fill in the rest, then `sudo host/prod/secrets.sh check` must pass. Source
 - `cognito-trigger.env`: the [trigger signing key](../../docs/infra.md#host-access).
 - `opensearch-*.env` and `opensearch-root-ca.pem`: the OpenSearch stable checkout's
   `.private/` directory.
-- The provider keys and `settings.env`: the former Secrets Manager secrets and SSM parameters
-  under `/aura-historia/prod/` and `/<provider>/prod/`.
+- The provider keys and `settings.env`: the providers' consoles, or, until the AWS teardown, the
+  secrets and SSM parameters under `/aura-historia/prod/` and `/<provider>/prod/`.
 
 Changing a file takes effect when the services that list it are recreated
 (`compose.sh up -d <service>`).
@@ -201,7 +201,7 @@ Its output ends with the changed files that need an operator: `postgres/` and `c
 
 ## Scheduled jobs
 
-systemd timers ([units](systemd)) run on the AWS schedules, in UTC; `install.sh prod` installs
+systemd timers ([units](systemd)) run these schedules, in UTC; `install.sh prod` installs
 them with the checkout's path and `install.sh prod-timers` enables them. A job never starts the stack (`run --no-deps`), and a run still
 going when the next is due is not started twice.
 

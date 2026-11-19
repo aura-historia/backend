@@ -54,7 +54,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | REST, object-ID cursor fields, semantic worker fields/keys, structured logs | TypeID. |
 | OpenSearch documents and object-derived `_id` | TypeID. |
 | PostgreSQL PK/FK, UUID arrays, binds and rows | Native `uuid`. |
-| CDC values from PostgreSQL | UUID text, immediately mapped to typed IDs. |
+| Outbox snapshot values from PostgreSQL | UUID text, immediately mapped to typed IDs. |
 
 PostgreSQL writes use `as_uuid()`/`into_uuid()`; reads use fallible `TryFrom<Uuid>` and reject invalid persisted identities as corruption. Never stringify a typed ID and reparse it as UUID. Storage keyset ordering and advisory-lock bytes use the backing UUID where required by their storage contract.
 
@@ -93,7 +93,7 @@ Not every value named “ID” is an Aura object identity:
 
 - Slugs, source/provider-controlled IDs, URLs and provider account/contact/delivery identities.
 - Credentials, OAuth/exchange codes, raw bearer tokens, PKCE values, confirmation tokens/digests and session cookies.
-- Request/correlation IDs, idempotency keys, ingestion submission/command IDs, queue receipt/message IDs, CDC delivery IDs/LSNs and search PIT IDs.
+- Request/correlation IDs, idempotency keys, ingestion submission/command IDs, job IDs, outbox IDs and search PIT IDs.
 - Lease tokens and marketing-consent proof/fingerprint keys.
 
 `OAuthClientId`, `AccessTokenId` and `MarketingConsentSyncIntentId` identify durable records, not their associated secrets, provider identities or operational ordering counters.

@@ -2,8 +2,8 @@
 
 `aura-historia-ops` (the image's `ops` entrypoint) holds the host's one-shot operator and
 scheduled commands. Each command runs to completion, prints a JSON report to stdout and exits
-non-zero on failure (`2` for invalid arguments). Host timers run the scheduled ones on the
-schedules the AWS scheduler used. Settings and secrets come from the environment or `NAME_FILE`
+non-zero on failure (`2` for invalid arguments). Host timers run the scheduled ones
+([schedule](../../host/prod/README.md#scheduled-jobs)). Settings and secrets come from the environment or `NAME_FILE`
 files as in [host process startup](../platform-process/README.md).
 
 | Command | Purpose |

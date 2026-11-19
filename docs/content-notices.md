@@ -122,7 +122,7 @@ the per-address budget already bounds receipts, and every accepted notice is ack
   [external email delivery](events/flow.md#external-email-delivery) in the transaction that
   stores the notice. The notice and its receipt intent commit together or not at all; a failed
   enqueue fails the submission with `503`. The delivery pipeline sends it after commit, with
-  its retries, DLQ and alarms. The receipt's origin is the notice (`CONTENT_NOTICE` and the
+  its retries and failure custody. The receipt's origin is the notice (`CONTENT_NOTICE` and the
   notice ID), its template kind `CONTENT_NOTICE_RECEIPT`.
 - **Content:** fixed localized text plus data from Aura Historia's side only: the reference
   (the notice ID), the receipt time in UTC, the listing source's name, what the notice covers
@@ -142,9 +142,9 @@ the per-address budget already bounds receipts, and every accepted notice is ack
 - **Admin view:** the admin detail shows the receipt's delivery status, attempts and delivery
   time. `FAILED` means the email provider rejected the receipt, for example its address, and
   it will not be retried; admins then answer the notifier manually from the contact mailbox.
-  An account-level refusal, such as paused sending, is retried and then dead-lettered instead.
+  An account-level refusal, such as paused sending, is retried and then moved to custody instead.
   `PENDING` and `PROCESSING` normally pass within minutes;
-  a receipt whose delivery job was dead-lettered, which alarms, keeps either status until the
+  a receipt whose delivery job is in custody keeps either status until the
   job is redriven ([runbook](durable-worker-runbook.md#notification-recovery-limits)).
 
 ## States
@@ -159,8 +159,8 @@ typed.
 
 - No IP address or other request metadata is stored.
 - Name, email, explanation and additional URLs never appear in logs, metrics, URLs, error
-  messages, CDC jobs or projections. The domain types redact them from `Debug` output, and
-  the table is not part of CDC selection.
+  messages, jobs or projections. The domain types redact them from `Debug` output, and
+  the table is never captured by the outbox.
 - Admin lists offer no filter on personal data.
 
 Notices are kept until a retention rule exists; retention and erasure come with the decision

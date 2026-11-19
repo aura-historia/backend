@@ -2,7 +2,7 @@
 
 This document owns consent semantics and integration-specific safety/recovery rules.
 [OpenAPI](swagger.yaml) owns HTTP shapes and errors; [event flow](events/flow.md) owns
-CDC routing; [infrastructure](infra.md) owns deployment. Schema, state-machine mechanics,
+outbox routing; [infrastructure](infra.md) owns deployment. Schema, state-machine mechanics,
 payloads and configuration names belong in code, migrations and tests.
 Account removal and Cognito identity recovery rules belong in [account lifecycle](account-lifecycle.md).
 
@@ -48,7 +48,7 @@ The worker claims the **specific** queued intent in a short transaction, recheck
 latest decision/address ownership before provider I/O, and rechecks/finalizes under the
 same lease afterward. Active claims and uncertain commits do not acknowledge. A missing
 intent or undecodable job can never complete, because a job never recreates its intent: when
-it is delivered again it moves to the queue's DLQ and later intents of the recipient continue.
+it is delivered again it moves to custody and later intents of the recipient continue.
 If a grant races withdrawal, the coordinator must durably confirm or schedule corrective
 revoke work before acknowledging—even when retry finds the original grant already
 `BLOCKED`. Compensation must not overwrite a newer grant or a reassigned address.
@@ -130,8 +130,8 @@ spilled:
 - Each API process writes its own `host-api/<date>/<id>` stream with the host IAM user, which may
   only create streams and put events on these groups. It creates the stream in both groups at
   startup and does not start if it cannot.
-- Records keep the JSON fields of the Lambda era, without its span context (request and
-  correlation IDs are fields). They are delivered within about a second and retried while
+- Records keep the JSON fields of the evidence already in these groups, without span context
+  (request and correlation IDs are fields). They are delivered within about a second and retried while
   CloudWatch refuses them. A group whose deliveries all fail for 15 minutes, or that holds more
   than 10,000 undelivered records, spills them line by line to the API's stderr, so they survive
   in the container log; a full in-process queue drops records and logs only their count.
@@ -178,9 +178,9 @@ For confirmation failures, correlate request IDs with preparation/SES failure ca
 and the terminal use-case error. Never enable raw SDK, recipient, proof or rendered-mail
 logging to diagnose delivery; an ambiguous send must not be blindly replayed.
 
-Monitor queue age/DLQs, intent outcomes, cleanup and API/webhook latency/errors alongside
+Monitor queue age/custody, intent outcomes, cleanup and API/webhook latency/errors alongside
 Loops retry/failure history and endpoint enablement. No receipt can exist for a pre-commit
-failure; an empty DLQ or receipt sample is not proof of healthy synchronization. Exhausted
+failure; empty custody or a receipt sample is not proof of healthy synchronization. Exhausted
 or disabled webhook delivery needs provider-state reconciliation, never a fabricated event.
 
 Cleanup uses bounded batches: unconfirmed proofs expire after 24 hours; confirmed proofs

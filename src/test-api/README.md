@@ -4,7 +4,7 @@
 
 Tests need Linux with PID descriptor support, a Docker daemon at
 `/var/run/docker.sock`, and the Docker CLI. Fixtures start real PostgreSQL and
-OpenSearch as needed, and Floci only for the AWS clients that tests still exercise
+OpenSearch as needed, and Floci for the AWS clients the tests exercise
 (S3 and SES). They use fake credentials and local endpoints. No emulator account,
 license token or deployed service is required.
 

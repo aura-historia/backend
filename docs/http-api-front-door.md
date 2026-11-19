@@ -4,8 +4,8 @@ This document owns edge routing, authentication, forwarding and cache/security r
 [OpenAPI](swagger.yaml) owns REST request/response contracts; [MCP](mcp.md) owns
 protocol compatibility and tool admission. [ProductListing](product-listing.md),
 [geography](geography.md) and [marketing consent](marketing-consent.md) own use-case semantics.
-Source/synth do not verify live DNS, certificates, aliases, WAF or forwarding; operators
-must inspect them.
+Source/synth do not verify live DNS, certificates, WAF, the host proxy or forwarding;
+operators must inspect them.
 
 ## Route and authentication boundary
 
@@ -69,7 +69,7 @@ explicit origin allowlist.
 
 ## Front-door controls
 
-- The public alias is exactly `api.aura-historia.com`. The canonical REST prefix is `/v1`,
+- The public hostname is exactly `api.aura-historia.com`. The canonical REST prefix is `/v1`,
   without an origin-path rewrite.
 - CloudFront redirects viewers to HTTPS and uses the HTTPS-only host origin, **not the
   public CloudFront-facing DNS record**. AllViewer forwards `Host`, so the host proxy serves
@@ -85,8 +85,8 @@ explicit origin allowlist.
   process enforces a token bucket for every request (`AURA_HISTORIA_API_RATE_LIMIT_PER_SECOND`,
   `AURA_HISTORIA_API_RATE_LIMIT_BURST`; defaults 1,000 per second, burst 2,500) and a lower one
   for `POST /v1/address-suggestions` (`AURA_HISTORIA_API_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND`,
-  `..._BURST`; defaults 12.5 per second, burst 25). The defaults split API Gateway's former
-  production throttles between the two API replicas; change them together with the replica
+  `..._BURST`; defaults 12.5 per second, burst 25). The limits are per process, so Caddy's
+  two API replicas together admit twice the defaults; change them together with the replica
   count. An exhausted limit returns `429 REQUEST_RATE_LIMITED` with `Retry-After: 1` before
   authentication, with the usual CORS and request headers. Only the liveness probe
   `/v1/health` is exempt; `/v1/ready` queries PostgreSQL and OpenSearch, so it stays limited.
@@ -190,7 +190,7 @@ Four further exact `GET`/`HEAD` paths serve discovery documents:
 `/.well-known/openai-apps-challenge` the
 [OpenAI domain verification token](mcp.md#directory-metadata), and
 `/.well-known/mcp/server-card.json` the [server card](agent-discovery.md#mcp-server-card).
-While a stage configures a [Muse token](mcp.md#directory-metadata), the exact path
+While the deployment configures a [Muse token](mcp.md#directory-metadata), the exact path
 `/.well-known/muse-challenge/<token>` is a fifth. No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
@@ -234,7 +234,7 @@ pin these boundaries to the transport budgets.
 ### MCP deployment and stage verification
 
 Deploy CDK changes as described in [deploying the reduced app](infra.md#deploying-the-reduced-app).
-Before first traffic, verify ownership and available aliases, then provision an issued
+Before first traffic, verify domain ownership, then provision an issued
 ACM certificate covering the exact host in `us-east-1` (CloudFront viewer). Supply its ARN
 through the external SSM String parameter `/certificates/prod/mcp-cloudfront-certificate-arn`
 in the workload region. The host proxy holds its own certificate for the same hostname.
@@ -243,15 +243,15 @@ the API stack's `McpCloudFrontDistributionDomainName` output, never to the publi
 itself or the origin name. Keep the previous DNS target/TTL for recovery. Inspect origin TLS
 with the forwarded public Host and the secret header before DNS cutover.
 
-After an approved dev deployment, exercise the **public CloudFront hostname** with a
-generic Streamable HTTP client. For a manual legacy protocol probe:
+After a deploy that changes the MCP server or its front door, exercise the **public
+CloudFront hostname** with a generic Streamable HTTP client. For a manual legacy protocol probe:
 
 ```sh
-mcp_origin=https://mcp.stage.aura-historia.com
+mcp_origin=https://mcp.aura-historia.com
 curl -i "$mcp_origin/ready"
 curl -i "$mcp_origin/v1" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"stage-smoke","version":"1"}}}'
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
 curl -i "$mcp_origin/v1" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
   -H 'MCP-Protocol-Version: 2025-11-25' \
@@ -276,11 +276,11 @@ these checks before approving traffic:
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
 | `GET`/`HEAD /.well-known/openai-apps-challenge` | `200` `text/plain` with exactly the configured token, or `404` while none is configured; no-store |
 | `GET`/`HEAD /.well-known/muse-challenge/<token>` | With a configured token: `200` `text/plain` with exactly `muse-challenge=<token>`, no redirect, no-store; any other token is `404` |
-| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` title and release version, and the supported protocol versions |
-| API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
-| API `GET`/`HEAD` on each [website document](agent-discovery.md#website-documents) below `/v1/site-discovery/`, with a foreign Origin | `200` with the document's media type, `Access-Control-Allow-Origin: *` and stage URLs only; a repeat is an edge hit; the index digests match the served skills; an unlisted skill name is `404` no-store |
-| Once the webapp publishes it, the [WebMCP client](oauth.md#the-websites-webmcp-client) `https://stage.aura-historia.com/oauth/webmcp-client.json` as `client_id` | The website answers `200` `application/json` without a redirect; consent metadata loads, so Aura's own fetch passed the outbound policy and Cloudflare bot protection; approval returns a code to the stage callback; the code exchanges for an access and a refresh token; the access token calls a protected MCP tool |
-| API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.stage.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
+| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the production `/v1` remote, the `serverInfo` title and release version, and the supported protocol versions |
+| API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with production URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
+| API `GET`/`HEAD` on each [website document](agent-discovery.md#website-documents) below `/v1/site-discovery/`, with a foreign Origin | `200` with the document's media type, `Access-Control-Allow-Origin: *` and production URLs only; a repeat is an edge hit; the index digests match the served skills; an unlisted skill name is `404` no-store |
+| Once the webapp publishes it, the [WebMCP client](oauth.md#the-websites-webmcp-client) `https://aura-historia.com/oauth/webmcp-client.json` as `client_id` | The website answers `200` `application/json` without a redirect; consent metadata loads, so Aura's own fetch passed the outbound policy and Cloudflare bot protection; approval returns a code to the website's callback; the code exchanges for an access and a refresh token; the access token calls a protected MCP tool |
+| API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
 | An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
 | Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |
@@ -293,8 +293,7 @@ Also run the [current revision flow and compatibility matrix](mcp.md#protocol-co
 through a generic client. Record safe status/timing/header evidence without tokens or
 bodies. Local synth/unit tests do not perform these live checks. If certificate,
 Host/TLS, WAF, CORS or forwarding checks fail, hold traffic. Restore the recorded DNS
-target when necessary; compatible code rollback follows the existing Release mechanism
-and repoints the MCP `live` alias to an immutable version. DNS is never
+target when necessary; code rollback is a [deploy of an earlier commit](../host/prod/README.md#deploys). DNS is never
 rolled back automatically, and rollback does not undo completed tool effects.
 
 ## REST client and provider configuration
@@ -312,31 +311,26 @@ period. Historical changelog entries retain their original paths.
 
 Follow [deploying the reduced app](infra.md#deploying-the-reduced-app), then:
 
-1. Inventory approved-account alias/domain claims, externally owned DNS, current
-   consumers and the previous endpoint/rollback target. Resolve conflicts with their
-   owners.
-2. Verify issued, valid ACM certificates covering the **exact public hostname**:
-   regional Gateway in `eu-central-1`, CloudFront viewer in `us-east-1`. Check the
-   stage references in configuration; `*.aura-historia.com` or `*.dev.aura-historia.com`
-   does not cover `api.stage.aura-historia.com`. Do not infer validity from synth.
-3. Review the actual diff and deployed API version/`live` alias, route catalog,
-   origin Host/TLS, WAF and forwarding. Path-derived logical IDs can replace routes,
-   the shared integration and its invoke permission. Check the actual Gateway route
-   inventory and account quota against the create-before-delete peak, not just the
-   final catalog; unmanaged routes consume that headroom too. Retain the `live`-alias
-   proxy integration and API-scoped invoke permission. Probe the approved full chain:
+1. Inventory domain claims, externally owned DNS, current consumers and the previous
+   endpoint/rollback target. Resolve conflicts with their owners.
+2. Verify issued, valid certificates covering the **exact public hostname**: the
+   CloudFront viewer certificate in ACM `us-east-1` and the host proxy's own certificate
+   ([Caddy](../host/prod/README.md#caddy)). A wildcard covers one label only. Do not infer
+   validity from synth.
+3. Review the actual diff and the deployed commit, distribution, origin Host/TLS, origin
+   lock, WAF and forwarding. Probe the approved full chain:
    health/readiness, anonymous and invalid optional bearers, allowed/denied protected
    Cognito/Aura calls, OAuth, CORS, signed bodies, a valid JSON body above 16 KiB
    reaching validation, an oversized `Content-Length` returning JSON `413`, and
-   cache/header isolation. Search
-   readiness requires the [private-workload gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate).
+   cache/header isolation. `/v1/ready` also proves that the API reaches PostgreSQL and
+   [OpenSearch](opensearch-stage.md#production-host-setup).
    Keep credentials and signed payloads out of logs; omitted checks are not passes.
 4. With approval and successful probes, update affected frontend/provider registrations
    and change external DNS only if its target changes. Repeat probes on the public hostname,
    including canonical `/v1` reads, representative writes and signed webhooks.
 
-If alias/certificate/Host/TLS/forwarding checks fail, hold the change. To roll back,
+If DNS/certificate/Host/TLS/forwarding checks fail, hold the change. To roll back,
 restore the recorded DNS target and affected client/provider URLs, accounting for TTL.
 [Code/stack rollback](infra.md#rollback-and-stack-recovery) does not reverse DNS or
-provider effects. Preserve WAF protections and retained state. Lambda timeout
-is not proof that side effects were canceled; reconcile before retrying writes.
+provider effects. Preserve WAF protections and retained state. A client, edge or proxy
+timeout is not proof that side effects were canceled; reconcile before retrying writes.
