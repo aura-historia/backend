@@ -9,7 +9,10 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
-use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
+use crate::scraper::plausibility::capturable_identity;
+use crate::scraper::raw_input::{
+    capture_source_listing_id, crawler_raw_input, pinned_source_listing_id,
+};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
 };
@@ -266,6 +269,9 @@ pub(crate) struct FetchedPage<'a> {
     pub(crate) redirect: RedirectTarget,
     pub(crate) html: &'a str,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+    /// The identity the requested URL's listing was captured under, `None` before its first
+    /// capture.
+    pub(crate) captured_identity: Option<&'a str>,
 }
 
 impl<'a> FetchedPage<'a> {
@@ -284,6 +290,7 @@ impl<'a> FetchedPage<'a> {
             html: self.html,
             existing_schemas,
             expected_last_captured_raw_input_sha256: self.expected_last_captured_raw_input_sha256,
+            captured_identity: self.captured_identity,
         }
     }
 }
@@ -505,8 +512,11 @@ fn capture_selection(
     }
     let schema_fingerprint = fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas)
         .map_err(ScraperError::SchemaFingerprint)?;
-    let source_listing_id =
-        capture_source_listing_id(&selection.raw.source_listing_id, &request.source_record_key)?;
+    let source_listing_id = pinned_source_listing_id(
+        request.last_source_listing_id.as_deref(),
+        page.effective_url != request.url,
+        capture_source_listing_id(&selection.raw.source_listing_id, &request.source_record_key)?,
+    )?;
     let raw_input = crawler_raw_input(
         &selection.raw,
         &selection.validated_image_urls,
@@ -531,6 +541,7 @@ fn capture_selection(
         raw_input,
         effective_url: page.effective_url,
         source_listing_id: source_listing_id.to_string(),
+        extracted_source_listing_id: capturable_identity(&selection.raw.source_listing_id),
         title: selection.raw.title().map(str::to_owned),
         hash,
         schema_fingerprint,
@@ -636,6 +647,7 @@ impl ScraperServiceImpl {
             redirect: page.redirect,
             html: &page.html,
             expected_last_captured_raw_input_sha256,
+            captured_identity: request.last_source_listing_id.as_deref(),
         };
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.
@@ -819,6 +831,36 @@ mod tests {
                 .map(|pattern| ProductUrlPattern::parse(pattern).unwrap())
                 .as_ref(),
         )
+    }
+
+    /// A redirect that only changes the trailing slash or the language segment leads to the page
+    /// itself: the page keeps the URL as its effective URL, so its scrape keeps the URL's captured
+    /// identity instead of being judged as a redirect to another product.
+    #[test]
+    fn should_keep_the_captured_identity_after_a_trailing_slash_or_language_segment_redirect() {
+        use product_listing_core::source_listing_id::SourceListingId;
+        let extracted =
+            || SourceListingId::try_from("https://shop.example/en/products/j156").unwrap();
+        for (original, served) in [
+            (
+                "https://shop.example/products/j156",
+                "https://shop.example/products/j156/",
+            ),
+            (
+                "https://shop.example/products/j156",
+                "https://shop.example/en/products/j156",
+            ),
+        ] {
+            let original = Url::parse(original).unwrap();
+            let redirect = Redirect::of(&original, &Url::parse(served).unwrap(), None);
+
+            let captured =
+                pinned_source_listing_id(Some("J156"), redirect.url != original, extracted())
+                    .unwrap();
+
+            assert_eq!(redirect.url, original, "{served}");
+            assert_eq!(captured.as_ref(), "J156", "{served}");
+        }
     }
 
     #[test]

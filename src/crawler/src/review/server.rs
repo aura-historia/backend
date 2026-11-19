@@ -508,12 +508,19 @@ impl ReviewServer {
             return match self.repository.get_review(review_id).await {
                 Ok(detail) => {
                     log_invalid_candidate(&detail);
+                    let live_identity_rules = identity_rules_or_none(
+                        &detail,
+                        self.source_product_urls
+                            .live_identity_rules(review_id)
+                            .await,
+                    );
                     match self.source_product_urls.list(review_id).await {
                         Ok(source_product_urls) => HttpResponse::json(
                             200,
                             &ReviewDetailAnswer {
                                 detail: &detail,
                                 source_product_urls,
+                                live_identity_rules,
                             },
                         ),
                         Err(err) => review_error(err.into()),
@@ -1404,6 +1411,10 @@ struct ReviewDetailAnswer<'a> {
     #[serde(flatten)]
     detail: &'a ReviewDetail,
     source_product_urls: Vec<SourceProductUrl>,
+    /// The `source_listing_id` rule of each live product schema of the review's ListingSource, in
+    /// schema order, `null` for a schema without one: the rules its listings were captured under.
+    /// Empty on a URL-pattern review and for a source without live schemas.
+    live_identity_rules: Vec<Option<ExtractionRule>>,
 }
 
 fn log_invalid_candidate(detail: &ReviewDetail) {
@@ -1545,6 +1556,24 @@ fn live_fetch_failure(url: &str, failed: &str, error: &FetchError) -> HttpRespon
     HttpResponse::json(502, &body)
 }
 
+/// The live identity rules a review answers: the looked-up rules, or none when the lookup failed.
+/// They only help the review agents keep a shop's identity rule, so a failed lookup is logged and
+/// leaves the review readable instead of failing it.
+fn identity_rules_or_none(
+    detail: &ReviewDetail,
+    rules: Result<Vec<Option<ExtractionRule>>, sqlx::Error>,
+) -> Vec<Option<ExtractionRule>> {
+    rules.unwrap_or_else(|error| {
+        warn!(
+            review_id = %detail.review.review_id,
+            listing_source_id = %detail.review.listing_source_id,
+            error = %error,
+            "Could not read the live identity rules of a review's ListingSource; answering none"
+        );
+        Vec::new()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1555,6 +1584,75 @@ mod tests {
     use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
     use std::net::SocketAddr;
+
+    mod live_identity_rules {
+        use super::*;
+        use crate::review::model::{ARTIFACT_PRODUCT_SCHEMA, CrawlerReview};
+        use listing_source_core::ListingSourceId;
+
+        fn product_schema_review() -> ReviewDetail {
+            let now = time::OffsetDateTime::now_utc();
+            ReviewDetail {
+                review: CrawlerReview {
+                    review_id: CrawlerReviewId::new(),
+                    listing_source_id: ListingSourceId::new(),
+                    listing_source_name: None,
+                    listing_source_crawl_enabled: true,
+                    listing_source_crawl_host: None,
+                    artifact_type: ARTIFACT_PRODUCT_SCHEMA.to_owned(),
+                    status: "PENDING_REVIEW".to_owned(),
+                    reason: "manual_schema_required".to_owned(),
+                    candidate_payload: json!({}),
+                    candidate_version: 1,
+                    validation_summary: json!({}),
+                    reviewer_notes: None,
+                    repair_request: None,
+                    agent_rounds: 0,
+                    human_required: false,
+                    created: now,
+                    updated: now,
+                    reviewed: None,
+                },
+                candidate_is_live: false,
+                candidate_error: None,
+                pages: Vec::new(),
+                urls: Vec::new(),
+                events: Vec::new(),
+            }
+        }
+
+        /// The live identity rules only help the agents keep a shop's rule: a failed lookup
+        /// leaves the review readable, answered 200 with no rules.
+        #[test]
+        fn should_answer_the_review_without_live_identity_rules_when_their_lookup_fails() {
+            let detail = product_schema_review();
+
+            let live_identity_rules =
+                identity_rules_or_none(&detail, Err(sqlx::Error::PoolTimedOut));
+            let response = HttpResponse::json(
+                200,
+                &ReviewDetailAnswer {
+                    detail: &detail,
+                    source_product_urls: Vec::new(),
+                    live_identity_rules,
+                },
+            )
+            .to_string();
+
+            let (head, body) = response.split_once("\r\n\r\n").unwrap();
+            let body: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+            assert_eq!(body["live_identity_rules"], json!([]));
+            assert_eq!(body["review"]["review_id"], json!(detail.review.review_id));
+        }
+
+        #[test]
+        fn should_answer_the_looked_up_live_identity_rules() {
+            let detail = product_schema_review();
+
+            assert_eq!(identity_rules_or_none(&detail, Ok(vec![None])), vec![None]);
+        }
+    }
 
     mod live_fetch_failure {
         use super::*;

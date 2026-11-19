@@ -60,6 +60,8 @@ where
         schema_fingerprint: schema_fingerprint.into(),
         raw_input_sha256: raw_input_sha256.into(),
         source_listing_id: source_listing_id.into(),
+        extracted_source_listing_id: None,
+        page_identity_changed: false,
         title: Some("Captured title".to_owned()),
         disposition,
         expected_last_captured_raw_input_sha256,
@@ -3344,6 +3346,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![4; 32],
                 source_listing_id: "stable-source-id".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
@@ -3400,6 +3403,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![5; 32],
             source_listing_id: "stable-source-id".to_owned(),
+            extracted_source_listing_id: None,
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
@@ -3584,6 +3588,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![6; 32],
                 source_listing_id: "stable-source-id".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
@@ -3652,6 +3657,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![7; 32],
             source_listing_id: "SKU-2".to_owned(),
+            extracted_source_listing_id: None,
             title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
@@ -3670,6 +3676,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
                 schema_fingerprint: "stale-schema".to_owned(),
                 raw_input_sha256: vec![8; 32],
                 source_listing_id: "SKU-1".to_owned(),
+                extracted_source_listing_id: None,
                 title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
@@ -5369,9 +5376,39 @@ async fn scraper_should_not_select_a_source_while_a_page_waits_on_a_schema_revie
 }
 
 // ---------------------------------------------------------------------------
-// url_carrying_source_listing_id
+// identity_carrier
 // ---------------------------------------------------------------------------
 
+/// Stores `url` of `listing_source_id` as a product URL captured under `captured` whose page
+/// showed `extracted` at its last capture, created `age_days` ago, with `disposition`.
+async fn insert_identity_url(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    url: &url::Url,
+    (captured, extracted): (&str, Option<&str>),
+    disposition: CrawlerDisposition,
+    age_days: i32,
+) {
+    insert_product_url(pool, listing_source_id, url.as_str()).await;
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET last_source_listing_id = $2, last_extracted_source_listing_id = $3, \
+             last_captured_title = 'Tea bowl', crawler_disposition = $4, \
+             created = NOW() - make_interval(days => $5) \
+         WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .bind(captured)
+    .bind(extracted)
+    .bind(disposition.as_str())
+    .bind(age_days)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The carrier is the earliest live product URL of the source captured under the identity whose
+/// page showed it: a retired URL, another source's URL and the excluded URL carry nothing.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_find_the_earliest_live_url_of_the_source_carrying_an_identity() {
     let pool = get_postgres_client().await;
@@ -5384,39 +5421,261 @@ async fn scraper_should_find_the_earliest_live_url_of_the_source_carrying_an_ide
     let first = url::Url::parse("https://identity.example.com/view?p_idx=7").unwrap();
     let second = url::Url::parse("https://identity.example.com/view?p_idx=7&page=2").unwrap();
     let foreign = url::Url::parse("https://other-identity.example.com/view?p_idx=7").unwrap();
-    for (source, url, disposition) in [
-        (listing_source_id, &retired, CrawlerDisposition::Duplicate),
-        (listing_source_id, &first, CrawlerDisposition::Active),
-        (listing_source_id, &second, CrawlerDisposition::Active),
-        (other_source_id, &foreign, CrawlerDisposition::Active),
+    for (source, url, disposition, age_days) in [
+        (
+            listing_source_id,
+            &retired,
+            CrawlerDisposition::Duplicate,
+            3,
+        ),
+        (listing_source_id, &first, CrawlerDisposition::Active, 2),
+        (
+            listing_source_id,
+            &second,
+            CrawlerDisposition::DormantSold,
+            1,
+        ),
+        (other_source_id, &foreign, CrawlerDisposition::Active, 4),
     ] {
-        insert_product_url(&pool, source, url.as_str()).await;
-        sqlx::query(
-            "UPDATE listing_source_urls SET last_source_listing_id = '7', crawler_disposition = $2 WHERE url = $1",
-        )
-        .bind(url.as_str())
-        .bind(disposition.as_str())
-        .execute(&pool)
-        .await
-        .unwrap();
+        insert_identity_url(&pool, source, url, ("7", Some("7")), disposition, age_days).await;
     }
-    sqlx::query("UPDATE listing_source_urls SET created = NOW() - INTERVAL '1 day' WHERE url = $1")
-        .bind(first.as_str())
-        .execute(&pool)
-        .await
-        .unwrap();
     let carrier = |identity: &'static str, excluding: &url::Url| {
         let service = &service;
         let excluding = excluding.clone();
         async move {
             service
-                .url_carrying_source_listing_id(&listing_source_id, identity, &excluding)
+                .identity_carrier(&listing_source_id, identity, &excluding)
                 .await
                 .unwrap()
+                .map(|carrier| carrier.url)
         }
     };
 
     assert_eq!(carrier("7", &second).await, Some(first.clone()));
     assert_eq!(carrier("7", &first).await, Some(second.clone()));
     assert_eq!(carrier("8", &second).await, None);
+    assert_eq!(
+        service
+            .identity_carrier(&listing_source_id, "7", &second)
+            .await
+            .unwrap()
+            .and_then(|carrier| carrier.title),
+        Some("Tea bowl".to_owned())
+    );
+}
+
+/// Only a captured identity is carried, and only by a URL whose page showed it at its last
+/// capture: a URL whose page showed `HF-0054` while captured as `J054` carries neither, and one
+/// in an identity conflict, one whose page identity is not yet recorded and one whose capture is
+/// forgotten before a removal carry nothing, so two URLs whose pages swapped identities never
+/// retire or strand each other and a moved product is not judged against the page it left.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_take_only_a_url_whose_page_showed_its_captured_identity_for_its_carrier() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "pinned.example.com").await;
+    let pinned = url::Url::parse("https://pinned.example.com/products/tea-bowl").unwrap();
+    let unknown = url::Url::parse("https://pinned.example.com/products/kettle").unwrap();
+    let swapped_a = url::Url::parse("https://pinned.example.com/products/a").unwrap();
+    let swapped_b = url::Url::parse("https://pinned.example.com/products/b").unwrap();
+    let spelling = url::Url::parse("https://pinned.example.com/products/tea-bowl?ref=nav").unwrap();
+    let conflicted = url::Url::parse("https://pinned.example.com/products/vase").unwrap();
+    let removed = url::Url::parse("https://pinned.example.com/products/lamp").unwrap();
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &pinned,
+        ("J054", Some("HF-0054")),
+        CrawlerDisposition::Active,
+        4,
+    )
+    .await;
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &unknown,
+        ("K-1", None),
+        CrawlerDisposition::Active,
+        3,
+    )
+    .await;
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &swapped_a,
+        ("A", Some("B")),
+        CrawlerDisposition::Active,
+        2,
+    )
+    .await;
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &swapped_b,
+        ("B", Some("A")),
+        CrawlerDisposition::Active,
+        1,
+    )
+    .await;
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &conflicted,
+        ("V-1", Some("V-1")),
+        CrawlerDisposition::Active,
+        5,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_error_kind = 'SourceListingIdConflict' WHERE url = $1",
+    )
+    .bind(conflicted.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    insert_identity_url(
+        &pool,
+        listing_source_id,
+        &removed,
+        ("L-1", Some("L-1")),
+        CrawlerDisposition::Active,
+        6,
+    )
+    .await;
+    assert_eq!(
+        service
+            .forget_capture_before_removal(&listing_source_id, &removed, None)
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    let carrier = |identity: &'static str, excluding: &url::Url| {
+        let service = &service;
+        let excluding = excluding.clone();
+        async move {
+            service
+                .identity_carrier(&listing_source_id, identity, &excluding)
+                .await
+                .unwrap()
+        }
+    };
+
+    for identity in ["J054", "HF-0054", "K-1", "V-1", "L-1"] {
+        assert_eq!(carrier(identity, &spelling).await, None, "{identity}");
+    }
+    assert_eq!(carrier("B", &swapped_a).await, None);
+    assert_eq!(carrier("A", &swapped_b).await, None);
+}
+
+/// A capture whose page shows no identity, such as a sold page without the element, keeps the
+/// identity recorded before, so the URL still carries its identity and a later swap to another
+/// product is still seen; a capture that shows another identity records it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_keep_the_recorded_page_identity_when_a_capture_shows_none() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "sold.example.com").await;
+    let url = url::Url::parse("https://sold.example.com/products/tea-bowl").unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    let capture = |sha: u8, extracted: Option<&str>| {
+        let mut completion = scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "hash",
+                "schemas",
+                vec![sha; 32],
+                "J054",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        );
+        completion.extracted_source_listing_id = extracted.map(str::to_owned);
+        completion
+    };
+    let recorded = || {
+        let pool = pool.clone();
+        let url = url.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT last_extracted_source_listing_id FROM listing_source_urls WHERE url = $1",
+            )
+            .bind(url.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+
+    service
+        .mark_as_scraped(capture(1, Some("J054")))
+        .await
+        .unwrap();
+    let mut sold = capture(2, None);
+    sold.expected_last_captured_raw_input_sha256 = Some(vec![1; 32]);
+    assert_eq!(
+        service.mark_as_scraped(sold).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert_eq!(recorded().await, Some("J054".to_owned()));
+    let mut swapped = capture(3, Some("J055"));
+    swapped.expected_last_captured_raw_input_sha256 = Some(vec![2; 32]);
+    service.mark_as_scraped(swapped).await.unwrap();
+    assert_eq!(recorded().await, Some("J055".to_owned()));
+}
+
+/// A capture whose page showed another identity under unchanged schemas records when, and the
+/// source overview counts the URL for an operator; a later ordinary capture keeps the record.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_record_a_page_identity_change_and_count_it_in_the_source_overview() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "replaced.example.com").await;
+    let url = url::Url::parse("https://replaced.example.com/products/chair").unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    let mut changed = scrape_completion(
+        listing_source_id,
+        url.clone(),
+        (
+            "hash",
+            "schemas",
+            vec![1_u8; 32],
+            "SKU-1",
+            CrawlerDisposition::Active,
+            None,
+        ),
+    );
+    changed.extracted_source_listing_id = Some("SKU-2".to_owned());
+    changed.page_identity_changed = true;
+    assert_eq!(
+        service.mark_as_scraped(changed).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    let unchanged = scrape_completion(
+        listing_source_id,
+        url.clone(),
+        (
+            "hash-2",
+            "schemas",
+            vec![2_u8; 32],
+            "SKU-1",
+            CrawlerDisposition::Active,
+            Some(vec![1_u8; 32]),
+        ),
+    );
+    assert_eq!(
+        service.mark_as_scraped(unchanged).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let overview = crawler::review::readers::ListingSourceOverviewReader::new(pool.clone())
+        .find_listing_source(listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(overview.page_identity_changed_urls, 1);
 }

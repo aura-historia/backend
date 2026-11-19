@@ -25,6 +25,26 @@ pub(crate) fn capture_source_listing_id(
     normalize_source_listing_id_with_url_sha_fallback(raw_source_listing_id, &source_record_url)
 }
 
+/// The source listing id a scrape captures: the identity the URL's listing was first captured
+/// under when it has one and the page was served at the URL itself, else the identity the
+/// extraction derives ([`capture_source_listing_id`]). A listing's identity never changes after
+/// its first capture (`docs/product-listing.md`), so a later schema whose identity rule derives
+/// another value, or none, keeps capturing the same listing instead of stranding it. A redirect
+/// can lead to another product, so a redirected page is judged by its own identity. A stored
+/// identity that is no valid source listing id is invalid crawler state and fails closed.
+pub(crate) fn pinned_source_listing_id(
+    captured_identity: Option<&str>,
+    redirected: bool,
+    extracted_identity: SourceListingId,
+) -> Result<SourceListingId, NormalizationError> {
+    match captured_identity {
+        Some(captured) if !redirected => {
+            SourceListingId::try_from(captured).map_err(NormalizationError::SourceListingIdInvalid)
+        }
+        _ => Ok(extracted_identity),
+    }
+}
+
 /// Builds the complete current raw input retained by the operational raw-revision stream.
 ///
 /// Source payload keeps the untouched extraction. Generic raw values use the
@@ -135,6 +155,40 @@ fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
 mod tests {
     use super::*;
     use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
+
+    mod pinned_identity {
+        use super::*;
+
+        fn extracted() -> SourceListingId {
+            SourceListingId::try_from("NEW-1").unwrap()
+        }
+
+        #[test]
+        fn should_keep_the_captured_identity_of_an_unredirected_page() {
+            let pinned = pinned_source_listing_id(Some("SKU-1"), false, extracted()).unwrap();
+
+            assert_eq!(pinned.as_ref(), "SKU-1");
+        }
+
+        #[test]
+        fn should_take_the_extracted_identity_on_a_first_capture_or_after_a_redirect() {
+            let first = pinned_source_listing_id(None, false, extracted()).unwrap();
+            let redirected = pinned_source_listing_id(Some("SKU-1"), true, extracted()).unwrap();
+
+            assert_eq!(first.as_ref(), "NEW-1");
+            assert_eq!(redirected.as_ref(), "NEW-1");
+        }
+
+        #[test]
+        fn should_fail_closed_on_a_captured_identity_that_is_invalid() {
+            let refused = pinned_source_listing_id(Some("   "), false, extracted());
+
+            assert!(matches!(
+                refused,
+                Err(NormalizationError::SourceListingIdInvalid(_))
+            ));
+        }
+    }
 
     fn raw() -> RawExtractedProduct {
         RawExtractedProduct {

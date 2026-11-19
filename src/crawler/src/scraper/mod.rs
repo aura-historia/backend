@@ -3,6 +3,7 @@ pub mod css_selector;
 pub mod plausibility;
 pub(crate) mod raw_input;
 pub mod removal_guard;
+pub mod same_product;
 pub mod scrape_circuit;
 pub mod scraper_service;
 pub mod shared_redirect;

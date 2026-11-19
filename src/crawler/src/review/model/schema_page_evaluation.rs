@@ -2,9 +2,10 @@ use super::SelectorFieldEvaluation;
 use crate::CrawlerReviewPageId;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::plausibility::{
-    CrossPageFindings, IdentityAgreementFindings, PlausibilityFindings,
+    CrossPageFindings, IdentityAgreementFindings, PlausibilityFindings, names_image_file,
 };
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -46,28 +47,92 @@ pub enum PriceTextOnState {
     Accepted,
 }
 
+/// Whether an identity that is a URL or path keeps a candidate out of approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkIdentity {
+    Blocks,
+    /// The ListingSource's listings were captured under URL identities that the candidate keeps
+    /// deriving: replacing them would leave every captured URL in an identity conflict.
+    Captured,
+}
+
+/// The findings an approval accepts that would otherwise keep a candidate out of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApprovalExemptions {
+    pub price_text: PriceTextOnState,
+    pub link_identity: LinkIdentity,
+}
+
+impl ApprovalExemptions {
+    /// Every finding that blocks approval blocks it, as deterministic approval decides.
+    pub const NONE: Self = Self {
+        price_text: PriceTextOnState::Blocks,
+        link_identity: LinkIdentity::Blocks,
+    };
+}
+
 impl SchemaPageEvaluation {
     /// Whether a failed per-page, cross-page or identity agreement check keeps the schema out
     /// of approval. A repeated image alone does not
     /// ([`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)),
-    /// and price text in `state` does not where `price_text` accepts it.
-    pub fn blocks_approval(&self, price_text: PriceTextOnState) -> bool {
-        !self.blocking_plausibility_findings(price_text).is_empty()
+    /// nor does a finding `exemptions` accepts.
+    pub fn blocks_approval(&self, exemptions: ApprovalExemptions) -> bool {
+        !self.blocking_plausibility_findings(exemptions).is_empty()
             || !self.cross_page_findings.is_empty()
             || !self.identity_agreement_findings.is_empty()
     }
 
-    /// The per-page findings that block approval where `price_text` applies: every finding
+    /// The per-page findings that block approval under `exemptions`: every finding
     /// [`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)
-    /// keeps, except price text in `state` where `price_text` accepts it.
+    /// keeps, except price text in `state` and an identity that links to a page of the shop
+    /// where `exemptions` accepts them.
     pub fn blocking_plausibility_findings(
         &self,
-        price_text: PriceTextOnState,
+        exemptions: ApprovalExemptions,
     ) -> PlausibilityFindings {
+        let accepts_link_identity = self.accepts_link_identity(exemptions.link_identity);
         self.plausibility_findings.retaining(|finding| {
             finding.blocks_approval()
-                && !(price_text == PriceTextOnState::Accepted && finding.is_price_text_on_state())
+                && !(exemptions.price_text == PriceTextOnState::Accepted
+                    && finding.is_price_text_on_state())
+                && !(accepts_link_identity && finding.is_link_or_path_identity())
         })
+    }
+
+    /// Whether an approval under `link_identity` accepts this page's identity when it is a URL or
+    /// path: only where the listings were captured under such identities, and only a link to a page
+    /// of the shop.
+    pub fn accepts_link_identity(&self, link_identity: LinkIdentity) -> bool {
+        link_identity == LinkIdentity::Captured && self.identity_links_to_shop_page()
+    }
+
+    /// Whether the extracted identity links to a page of the shop, as a canonical link or
+    /// `og:url` does: resolved against the page's URL it is an `http` or `https` URL on the
+    /// page's host, `www.` aside, and names no image. An image `src`, a `javascript:` link or
+    /// another host's URL is no URL identity a source was captured under.
+    fn identity_links_to_shop_page(&self) -> bool {
+        let Some(identity) = self
+            .extracted
+            .as_ref()
+            .map(|raw| raw.source_listing_id.trim())
+            .filter(|identity| !identity.is_empty())
+        else {
+            return false;
+        };
+        let Ok(page) = Url::parse(&self.url) else {
+            return false;
+        };
+        let Ok(target) = page.join(identity) else {
+            return false;
+        };
+        let host_of = |url: &Url| {
+            url.host_str()
+                .map(|host| host.trim_start_matches("www.").to_ascii_lowercase())
+        };
+        matches!(target.scheme(), "http" | "https")
+            && host_of(&target).is_some()
+            && host_of(&target) == host_of(&page)
+            && !names_image_file(target.path())
     }
 }
 

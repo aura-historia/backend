@@ -4,6 +4,8 @@
 
 use crate::CrawlerReviewId;
 use crate::review::model::{ARTIFACT_PRODUCT_SCHEMA, SourceProductUrl};
+use crate::scraper::css_selector::product_schema::decode_stored_product_schemas;
+use crate::scraper::css_selector::rule::ExtractionRule;
 use sqlx::{PgPool, Row};
 
 /// The most URLs offered to one review.
@@ -29,7 +31,8 @@ impl SourceProductUrlReader {
         review_id: CrawlerReviewId,
     ) -> Result<Vec<SourceProductUrl>, sqlx::Error> {
         sqlx::query(
-            "SELECT su.url, su.last_scraped, su.last_error_kind
+            "SELECT su.url, su.last_scraped, su.last_error_kind,
+                    su.last_source_listing_id, su.last_extracted_source_listing_id
              FROM crawler_reviews r
              JOIN listing_source_urls su ON su.listing_source_id = r.listing_source_id
              WHERE r.review_id = $1
@@ -56,8 +59,39 @@ impl SourceProductUrlReader {
                 url: row.try_get("url")?,
                 last_scraped: row.try_get("last_scraped")?,
                 last_error_kind: row.try_get("last_error_kind")?,
+                captured_identity: row.try_get("last_source_listing_id")?,
+                page_identity: row.try_get("last_extracted_source_listing_id")?,
             })
         })
         .collect()
+    }
+
+    /// The `source_listing_id` rule of each live product schema of the review's ListingSource,
+    /// which its listings were captured under, in the order the schemas are stored; none for a
+    /// URL-pattern review, an unknown review and a ListingSource without live schemas. A stored
+    /// schema list that does not decode fails the read.
+    pub async fn live_identity_rules(
+        &self,
+        review_id: CrawlerReviewId,
+    ) -> Result<Vec<Option<ExtractionRule>>, sqlx::Error> {
+        let stored: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT s.product_schema
+             FROM crawler_reviews r
+             JOIN listing_source_product_schemas s ON s.listing_source_id = r.listing_source_id
+             WHERE r.review_id = $1
+               AND r.artifact_type = $2",
+        )
+        .bind(review_id.as_uuid())
+        .bind(ARTIFACT_PRODUCT_SCHEMA)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(stored) = stored else {
+            return Ok(Vec::new());
+        };
+        Ok(decode_stored_product_schemas(stored)
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?
+            .into_iter()
+            .map(|schema| schema.source_listing_id)
+            .collect())
     }
 }

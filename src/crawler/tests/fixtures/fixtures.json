@@ -155,7 +155,10 @@
         "https://cdn.globalauctionplatform.com/auctions-2026/leipzig10033/images/910428b0-2c99-4938-87eb-b3fd00b49fbc.jpg?w=540&h=360",
         "https://www.lot-tissimo.com/Content/LT/images/site-logo.png"
       ]
-    }
+    },
+    "plausibility_findings": [
+      { "field": "source_listing_id", "check": "LINK_OR_PATH" }
+    ]
   },
   {
     "html": "tests/fixtures/html/antik-und-stil_available.html",
@@ -674,6 +677,9 @@
       "images": [
         "https://hickmet.com/cdn/shop/files/Website.jpg?v=1792164451"
       ]
-    }
+    },
+    "plausibility_findings": [
+      { "field": "source_listing_id", "check": "LINK_OR_PATH" }
+    ]
   }
 ]

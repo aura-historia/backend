@@ -391,7 +391,7 @@ pub(crate) fn product_schema_approval_checks(
     if !rules.is_empty() {
         failed.push(FailedApprovalCheck::RuleMatchesNothing { rules });
     }
-    let implausible = implausible_pages(matrix);
+    let implausible = implausible_pages(matrix, evaluation.link_identity());
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
@@ -1081,7 +1081,10 @@ mod tests {
         );
         match refused.as_slice() {
             [FailedApprovalCheck::ImplausibleExtraction { pages }] => {
-                assert_eq!(*pages, implausible_pages(matrix));
+                assert_eq!(
+                    *pages,
+                    implausible_pages(matrix, crate::review::model::LinkIdentity::Blocks)
+                );
                 pages.clone()
             }
             other => panic!("expected only implausible extractions: {other:?}"),
@@ -1481,6 +1484,131 @@ mod tests {
             checks(Some(&matrix), &review_pages(&pages)),
             vec![FailedApprovalCheck::CapturedIdentitySampleNotFetched { sample_total: 2 }]
         );
+    }
+
+    /// A product page whose identity element holds the page's own URL, as a rule on the
+    /// canonical link or `og:url` reads it.
+    fn url_identity_page(slug: &str, title: &str) -> (CrawlerReviewPage, String) {
+        let (page, html) = product_page(slug, "h1", title);
+        let html = html.replace(
+            &format!("id=\"product-id\">{slug}<"),
+            &format!("id=\"product-id\">{}<", page.url),
+        );
+        (page, html)
+    }
+
+    /// Whether `refused` holds an implausible extraction on every one of `page_count` review
+    /// pages whose only blocking finding is an identity that is a URL.
+    fn refuses_url_identities(refused: &[FailedApprovalCheck], page_count: usize) -> bool {
+        refused.iter().any(|check| match check {
+            FailedApprovalCheck::ImplausibleExtraction { pages } => {
+                pages.len() == page_count
+                    && pages.iter().all(|page| {
+                        let findings = page.plausibility_findings.as_slice();
+                        !findings.is_empty()
+                            && findings
+                                .iter()
+                                .all(|finding| finding.is_link_or_path_identity())
+                    })
+            }
+            _ => false,
+        })
+    }
+
+    /// A source with no captured listings must not start capturing under the page URL.
+    #[test]
+    fn should_refuse_a_url_identity_on_a_source_without_captured_listings() {
+        let pages = [
+            url_identity_page("chair", "Chair"),
+            url_identity_page("table", "Table"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(refuses_url_identities(&refused, 2), "{refused:?}");
+    }
+
+    /// The listings were captured under their page URLs and cannot move to another identity,
+    /// so a candidate that keeps deriving those URLs stays approvable.
+    #[test]
+    fn should_pass_a_url_identity_the_listings_were_captured_under() {
+        let pages = [
+            url_identity_page("chair", "Chair"),
+            url_identity_page("table", "Table"),
+        ];
+        let schemas = [schema("h1")];
+        let (vase, vase_html) = url_identity_page("vase", "Vase");
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[("vase", vase.url.as_str(), Some(vase_html))],
+        );
+
+        assert_eq!(checks(Some(&matrix), &review_pages(&pages)), Vec::new());
+    }
+
+    /// Listings captured under a product code keep refusing a switch to URL identities: the
+    /// sample shows the switch, and the URL identity stays implausible.
+    #[test]
+    fn should_refuse_a_url_identity_where_the_listings_were_captured_under_a_code() {
+        let pages = [
+            url_identity_page("chair", "Chair"),
+            url_identity_page("table", "Table"),
+        ];
+        let schemas = [schema("h1")];
+        let (_, vase_html) = url_identity_page("vase", "Vase");
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[("vase", "SKU-0815", Some(vase_html))],
+        );
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert!(refuses_url_identities(&refused, 2), "{refused:?}");
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::CapturedIdentityDiffers { .. })),
+            "{refused:?}"
+        );
+    }
+
+    /// The exemption covers an identity that links to a page of the shop, not any link: an
+    /// image `src` a schema reads as the identity stays refused even where the sampled
+    /// listings were captured under the same kind of value.
+    #[test]
+    fn should_refuse_an_image_url_identity_where_the_listings_were_captured_under_one() {
+        let image_identity_page = |slug: &str, title: &str| {
+            let (page, html) = product_page(slug, "h1", title);
+            let html = html.replace(
+                &format!("id=\"product-id\">{slug}<"),
+                &format!("id=\"product-id\">https://shop.example/images/{slug}.jpg<"),
+            );
+            (page, html)
+        };
+        let pages = [
+            image_identity_page("chair", "Chair"),
+            image_identity_page("table", "Table"),
+        ];
+        let schemas = [schema("h1")];
+        let (_, vase_html) = image_identity_page("vase", "Vase");
+        let matrix = with_captured_sample(
+            live_matrix(&schemas, &[], &pages, Duration::ZERO),
+            &schemas,
+            &[(
+                "vase",
+                "https://shop.example/images/vase.jpg",
+                Some(vase_html),
+            )],
+        );
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert!(refuses_url_identities(&refused, 2), "{refused:?}");
     }
 
     /// A page whose `state` element holds `state`.
