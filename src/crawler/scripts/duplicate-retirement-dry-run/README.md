@@ -10,6 +10,18 @@ the scraper's: the carrier lookup of `identity_carrier()` in
 [`same_product.rs`](../../src/scraper/same_product.rs). They need the #3046 migrations
 (`last_extracted_source_listing_id`).
 
+Where the dry run differs from a scrape, it is deliberate or noted here:
+
+- It judges every live URL whose page showed an identity another URL carries, including double
+  captures from before #3046 whose page identity equals their captured identity; the scraper never
+  retires those on its own, which is why the migration exists.
+- It leaves out URLs in an identity conflict, which their next scrape decides.
+- It compares stored URLs. A legacy row that still has a parameter the crawler no longer stores
+  (tracking, session, sort) is compared as stored, so the `SPELLING` count can come out low
+  rather than high.
+- On a hot standby a long query can be cancelled by recovery conflicts
+  (`max_standby_streaming_delay`); run it on the primary's read-only role if that happens.
+
 | File | Answers |
 |---|---|
 | `1_per_host_counts.sql` | URLs that would retire per host and in total, by evidence (`SPELLING`, `IDENTITY_TOKEN`, `TITLE`), and those left without evidence; the watch-list hosts are labelled |
@@ -32,8 +44,8 @@ Then:
    per host whether the pair is one product (retire) or two items sharing a generic title (keep).
    `LIST_PAGE_CARRIER` hosts must show no `TITLE` rows.
 3. Use `3_extra_query_parameter_pairs.csv` to decide whether a parameter counts as spelling
-   evidence. Accept a name only when `other_page_identity` is 0 and every pair shares the captured
-   identity. `cookie` on Neidhardt is the case in question; a name such as `id` with other
+   evidence. Accept a name only when `other_page_identity` and `page_identity_unknown` are 0 and every
+   pair shares the captured identity. `cookie` on Neidhardt is the case in question; a name such as `id` with other
    identities names another product.
 
 Hand these decisions back. The migration (with `duplicate_of_url`, `duplicate_evidence` and

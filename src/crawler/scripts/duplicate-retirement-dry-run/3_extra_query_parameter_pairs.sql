@@ -60,6 +60,7 @@ SELECT host,
        count(*) FILTER (WHERE same_captured_identity) AS same_captured_identity,
        count(*) FILTER (WHERE same_page_identity) AS same_page_identity,
        count(*) FILTER (WHERE same_page_identity IS FALSE) AS other_page_identity,
+       count(*) FILTER (WHERE same_page_identity IS NULL) AS page_identity_unknown,
        count(*) FILTER (WHERE same_title) AS same_title,
        count(*) FILTER (WHERE a_title_missing) AS a_title_missing
 FROM pairs
