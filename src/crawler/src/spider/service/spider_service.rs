@@ -21,6 +21,7 @@ use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrl
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
+use crate::spider::discovery::sitemap::locations::SitemapSource;
 use crate::spider::discovery::website_spider::{
     CrawlBudgetScale, CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace,
     CrawlStopReason, CrawledPage, PageOrigin, Spider, SpiderDiscoveryError,
@@ -1323,6 +1324,11 @@ fn log_crawl_outcome(
         total_crawled = state.total_crawled,
         product_urls_count = state.products_found(),
         product_pattern = product_pattern,
+        sitemap_source = diagnostics.sitemaps.source.map(SitemapSource::as_str),
+        sitemap_products_registered = diagnostics.sitemaps.products_registered,
+        product_urls_outside_sitemaps = state.products_outside_sitemaps(),
+        sitemap_seeds = diagnostics.sitemaps.seeds,
+        sitemap_failures = diagnostics.sitemaps.failures.len(),
         sample_match_ratio = state.sample_match_ratio(),
         query_url_share = state.query_url_share(),
         status_counts = ?diagnostics.status_counts,
@@ -1365,6 +1371,17 @@ fn log_crawl_outcome(
         initial_anti_bot = ?diagnostics.initial_anti_bot,
         bot_challenge_pages = diagnostics.bot_challenge_pages,
         rate_limit = ?diagnostics.rate_limit,
+        sitemap_requests = diagnostics.sitemaps.requests,
+        sitemap_files_read = diagnostics.sitemaps.files_read,
+        sitemap_files_skipped = diagnostics.sitemaps.files_skipped,
+        sitemap_files_truncated = diagnostics.sitemaps.files_truncated,
+        sitemap_urls_listed = diagnostics.sitemaps.urls_listed,
+        sitemap_urls_off_host = diagnostics.sitemaps.urls_off_host,
+        sitemap_urls_refused = diagnostics.sitemaps.urls_refused,
+        sitemap_urls_over_limit = diagnostics.sitemaps.urls_over_limit,
+        sitemap_products_known = diagnostics.sitemaps.products_known,
+        sitemap_elapsed_ms = diagnostics.sitemaps.elapsed_ms,
+        sitemap_failures = ?diagnostics.sitemaps.failure_labels(),
         "Crawl diagnostics"
     );
 }
@@ -5108,6 +5125,7 @@ fn crawl_failure_error(
 #[cfg(test)]
 mod crawl_event_tests {
     use super::*;
+    use crate::spider::discovery::sitemap::reader::SitemapDiagnostics;
     use crate::test_support::logged_events::LoggedEvents;
 
     fn source() -> SourceLogContext {
@@ -5120,8 +5138,21 @@ mod crawl_event_tests {
         let mut state = CrawlRunState::new(source(), None);
         state.total_crawled = 4;
         state.query_url_pages = 1;
+        let sitemap_product = CrawledPage::listed_in_sitemap(CrawledUrl::new(
+            Url::parse("https://antique.example/p/1").unwrap(),
+        ));
+        state.record_sitemap_product(&sitemap_product);
+        state.stored_product_pages = ["https://antique.example/p/1", "https://antique.example/p/2"]
+            .into_iter()
+            .map(|url| Url::parse(url).unwrap())
+            .collect();
         let diagnostics = CrawlDiagnostics {
             completion: CrawlCompletion::HardTimeoutTruncated,
+            sitemaps: SitemapDiagnostics {
+                source: Some(SitemapSource::RobotsTxt),
+                products_registered: 1,
+                ..SitemapDiagnostics::default()
+            },
             ..CrawlDiagnostics::default()
         };
 
@@ -5145,6 +5176,9 @@ mod crawl_event_tests {
         assert_eq!(completed.field("product_pattern"), Some("/p/"));
         assert!(completed.field("status_counts").is_some());
         assert_eq!(completed.field("db_wait_ms"), Some("1250"));
+        assert_eq!(completed.field("sitemap_source"), Some("robots_txt"));
+        assert_eq!(completed.field("sitemap_products_registered"), Some("1"));
+        assert_eq!(completed.field("product_urls_outside_sitemaps"), Some("1"));
     }
 
     #[test]
