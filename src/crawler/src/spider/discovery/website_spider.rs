@@ -999,7 +999,7 @@ impl ShopResponse for spider::reqwest::Response {
 /// detail only survives in the messages of the underlying error chain. Only
 /// the sources are inspected: the top-level message embeds the request URL,
 /// which must not be able to trigger this classification.
-fn is_tls_failure(error: &dyn std::error::Error) -> bool {
+pub(super) fn is_tls_failure(error: &dyn std::error::Error) -> bool {
     std::iter::successors(error.source(), |source| source.source()).any(|source| {
         let detail = source.to_string().to_ascii_lowercase();
         ["certificate", "tls", "handshake"]
