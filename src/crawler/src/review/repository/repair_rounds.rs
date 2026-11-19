@@ -40,7 +40,7 @@ macro_rules! agent_rounds_of_review {
         concat!(
             "(SELECT COUNT(*) FROM crawler_review_events e \
               WHERE e.review_id = r.review_id AND e.actor = ANY($1) AND e.action = $2 AND ",
-            after_last_human_event!(),
+            $crate::review::repository::after_last_human_event!(),
             ")"
         )
     };
@@ -58,7 +58,7 @@ macro_rules! handed_review_to_human {
             "(EXISTS (SELECT 1 FROM crawler_review_events e \
               WHERE e.review_id = r.review_id AND e.actor = ANY($1) \
                 AND e.action = 'HANDED_TO_HUMAN' AND ",
-            after_last_human_event!(),
+            $crate::review::repository::after_last_human_event!(),
             ") OR ",
             $crate::review::repository::held_for_non_product_loop!(),
             ")"
@@ -66,6 +66,25 @@ macro_rules! handed_review_to_human {
     };
 }
 pub(crate) use handed_review_to_human;
+
+/// Whether the pending review aliased `r` waits for a human: where the review agents work the
+/// reviews (`$5`, the repair-round cap, is set), their rounds on it reached the cap or it was
+/// handed to a human ([`handed_review_to_human`]). The SQL counterpart of
+/// [`AgentDecisionPolicy::waits_for_human`] for a pending review, which every query that selects or
+/// counts the reviews that wait for a human uses, so their answers cannot drift. Binds `$1` to `$4`
+/// as [`agent_rounds_of_review`] and `$5`, the repair-round cap or null.
+macro_rules! review_waits_for_human {
+    () => {
+        concat!(
+            "($5::bigint IS NOT NULL AND (",
+            $crate::review::repository::agent_rounds_of_review!(),
+            " >= $5::bigint OR ",
+            $crate::review::repository::handed_review_to_human!(),
+            "))"
+        )
+    };
+}
+pub(crate) use review_waits_for_human;
 
 /// The values of `$1` to `$4` of [`agent_rounds_of_review`] under `agent_decisions`: the agent
 /// actors, the needs-repair action, the human actor and the round window in days.

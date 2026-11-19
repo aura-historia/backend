@@ -5,8 +5,7 @@ use super::ListingSourceOverviewReader;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{ConsoleOverview, PendingByArtifact, ReviewCounts, SourceCounts};
 use crate::review::repository::{
-    CrawlerReviewRepository, after_last_human_event, agent_round_binds, agent_rounds_of_review,
-    handed_review_to_human, held_for_non_product_loop,
+    CrawlerReviewRepository, agent_round_binds, held_for_non_product_loop, review_waits_for_human,
 };
 use crate::spider::local_lock::WorkLockScope;
 use sqlx::{PgPool, Row};
@@ -86,11 +85,9 @@ impl ConsoleOverviewReader {
 const REVIEW_COUNTS_SQL: &str = concat!(
     "WITH pending AS (
          SELECT r.artifact_type, COALESCE(s.crawl_enabled, FALSE) AS crawl_enabled,
-                $5::bigint IS NOT NULL AND (",
-    agent_rounds_of_review!(),
-    " >= $5 OR ",
-    handed_review_to_human!(),
-    ") AS waits_for_human, ",
+                ",
+    review_waits_for_human!(),
+    " AS waits_for_human, ",
     held_for_non_product_loop!(),
     " AS held_for_non_product_loop
          FROM crawler_reviews r

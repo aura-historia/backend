@@ -10,8 +10,8 @@ use crate::review::model::{
     ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceReviewEntry,
 };
 use crate::review::repository::{
-    CrawlerReviewRepository, after_last_human_event, agent_round_binds, agent_rounds_of_review,
-    crawler_review_id_from_uuid, handed_review_to_human, listing_source_id_from_uuid,
+    CrawlerReviewRepository, agent_round_binds, agent_rounds_of_review,
+    crawler_review_id_from_uuid, listing_source_id_from_uuid, review_waits_for_human,
     row_to_repair_request,
 };
 use listing_source_core::ListingSourceId;
@@ -256,20 +256,15 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                     r.validation_summary -> 'auto_schema_evaluation' AS auto_schema_evaluation,
                     r.created, r.updated,
                     CASE WHEN r.status = 'PENDING_REVIEW' THEN {rounds} ELSE 0 END AS agent_rounds,
-                    CASE WHEN r.status = 'PENDING_REVIEW' THEN {handed} ELSE FALSE END
-                        AS handed_to_human
+                    r.status = 'PENDING_REVIEW' AND {waits} AS human_required
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE ($6::uuid IS NULL OR r.listing_source_id = $6)
                AND ($7::text IS NULL OR r.status = $7)
                AND ($8::text IS NULL OR r.artifact_type = $8)
                AND ($9::text IS NULL OR s.listing_source_name ILIKE $9)
-         ), scored AS (
-             SELECT *, $5::bigint IS NOT NULL AND status = 'PENDING_REVIEW'
-                           AND (agent_rounds >= $5 OR handed_to_human) AS human_required
-             FROM candidates
          ), matching AS (
-             SELECT * FROM scored
+             SELECT * FROM candidates
              WHERE $10::text IS NULL
                 OR ($10 = 'human' AND human_required)
                 OR ($10 = 'repair' AND status = 'PENDING_REVIEW'
@@ -282,7 +277,7 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
          LEFT JOIN (SELECT * FROM ranked WHERE position > $11 AND position <= $11 + $12) p ON TRUE
          ORDER BY p.position",
         rounds = agent_rounds_of_review!(),
-        handed = handed_review_to_human!(),
+        waits = review_waits_for_human!(),
     )
 }
 

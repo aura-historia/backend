@@ -83,7 +83,7 @@ use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
 use repair_rounds::refuse_agent_while_human_required;
 pub(crate) use repair_rounds::{
     after_last_human_event, agent_repair_rounds, agent_round_binds, agent_rounds_of_review,
-    handed_review_to_human,
+    handed_review_to_human, review_waits_for_human,
 };
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
