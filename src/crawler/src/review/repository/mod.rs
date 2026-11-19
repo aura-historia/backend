@@ -53,6 +53,7 @@ mod sample_labels;
 mod sample_redirects;
 mod schema_payload;
 mod source_label;
+mod source_park;
 mod source_qualification;
 mod url_pattern_sample;
 mod verdicts;
@@ -68,7 +69,8 @@ pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use schema_payload::ProductSchemaCandidateFailure;
-pub(crate) use source_qualification::AGENT_RETRY_DUE;
+pub use source_park::MAX_PARK_RETRIES_PER_CALL;
+pub(crate) use source_qualification::{AGENT_RETRY_DUE, agent_final_round_due};
 pub use verdicts::Approval;
 
 use non_product_loop::NonProductLoop;

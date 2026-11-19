@@ -526,11 +526,13 @@ async fn should_end_the_backfill_of_a_source_with_its_first_decision() {
     );
 }
 
-/// Moves the time the source's current qualification was decided back by `hours`, as if it had
+/// Moves the retry time of the source's current agent `NEEDS_HUMAN` back by `hours`, as if it had
 /// stood that long.
 async fn age_qualification(pool: &PgPool, listing_source_id: ListingSourceId, hours: i32) {
     sqlx::query(
-        "UPDATE listing_sources SET qualified_at = qualified_at - make_interval(hours => $2) \
+        "UPDATE listing_sources \
+         SET qualified_at = qualified_at - make_interval(hours => $2), \
+             qualification_retry_at = qualification_retry_at - make_interval(hours => $2) \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -540,12 +542,25 @@ async fn age_qualification(pool: &PgPool, listing_source_id: ListingSourceId, ho
     .unwrap();
 }
 
+/// How long after an agent's `NEEDS_HUMAN` the agents try the source again, in whole hours.
+async fn retry_after_hours(pool: &PgPool, listing_source_id: ListingSourceId) -> Option<i64> {
+    sqlx::query_scalar(
+        "SELECT ROUND(EXTRACT(EPOCH FROM qualification_retry_at - qualified_at) / 3600)::bigint \
+         FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 /// A review agent's `NEEDS_HUMAN` stands for a day, after which the agents try the source again
-/// with the earlier note as evidence, up to three `NEEDS_HUMAN` in all since a human last decided
-/// it; after the third the source waits for a human for good, and a human's decision starts the
-/// count afresh.
+/// with the earlier note as evidence; after three daily tries the next one is their final round,
+/// and a `NEEDS_HUMAN` after it parks the source on the park schedule, 30 days and then doubling,
+/// instead of leaving it for a human. A human's decision starts the count afresh.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_retry_an_agent_s_needs_human_a_day_later_up_to_three_times() {
+async fn should_retry_an_agent_s_needs_human_daily_then_in_a_final_round_then_on_the_park_schedule()
+{
     let pool = get_postgres_client().await;
     let reviews = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -563,29 +578,46 @@ async fn should_retry_an_agent_s_needs_human_a_day_later_up_to_three_times() {
             .unwrap()
             .sources
     };
+    assert!(
+        !queue().await[0].final_round,
+        "a new source is no final round"
+    );
 
-    for round in 1..=3 {
+    for (try_number, waits_hours, final_round_next) in [
+        (1, 24, false),
+        (2, 24, false),
+        (3, 24, true),
+        (4, 30 * 24, true),
+        (5, 60 * 24, true),
+    ] {
         reviews
             .decide_qualification(&listing_source_id, ReviewActor::AgentAuthor, &unreachable)
             .await
-            .unwrap_or_else(|error| panic!("round {round}: {error}"));
-        assert!(queue().await.is_empty(), "round {round}: waits a day");
+            .unwrap_or_else(|error| panic!("try {try_number}: {error}"));
+        assert_eq!(
+            retry_after_hours(&pool, listing_source_id).await,
+            Some(waits_hours),
+            "try {try_number}"
+        );
+        assert!(queue().await.is_empty(), "try {try_number}: waits");
         let refused = reviews
             .decide_qualification(&listing_source_id, ReviewActor::AgentAuthor, &unreachable)
             .await
             .unwrap_err();
         assert!(
             matches!(refused, ReviewRepositoryError::SourceAlreadyQualified(_)),
-            "round {round}: {refused}"
+            "try {try_number}: {refused}"
         );
-        age_qualification(&pool, listing_source_id, 25).await;
+        age_qualification(
+            &pool,
+            listing_source_id,
+            i32::try_from(waits_hours).unwrap() + 1,
+        )
+        .await;
         let due = queue().await;
-        if round < 3 {
-            assert_eq!(due.len(), 1, "round {round}: tried again");
-            assert_eq!(due[0].earlier_note.as_deref(), Some("/ timed out twice"));
-        } else {
-            assert!(due.is_empty(), "the third NEEDS_HUMAN waits for a human");
-        }
+        assert_eq!(due.len(), 1, "try {try_number}: tried again");
+        assert_eq!(due[0].earlier_note.as_deref(), Some("/ timed out twice"));
+        assert_eq!(due[0].final_round, final_round_next, "try {try_number}");
     }
 
     reviews
@@ -595,6 +627,8 @@ async fn should_retry_an_agent_s_needs_human_a_day_later_up_to_three_times() {
     let fresh = queue().await;
     assert_eq!(fresh.len(), 1, "a human's clear starts the count afresh");
     assert_eq!(fresh[0].earlier_note, None);
+    assert!(!fresh[0].final_round);
+    assert_eq!(retry_after_hours(&pool, listing_source_id).await, None);
 }
 
 /// The agents' qualifications count against their hourly decision cap with their approvals and
@@ -720,4 +754,213 @@ async fn should_requalify_a_source_whose_crawl_root_moves() {
             (None, "SYSTEM".to_owned()),
         ]
     );
+}
+
+/// The source's label, who set it and in how many whole days it expires, if it does.
+async fn label_and_expiry(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+) -> (Option<String>, Option<String>, Option<i64>) {
+    sqlx::query_as(
+        "SELECT source_label, source_labelled_by, \
+                ROUND(EXTRACT(EPOCH FROM source_label_retry_at - source_labelled_at) / 86400)::bigint \
+         FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn expire_park(pool: &PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+        "UPDATE listing_sources SET source_label_retry_at = NOW() - INTERVAL '1 minute' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// An agent's label that expires parks the source for 30 days, doubling with every further park
+/// since a human last labelled it; a human's label and an agent's disqualifying label never
+/// expire. An expired park is cleared by the agents, written to the label and qualification
+/// history, and sends the source back to qualification; nothing else is retried, and the reviewer
+/// agent retries nothing.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_expire_an_agent_s_park_label_with_doubling_back_off_and_requalify_the_source() {
+    let pool = get_postgres_client().await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let parked = ListingSourceId::new();
+    let not_a_shop = ListingSourceId::new();
+    let human_labelled = ListingSourceId::new();
+    sync(
+        &pool,
+        QualificationGate::Required,
+        vec![
+            registered(parked, "https://challenged.example/"),
+            registered(not_a_shop, "https://brochure.example/"),
+            registered(human_labelled, "https://human.example/"),
+        ],
+    )
+    .await;
+    let challenged = decision(
+        Qualification::Qualified,
+        Some(SourceLabel::BotProtection),
+        "every item page answered a bot challenge",
+    );
+
+    reviews
+        .decide_qualification(&parked, ReviewActor::AgentAuthor, &challenged)
+        .await
+        .unwrap();
+    reviews
+        .decide_qualification(
+            &not_a_shop,
+            ReviewActor::AgentAuthor,
+            &decision(
+                Qualification::Disqualified,
+                Some(SourceLabel::NotAnEshop),
+                "a brochure, no items",
+            ),
+        )
+        .await
+        .unwrap();
+    reviews
+        .label_source(
+            &human_labelled,
+            ReviewActor::Human,
+            &SourceLabelRequest::new(SourceLabel::BotProtection, None).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        label_and_expiry(&pool, parked).await,
+        (
+            Some("BOT_PROTECTION".to_owned()),
+            Some("AGENT_AUTHOR".to_owned()),
+            Some(30)
+        )
+    );
+    assert_eq!(label_and_expiry(&pool, not_a_shop).await.2, None);
+    assert_eq!(label_and_expiry(&pool, human_labelled).await.2, None);
+
+    assert!(
+        reviews
+            .retry_parked_sources(ReviewActor::AgentAuthor)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no park expired yet"
+    );
+    expire_park(&pool, parked).await;
+    assert!(matches!(
+        reviews
+            .retry_parked_sources(ReviewActor::AgentReviewer)
+            .await
+            .unwrap_err(),
+        ReviewRepositoryError::ReviewerMayNotChangeCandidates
+    ));
+    let retried = reviews
+        .retry_parked_sources(ReviewActor::AgentAuthor)
+        .await
+        .unwrap();
+    assert_eq!(retried.len(), 1);
+    assert_eq!(retried[0].listing_source_id, parked);
+    assert_eq!(retried[0].label, SourceLabel::BotProtection);
+    assert!(retried[0].requalifies);
+    assert_eq!(label_and_expiry(&pool, parked).await, (None, None, None));
+    assert!(!crawl_enabled(&pool, parked).await);
+    assert!(
+        queued(&pool).await.contains(&(parked, false)),
+        "the source waits for a qualification again"
+    );
+    let histories: (Vec<String>, Vec<Option<String>>) = (
+        sqlx::query_scalar(
+            "SELECT event_kind || ':' || actor FROM listing_source_label_events \
+             WHERE listing_source_id = $1 ORDER BY occurred_at, event_id",
+        )
+        .bind(parked.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap(),
+        sqlx::query_scalar(
+            "SELECT qualification || ':' || actor FROM listing_source_qualification_events \
+             WHERE listing_source_id = $1 ORDER BY occurred_at, event_id",
+        )
+        .bind(parked.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap(),
+    );
+    assert_eq!(
+        histories,
+        (
+            vec![
+                "LABELLED:AGENT_AUTHOR".to_owned(),
+                "CLEARED:AGENT_AUTHOR".to_owned()
+            ],
+            vec![Some("QUALIFIED:AGENT_AUTHOR".to_owned()), None],
+        )
+    );
+
+    reviews
+        .decide_qualification(&parked, ReviewActor::AgentAuthor, &challenged)
+        .await
+        .unwrap();
+    assert_eq!(
+        label_and_expiry(&pool, parked).await.2,
+        Some(60),
+        "parked again, it waits twice as long"
+    );
+}
+
+/// An expired park of a source a human qualified clears the agent's label only: the human's
+/// qualification stands, so the next scope refresh crawls the source again.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_a_human_s_qualification_when_a_park_expires() {
+    let pool = get_postgres_client().await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let scope = || vec![registered(listing_source_id, "https://shop.example/")];
+    sync(&pool, QualificationGate::Required, scope()).await;
+    reviews
+        .decide_qualification(
+            &listing_source_id,
+            ReviewActor::Human,
+            &decision(Qualification::Qualified, None, "a real shop"),
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET source_label = 'AGENTS_UNRESOLVED', source_label_note = 'author and reviewer disagree', \
+             source_labelled_at = NOW() - INTERVAL '31 days', source_labelled_by = 'AGENT_AUTHOR', \
+             source_label_retry_at = NOW() - INTERVAL '1 day', crawl_enabled = FALSE \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let retried = reviews
+        .retry_parked_sources(ReviewActor::AgentAuthor)
+        .await
+        .unwrap();
+
+    assert_eq!(retried.len(), 1);
+    assert_eq!(retried[0].label, SourceLabel::AgentsUnresolved);
+    assert!(!retried[0].requalifies);
+    let qualification: Option<String> = sqlx::query_scalar(
+        "SELECT qualification FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(qualification.as_deref(), Some("QUALIFIED"));
+    sync(&pool, QualificationGate::Required, scope()).await;
+    assert!(crawl_enabled(&pool, listing_source_id).await);
 }

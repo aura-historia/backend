@@ -110,6 +110,7 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.source_label_note,
         s.source_labelled_at,
         s.source_labelled_by,
+        s.source_label_retry_at,
         s.in_crawl_scope,
         s.qualification,
         s.qualification_note,
@@ -656,6 +657,7 @@ fn applied_source_label(row: &PgRow) -> Result<Option<AppliedSourceLabel>, sqlx:
         note: row.try_get("source_label_note")?,
         labelled_at,
         labelled_by,
+        retry_at: row.try_get("source_label_retry_at")?,
     }))
 }
 

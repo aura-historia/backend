@@ -274,6 +274,11 @@ mod tests {
         Some(AUTHOR_TOKEN),
         Some(ReviewActor::AgentAuthor)
     )]
+    #[case::author_token_retries_expired_parks(
+        "POST /api/source-qualifications/retry-parked",
+        Some(AUTHOR_TOKEN),
+        Some(ReviewActor::AgentAuthor)
+    )]
     #[case::author_token_overrides_no_qualification(
         "PUT /api/listing-sources/ls_1/qualification",
         Some(AUTHOR_TOKEN),

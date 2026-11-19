@@ -219,6 +219,10 @@ pub struct AppliedSourceLabel {
     #[serde(with = "time::serde::rfc3339")]
     pub labelled_at: OffsetDateTime,
     pub labelled_by: ReviewActor,
+    /// When the agents try the source again: set for a review agent's park label, which expires
+    /// then; `None` for a label that never expires.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub retry_at: Option<OffsetDateTime>,
 }
 
 impl super::QueryValue for SourceLabel {
@@ -431,6 +435,7 @@ mod tests {
             note: None,
             labelled_at: datetime!(2026-11-12 09:00:00 UTC),
             labelled_by: ReviewActor::Human,
+            retry_at: None,
         };
 
         assert_eq!(
@@ -438,7 +443,8 @@ mod tests {
                 "label": "APPROACH_NOT_APPLICABLE",
                 "note": null,
                 "labelled_at": "2026-11-12T09:00:00Z",
-                "labelled_by": "HUMAN"
+                "labelled_by": "HUMAN",
+                "retry_at": null
             }),
             serde_json::to_value(applied).unwrap_or_else(|error| panic!("serialize: {error}"))
         );

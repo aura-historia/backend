@@ -9,14 +9,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-/// How long a review agent's `NEEDS_HUMAN` stands before the agents try the source again, since
-/// most come from a site the agent could not reach for the moment.
-pub const AGENT_NEEDS_HUMAN_RETRY_HOURS: i32 = 24;
-
-/// How many `NEEDS_HUMAN` decisions of the review agents a source gets, since a human last decided
-/// or cleared its qualification, before it waits for a human for good.
-pub const MAX_AGENT_NEEDS_HUMAN_DECISIONS: i64 = 3;
-
 /// What a qualification decided. Serialized and persisted by its `SCREAMING_SNAKE_CASE` name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -27,7 +19,8 @@ pub enum Qualification {
     /// Not an art and antiques e-shop, or one the crawler may not or cannot reach at all; its label
     /// says which.
     Disqualified,
-    /// The decider could not tell from what it could read; a human decides.
+    /// The decider could not tell from what it could read. A review agent's is tried again on the
+    /// [park schedule](super::ParkSchedule); a human may decide it any time.
     NeedsHuman,
 }
 
@@ -127,6 +120,15 @@ impl QualificationDecision {
             label,
             note,
         })
+    }
+
+    /// A `QUALIFIED` decision without a label, which always fits.
+    pub fn qualified(note: SourceLabelNote) -> Self {
+        Self {
+            qualification: Qualification::Qualified,
+            label: None,
+            note,
+        }
     }
 
     pub fn qualification(&self) -> Qualification {
@@ -230,6 +232,10 @@ pub struct SourceAwaitingQualification {
     /// The note of the review agent's earlier `NEEDS_HUMAN` this try follows, as evidence; `None`
     /// for a source never decided.
     pub earlier_note: Option<String>,
+    /// Whether this try is the agents' final round: their daily `NEEDS_HUMAN` tries since a human
+    /// last decided are spent, so the strongest model decides, and a further `NEEDS_HUMAN` parks
+    /// the source.
+    pub final_round: bool,
 }
 
 /// A label a queued source carries, with its note, as the decider reads it.

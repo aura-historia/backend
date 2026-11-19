@@ -10,7 +10,7 @@
 
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::access::{ReviewServerConfigError, positive_number};
-use crate::review::model::STATUS_PENDING_REVIEW;
+use crate::review::model::{ParkSchedule, STATUS_PENDING_REVIEW};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::time::Duration;
@@ -21,6 +21,7 @@ pub const AGENT_MAX_REPAIR_ROUNDS_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_REPAIR_R
 pub const AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV: &str =
     "CRAWLER_REVIEW_AGENT_REPAIR_ROUND_WINDOW_DAYS";
 pub const AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV: &str = "CRAWLER_REVIEW_AGENT_NO_PATTERN_MAX_AGE_DAYS";
+pub const AGENT_PARK_MAX_AGE_DAYS_ENV: &str = "CRAWLER_REVIEW_AGENT_PARK_MAX_AGE_DAYS";
 
 /// The console's read-only route that answers its [`AgentLimits`].
 pub const AGENT_LIMITS_ROUTE: &str = "/api/review-agent-limits";
@@ -32,6 +33,7 @@ const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
 const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_REPAIR_ROUND_WINDOW_DAYS: NonZeroU32 = NonZeroU32::new(7).unwrap();
 const DEFAULT_NO_PATTERN_MAX_AGE_DAYS: NonZeroU32 = NonZeroU32::new(30).unwrap();
+const DEFAULT_PARK_MAX_AGE_DAYS: NonZeroU32 = NonZeroU32::new(30).unwrap();
 
 /// The limits of the review agents' own decisions, approvals and rejections alike: the
 /// `CRAWLER_REVIEW_AGENT_*` settings, as the console answers them at [`AGENT_LIMITS_ROUTE`]. A
@@ -55,6 +57,10 @@ pub struct AgentLimits {
     /// URL-pattern review, so a wrong decision does not remove a shop from product crawling for
     /// good. A human's `NO_PATTERN` holds until a human changes it.
     pub no_pattern_max_age_days: NonZeroU32,
+    /// How many days an agent's first park of a ListingSource holds before the agents try it
+    /// again: its expiring label or its `NEEDS_HUMAN` after their final round. Every further park
+    /// of the same source doubles it ([`ParkSchedule`]).
+    pub park_max_age_days: NonZeroU32,
 }
 
 impl Default for AgentLimits {
@@ -65,6 +71,7 @@ impl Default for AgentLimits {
             max_repair_rounds: DEFAULT_MAX_REPAIR_ROUNDS,
             repair_round_window_days: DEFAULT_REPAIR_ROUND_WINDOW_DAYS,
             no_pattern_max_age_days: DEFAULT_NO_PATTERN_MAX_AGE_DAYS,
+            park_max_age_days: DEFAULT_PARK_MAX_AGE_DAYS,
         }
     }
 }
@@ -94,6 +101,7 @@ impl AgentLimits {
                 AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV,
                 defaults.no_pattern_max_age_days,
             )?,
+            park_max_age_days: read(AGENT_PARK_MAX_AGE_DAYS_ENV, defaults.park_max_age_days)?,
         })
     }
 
@@ -176,6 +184,12 @@ impl AgentDecisionPolicy {
             .then(|| i32::try_from(self.limits.no_pattern_max_age_days.get()).unwrap_or(i32::MAX))
     }
 
+    /// When the agents try a ListingSource again that they parked. It binds only review agents'
+    /// labels and qualifications, which only `agent` mode has.
+    pub fn park_schedule(&self) -> ParkSchedule {
+        ParkSchedule::new(self.limits.park_max_age_days)
+    }
+
     /// Whether a review in `status` that the agents worked as `rounds` says since a human last
     /// changed or judged it waits for a human: it is pending and either their back-and-forth on it
     /// reached the [repair-round cap](Self::repair_rounds_cap) or an agent handed it over.
@@ -191,12 +205,13 @@ impl AgentDecisionPolicy {
 mod tests {
     use super::*;
 
-    const SETTINGS: [&str; 5] = [
+    const SETTINGS: [&str; 6] = [
         AGENT_MAX_DECISIONS_PER_HOUR_ENV,
         AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
         AGENT_MAX_REPAIR_ROUNDS_ENV,
         AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV,
         AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV,
+        AGENT_PARK_MAX_AGE_DAYS_ENV,
     ];
 
     // Tests that touch the process environment are serialized, so no test reads the
@@ -238,6 +253,7 @@ mod tests {
             assert_eq!(limits.max_repair_rounds.get(), 3);
             assert_eq!(limits.repair_round_window_days.get(), 7);
             assert_eq!(limits.no_pattern_max_age_days.get(), 30);
+            assert_eq!(limits.park_max_age_days.get(), 30);
         }
     }
 
@@ -250,6 +266,7 @@ mod tests {
             (AGENT_MAX_REPAIR_ROUNDS_ENV, " 2 "),
             (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, "14"),
             (AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV, "60"),
+            (AGENT_PARK_MAX_AGE_DAYS_ENV, "45"),
         ])
         .unwrap_or_else(|error| panic!("agent decision limits: {error}"));
 
@@ -261,6 +278,7 @@ mod tests {
                 max_repair_rounds: NonZeroU32::new(2).unwrap(),
                 repair_round_window_days: NonZeroU32::new(14).unwrap(),
                 no_pattern_max_age_days: NonZeroU32::new(60).unwrap(),
+                park_max_age_days: NonZeroU32::new(45).unwrap(),
             }
         );
     }
@@ -320,6 +338,7 @@ mod tests {
                 "max_repair_rounds": 3,
                 "repair_round_window_days": 7,
                 "no_pattern_max_age_days": 30,
+                "park_max_age_days": 30,
             })
         );
         assert_eq!(

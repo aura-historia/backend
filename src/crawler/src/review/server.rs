@@ -148,6 +148,7 @@ impl ReviewServer {
             agent_max_repair_rounds = agent_limits.max_repair_rounds.get(),
             agent_repair_round_window_days = agent_limits.repair_round_window_days.get(),
             agent_no_pattern_max_age_days = agent_limits.no_pattern_max_age_days.get(),
+            agent_park_max_age_days = agent_limits.park_max_age_days.get(),
             max_concurrent_live_jobs = self.live_jobs.limit().get(),
             "Crawler review console listening"
         );

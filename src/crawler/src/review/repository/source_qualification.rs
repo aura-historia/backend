@@ -10,28 +10,39 @@ use super::review_log::{ReviewLogEntry, log_committed_source};
 use super::source_label::{clear_label, persisted_label, store_label};
 use super::verdicts::check_agent_decision_rate;
 use super::{CrawlerReviewRepository, ReviewRepositoryError};
+#[cfg(doc)]
+use crate::review::model::AGENT_NEEDS_HUMAN_BEFORE_FINAL_ROUND;
 use crate::review::model::{
-    AGENT_NEEDS_HUMAN_RETRY_HOURS, AppliedQualification, MAX_AGENT_NEEDS_HUMAN_DECISIONS,
-    PreviousSourceLabel, Qualification, QualificationDecision, QualificationLabelEffect,
-    QualificationOutcome, ReviewActor, SourceLabel, SourceLabelNote, SourceLabelRequest,
+    AppliedQualification, ParkSchedule, PreviousSourceLabel, Qualification, QualificationDecision,
+    QualificationLabelEffect, QualificationOutcome, ReviewActor, SourceLabel, SourceLabelNote,
+    SourceLabelRequest,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::{PgConnection, Postgres, Row, Transaction};
 use time::OffsetDateTime;
 
 /// Whether the review agents may try the ListingSource `s` again: its qualification is a review
-/// agent's `NEEDS_HUMAN` older than `$2` hours, and the agents decided `NEEDS_HUMAN` fewer than
-/// `$3` times since a human last decided or cleared it. Binds `$2` and `$3`.
-pub(crate) const AGENT_RETRY_DUE: &str = "COALESCE(s.qualification = 'NEEDS_HUMAN' \
-     AND s.qualified_by = 'AGENT_AUTHOR' \
-     AND s.qualified_at < NOW() - make_interval(hours => $2) \
-     AND (SELECT COUNT(*) FROM listing_source_qualification_events e \
-          WHERE e.listing_source_id = s.listing_source_id \
-            AND e.qualification = 'NEEDS_HUMAN' AND e.actor = 'AGENT_AUTHOR' \
-            AND e.occurred_at > COALESCE( \
-                (SELECT MAX(h.occurred_at) FROM listing_source_qualification_events h \
-                 WHERE h.listing_source_id = s.listing_source_id AND h.actor = 'HUMAN'), \
-                '-infinity'::timestamptz)) < $3, FALSE)";
+/// agent's `NEEDS_HUMAN` whose retry time, which the [park schedule](ParkSchedule) set when it was
+/// decided, has come. Binds nothing.
+pub(crate) const AGENT_RETRY_DUE: &str = "COALESCE(s.qualification_retry_at <= NOW(), FALSE)";
+
+/// How many `NEEDS_HUMAN` qualifications the review agents decided for the ListingSource `s` since
+/// a human last decided or cleared its qualification. Binds nothing.
+const AGENT_NEEDS_HUMAN_SINCE_HUMAN: &str = "(SELECT COUNT(*) \
+     FROM listing_source_qualification_events e \
+     WHERE e.listing_source_id = s.listing_source_id \
+       AND e.qualification = 'NEEDS_HUMAN' AND e.actor IN ('AGENT_AUTHOR', 'AGENT_REVIEWER') \
+       AND e.occurred_at > COALESCE( \
+           (SELECT MAX(h.occurred_at) FROM listing_source_qualification_events h \
+            WHERE h.listing_source_id = s.listing_source_id AND h.actor = 'HUMAN'), \
+           '-infinity'::timestamptz))";
+
+/// Whether the agents' next try of the ListingSource `s` is their final round: they decided
+/// `NEEDS_HUMAN` at least `$2` times ([`AGENT_NEEDS_HUMAN_BEFORE_FINAL_ROUND`]) since a human last
+/// decided or cleared its qualification. Binds `$2`.
+pub(crate) fn agent_final_round_due() -> String {
+    format!("({AGENT_NEEDS_HUMAN_SINCE_HUMAN} >= $2)")
+}
 
 /// What a decision reads of its source under the source's row lock.
 struct SourceUnderQualification {
@@ -71,7 +82,14 @@ impl CrawlerReviewRepository {
         let (label_effect, label) = match (decision.label(), &source.label) {
             (Some(label), _) => {
                 let request = SourceLabelRequest::new(label, Some(decision.note().clone()))?;
-                store_label(&mut transaction, listing_source_id, actor, &request).await?;
+                store_label(
+                    &mut transaction,
+                    listing_source_id,
+                    actor,
+                    &request,
+                    self.agent_decisions.park_schedule(),
+                )
+                .await?;
                 (QualificationLabelEffect::Labelled, Some(label))
             }
             (None, Some(_)) if decision.qualification() == Qualification::Qualified => {
@@ -90,13 +108,12 @@ impl CrawlerReviewRepository {
                 previous.as_ref().map(|previous| previous.label),
             ),
         };
-        let qualified_at = store_qualification(
+        let stored = store_qualification(
             &mut transaction,
             listing_source_id,
             actor,
-            decision.qualification(),
-            decision.label(),
-            decision.note(),
+            decision,
+            self.agent_decisions.park_schedule(),
         )
         .await?;
         if decision.qualification() != Qualification::Qualified {
@@ -107,7 +124,8 @@ impl CrawlerReviewRepository {
         log_committed_source(
             &self.pool,
             listing_source_id,
-            ReviewLogEntry::source_qualified(actor, decision.qualification(), decision.label()),
+            ReviewLogEntry::source_qualified(actor, decision.qualification(), decision.label())
+                .with_retry_at(stored.retry_at),
         )
         .await;
         match (label_effect, decision.label()) {
@@ -133,7 +151,7 @@ impl CrawlerReviewRepository {
             applied: AppliedQualification {
                 qualification: decision.qualification(),
                 note: decision.note().as_str().to_owned(),
-                qualified_at,
+                qualified_at: stored.qualified_at,
                 qualified_by: actor,
             },
             label_effect,
@@ -155,17 +173,7 @@ impl CrawlerReviewRepository {
         if source.qualification.is_none() {
             return Ok(());
         }
-        sqlx::query(
-            "UPDATE listing_sources \
-             SET qualification = NULL, qualification_note = NULL, qualified_at = NULL, \
-                 qualified_by = NULL, updated = NOW() \
-             WHERE listing_source_id = $1",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .execute(&mut *transaction)
-        .await?;
-        append_qualification_event(&mut transaction, listing_source_id, None, None, None, actor)
-            .await?;
+        clear_stored_qualification(&mut transaction, listing_source_id, actor).await?;
         self.withhold_crawl(&mut transaction, listing_source_id)
             .await?;
         transaction.commit().await?;
@@ -184,7 +192,7 @@ impl CrawlerReviewRepository {
     /// that admits it, where only qualified sources are crawled, instead of at the next scope
     /// refresh: until then a source the agents could not decide, or one a human cleared, would
     /// still be crawled and its reviews worked. Only the scope refresh enables a source again.
-    async fn withhold_crawl(
+    pub(super) async fn withhold_crawl(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         listing_source_id: &ListingSourceId,
@@ -240,8 +248,6 @@ async fn lock_source(
          FROM listing_sources s WHERE s.listing_source_id = $1 FOR UPDATE"
     )))
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(AGENT_NEEDS_HUMAN_RETRY_HOURS)
-    .bind(MAX_AGENT_NEEDS_HUMAN_DECISIONS)
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::ListingSourceNotFound(
@@ -268,41 +274,97 @@ async fn lock_source(
     })
 }
 
-/// Stores `actor`'s qualification on the ListingSource and appends it to the source's
-/// qualification history, answering when. The first decision ends the source's part in the
-/// one-off backfill: should its qualification be cleared, it waits uncrawled like a new source,
-/// and no agent replaces a label a human set on it.
+/// A qualification as [`store_qualification`] stored it: when, and for a review agent's
+/// `NEEDS_HUMAN` when the agents try the source again.
+struct StoredQualification {
+    qualified_at: OffsetDateTime,
+    retry_at: Option<OffsetDateTime>,
+}
+
+/// Stores `actor`'s qualification `decision` on the ListingSource and appends it to the source's
+/// qualification history, answering when. A review agent's `NEEDS_HUMAN` is tried again as `park`
+/// schedules it; every other decision stands until it is changed. The first decision ends the
+/// source's part in the one-off backfill: should its qualification be cleared, it waits uncrawled
+/// like a new source, and no agent replaces a label a human set on it.
 async fn store_qualification(
     transaction: &mut Transaction<'_, Postgres>,
     listing_source_id: &ListingSourceId,
     actor: ReviewActor,
-    qualification: Qualification,
-    label: Option<SourceLabel>,
-    note: &SourceLabelNote,
-) -> Result<OffsetDateTime, ReviewRepositoryError> {
-    let qualified_at = sqlx::query_scalar::<_, OffsetDateTime>(
+    decision: &QualificationDecision,
+    park: ParkSchedule,
+) -> Result<StoredQualification, ReviewRepositoryError> {
+    let retry_after = if actor.is_agent() && decision.qualification() == Qualification::NeedsHuman {
+        let needs_human = agent_needs_human_since_human(transaction, listing_source_id).await?;
+        Some(
+            park.qualification_retry_after(needs_human.saturating_add(1))
+                .as_seconds_f64(),
+        )
+    } else {
+        None
+    };
+    let (qualified_at, retry_at) = sqlx::query_as::<_, (OffsetDateTime, Option<OffsetDateTime>)>(
         "UPDATE listing_sources \
          SET qualification = $2, qualification_note = $3, qualified_at = NOW(), \
-             qualified_by = $4, qualification_backfill = FALSE, updated = NOW() \
+             qualified_by = $4, qualification_backfill = FALSE, \
+             qualification_retry_at = NOW() + make_interval(secs => $5::float8), updated = NOW() \
          WHERE listing_source_id = $1 \
-         RETURNING qualified_at",
+         RETURNING qualified_at, qualification_retry_at",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(qualification.as_str())
-    .bind(note.as_str())
+    .bind(decision.qualification().as_str())
+    .bind(decision.note().as_str())
     .bind(actor.as_str())
+    .bind(retry_after)
     .fetch_one(&mut **transaction)
     .await?;
     append_qualification_event(
         transaction,
         listing_source_id,
-        Some(qualification),
-        label,
-        Some(note),
+        Some(decision.qualification()),
+        decision.label(),
+        Some(decision.note()),
         actor,
     )
     .await?;
-    Ok(qualified_at)
+    Ok(StoredQualification {
+        qualified_at,
+        retry_at,
+    })
+}
+
+/// How many `NEEDS_HUMAN` qualifications the review agents decided for the ListingSource since a
+/// human last decided or cleared it, before the one being stored.
+async fn agent_needs_human_since_human(
+    connection: &mut PgConnection,
+    listing_source_id: &ListingSourceId,
+) -> Result<u32, sqlx::Error> {
+    let count = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+        "SELECT {AGENT_NEEDS_HUMAN_SINCE_HUMAN} FROM listing_sources s \
+         WHERE s.listing_source_id = $1"
+    )))
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .fetch_one(connection)
+    .await?;
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
+/// Clears the ListingSource's qualification and its retry and appends the clear to its
+/// qualification history, so the qualification queue offers the source again.
+pub(super) async fn clear_stored_qualification(
+    transaction: &mut Transaction<'_, Postgres>,
+    listing_source_id: &ListingSourceId,
+    actor: ReviewActor,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET qualification = NULL, qualification_note = NULL, qualified_at = NULL, \
+             qualified_by = NULL, qualification_retry_at = NULL, updated = NOW() \
+         WHERE listing_source_id = $1",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .execute(&mut **transaction)
+    .await?;
+    append_qualification_event(transaction, listing_source_id, None, None, None, actor).await
 }
 
 /// Qualifies the ListingSource whose label `actor` just cleared, so a cleared source is crawled
@@ -312,20 +374,14 @@ pub(super) async fn qualify_after_label_clear(
     listing_source_id: &ListingSourceId,
     actor: ReviewActor,
     cleared: SourceLabel,
+    park: ParkSchedule,
 ) -> Result<(), ReviewRepositoryError> {
     let note = SourceLabelNote::try_from(format!(
         "Qualified by clearing the label {}.",
         cleared.as_str()
     ))?;
-    store_qualification(
-        transaction,
-        listing_source_id,
-        actor,
-        Qualification::Qualified,
-        None,
-        &note,
-    )
-    .await?;
+    let decision = QualificationDecision::qualified(note);
+    store_qualification(transaction, listing_source_id, actor, &decision, park).await?;
     Ok(())
 }
 

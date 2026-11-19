@@ -28,6 +28,7 @@ pub(super) const SOURCE_LABELLED_EVENT: &str = "crawler.source.labelled";
 pub(super) const SOURCE_LABEL_CLEARED_EVENT: &str = "crawler.source.label_cleared";
 pub(super) const SOURCE_QUALIFIED_EVENT: &str = "crawler.source.qualified";
 pub(super) const SOURCE_QUALIFICATION_CLEARED_EVENT: &str = "crawler.source.qualification_cleared";
+pub(super) const SOURCE_PARK_RETRIED_EVENT: &str = "crawler.source.park_retried";
 
 /// What one review state change logs besides the source: which event, who acted, and the one
 /// detail that names the change.
@@ -66,6 +67,10 @@ pub(super) struct ReviewLogEntry {
     has_note: Option<bool>,
     /// What a qualification of a ListingSource decided; its note is never logged.
     qualification: Option<&'static str>,
+    /// For a review agent's park of a source: the how-manyth since a human last labelled it, and
+    /// when the agents try it again.
+    park_count: Option<u32>,
+    retry_at: Option<String>,
 }
 
 impl ReviewLogEntry {
@@ -90,6 +95,8 @@ impl ReviewLogEntry {
             source_label: None,
             has_note: None,
             qualification: None,
+            park_count: None,
+            retry_at: None,
         }
     }
 
@@ -186,6 +193,34 @@ impl ReviewLogEntry {
             ..Self::new(
                 SOURCE_QUALIFIED_EVENT,
                 "ListingSource qualification decided",
+                Some(actor),
+            )
+        }
+    }
+
+    /// The park `park` of a review agent's label, if it is one.
+    pub(super) fn with_park(mut self, park: Option<super::source_label::StoredPark>) -> Self {
+        if let Some(park) = park {
+            self.park_count = Some(park.parks);
+            self.retry_at = park.retry_at.format(&Rfc3339).ok();
+        }
+        self
+    }
+
+    /// When an agent's `NEEDS_HUMAN` qualification is tried again.
+    pub(super) fn with_retry_at(mut self, retry_at: Option<OffsetDateTime>) -> Self {
+        self.retry_at = retry_at.and_then(|retry_at| retry_at.format(&Rfc3339).ok());
+        self
+    }
+
+    /// The review agents' park label `label` expired: they cleared it to try the source again.
+    pub(super) fn park_retried(actor: ReviewActor, label: SourceLabel, requalifies: bool) -> Self {
+        Self {
+            source_label: Some(label.as_str()),
+            qualification: (!requalifies).then_some("QUALIFIED"),
+            ..Self::new(
+                SOURCE_PARK_RETRIED_EVENT,
+                "Park label of a ListingSource expired; the agents try the source again",
                 Some(actor),
             )
         }
@@ -544,6 +579,8 @@ impl PreparedReviewLog {
                     source_label = entry.source_label,
                     has_note = entry.has_note,
                     qualification = entry.qualification,
+                    park_count = entry.park_count,
+                    retry_at = entry.retry_at,
                     incomplete_coverage = entry.incomplete_coverage,
                     "{}",
                     entry.message
