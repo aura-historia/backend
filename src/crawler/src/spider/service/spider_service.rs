@@ -23,7 +23,7 @@ use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
     CrawlBudgetScale, CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace,
-    CrawlStopReason, CrawledPage, Spider, SpiderDiscoveryError,
+    CrawlStopReason, CrawledPage, PageOrigin, Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -918,17 +918,17 @@ impl SpiderServiceImpl {
         }
     }
 
-    /// Loads the ListingSource's pattern and consumes every page the crawl delivers,
+    /// Consumes every page the crawl delivers under the ListingSource's `initial_pattern`,
     /// classifying at the threshold and flushing full batches.
     async fn consume_pages(
         &self,
         mut crawl_rx: mpsc::Receiver<CrawledPage>,
+        initial_pattern: Option<ProductUrlPattern>,
         configured_root: &Url,
         listing_source_id: &ListingSourceId,
         crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<CrawlRunState, SpiderServiceError> {
-        let initial_pattern = self.pattern_service.load_pattern(listing_source_id).await?;
         let mut state = CrawlRunState::new(
             SourceLogContext::of_run(*listing_source_id),
             initial_pattern,
@@ -947,19 +947,13 @@ impl SpiderServiceImpl {
                 debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside the configured crawl host");
                 continue;
             }
-            state.total_crawled += 1;
-            state.query_url_pages += usize::from(page.url.as_url().query().is_some());
-            state.challenged_pages += usize::from(page.bot_challenge);
-            state.shop_platform = state.shop_platform.or(page.identity.platform);
-
-            if state.inference_sample.len() < self.config.max_sample_urls {
-                let url = page.url.to_string();
-                if !state.inference_sample.contains(&url) {
-                    state.inference_sample.push(url);
+            match page.origin {
+                PageOrigin::Fetched => {
+                    state.record_fetched_page(&page, self.config.max_sample_urls);
                 }
+                PageOrigin::Sitemap => state.record_sitemap_product(&page),
             }
-
-            state.page_buffer.push(page.clone());
+            state.page_buffer.push(page);
 
             self.maybe_classify_at_threshold(
                 &mut state,
@@ -1007,6 +1001,7 @@ impl SpiderServiceImpl {
         let seed_load_started = Instant::now();
         let seeds = self.crawl_seeds(listing_source_id, kind).await?;
         let seed_load_wait = seed_load_started.elapsed();
+        let pattern = self.pattern_service.load_pattern(listing_source_id).await?;
         let crawl = self
             .spider
             .crawl(CrawlRequest {
@@ -1014,11 +1009,13 @@ impl SpiderServiceImpl {
                 pace,
                 budget,
                 seeds,
+                product_pattern: pattern.clone(),
             })
             .await?;
         let consumed = self
             .consume_pages(
                 crawl.pages,
+                pattern,
                 &configured_root,
                 listing_source_id,
                 crawl_root_url,
@@ -1075,7 +1072,7 @@ impl SpiderServiceImpl {
         if let Some(error) = crawl_failure_error(
             crawl_root_url,
             state.total_crawled,
-            skipped_known_products,
+            skipped_known_products + state.sitemap_product_pages.len(),
             diagnostics,
         ) {
             log_crawl_stopped_early(diagnostics, &error);
@@ -1618,8 +1615,9 @@ mod service_tests {
         S: Into<String>,
     {
         let paths: Vec<String> = paths.into_iter().map(Into::into).collect();
+        let expected = first_full_crawl(crawl_root_url);
         mock.expect_crawl()
-            .with(mockall::predicate::eq(first_full_crawl(crawl_root_url)))
+            .withf(move |request| without_pattern(request) == expected)
             .returning(move |_| {
                 let paths = paths.clone();
                 let diagnostics = diagnostics.clone();
@@ -1667,7 +1665,7 @@ mod service_tests {
         diagnostics: CrawlDiagnostics,
     ) {
         mock.expect_crawl()
-            .with(mockall::predicate::eq(request))
+            .withf(move |actual| without_pattern(actual) == request)
             .times(1)
             .return_once(move |_| {
                 let (tx, rx) = mpsc::channel(paths.len().max(1));
@@ -1686,6 +1684,15 @@ mod service_tests {
                     })
                 })
             });
+    }
+
+    /// `request` without its product pattern, which the tests that compare requests leave to
+    /// the pattern service mock and [`should_hand_the_spider_the_stored_product_pattern`] checks.
+    fn without_pattern(request: &CrawlRequest) -> CrawlRequest {
+        CrawlRequest {
+            product_pattern: None,
+            ..request.clone()
+        }
     }
 
     fn example(path: &str) -> Url {
@@ -3625,6 +3632,91 @@ mod service_tests {
         assert_eq!(run_result.product_urls_count, 20);
     }
 
+    /// A crawl asked for with the stored `/product/` pattern that fetches the `fetched` paths and
+    /// delivers the product pages at the `listed` paths the shop's sitemaps list.
+    fn setup_mock_sitemap_crawl(mock: &mut MockSpider, fetched: &[&str], listed: &[&str]) {
+        let pages: Vec<CrawledPage> = fetched
+            .iter()
+            .map(|path| crawled_page(path))
+            .chain(
+                listed
+                    .iter()
+                    .map(|path| CrawledPage::listed_in_sitemap(crawled_page(path).url)),
+            )
+            .collect();
+        mock.expect_crawl()
+            .withf(|request| {
+                request.product_pattern == Some(ProductUrlPattern::parse(r"/product/").unwrap())
+            })
+            .times(1)
+            .return_once(move |_| {
+                let (tx, rx) = mpsc::channel(pages.len().max(1));
+                for page in pages {
+                    tx.try_send(page).unwrap();
+                }
+                let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+                diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
+                Box::pin(async {
+                    Ok(SpiderCrawl {
+                        pages: rx,
+                        diagnostics: diagnostics_rx,
+                        discovery: discovery_unknown(),
+                    })
+                })
+            });
+    }
+
+    async fn run_sitemap_crawl(fetched: &[&str], listed: &[&str]) -> SpiderRunResult {
+        let mut spider = MockSpider::new();
+        setup_mock_sitemap_crawl(&mut spider, fetched, listed);
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service.expect_classify_and_save().times(0);
+        setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(spider),
+            Box::new(pattern_service),
+            Arc::new(url_repository_storing(1)),
+            no_frontier(),
+        );
+
+        service
+            .run(
+                &ListingSourceId::new(),
+                "https://example.com",
+                400,
+                CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
+                CrawlKind::Full,
+            )
+            .await
+            .unwrap()
+    }
+
+    /// The spider stores the product pages a sitemap lists through the path every page takes,
+    /// but they are no pages the crawl fetched (`docs/crawler/networking.md#sitemaps`).
+    #[tokio::test]
+    async fn should_store_sitemap_products_as_product_urls_but_not_count_them_as_crawled() {
+        let run = run_sitemap_crawl(
+            &["/", "/category/chairs", "/product/3"],
+            &["/product/1", "/product/2"],
+        )
+        .await;
+
+        assert_eq!(run.product_urls_count, 3);
+        assert_eq!(run.total_links, 3);
+    }
+
+    /// A crawl whose healthy root is the only page it fetched reached the shop when the shop's
+    /// sitemaps listed product pages, as when it links stored ones.
+    #[tokio::test]
+    async fn should_not_fail_a_root_only_crawl_whose_sitemaps_listed_products() {
+        let run = run_sitemap_crawl(&["/"], &["/product/1", "/product/2"]).await;
+
+        assert_eq!(run.product_urls_count, 2);
+        assert_eq!(run.total_links, 1);
+    }
+
     /// The spider stores a page a shop links with and without its trailing slash as one row, so
     /// it counts the page once, also when the two spellings arrive in different batches.
     #[tokio::test]
@@ -4987,17 +5079,17 @@ fn no_product_urls_error(
 }
 
 /// A crawl with at most one usable page is a failure. A library or local
-/// diagnostic explains it when present; otherwise the size alone does. An
-/// incremental crawl whose healthy root links product pages the ListingSource stores
-/// reached the shop, although it fetched nothing else.
+/// diagnostic explains it when present; otherwise the size alone does. A crawl whose healthy
+/// root reached product pages it did not fetch, the stored ones an incremental crawl links or
+/// those the shop's sitemaps list, reached the shop, although it fetched nothing else.
 fn crawl_failure_error(
     crawl_root_url: &str,
     total_links: usize,
-    skipped_known_products: usize,
+    unfetched_products: usize,
     diagnostics: &CrawlDiagnostics,
 ) -> Option<SpiderServiceError> {
     let reached_known_products =
-        total_links == 1 && skipped_known_products > 0 && diagnostics.failure_kind.is_none();
+        total_links == 1 && unfetched_products > 0 && diagnostics.failure_kind.is_none();
     if total_links > 1 || reached_known_products {
         return None;
     }

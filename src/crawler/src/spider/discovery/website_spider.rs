@@ -45,6 +45,12 @@ use crate::spider::discovery::robots::{
     CrawlRobots, admit_crawl, admit_policy, read_before_preflight,
 };
 use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
+use crate::spider::discovery::sitemap::fetch::CrawlSitemapFetcher;
+use crate::spider::discovery::sitemap::reader::{
+    SitemapDiagnostics, SitemapLimits, SitemapListing, SitemapReading, read_sitemaps,
+    sitemap_time_share,
+};
+use crate::spider::discovery::sitemap::register;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
@@ -79,6 +85,18 @@ pub struct CrawledPage {
     /// Whether the shop answered this URL with a bot challenge instead of the page, so the
     /// crawl is judged on the challenges it met before its diagnostics are known.
     pub bot_challenge: bool,
+    pub origin: PageOrigin,
+}
+
+/// How the crawl came to a page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PageOrigin {
+    /// The crawl fetched it.
+    #[default]
+    Fetched,
+    /// A sitemap of the shop lists it and the ListingSource's product URL pattern takes it, so
+    /// it is stored as a product URL without a fetch (`docs/crawler/networking.md#sitemaps`).
+    Sitemap,
 }
 
 impl CrawledPage {
@@ -87,6 +105,15 @@ impl CrawledPage {
             url,
             identity: PageIdentityEvidence::default(),
             bot_challenge: false,
+            origin: PageOrigin::Fetched,
+        }
+    }
+
+    /// A product page a sitemap lists, which the crawl did not fetch.
+    pub fn listed_in_sitemap(url: CrawledUrl) -> Self {
+        Self {
+            origin: PageOrigin::Sitemap,
+            ..Self::new(url)
         }
     }
 
@@ -408,6 +435,8 @@ pub struct CrawlDiagnostics {
     /// The move of the crawl root to its twin host the root page's links
     /// asked for, with the link counts (`docs/crawler/networking.md#destination-policy`).
     pub root_reroot: Option<RootReroot>,
+    /// What the crawl's sitemap reading did (`docs/crawler/networking.md#sitemaps`).
+    pub sitemaps: SitemapDiagnostics,
 }
 
 impl CrawlDiagnostics {
@@ -598,6 +627,8 @@ pub struct CrawlerConfig {
     pub preflight_retry: RetryPolicy,
     /// Wall-clock budget for the whole root preflight (redirects and retries).
     pub preflight_deadline: Duration,
+    /// Bounds of the sitemap reading every crawl starts with.
+    pub sitemaps: SitemapLimits,
 }
 
 impl Default for CrawlerConfig {
@@ -619,6 +650,7 @@ impl Default for CrawlerConfig {
                 ..RetryPolicy::default()
             },
             preflight_deadline: DEFAULT_PREFLIGHT_DEADLINE,
+            sitemaps: SitemapLimits::default(),
         }
     }
 }
@@ -885,6 +917,54 @@ impl SpiderImpl {
             }
             () = shutdown_requested(&mut shutdown) => {}
         }
+    }
+}
+
+impl SpiderImpl {
+    /// Reads the sitemaps of the crawl from `root` before Spider starts, within their share of
+    /// the crawl's `budget`, at the crawl's `delay` and through the client pinned to `root`.
+    /// The crawler's shutdown ends the reading with nothing read. Spider's first request then
+    /// waits for the crawl's delay after the last sitemap request.
+    async fn read_crawl_sitemaps(
+        &self,
+        root: &Url,
+        robots: &CrawlRobots,
+        root_client: &spider::reqwest::Client,
+        delay: Duration,
+        budget: Duration,
+    ) -> SitemapListing {
+        let limits = self.config.sitemaps;
+        let fetcher = CrawlSitemapFetcher {
+            transport: Arc::clone(&self.transport),
+            root: root.clone(),
+            root_client: root_client.clone(),
+            request_timeout: Duration::from_secs(self.config.request_timeout_secs),
+            delay,
+            politeness: Arc::clone(&self.politeness),
+            max_body_bytes: limits.max_file_bytes,
+            last_start: std::sync::Mutex::new(tokio::time::Instant::now()),
+        };
+        let reading = read_sitemaps(
+            SitemapReading {
+                root,
+                robots,
+                limits,
+                deadline: tokio::time::Instant::now() + sitemap_time_share(budget, limits),
+            },
+            &fetcher,
+        );
+        let mut shutdown = self.shutdown.clone();
+        let listing = tokio::select! {
+            listing = reading => listing,
+            () = shutdown_requested(&mut shutdown) => SitemapListing::default(),
+        };
+        if listing.diagnostics.requests > 0 {
+            tokio::select! {
+                () = tokio::time::sleep_until(fetcher.next_start()) => {}
+                () = shutdown_requested(&mut shutdown) => {}
+            }
+        }
+        listing
     }
 }
 
@@ -1506,6 +1586,17 @@ fn seed_phase_page_limit(max_pages: u32, pages_visited: usize) -> u32 {
     max_pages.saturating_sub(used).saturating_add(1)
 }
 
+/// The outcome of a crawl stopped before Spider started: Spider fetched nothing, and its
+/// broadcast closes so the filter task delivers what the crawl has without Spider's pages.
+fn skipped_library_crawl(mut website: Website) -> LibraryOutcome {
+    website.unsubscribe();
+    LibraryOutcome {
+        completion: CrawlCompletion::HardTimeoutTruncated,
+        stopped: true,
+        ..library_outcome(&website)
+    }
+}
+
 /// The filter task's judgement of the root page, unset until it relayed the
 /// first page Spider delivered.
 type RootJudgement = watch::Receiver<Option<RootVerdict>>;
@@ -1791,7 +1882,8 @@ impl SpiderImpl {
             crawl_root_url,
             pace,
             budget,
-            seeds,
+            mut seeds,
+            product_pattern,
         } = request;
         let (tx, rx) = mpsc::channel(self.config.channel_size);
         let (outcome_tx, outcome_rx) = oneshot::channel();
@@ -1867,7 +1959,7 @@ impl SpiderImpl {
             .queue(REDIRECT_QUEUE_CAPACITY)
             .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
 
-        let crawl_duration =
+        let full_crawl_duration =
             crawl_budget(self.config.max_crawl_duration, budget, robots.crawl_delay);
         let follow_rules = Arc::new(FollowRules::new(
             root_url.clone(),
@@ -1878,7 +1970,38 @@ impl SpiderImpl {
             rules: &follow_rules,
             robots: &robots,
         };
-        let seed_urls = admission.admit_all(&seeds.frontier);
+        // Sitemap requests count against the crawl's budget, its time and its pages.
+        let mut sitemap_listing = self
+            .read_crawl_sitemaps(
+                &root_url,
+                &robots,
+                &clients.shop_body,
+                Duration::from_millis(delay_millis),
+                full_crawl_duration,
+            )
+            .await;
+        let crawl_duration = full_crawl_duration.saturating_sub(Duration::from_millis(
+            sitemap_listing.diagnostics.elapsed_ms,
+        ));
+        let max_pages_per_crawl = self
+            .config
+            .max_pages_per_crawl
+            .saturating_sub(u32::try_from(sitemap_listing.diagnostics.requests).unwrap_or(u32::MAX))
+            .max(1);
+        let registration = register(
+            &sitemap_listing.pages,
+            &admission,
+            product_pattern.as_ref(),
+            &KnownPages::new(&root_url, &seeds),
+            &mut sitemap_listing.diagnostics,
+        );
+        seeds.known.extend(
+            registration
+                .products
+                .iter()
+                .map(|page| page.as_url().clone()),
+        );
+        let seed_urls = admission.admit_all(seeds.frontier.iter().chain(&registration.seeds));
         let link_discovery_duration = match seed_urls.is_empty() {
             true => crawl_duration,
             false => crawl_duration / LINK_DISCOVERY_BUDGET_DIVISOR,
@@ -1901,7 +2024,7 @@ impl SpiderImpl {
             .with_user_agent(Some(CRAWLER_USER_AGENT))
             .with_request_timeout(Some(request_timeout))
             .with_crawl_timeout(Some(link_discovery_duration))
-            .with_limit(self.config.max_pages_per_crawl)
+            .with_limit(max_pages_per_crawl)
             .with_delay(delay_millis)
             .with_caching(false)
             .with_retry_strategy(Arc::new(PageRetryStrategy {
@@ -1926,7 +2049,7 @@ impl SpiderImpl {
         };
         let bounds = CrawlBounds {
             max_crawl_duration: crawl_duration,
-            max_pages_per_crawl: self.config.max_pages_per_crawl,
+            max_pages_per_crawl,
             link_discovery_duration,
             known_links: known_link_count,
         };
@@ -1937,17 +2060,24 @@ impl SpiderImpl {
         let seed_count = seed_urls.len();
         let crawl_found_links = found_links.clone();
         let frontier_seeds = seed_urls.clone();
+        let sitemap_rate_limit = sitemap_listing.rate_limit;
         tokio::spawn(async move {
-            let outcome = run_library_crawl(
-                website,
-                link_decoder,
-                bounds,
-                seed_urls,
-                crawl_found_links,
-                crawl_stop,
-                root_judgement,
-            )
-            .await;
+            // A rate-limit answer to a sitemap request stops the crawl before Spider starts.
+            let outcome = match sitemap_rate_limit {
+                Some(_) => skipped_library_crawl(website),
+                None => {
+                    run_library_crawl(
+                        website,
+                        link_decoder,
+                        bounds,
+                        seed_urls,
+                        crawl_found_links,
+                        crawl_stop,
+                        root_judgement,
+                    )
+                    .await
+                }
+            };
             let _ = outcome_tx.send(outcome);
         });
 
@@ -1973,15 +2103,27 @@ impl SpiderImpl {
                 .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
             robots_rules_failing_closed: robots.deny_list.failing_closed.len(),
             request_delay_ms: delay_millis,
-            crawl_budget_ms: u64::try_from(crawl_duration.as_millis()).unwrap_or(u64::MAX),
+            crawl_budget_ms: u64::try_from(full_crawl_duration.as_millis()).unwrap_or(u64::MAX),
             seeds: seed_count,
             root_reroot,
+            sitemaps: sitemap_listing.diagnostics,
             ..CrawlDiagnostics::default()
         };
+        if let Some(signal) = sitemap_rate_limit {
+            apply_rate_limit_signal(&mut diagnostics, signal);
+        }
+        let listed_products = registration
+            .products
+            .into_iter()
+            .map(CrawledPage::listed_in_sitemap)
+            .collect();
         tokio::spawn(async move {
             let stop_requested = relay_library_pages(
                 spider_rx,
-                &tx,
+                PageDelivery {
+                    tx: &tx,
+                    queued: listed_products,
+                },
                 filter,
                 &mut diagnostics,
                 &crawl_root_url,
@@ -1991,7 +2133,8 @@ impl SpiderImpl {
                 },
                 &root_verdict,
             )
-            .await;
+            .await
+            .or(sitemap_rate_limit.map(|_| CrawlStopReason::RateLimited));
             // Spider's crawl has ended once its outcome arrives, so the
             // diagnostics never reach the consumer while it still fetches.
             match outcome_rx.await {
@@ -2106,14 +2249,22 @@ async fn mark_known_links_visited(website: &mut Website, known: &KnownPages) -> 
     website.size()
 }
 
-/// Relays the pages Spider broadcasts through the local filter to the
+/// The consumer of a crawl's pages, and the pages queued for it.
+struct PageDelivery<'a> {
+    tx: &'a mpsc::Sender<CrawledPage>,
+    /// Pages accepted but not yet delivered: first the product pages the crawl's sitemaps
+    /// listed, then the pages Spider broadcasts that the local filter accepts.
+    queued: VecDeque<CrawledPage>,
+}
+
+/// Relays the queued pages, then the pages Spider broadcasts through the local filter, to the
 /// consumer until the broadcast closes and every accepted page is delivered,
 /// or the consumer is gone. A rate-limit answer, or the consumer going away
 /// while Spider still crawls, or the crawler's shutdown, asks the crawl task to stop; the first
 /// reason asked for is returned.
 async fn relay_library_pages(
     mut spider_rx: broadcast::Receiver<Page>,
-    tx: &mpsc::Sender<CrawledPage>,
+    delivery: PageDelivery<'_>,
     mut filter: LocalFilter,
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
@@ -2130,7 +2281,10 @@ async fn relay_library_pages(
     // subscription: Spider's 512-slot broadcast drops pages once the
     // subscriber falls behind, while this queue only holds small
     // normalized URLs and is bounded by the crawl page budget.
-    let mut pending: VecDeque<CrawledPage> = VecDeque::new();
+    let PageDelivery {
+        tx,
+        queued: mut pending,
+    } = delivery;
     let mut broadcast_open = true;
 
     while broadcast_open || !pending.is_empty() {
@@ -2657,9 +2811,11 @@ mod tests {
     use super::*;
     use crate::network::CRAWLER_ACCEPT;
     use crate::network::robots::RobotsRules;
+    use crate::spider::classification::product_url_pattern::ProductUrlPattern;
     use crate::spider::discovery::frontier::CrawlSeeds;
     use crate::spider::discovery::redirects::MAX_REDIRECT_HOPS;
     use crate::spider::discovery::root_host;
+    use crate::spider::discovery::sitemap::locations::SitemapSource;
     use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
     use std::collections::HashSet;
     use std::net::SocketAddr;
@@ -2947,8 +3103,19 @@ mod tests {
         }
     }
 
+    /// A crawl that reads no sitemap, so a test of another behaviour counts only the pages it
+    /// is about; the sitemap tests read them with [`with_sitemaps`].
+    const NO_SITEMAPS: SitemapLimits = SitemapLimits {
+        max_requests: 0,
+        max_file_bytes: 0,
+        max_urls_per_file: 0,
+        max_urls: 0,
+        budget_divisor: 4,
+    };
+
     fn test_config() -> CrawlerConfig {
         CrawlerConfig {
+            sitemaps: NO_SITEMAPS,
             delay_millis: 0,
             request_timeout_secs: 2,
             concurrency_limit: 4,
@@ -3935,6 +4102,303 @@ mod tests {
 
     fn example(path: &str) -> Url {
         Url::parse(&format!("http://example.com{path}")).unwrap()
+    }
+
+    fn with_sitemaps(config: CrawlerConfig) -> CrawlerConfig {
+        CrawlerConfig {
+            sitemaps: SitemapLimits::default(),
+            ..config
+        }
+    }
+
+    /// The pages a sitemap crawl delivered, by their URL, with their origin.
+    struct SitemapCrawl {
+        pages: Vec<(String, PageOrigin)>,
+        diagnostics: CrawlDiagnostics,
+        discovery: CrawlDiscovery,
+    }
+
+    impl SitemapCrawl {
+        fn delivered(&self, origin: PageOrigin) -> HashSet<&str> {
+            self.pages
+                .iter()
+                .filter(|(_, found)| *found == origin)
+                .map(|(url, _)| url.as_str())
+                .collect()
+        }
+    }
+
+    async fn run_sitemap_crawl(
+        spider: &SpiderImpl,
+        product_pattern: Option<&str>,
+        seeds: CrawlSeeds,
+    ) -> SitemapCrawl {
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+            discovery,
+        } = spider
+            .crawl_with_body_limit(
+                CrawlRequest {
+                    seeds,
+                    product_pattern: product_pattern
+                        .map(|pattern| ProductUrlPattern::parse(pattern).unwrap()),
+                    ..CrawlRequest::from_root("http://example.com/", CrawlPace::default())
+                },
+                Some("8388608"),
+            )
+            .await
+            .unwrap();
+        let mut delivered = Vec::new();
+        while let Some(page) = pages.recv().await {
+            delivered.push((page.url.to_string(), page.origin));
+        }
+        SitemapCrawl {
+            pages: delivered,
+            diagnostics: diagnostics.await.unwrap(),
+            discovery: discovery.await.unwrap(),
+        }
+    }
+
+    /// A shop whose robots.txt names a sitemap index with a product and a page sitemap; its root
+    /// links one product and a category.
+    fn shop_with_sitemaps(target: &str, _: usize) -> SiteResponse {
+        let xml = |body: &str| SiteResponse::Html("200 OK", body.to_string());
+        match target {
+            "/robots.txt" => xml(
+                "User-agent: *\nDisallow: /private/\nSitemap: http://example.com/sitemap_index.xml\n",
+            ),
+            "/sitemap_index.xml" => xml("<sitemapindex>\
+                   <sitemap><loc>http://example.com/sitemap-pages.xml</loc></sitemap>\
+                   <sitemap><loc>http://www.example.com/sitemap-products.xml</loc></sitemap>\
+                 </sitemapindex>"),
+            "/sitemap-products.xml" => xml("<urlset>\
+                   <url><loc>http://example.com/products/1</loc></url>\
+                   <url><loc>http://www.example.com/products/2?utm_source=feed</loc></url>\
+                   <url><loc>http://example.com/products/3</loc></url>\
+                   <url><loc>http://example.com/private/products/4</loc></url>\
+                   <url><loc>http://cdn.example.net/products/5</loc></url>\
+                 </urlset>"),
+            "/sitemap-pages.xml" => {
+                xml("<urlset><url><loc>http://example.com/collections/chairs</loc></url></urlset>")
+            }
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/products/1">1</a><a href="/collections/tables">t</a>"#.to_string(),
+            ),
+            "/collections/tables" | "/collections/chairs" => {
+                SiteResponse::Html("200 OK", "<p>listing</p>".to_string())
+            }
+            path if path.starts_with("/products/") => {
+                SiteResponse::Html("200 OK", "<p>product</p>".to_string())
+            }
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_store_the_sitemap_products_the_pattern_takes_without_fetching_them() {
+        let site = TestSite::spawn(Arc::new(shop_with_sitemaps)).await;
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, Some("/products/"), CrawlSeeds::default()).await;
+        let requests = site.finish().await;
+
+        assert_eq!(
+            crawl.delivered(PageOrigin::Sitemap),
+            HashSet::from([
+                "http://example.com/products/1",
+                "http://example.com/products/2",
+                "http://example.com/products/3",
+            ])
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|(_, target, ..)| !target.starts_with("/products/")),
+            "{requests:?}"
+        );
+        assert_eq!(
+            crawl.delivered(PageOrigin::Fetched),
+            HashSet::from([
+                "http://example.com/",
+                "http://example.com/collections/tables",
+                "http://example.com/collections/chairs",
+            ])
+        );
+        let sitemaps = &crawl.diagnostics.sitemaps;
+        assert_eq!(sitemaps.source, Some(SitemapSource::RobotsTxt));
+        assert_eq!((sitemaps.requests, sitemaps.files_read), (3, 3));
+        assert_eq!(sitemaps.products_registered, 3);
+        assert_eq!(sitemaps.seeds, 1);
+        assert_eq!(sitemaps.urls_refused, 1, "the page robots.txt disallows");
+        assert_eq!(sitemaps.urls_off_host, 1);
+        assert_eq!(
+            crawl.diagnostics.known_skipped, 1,
+            "the product the root links"
+        );
+        assert_eq!(crawl.diagnostics.completion, CrawlCompletion::Completed);
+        assert!(crawl.discovery.frontier.is_empty(), "{:?}", crawl.discovery);
+    }
+
+    #[tokio::test]
+    async fn should_seed_the_crawl_with_every_sitemap_url_without_a_product_pattern() {
+        let site = TestSite::spawn(Arc::new(shop_with_sitemaps)).await;
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, None, CrawlSeeds::default()).await;
+        let requests = site.finish().await;
+
+        assert!(crawl.delivered(PageOrigin::Sitemap).is_empty());
+        let fetched = crawl.delivered(PageOrigin::Fetched);
+        for page in [
+            "http://example.com/products/1",
+            "http://example.com/products/2",
+            "http://example.com/products/3",
+            "http://example.com/collections/chairs",
+        ] {
+            assert!(fetched.contains(page), "{page} in {fetched:?}");
+        }
+        assert!(
+            requests
+                .iter()
+                .all(|(_, target, ..)| !target.starts_with("/private/")),
+            "{requests:?}"
+        );
+        assert_eq!(crawl.diagnostics.sitemaps.products_registered, 0);
+        assert_eq!(crawl.diagnostics.sitemaps.seeds, 4);
+    }
+
+    #[tokio::test]
+    async fn should_not_register_a_sitemap_product_the_listing_source_already_stores() {
+        let site = TestSite::spawn(Arc::new(shop_with_sitemaps)).await;
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+        let seeds = CrawlSeeds {
+            known: vec![example("/products/3/")],
+            ..CrawlSeeds::default()
+        };
+
+        let crawl = run_sitemap_crawl(&spider, Some("/products/"), seeds).await;
+        site.finish().await;
+
+        assert_eq!(
+            crawl.delivered(PageOrigin::Sitemap),
+            HashSet::from([
+                "http://example.com/products/1",
+                "http://example.com/products/2"
+            ])
+        );
+        assert_eq!(crawl.diagnostics.sitemaps.products_known, 1);
+    }
+
+    #[tokio::test]
+    async fn should_crawl_a_shop_without_a_sitemap_as_before() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/products/1">1</a>"#.to_string()),
+            "/products/1" => SiteResponse::Html("200 OK", "<p>product</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, Some("/products/"), CrawlSeeds::default()).await;
+        site.finish().await;
+
+        assert_eq!(
+            crawl.delivered(PageOrigin::Fetched),
+            HashSet::from(["http://example.com/", "http://example.com/products/1"])
+        );
+        let sitemaps = &crawl.diagnostics.sitemaps;
+        assert_eq!(sitemaps.source, Some(SitemapSource::Probe));
+        assert_eq!(sitemaps.requests, 3);
+        assert_eq!(
+            sitemaps.failure_labels(),
+            [
+                "http://example.com/sitemap.xml (status_404)",
+                "http://example.com/sitemap_index.xml (status_404)",
+                "http://example.com/wp-sitemap.xml (status_404)",
+            ]
+        );
+        assert_eq!(crawl.diagnostics.completion, CrawlCompletion::Completed);
+    }
+
+    #[tokio::test]
+    async fn should_stop_the_crawl_before_spider_starts_when_a_sitemap_is_rate_limited() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/sitemap.xml" => {
+                SiteResponse::WithHeaders("429 Too Many Requests", "Retry-After: 120\r\n")
+            }
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/products/1">1</a>"#.to_string()),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            with_sitemaps(test_config()),
+            site.transport(&["example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, None, CrawlSeeds::default()).await;
+        let requests = site.finish().await;
+
+        assert!(crawl.pages.is_empty(), "{:?}", crawl.pages);
+        assert_eq!(
+            requests
+                .iter()
+                .map(|(_, target, ..)| target.as_str())
+                .collect::<Vec<_>>(),
+            ["/robots.txt", "/", "/sitemap.xml"],
+            "only robots.txt, the preflight and the sitemap"
+        );
+        assert!(matches!(
+            crawl.diagnostics.completion,
+            CrawlCompletion::RateLimited(signal) if signal.retry_after == Some(Duration::from_secs(120))
+        ));
+        assert_eq!(
+            crawl.diagnostics.failure_kind,
+            Some(CrawlFailureKind::RateLimited)
+        );
+        assert_eq!(
+            crawl.diagnostics.stopped_early,
+            Some(CrawlStopReason::RateLimited)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_count_sitemap_requests_against_the_crawls_page_budget() {
+        let site = TestSite::spawn(Arc::new(shop_with_sitemaps)).await;
+        let spider = SpiderImpl::with_transport(
+            CrawlerConfig {
+                max_pages_per_crawl: 4,
+                ..with_sitemaps(test_config())
+            },
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let crawl = run_sitemap_crawl(&spider, None, CrawlSeeds::default()).await;
+        site.finish().await;
+
+        // Three sitemap requests leave one page of the budget: the root.
+        assert_eq!(
+            crawl.delivered(PageOrigin::Fetched),
+            HashSet::from(["http://example.com/"])
+        );
+        assert_eq!(
+            crawl.diagnostics.completion,
+            CrawlCompletion::PageBudgetReached
+        );
+        assert_eq!(crawl.discovery.frontier.len(), 5, "{:?}", crawl.discovery);
     }
 
     /// The root links two products and a hanging page; `/deep/1` is only

@@ -15,6 +15,7 @@ use super::known_pages::{KnownPage, KnownPages};
 use super::page_base::link_base;
 use super::robots::CrawlRobots;
 use super::website_spider::{CrawlBudgetScale, CrawlPace};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 
 /// Most URLs one crawl hands Spider as seeds, and most it leaves for the next crawl. Spider keeps
@@ -72,6 +73,10 @@ pub struct CrawlRequest {
     pub pace: CrawlPace,
     pub budget: CrawlBudgetScale,
     pub seeds: CrawlSeeds,
+    /// The ListingSource's product URL pattern: the pages its sitemaps list that the pattern
+    /// takes are stored without a fetch, and the crawl does not fetch them
+    /// (`docs/crawler/networking.md#sitemaps`).
+    pub product_pattern: Option<ProductUrlPattern>,
 }
 
 impl CrawlRequest {
@@ -82,6 +87,7 @@ impl CrawlRequest {
             pace,
             budget: CrawlBudgetScale::STANDARD,
             seeds: CrawlSeeds::default(),
+            product_pattern: None,
         }
     }
 }

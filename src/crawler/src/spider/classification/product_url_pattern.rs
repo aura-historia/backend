@@ -224,6 +224,15 @@ impl ProductUrlPattern {
     }
 }
 
+/// Two patterns are equal when they are [the same regexes](ProductUrlPattern::same_regexes).
+impl PartialEq for ProductUrlPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.same_regexes(other)
+    }
+}
+
+impl Eq for ProductUrlPattern {}
+
 /// Refuses a path-and-query regex that names a scheme (`://`) or a host (a leading `//`).
 fn refuse_scheme_or_host(source: &str) -> Result<(), ProductUrlPatternError> {
     if source.contains("://") || source.trim_start_matches('^').starts_with("//") {
