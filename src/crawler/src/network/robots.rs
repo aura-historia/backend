@@ -170,7 +170,13 @@ pub struct RobotsRules {
     crawl_delay: Option<Duration>,
     /// Whether the rules come from groups naming the crawler, not from the `*` groups.
     names_crawler: bool,
+    /// The `Sitemap:` records, as written, at most [`MAX_SITEMAP_RECORDS`]. They belong to no
+    /// group, so they apply whichever group the crawler follows.
+    sitemaps: Vec<String>,
 }
+
+/// Most `Sitemap:` records of one robots.txt the crawler keeps.
+const MAX_SITEMAP_RECORDS: usize = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Rule {
@@ -209,12 +215,19 @@ impl RobotsRules {
         }
         Self {
             names_crawler,
+            sitemaps: parse_sitemap_records(body),
             rules: selected
                 .iter()
                 .flat_map(|group| group.rules.iter().cloned())
                 .collect(),
             crawl_delay: selected.iter().filter_map(|group| group.crawl_delay).max(),
         }
+    }
+
+    /// The sitemaps robots.txt names in its `Sitemap:` records, as written, in their order
+    /// (`docs/crawler/networking.md#sitemaps`).
+    pub fn sitemaps(&self) -> &[String] {
+        &self.sitemaps
     }
 
     /// The `Crawl-delay` as robots.txt states it, also one above [`MAX_CRAWL_DELAY`].
@@ -343,6 +356,31 @@ fn parse_groups(body: &str) -> Vec<Group> {
         }
     }
     groups
+}
+
+/// The values of the `Sitemap:` records, each once, at most [`MAX_SITEMAP_RECORDS`]. A comment
+/// is cut off like on any other line, so a fragment after `#` is no part of the value.
+fn parse_sitemap_records(body: &str) -> Vec<String> {
+    let body = body.strip_prefix('\u{feff}').unwrap_or(body);
+    let mut sitemaps: Vec<String> = Vec::new();
+    for line in body.split(['\r', '\n']) {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if !key.trim().eq_ignore_ascii_case("sitemap")
+            || value.is_empty()
+            || sitemaps.iter().any(|known| known == value)
+        {
+            continue;
+        }
+        if sitemaps.len() == MAX_SITEMAP_RECORDS {
+            break;
+        }
+        sitemaps.push(value.to_owned());
+    }
+    sitemaps
 }
 
 /// A bot name is matched on its product token, case-insensitively, so `AuraHistoriaBot/1.0`
@@ -477,6 +515,40 @@ mod tests {
         );
 
         assert!(!rules.allows(&url("/products/1")));
+    }
+
+    #[test]
+    fn should_keep_every_sitemap_record_whichever_group_applies() {
+        let rules = RobotsRules::parse(
+            "\u{feff}Sitemap: https://shop.example/sitemap_index.xml\r\n\
+             User-agent: AuraHistoriaBot\nDisallow: /cart\n\
+             sitemap:https://shop.example/feeds/sitemap.xml # products\n\
+             User-agent: *\nDisallow: /\nSITEMAP: https://shop.example/sitemap_index.xml\nSitemap:\n",
+        );
+
+        assert_eq!(
+            rules.sitemaps(),
+            [
+                "https://shop.example/sitemap_index.xml",
+                "https://shop.example/feeds/sitemap.xml"
+            ]
+        );
+        assert_eq!(
+            RobotsRules::parse(ANTIEKSITE).sitemaps(),
+            ["https://www.antieksite.nl/rss/"]
+        );
+    }
+
+    #[test]
+    fn should_keep_at_most_the_sitemap_record_limit() {
+        let body = (0..MAX_SITEMAP_RECORDS + 5)
+            .map(|n| format!("Sitemap: https://shop.example/sitemap-{n}.xml\n"))
+            .collect::<String>();
+
+        assert_eq!(
+            RobotsRules::parse(&body).sitemaps().len(),
+            MAX_SITEMAP_RECORDS
+        );
     }
 
     #[test]
