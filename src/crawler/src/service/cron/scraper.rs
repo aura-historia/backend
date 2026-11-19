@@ -17,8 +17,10 @@ use crate::scraper::candidate_service::{
 use crate::scraper::candidate_service::{HeldPageDirectiveWithdrawal, PageDirectiveRefusalRun};
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::duplicate_retirement::{DuplicateEvidence, DuplicateRetirement};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::removal_guard::{MASS_REMOVAL_HELD_ERROR_KIND, MassRemoval};
+use crate::scraper::same_product::SameProductEvidence;
 use crate::scraper::scrape_circuit::{BatchEvidence, FailedAnswer, ScrapeCircuitDecision};
 use crate::scraper::scraper_service::domain::errors::{ListingRemoval, RemovalEvidenceKind};
 use crate::scraper::scraper_service::domain::product::{
@@ -1045,7 +1047,11 @@ async fn retire_duplicate_of_known_destination(
     ctx: &ScrapeBatchContext,
     destination: &url::Url,
 ) -> ScrapeCandidateOutcome {
-    match retire_as_duplicate(candidate, ctx).await {
+    let retirement = DuplicateRetirement {
+        duplicate_of: destination.clone(),
+        evidence: DuplicateEvidence::RedirectDestination,
+    };
+    match retire_as_duplicate(candidate, ctx, &retirement).await {
         Ok(write_outcome) => {
             debug!(
                 event = "crawler.product_url_retired_duplicate_of_known_destination",
@@ -1073,14 +1079,20 @@ async fn retire_duplicate_of_known_destination(
 /// ListingSource already carries, as the shop's spelling of the same product (for example
 /// another category or sort parameter). The row that carries the identity keeps its scrape state
 /// and is the one captured; nothing is captured for this URL
-/// (`docs/crawler/networking.md#duplicate-source-listing-ids`).
+/// (`docs/crawler/networking.md#duplicate-source-listing-ids`). The retirement records the
+/// carrier and the `evidence` of one product.
 async fn retire_duplicate_of_known_identity(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
     source_listing_id: &str,
     carrier: &url::Url,
+    evidence: SameProductEvidence,
 ) -> ScrapeCandidateOutcome {
-    match retire_as_duplicate(candidate, ctx).await {
+    let retirement = DuplicateRetirement {
+        duplicate_of: carrier.clone(),
+        evidence: DuplicateEvidence::SameProduct(evidence),
+    };
+    match retire_as_duplicate(candidate, ctx, &retirement).await {
         Ok(write_outcome) => {
             debug!(
                 event = "crawler.product_url_retired_duplicate_of_known_identity",
@@ -1088,6 +1100,7 @@ async fn retire_duplicate_of_known_identity(
                 old_url = %candidate.url,
                 new_url = %carrier,
                 source_listing_id = %source_listing_id,
+                duplicate_evidence = retirement.evidence.as_str(),
                 crawler_url_write_outcome = ?write_outcome,
                 "Retired a product URL whose source listing id another product URL of its ListingSource already carries"
             );
@@ -1108,12 +1121,13 @@ async fn retire_duplicate_of_known_identity(
 async fn retire_as_duplicate(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
+    retirement: &DuplicateRetirement,
 ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
     ctx.scraper_candidates
-        .set_disposition(
+        .retire_as_duplicate(
             &candidate.listing_source_id,
             &candidate.url,
-            CrawlerDisposition::Duplicate,
+            retirement,
             candidate.last_captured_raw_input_sha256.as_deref(),
         )
         .await
@@ -4306,11 +4320,12 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_set_disposition()
+            .expect_retire_as_duplicate()
             .once()
-            .withf(move |_, url, disposition, expected| {
+            .withf(move |_, url, retirement, expected| {
                 *url == original_url
-                    && *disposition == CrawlerDisposition::Duplicate
+                    && retirement.duplicate_of.as_str() == "https://example.com/products/ladle"
+                    && retirement.evidence == DuplicateEvidence::RedirectDestination
                     && expected == &Some([4_u8; 32].as_slice())
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
@@ -4356,7 +4371,7 @@ mod tests {
             let mut candidate = scraper_candidate("ListingSource", original_url.clone());
             candidate.last_captured_raw_input_sha256 = Some(vec![4; 32]);
             let mut scraper_candidates = MockScraperCandidateService::new();
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             scraper_candidates.expect_move_redirected_url().never();
             scraper_candidates
                 .expect_forget_capture_before_removal()
@@ -4623,7 +4638,7 @@ mod tests {
         );
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_set_disposition()
+            .expect_retire_as_duplicate()
             .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
         let ctx = scrape_candidate_context(
             scraper_candidates,

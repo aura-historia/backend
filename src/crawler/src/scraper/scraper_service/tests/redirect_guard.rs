@@ -155,18 +155,7 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
     let schema_svc = MockProductListingSchemaService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
-    let url_for_set_presence = url.clone();
-    cand_svc
-        .expect_set_disposition()
-        .never()
-        .withf(
-            move |received_listing_source_id, received_url, received_state, _| {
-                *received_listing_source_id == id
-                    && received_url == &url_for_set_presence
-                    && *received_state == CrawlerDisposition::Active
-            },
-        )
-        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    cand_svc.expect_retire_as_duplicate().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
