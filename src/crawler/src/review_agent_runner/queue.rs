@@ -674,6 +674,7 @@ mod tests {
             human_required,
             handed_back: None,
             classification_due: false,
+            final_round: crate::review::model::FinalRoundStatus::None,
             created: now,
             updated: now,
         }

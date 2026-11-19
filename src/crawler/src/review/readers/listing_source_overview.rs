@@ -46,6 +46,8 @@ pub struct HealthCounts {
     pub identity_conflicts: i64,
     /// Sources a human labelled, over all sources.
     pub labelled: i64,
+    /// Sources the review agents parked until they try them again.
+    pub parked: i64,
 }
 
 /// The crawl-enabled ListingSources whose product URLs are in an identity conflict
@@ -111,6 +113,7 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.source_labelled_at,
         s.source_labelled_by,
         s.source_label_retry_at,
+        s.qualification_retry_at,
         s.in_crawl_scope,
         s.qualification,
         s.qualification_note,
@@ -288,7 +291,9 @@ impl ListingSourceOverviewReader {
                     COUNT(*) FILTER (WHERE crawl_enabled AND held_removal_urls > 0) AS held_removals,
                     COUNT(*) FILTER (WHERE crawl_enabled AND identity_conflict_urls > 0)
                         AS identity_conflicts,
-                    COUNT(*) FILTER (WHERE source_label IS NOT NULL) AS labelled
+                    COUNT(*) FILTER (WHERE source_label IS NOT NULL) AS labelled,
+                    COUNT(*) FILTER (WHERE source_label_retry_at IS NOT NULL
+                                        OR qualification_retry_at IS NOT NULL) AS parked
              FROM ranked"
         )))
         .bind(None::<uuid::Uuid>)
@@ -305,6 +310,7 @@ impl ListingSourceOverviewReader {
             held_removals: row.try_get("held_removals")?,
             identity_conflicts: row.try_get("identity_conflicts")?,
             labelled: row.try_get("labelled")?,
+            parked: row.try_get("parked")?,
         })
     }
 
@@ -449,6 +455,7 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Qualified => "qualified",
         SourceStatus::Disqualified => "disqualified",
         SourceStatus::QualificationNeedsHuman => "qualification_needs_human",
+        SourceStatus::Parked => "parked",
         SourceStatus::CrawlFailing => "crawl_failing",
         SourceStatus::CrawlNeedsOperator => "crawl_needs_operator",
         SourceStatus::Blocked => "blocked",
@@ -501,6 +508,8 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'qualified' AND qualification = 'QUALIFIED')
                     OR ($8 = 'disqualified' AND qualification = 'DISQUALIFIED')
                     OR ($8 = 'qualification_needs_human' AND qualification = 'NEEDS_HUMAN')
+                    OR ($8 = 'parked' AND (source_label_retry_at IS NOT NULL
+                                           OR qualification_retry_at IS NOT NULL))
                     OR ($8 = 'crawl_failing' AND crawl_enabled AND crawl_failed)
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
@@ -681,6 +690,7 @@ fn applied_qualification(row: &PgRow) -> Result<Option<AppliedQualification>, sq
             .ok_or_else(|| missing("qualified_at"))?,
         qualified_by: persisted_actor("qualified_by", row.try_get("qualified_by")?)?
             .ok_or_else(|| missing("qualified_by"))?,
+        retry_at: row.try_get("qualification_retry_at")?,
     }))
 }
 

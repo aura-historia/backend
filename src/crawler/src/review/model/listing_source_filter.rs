@@ -38,8 +38,11 @@ pub enum SourceStatus {
     Qualified,
     /// Disqualified: not an art and antiques e-shop the crawler may reach.
     Disqualified,
-    /// Its qualification could not be decided and waits for a human.
+    /// Its qualification could not be decided: a human's, or the agents' until they try again.
     QualificationNeedsHuman,
+    /// The review agents parked it, with a label that expires or an undecided qualification, until
+    /// they try it again.
+    Parked,
     /// Its last crawl failed and is retried by the schedule.
     CrawlFailing,
     /// Its crawl waits for an operator.
@@ -65,6 +68,7 @@ impl QueryValue for SourceStatus {
         ("qualified", Self::Qualified),
         ("disqualified", Self::Disqualified),
         ("qualification_needs_human", Self::QualificationNeedsHuman),
+        ("parked", Self::Parked),
         ("crawl_failing", Self::CrawlFailing),
         ("crawl_needs_operator", Self::CrawlNeedsOperator),
         ("blocked", Self::Blocked),

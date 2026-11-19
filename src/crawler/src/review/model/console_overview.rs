@@ -29,8 +29,11 @@ pub struct SourceCounts {
     pub held_removals: i64,
     /// Sources with product URLs in an identity conflict.
     pub identity_conflicts: i64,
-    /// Sources a human labelled, whose crawling is off; not a condition that needs attention.
+    /// Sources a human or an agent labelled, whose crawling is off; not a condition that needs
+    /// attention.
     pub labelled: i64,
+    /// Sources the review agents parked until they try them again; informational.
+    pub parked: i64,
 }
 
 /// The pending reviews of all ListingSources.
@@ -41,8 +44,12 @@ pub struct ReviewCounts {
     /// Of `pending_total`, those of ListingSources with crawling disabled, which hold back no
     /// crawl or scrape.
     pub pending_disabled_sources: i64,
-    /// Of `pending_total`, those that wait for a human; none outside `agent` authoring mode.
+    /// Of `pending_total`, those of crawl-enabled ListingSources that wait for a human; none
+    /// outside `agent` authoring mode, and normally none in it, since the agents park what they
+    /// cannot finish.
     pub waiting_for_human: i64,
+    /// Of `pending_total`, those of ListingSources the agents parked, which wait for their retry.
+    pub parked: i64,
     /// Of `pending_total`, the product-schema reviews the crawler handed to a human because their
     /// source's URL pattern likely takes non-product pages, in any authoring mode.
     pub held_for_non_product_loop: i64,
@@ -75,6 +82,7 @@ mod tests {
                 held_removals: 1,
                 identity_conflicts: 5,
                 labelled: 3,
+                parked: 8,
             },
             reviews: ReviewCounts {
                 pending_total: 312,
@@ -84,6 +92,7 @@ mod tests {
                 },
                 pending_disabled_sources: 4,
                 waiting_for_human: 9,
+                parked: 6,
                 held_for_non_product_loop: 2,
             },
             agent_mode: true,
@@ -96,13 +105,14 @@ mod tests {
                     "crawling_now": 4, "scraping_now": 11, "needs_attention": 23,
                     "crawl_failing": 2, "crawl_needs_operator": 6, "blocked_by_review": 9,
                     "failing_to_scrape": 7, "held_removals": 1, "identity_conflicts": 5,
-                    "labelled": 3
+                    "labelled": 3, "parked": 8
                 },
                 "reviews": {
                     "pending_total": 312,
                     "pending_by_artifact": { "PRODUCT_SCHEMA": 241, "URL_PATTERN": 71 },
                     "pending_disabled_sources": 4,
                     "waiting_for_human": 9,
+                    "parked": 6,
                     "held_for_non_product_loop": 2
                 },
                 "agent_mode": true

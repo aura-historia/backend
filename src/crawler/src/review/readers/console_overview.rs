@@ -46,6 +46,7 @@ impl ConsoleOverviewReader {
                 held_removals: health.held_removals,
                 identity_conflicts: health.identity_conflicts,
                 labelled: health.labelled,
+                parked: health.parked,
             },
             reviews,
             agent_mode: self.agent_decisions.repair_rounds_cap().is_some(),
@@ -75,6 +76,7 @@ impl ConsoleOverviewReader {
             },
             pending_disabled_sources: row.try_get("pending_disabled_sources")?,
             waiting_for_human: row.try_get("pending_waiting_for_human")?,
+            parked: row.try_get("pending_parked")?,
             held_for_non_product_loop: row.try_get("pending_held_for_non_product_loop")?,
         })
     }
@@ -89,7 +91,9 @@ const REVIEW_COUNTS_SQL: &str = concat!(
     review_waits_for_human!(),
     " AS waits_for_human, ",
     held_for_non_product_loop!(),
-    " AS held_for_non_product_loop
+    " AS held_for_non_product_loop,
+                s.source_label_retry_at IS NOT NULL OR s.qualification_retry_at IS NOT NULL
+                    AS parked
          FROM crawler_reviews r
          LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
          WHERE r.status = 'PENDING_REVIEW'
@@ -98,7 +102,8 @@ const REVIEW_COUNTS_SQL: &str = concat!(
             COUNT(*) FILTER (WHERE artifact_type = 'URL_PATTERN') AS pending_url_pattern,
             COUNT(*) FILTER (WHERE artifact_type = 'PRODUCT_SCHEMA') AS pending_product_schema,
             COUNT(*) FILTER (WHERE NOT crawl_enabled) AS pending_disabled_sources,
-            COUNT(*) FILTER (WHERE waits_for_human) AS pending_waiting_for_human,
+            COUNT(*) FILTER (WHERE waits_for_human AND crawl_enabled) AS pending_waiting_for_human,
+            COUNT(*) FILTER (WHERE parked) AS pending_parked,
             COUNT(*) FILTER (WHERE held_for_non_product_loop) AS pending_held_for_non_product_loop
      FROM pending"
 );

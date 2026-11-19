@@ -5,9 +5,9 @@
 use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, HandoverCause, LiveMatrixEvaluation, PageClassification, ReviewActor,
-    ReviewEventAction, ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection,
-    SystemHandoverReason,
+    CrawlerReviewEvent, FinalRoundCause, HandoverCause, LiveMatrixEvaluation, PageClassification,
+    ReviewActor, ReviewEventAction, ReviewEventSummary, SampleLabelCounts, SampleLabels,
+    SortDirection, SystemHandoverReason,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -84,6 +84,11 @@ pub(super) enum ReviewMutation<'a> {
         note: &'a str,
         #[serde(flatten)]
         cause: HandoverCause,
+    },
+    /// `POST /api/reviews/{id}/final-round`: the details' `after` says what brought the review to
+    /// its final round.
+    FinalRoundStarted {
+        after: FinalRoundCause,
     },
     /// The crawler handed a review it opened to a human: the event's note says why, its details'
     /// `reason` is the cause.
@@ -243,6 +248,7 @@ impl ReviewMutation<'_> {
             Self::PageNotProductCleared { .. } => ReviewEventAction::PageNotProductCleared,
             Self::NoSoldPageRecorded { .. } => ReviewEventAction::NoSoldPageRecorded,
             Self::RepairRequested { .. } => ReviewEventAction::RepairRequested,
+            Self::FinalRoundStarted { .. } => ReviewEventAction::FinalRoundStarted,
             Self::HandedToHuman { .. } | Self::HandedToHumanByCrawler { .. } => {
                 ReviewEventAction::HandedToHuman
             }
@@ -275,7 +281,8 @@ impl ReviewMutation<'_> {
             | Self::PageAdded { .. }
             | Self::PageRemoved { .. }
             | Self::PageMarkedNotProduct { .. }
-            | Self::PageNotProductCleared { .. } => None,
+            | Self::PageNotProductCleared { .. }
+            | Self::FinalRoundStarted { .. } => None,
         }
     }
 }

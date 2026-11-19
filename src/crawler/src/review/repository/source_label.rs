@@ -6,16 +6,19 @@
 //! set or cleared appends one entry to the source's history in the same transaction, so a relabel
 //! never loses the label and note it replaces.
 
+use super::repair_rounds::{human_required, rounds_under_lock};
 use super::review_log::{ReviewLogEntry, log_committed_source};
 use super::source_qualification::qualify_after_label_clear;
-use super::{CrawlerReviewRepository, ReviewRepositoryError, lock_review_for_change};
+use super::{CrawlerReviewRepository, ReviewRepositoryError, listing_source_id_from_uuid};
 use crate::CrawlerReviewId;
+use crate::review::agent_decisions::{AgentDecisionPolicy, FinalRound};
+use crate::review::model::STATUS_PENDING_REVIEW;
 use crate::review::model::{
     AppliedSourceLabel, ParkSchedule, Qualification, ReviewActor, SourceLabel,
     SourceLabelEventKind, SourceLabelNote, SourceLabelRequest,
 };
 use listing_source_core::ListingSourceId;
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::{PgConnection, Postgres, Row, Transaction};
 use time::OffsetDateTime;
 
 impl CrawlerReviewRepository {
@@ -44,7 +47,7 @@ impl CrawlerReviewRepository {
 
     /// Labels the ListingSource of the review `review_id` as [`Self::label_source`] does, for the
     /// actor that may change the review: the author agent on a pending review that does not wait
-    /// for a human, or a human. A review agent names its evidence in the note. The reviewer agent
+    /// for a human or whose final round started, which parks the source, or a human. A review agent names its evidence in the note. The reviewer agent
     /// labels nothing, and the author agent replaces no label a human set. An approach label must
     /// name the approach of the review it is set on.
     pub async fn label_review_source(
@@ -57,18 +60,17 @@ impl CrawlerReviewRepository {
             return Err(ReviewRepositoryError::AgentSourceLabelNeedsNote);
         }
         let mut transaction = self.pool.begin().await?;
-        let (review, _) =
-            lock_review_for_change(&mut transaction, review_id, actor, &self.agent_decisions)
+        let (listing_source_id, artifact_type) =
+            lock_review_for_label(&mut transaction, review_id, actor, &self.agent_decisions)
                 .await?;
         if let Some(required) = request.label().required_artifact()
-            && required.as_str() != review.artifact_type
+            && required.as_str() != artifact_type
         {
             return Err(ReviewRepositoryError::SourceLabelDoesNotFitReview {
                 label: request.label().as_str(),
-                artifact_type: review.artifact_type,
+                artifact_type,
             });
         }
-        let listing_source_id = review.listing_source_id;
         if actor.is_agent() && labelled_by_human(&mut transaction, &listing_source_id).await? {
             return Err(ReviewRepositoryError::HumanLabelStands(listing_source_id));
         }
@@ -149,6 +151,48 @@ impl CrawlerReviewRepository {
         }
         Ok(())
     }
+}
+
+/// Locks the review `review_id` for `actor`'s label of its ListingSource and answers the source and
+/// the review's artifact type. The reviewer agent labels nothing, and an agent labels only through
+/// a pending review that does not wait for a human, or one whose final round started: the agents
+/// park the source of a review their final round could not decide instead of leaving it for a
+/// human.
+async fn lock_review_for_label(
+    transaction: &mut Transaction<'_, Postgres>,
+    review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    agent_decisions: &AgentDecisionPolicy,
+) -> Result<(ListingSourceId, String), ReviewRepositoryError> {
+    let row = sqlx::query(
+        "SELECT listing_source_id, artifact_type, status \
+         FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    if !actor.may_change_candidates() {
+        return Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates);
+    }
+    let status: String = row.try_get("status")?;
+    if status != STATUS_PENDING_REVIEW && !actor.may_change_decided_reviews() {
+        return Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(
+            review_id,
+        ));
+    }
+    if actor.is_agent() {
+        let rounds = rounds_under_lock(transaction, review_id, agent_decisions).await?;
+        if rounds.final_round == FinalRound::NotStarted
+            && agent_decisions.waits_for_human(&status, rounds)
+        {
+            return Err(human_required(review_id, rounds, agent_decisions));
+        }
+    }
+    Ok((
+        listing_source_id_from_uuid(row.try_get::<uuid::Uuid, _>("listing_source_id")?)?,
+        row.try_get("artifact_type")?,
+    ))
 }
 
 /// Clears the ListingSource's label with the crawl failure state the labelled shop left and

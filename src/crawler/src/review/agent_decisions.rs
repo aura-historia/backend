@@ -120,6 +120,8 @@ pub struct AgentRounds {
     pub needs_repair: u32,
     /// Whether an agent handed the review to a human at once, which needs no further round.
     pub handed_to_human: bool,
+    /// Where the agents' final round on the review stands.
+    pub final_round: FinalRound,
 }
 
 impl AgentRounds {
@@ -127,6 +129,31 @@ impl AgentRounds {
         Self {
             needs_repair: rounds,
             handed_to_human: false,
+            final_round: FinalRound::NotStarted,
+        }
+    }
+}
+
+/// The agents' final round on a review, counted like its rounds since a human last changed or
+/// judged it and within the round window: once a review would wait for a human, the author agent
+/// may start it once, and the review is the agents' again until a needs-repair verdict or a
+/// hand-over ends it. A review whose final round ended waits for a human until its source is
+/// parked; the round counts as one extra round on top of the cap.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FinalRound {
+    #[default]
+    NotStarted,
+    Open,
+    Ended,
+}
+
+impl FinalRound {
+    /// The state a query reads as `0`, `1` or `2` ([`final_round_of_review`](crate::review::repository)).
+    pub const fn from_code(code: i32) -> Self {
+        match code {
+            0 => Self::NotStarted,
+            1 => Self::Open,
+            _ => Self::Ended,
         }
     }
 }
@@ -193,11 +220,28 @@ impl AgentDecisionPolicy {
     /// Whether a review in `status` that the agents worked as `rounds` says since a human last
     /// changed or judged it waits for a human: it is pending and either their back-and-forth on it
     /// reached the [repair-round cap](Self::repair_rounds_cap) or an agent handed it over.
+    ///
+    /// Once the agents' [final round](FinalRound) started, the cap and the hand-over before it no
+    /// longer count: the review waits for a human only once a needs-repair verdict or a hand-over
+    /// ended that round.
     pub fn waits_for_human(&self, status: &str, rounds: AgentRounds) -> bool {
         status == STATUS_PENDING_REVIEW
             && self
                 .repair_rounds_cap()
-                .is_some_and(|cap| rounds.handed_to_human || rounds.needs_repair >= cap.get())
+                .is_some_and(|cap| match rounds.final_round {
+                    FinalRound::NotStarted => {
+                        rounds.handed_to_human || rounds.needs_repair >= cap.get()
+                    }
+                    FinalRound::Open => false,
+                    FinalRound::Ended => true,
+                })
+    }
+
+    /// Whether the author agent may start the agents' final round on a review in `status` that
+    /// the agents worked as `rounds` says: it waits for a human, and no final round started on it
+    /// within the round window since a human last acted on it.
+    pub fn final_round_due(&self, status: &str, rounds: AgentRounds) -> bool {
+        rounds.final_round == FinalRound::NotStarted && self.waits_for_human(status, rounds)
     }
 }
 
@@ -408,6 +452,7 @@ mod tests {
         let handed = AgentRounds {
             needs_repair: 1,
             handed_to_human: true,
+            final_round: FinalRound::NotStarted,
         };
         let agent = capped_at_three(CrawlerAuthoringMode::Agent);
 
@@ -442,6 +487,63 @@ mod tests {
         assert_eq!(
             capped_at_three(CrawlerAuthoringMode::Agent).repair_rounds_cap(),
             NonZeroU32::new(3)
+        );
+    }
+
+    /// The final round lifts the cap and the hand-over once: the review is the agents' while it is
+    /// open, waits for a human once it ended, and is due only before it started.
+    #[test]
+    fn should_give_a_review_that_waits_for_a_human_one_final_round() {
+        let policy = capped_at_three(CrawlerAuthoringMode::Agent);
+        let at_cap = |final_round| AgentRounds {
+            needs_repair: 3,
+            handed_to_human: false,
+            final_round,
+        };
+        let handed = |final_round| AgentRounds {
+            needs_repair: 0,
+            handed_to_human: true,
+            final_round,
+        };
+
+        for rounds in [
+            at_cap(FinalRound::NotStarted),
+            handed(FinalRound::NotStarted),
+        ] {
+            assert!(
+                policy.waits_for_human(STATUS_PENDING_REVIEW, rounds),
+                "{rounds:?}"
+            );
+            assert!(
+                policy.final_round_due(STATUS_PENDING_REVIEW, rounds),
+                "{rounds:?}"
+            );
+        }
+        for rounds in [at_cap(FinalRound::Open), handed(FinalRound::Open)] {
+            assert!(
+                !policy.waits_for_human(STATUS_PENDING_REVIEW, rounds),
+                "{rounds:?}"
+            );
+            assert!(
+                !policy.final_round_due(STATUS_PENDING_REVIEW, rounds),
+                "{rounds:?}"
+            );
+        }
+        for rounds in [at_cap(FinalRound::Ended), handed(FinalRound::Ended)] {
+            assert!(
+                policy.waits_for_human(STATUS_PENDING_REVIEW, rounds),
+                "{rounds:?}"
+            );
+            assert!(
+                !policy.final_round_due(STATUS_PENDING_REVIEW, rounds),
+                "{rounds:?}"
+            );
+        }
+        assert!(!policy.final_round_due(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(2)));
+        assert!(!policy.final_round_due("APPROVED", at_cap(FinalRound::NotStarted)));
+        assert!(
+            !capped_at_three(CrawlerAuthoringMode::Manual)
+                .final_round_due(STATUS_PENDING_REVIEW, at_cap(FinalRound::NotStarted))
         );
     }
 }

@@ -756,6 +756,7 @@ mod tests {
                     .join("classify")
                     .join(review.review_id.to_string())
                     .exists(),
+                final_round: crate::review::model::FinalRoundStatus::None,
                 created: review.created,
                 updated: review.updated,
             })

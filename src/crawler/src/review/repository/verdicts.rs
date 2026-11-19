@@ -478,8 +478,8 @@ async fn refuse_approval_of_own_change(
 /// their review's row lock.
 const AGENT_DECISION_LOCK: i64 = 0x2533_0001;
 
-/// The review agents' approvals, rejections and qualifications within the last hour, as the review
-/// event trail and the qualification history record them, oldest first: for each, how many
+/// The review agents' approvals, rejections, final rounds started and qualifications within the
+/// last hour, as the review event trail and the qualification history record them, oldest first: for each, how many
 /// seconds it stays within that hour. Reading them from the stores holds the cap across restarts.
 async fn agent_decisions_of_the_last_hour(
     executor: impl sqlx::PgExecutor<'_>,
@@ -499,6 +499,7 @@ async fn agent_decisions_of_the_last_hour(
     .bind([
         ReviewEventAction::Approved.as_str(),
         ReviewEventAction::Rejected.as_str(),
+        ReviewEventAction::FinalRoundStarted.as_str(),
     ])
     .fetch_all(executor)
     .await

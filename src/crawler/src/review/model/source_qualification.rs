@@ -164,6 +164,10 @@ pub struct AppliedQualification {
     #[serde(with = "time::serde::rfc3339")]
     pub qualified_at: OffsetDateTime,
     pub qualified_by: ReviewActor,
+    /// When the agents decide it again: set for a review agent's `NEEDS_HUMAN`, which parks the
+    /// source until then; `None` for a decision that stands until it is changed.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub retry_at: Option<OffsetDateTime>,
 }
 
 /// What a decided qualification did to the source's label.

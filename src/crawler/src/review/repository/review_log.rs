@@ -40,7 +40,8 @@ pub(super) struct ReviewLogEntry {
     /// Why a review opened, or why an agent handed it to a human
     /// (`HandoverReason::log_name`).
     reason: Option<String>,
-    /// How a review was decided: `approved`, `rejected`, `needs_repair` or `handed_to_human`.
+    /// How a review was decided: `approved`, `rejected`, `needs_repair`, `handed_to_human` or
+    /// `final_round_started`.
     decision: Option<&'static str>,
     /// What the author named as the obstacle of a hand-over (`HandoverCategory::log_name`).
     handover_category: Option<&'static str>,
@@ -292,6 +293,13 @@ impl ReviewLogEntry {
                 reason: Some(cause.reason.log_name().to_owned()),
                 handover_category: Some(cause.category.log_name()),
                 ..decided("handed_to_human", "Review agent handed a review to a human")
+            }],
+            ReviewMutation::FinalRoundStarted { after } => vec![Self {
+                reason: Some(after.log_name().to_owned()),
+                ..decided(
+                    "final_round_started",
+                    "Review agents started their final round on a review that would wait for a human",
+                )
             }],
             ReviewMutation::HandedToHumanByCrawler { reason, .. } => vec![Self {
                 reason: Some(reason.log_name().to_owned()),

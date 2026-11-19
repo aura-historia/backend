@@ -7,7 +7,8 @@ use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{
     ArtifactType, AutoSchemaEvaluationOutcome, ListPage, ListWindow, ReviewActor, ReviewQueueEntry,
-    ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceReviewEntry,
+    ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceLabel, SourcePark,
+    SourceReviewEntry,
 };
 use crate::review::repository::{
     CrawlerReviewRepository, agent_round_binds, agent_rounds_of_review,
@@ -18,6 +19,7 @@ use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
+use time::OffsetDateTime;
 
 /// Which window of the review queue to read.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -29,6 +31,8 @@ pub struct ReviewQuery {
     pub status: Option<ReviewStatus>,
     pub artifact_type: Option<ArtifactType>,
     pub waiting: Option<ReviewWaiting>,
+    /// Only the reviews of ListingSources with this label.
+    pub label: Option<SourceLabel>,
     pub sort: ReviewSort,
     pub direction: SortDirection,
     pub window: ListWindow,
@@ -80,6 +84,7 @@ impl ReviewQueueReader {
         .bind(query.waiting.map(waiting_name))
         .bind(i64::try_from(query.window.offset()).unwrap_or(i64::MAX))
         .bind(i64::try_from(query.window.limit()).unwrap_or(i64::MAX))
+        .bind(query.label.map(SourceLabel::as_str))
         .fetch_all(&self.pool)
         .await?;
 
@@ -202,6 +207,7 @@ fn waiting_name(waiting: ReviewWaiting) -> &'static str {
     match waiting {
         ReviewWaiting::Human => "human",
         ReviewWaiting::Repair => "repair",
+        ReviewWaiting::Parked => "parked",
     }
 }
 
@@ -230,17 +236,39 @@ fn queue_entry(row: &PgRow) -> Result<ReviewQueueEntry, sqlx::Error> {
         reason: row.try_get("reason")?,
         repair_request: row_to_repair_request(row)?,
         human_required: row.try_get("human_required")?,
+        parked: source_park(row)?,
         auto_schema_evaluation,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })
 }
 
+/// How the agents parked the row's ListingSource, if they did; a stored label no label has fails
+/// closed.
+fn source_park(row: &PgRow) -> Result<Option<SourcePark>, sqlx::Error> {
+    let Some(next_retry_at) = row.try_get::<Option<OffsetDateTime>, _>("next_retry_at")? else {
+        return Ok(None);
+    };
+    let label = row
+        .try_get::<Option<String>, _>("park_label")?
+        .map(|name| {
+            SourceLabel::from_persisted(&name).ok_or_else(|| {
+                sqlx::Error::Decode(format!("invalid persisted source_label `{name}`").into())
+            })
+        })
+        .transpose()?;
+    Ok(Some(SourcePark {
+        label,
+        next_retry_at,
+    }))
+}
+
 /// The window query of the reviews in the order of `sort`. Binds `$1` to `$4` of
 /// [`agent_rounds_of_review`], `$5`, the repair-round cap or null, `$6`, the ListingSource or null,
 /// `$7`, the status or null, `$8`, the artifact type or null, `$9`, the `ILIKE` pattern of the
 /// ListingSource name or null, `$10`, what the review waits for or null, `$11`, the rows to skip,
-/// and `$12`, the most rows to answer. Every row carries the total; an empty window is one row
+/// `$12`, the most rows to answer, and `$13`, the ListingSource's label or null. A review waits for
+/// a human only while its source is crawled; one of a parked source waits for the agents' retry. Every row carries the total; an empty window is one row
 /// with the total and no review. Only a pending review's agent rounds are counted.
 ///
 /// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
@@ -255,6 +283,9 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                     r.repair_requested, r.repair_note,
                     r.validation_summary -> 'auto_schema_evaluation' AS auto_schema_evaluation,
                     r.created, r.updated,
+                    CASE WHEN s.source_label_retry_at IS NOT NULL THEN s.source_label END
+                        AS park_label,
+                    COALESCE(s.source_label_retry_at, s.qualification_retry_at) AS next_retry_at,
                     CASE WHEN r.status = 'PENDING_REVIEW' THEN {rounds} ELSE 0 END AS agent_rounds,
                     r.status = 'PENDING_REVIEW' AND {waits} AS human_required
              FROM crawler_reviews r
@@ -263,10 +294,12 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                AND ($7::text IS NULL OR r.status = $7)
                AND ($8::text IS NULL OR r.artifact_type = $8)
                AND ($9::text IS NULL OR s.listing_source_name ILIKE $9)
+               AND ($13::text IS NULL OR s.source_label = $13)
          ), matching AS (
              SELECT * FROM candidates
              WHERE $10::text IS NULL
-                OR ($10 = 'human' AND human_required)
+                OR ($10 = 'human' AND human_required AND listing_source_crawl_enabled)
+                OR ($10 = 'parked' AND status = 'PENDING_REVIEW' AND next_retry_at IS NOT NULL)
                 OR ($10 = 'repair' AND status = 'PENDING_REVIEW'
                     AND repair_requested IS NOT NULL AND NOT human_required)
          ), ranked AS (

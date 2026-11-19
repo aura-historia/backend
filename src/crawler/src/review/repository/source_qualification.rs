@@ -153,6 +153,7 @@ impl CrawlerReviewRepository {
                 note: decision.note().as_str().to_owned(),
                 qualified_at: stored.qualified_at,
                 qualified_by: actor,
+                retry_at: stored.retry_at,
             },
             label_effect,
             label,
