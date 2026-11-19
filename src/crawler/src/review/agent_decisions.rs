@@ -83,7 +83,7 @@ impl AgentLimits {
     pub fn from_env() -> Result<Self, ReviewServerConfigError> {
         let defaults = Self::default();
         let read = |name, default| positive_number(name).map(|value| value.unwrap_or(default));
-        Ok(Self {
+        let limits = Self {
             max_decisions_per_hour: read(
                 AGENT_MAX_DECISIONS_PER_HOUR_ENV,
                 defaults.max_decisions_per_hour,
@@ -102,7 +102,14 @@ impl AgentLimits {
                 defaults.no_pattern_max_age_days,
             )?,
             park_max_age_days: read(AGENT_PARK_MAX_AGE_DAYS_ENV, defaults.park_max_age_days)?,
-        })
+        };
+        if limits.park_max_age_days < limits.repair_round_window_days {
+            return Err(ReviewServerConfigError::ParkShorterThanRoundWindow {
+                park_days: limits.park_max_age_days.get(),
+                window_days: limits.repair_round_window_days.get(),
+            });
+        }
+        Ok(limits)
     }
 
     /// How long ago the review pages of the live schema matrix an agent approval rests on may have
@@ -324,6 +331,28 @@ mod tests {
                 no_pattern_max_age_days: NonZeroU32::new(60).unwrap(),
                 park_max_age_days: NonZeroU32::new(45).unwrap(),
             }
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn should_refuse_a_park_shorter_than_the_round_window() {
+        let error = limits_from(&[
+            (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, "7"),
+            (AGENT_PARK_MAX_AGE_DAYS_ENV, "3"),
+        ])
+        .err()
+        .unwrap_or_else(|| panic!("a 3-day park under a 7-day window must fail startup"));
+
+        assert!(
+            matches!(
+                error,
+                ReviewServerConfigError::ParkShorterThanRoundWindow {
+                    park_days: 3,
+                    window_days: 7
+                }
+            ),
+            "{error}"
         );
     }
 

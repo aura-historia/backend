@@ -150,6 +150,10 @@ pub enum ReviewRepositoryError {
     )]
     FinalRoundNotDue(CrawlerReviewId),
     #[error(
+        "an agent labels AGENTS_UNRESOLVED only in the agents' final round, which review {0} has not started"
+    )]
+    FinalRoundOnlyLabel(CrawlerReviewId),
+    #[error(
         "a review agent labels a ListingSource only with a note naming the evidence: what it read and why the crawler should not crawl the shop"
     )]
     AgentSourceLabelNeedsNote,

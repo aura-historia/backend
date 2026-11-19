@@ -10,14 +10,15 @@ ALTER TABLE listing_sources
     ADD COLUMN source_label_retry_at TIMESTAMPTZ,
     ADD COLUMN qualification_retry_at TIMESTAMPTZ,
     ADD CONSTRAINT listing_sources_source_label_retry_check
-        CHECK (source_label_retry_at IS NULL OR (source_label IN (
+        CHECK (source_label_retry_at IS NULL OR COALESCE(source_label IN (
                 'BOT_PROTECTION', 'JAVASCRIPT_RENDERED', 'LOGIN_REQUIRED',
                 'URL_PATTERN_APPROACH_NOT_APPLICABLE', 'PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE',
                 'AGENTS_UNRESOLVED')
-            AND source_labelled_by IN ('AGENT_AUTHOR', 'AGENT_REVIEWER'))),
+            AND source_labelled_by IN ('AGENT_AUTHOR', 'AGENT_REVIEWER'), FALSE)),
     ADD CONSTRAINT listing_sources_qualification_retry_check
         CHECK (qualification_retry_at IS NULL
-            OR (qualification = 'NEEDS_HUMAN' AND qualified_by IN ('AGENT_AUTHOR', 'AGENT_REVIEWER')));
+            OR COALESCE(qualification = 'NEEDS_HUMAN'
+                AND qualified_by IN ('AGENT_AUTHOR', 'AGENT_REVIEWER'), FALSE));
 
 -- The agents' labels of these kinds that stand today were set when only a human cleared a label;
 -- they expire like a first park, 30 days after they were set, the default first interval.

@@ -746,7 +746,12 @@ mod tests {
         let queue: Vec<&CrawlerReview> = reviews
             .iter()
             .filter(|review| {
-                review.status == "PENDING_REVIEW" && review.listing_source_crawl_enabled
+                review.status == "PENDING_REVIEW"
+                    && review.listing_source_crawl_enabled
+                    && !claude_dir
+                        .join("labelled")
+                        .join(review.review_id.to_string())
+                        .exists()
             })
             .filter(|review| {
                 let late = claude_dir
@@ -772,7 +777,9 @@ mod tests {
             (review.human_required || marked("human", review)) && !marked("final_open", review)
         };
         let final_round = |review: &CrawlerReview| {
-            if marked("final_open", review) {
+            if marked("final_ended", review) {
+                crate::review::model::FinalRoundStatus::Ended
+            } else if marked("final_open", review) {
                 crate::review::model::FinalRoundStatus::Open
             } else if waits(review) && marked("final_due", review) {
                 crate::review::model::FinalRoundStatus::Due
@@ -887,6 +894,12 @@ mod tests {
     /// `POST /api/reviews/{id}/source-label`: logs `<review id> <label> <note>` to `parked.log` and
     /// answers the label as an agent's park that expires in 30 days.
     fn park(review_id: &str, body: &str, claude_dir: &Path) -> (u16, String) {
+        if claude_dir.join("park_refused").join(review_id).exists() {
+            return (500, "{\"error\":\"failed\"}".to_owned());
+        }
+        let _ = std::fs::write(claude_dir.join("human").join(review_id), "");
+        let _ = std::fs::remove_file(claude_dir.join("final_ended").join(review_id));
+        let _ = std::fs::write(claude_dir.join("labelled").join(review_id), "");
         let body = serde_json::from_str::<Value>(body).unwrap_or_default();
         let (label, note) = (
             body["label"].as_str().unwrap_or_default(),
@@ -941,18 +954,25 @@ mod tests {
             review.human_required = true;
         }
         let judged = claude_dir.join("judged").join(&id).exists();
-        let events: Vec<Value> = judged
-            .then(|| {
-                json!({
-                    "actor": "AGENT_REVIEWER", "action": "REPAIR_REQUESTED",
-                    "candidate_version": review.candidate_version,
-                    "created": OffsetDateTime::now_utc()
-                        .format(&time::format_description::well_known::Rfc3339)
-                        .unwrap_or_default(),
-                })
+        let in_final_round = ["final_open", "final_ended"]
+            .iter()
+            .any(|kind| claude_dir.join(kind).join(&id).exists());
+        let event = |actor: &str, action: &str| {
+            json!({
+                "actor": actor, "action": action,
+                "candidate_version": review.candidate_version,
+                "created": OffsetDateTime::now_utc()
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default(),
             })
-            .into_iter()
-            .collect();
+        };
+        let events: Vec<Value> = [
+            in_final_round.then(|| event("AGENT_AUTHOR", "FINAL_ROUND_STARTED")),
+            judged.then(|| event("AGENT_REVIEWER", "REPAIR_REQUESTED")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         let detail = json!({ "review": review, "pages": [], "urls": [], "events": events });
         (200, detail.to_string())
     }
@@ -1104,6 +1124,9 @@ echo "end $role $review" >> "$dir/order.log"
                 "reject_answer",
                 "final_due",
                 "final_open",
+                "final_ended",
+                "park_refused",
+                "labelled",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -2060,9 +2083,15 @@ echo "end $role $review" >> "$dir/order.log"
         );
         assert!(parked.contains(" Reviewer: "), "{parked}");
         let records = parking::records_since(fixture.state.path(), OffsetDateTime::UNIX_EPOCH);
-        assert_eq!(records.len(), 1, "{records:?}");
+        assert_eq!(records.len(), 2, "{records:?}");
+        assert_eq!(
+            records[0].event,
+            parking::ParkingEvent::FinalRoundStarted {
+                review_id: stuck.review_id
+            }
+        );
         assert!(matches!(
-            &records[0].event,
+            &records[1].event,
             parking::ParkingEvent::FinalRound {
                 outcome: parking::FinalRoundOutcome::Parked,
                 label: Some(label),
@@ -2070,6 +2099,71 @@ echo "end $role $review" >> "$dir/order.log"
                 ..
             } if label == "AGENTS_UNRESOLVED"
         ));
+    }
+
+    /// A review whose final round ended without a park, here because the park the console was
+    /// asked for failed, is parked by the next run without a further process, so no review is left
+    /// waiting for a human; the park needs no final round of the day's cap.
+    #[tokio::test]
+    async fn should_park_a_review_whose_final_round_ended_on_the_next_run() {
+        let ended = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![ended.clone()]).await;
+        fixture.claude.mark("human", ended.review_id);
+        fixture.claude.mark("final_ended", ended.review_id);
+        fixture.claude.mark("park_refused", ended.review_id);
+        let settings = fixture.settings(
+            &[],
+            &[("CRAWLER_REVIEW_AGENT_RUNNER_MAX_FINAL_ROUNDS_PER_DAY", "1")],
+        );
+        parking::record(
+            fixture.state.path(),
+            &parking::ParkingRecord {
+                at: OffsetDateTime::now_utc(),
+                listing_source_id: listing_source_core::ListingSourceId::new(),
+                listing_source_name: "Earlier".to_owned(),
+                event: parking::ParkingEvent::FinalQualification { decided: None },
+            },
+        );
+
+        let refused = summary(&run_with(&settings).await);
+        std::fs::remove_file(
+            fixture
+                .claude
+                .directory
+                .path()
+                .join("park_refused")
+                .join(ended.review_id.to_string()),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let parked = summary(&run_with(&settings).await);
+
+        assert_eq!((refused.processes, refused.parked), (0, 0));
+        assert_eq!((parked.processes, parked.parked), (0, 1));
+        assert!(fixture.claude.order().is_empty(), "no agent process starts");
+        let log = std::fs::read_to_string(fixture.claude.directory.path().join("parked.log"))
+            .unwrap_or_default();
+        assert!(
+            log.starts_with(&format!(
+                "{} AGENTS_UNRESOLVED The final round ended without a decision.",
+                ended.review_id
+            )),
+            "{log}"
+        );
+        let outcomes: Vec<parking::FinalRoundOutcome> =
+            parking::records_since(fixture.state.path(), OffsetDateTime::UNIX_EPOCH)
+                .into_iter()
+                .filter_map(|record| match record.event {
+                    parking::ParkingEvent::FinalRound { outcome, .. } => Some(outcome),
+                    _ => None,
+                })
+                .collect();
+        assert_eq!(
+            outcomes,
+            [
+                parking::FinalRoundOutcome::NotParked,
+                parking::FinalRoundOutcome::Parked
+            ]
+        );
     }
 
     /// The day's cap on final rounds holds back the reviews due for one beyond it; they wait for

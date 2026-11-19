@@ -69,6 +69,10 @@ pub enum QualificationDecisionError {
     NeedsHumanWithLabel,
     #[error("the label {0} is retired")]
     RetiredLabel(&'static str),
+    #[error(
+        "AGENTS_UNRESOLVED parks a source after the review agents' final round on a review; a qualification that cannot decide is NEEDS_HUMAN"
+    )]
+    ReviewOnlyLabel,
 }
 
 /// A qualification as decided: what it decided, the label it sets, if any, and the note with the
@@ -98,6 +102,9 @@ impl QualificationDecision {
     ) -> Result<Self, QualificationDecisionError> {
         if let Some(label) = label.filter(|label| label.is_retired()) {
             return Err(QualificationDecisionError::RetiredLabel(label.as_str()));
+        }
+        if label == Some(SourceLabel::AgentsUnresolved) {
+            return Err(QualificationDecisionError::ReviewOnlyLabel);
         }
         match (qualification, label) {
             (Qualification::Disqualified, Some(label)) if label.disqualifies() => {}
@@ -334,6 +341,11 @@ mod tests {
                 Qualification::Qualified,
                 Some(SourceLabel::ApproachNotApplicable),
                 QualificationDecisionError::RetiredLabel("APPROACH_NOT_APPLICABLE"),
+            ),
+            (
+                Qualification::Qualified,
+                Some(SourceLabel::AgentsUnresolved),
+                QualificationDecisionError::ReviewOnlyLabel,
             ),
         ];
         for (qualification, label, error) in refused {

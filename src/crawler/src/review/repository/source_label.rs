@@ -60,9 +60,14 @@ impl CrawlerReviewRepository {
             return Err(ReviewRepositoryError::AgentSourceLabelNeedsNote);
         }
         let mut transaction = self.pool.begin().await?;
-        let (listing_source_id, artifact_type) =
-            lock_review_for_label(&mut transaction, review_id, actor, &self.agent_decisions)
-                .await?;
+        let (listing_source_id, artifact_type) = lock_review_for_label(
+            &mut transaction,
+            review_id,
+            actor,
+            request.label(),
+            &self.agent_decisions,
+        )
+        .await?;
         if let Some(required) = request.label().required_artifact()
             && required.as_str() != artifact_type
         {
@@ -157,11 +162,13 @@ impl CrawlerReviewRepository {
 /// the review's artifact type. The reviewer agent labels nothing, and an agent labels only through
 /// a pending review that does not wait for a human, or one whose final round started: the agents
 /// park the source of a review their final round could not decide instead of leaving it for a
-/// human.
+/// human. `AGENTS_UNRESOLVED` is an agent's label only in that final round, so a regular round
+/// does not park a source the final round has not tried.
 async fn lock_review_for_label(
     transaction: &mut Transaction<'_, Postgres>,
     review_id: CrawlerReviewId,
     actor: ReviewActor,
+    label: SourceLabel,
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<(ListingSourceId, String), ReviewRepositoryError> {
     let row = sqlx::query(
@@ -187,6 +194,9 @@ async fn lock_review_for_label(
             && agent_decisions.waits_for_human(&status, rounds)
         {
             return Err(human_required(review_id, rounds, agent_decisions));
+        }
+        if label == SourceLabel::AgentsUnresolved && rounds.final_round == FinalRound::NotStarted {
+            return Err(ReviewRepositoryError::FinalRoundOnlyLabel(review_id));
         }
     }
     Ok((

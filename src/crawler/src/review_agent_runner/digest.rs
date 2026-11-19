@@ -826,7 +826,7 @@ mod tests {
             classification_due: false,
         };
         let queue = ReviewQueue {
-            final_round_due: Vec::new(),
+            final_round_needed: Vec::new(),
             workable: vec![
                 queued(ReviewArtifact::UrlPattern, 100),
                 queued(ReviewArtifact::ProductSchema, 30),
@@ -1107,7 +1107,7 @@ mod tests {
             },
             vec![],
             ReviewQueue {
-                final_round_due: Vec::new(),
+                final_round_needed: Vec::new(),
                 workable: vec![],
                 waiting_for_human: vec![waiting],
             },
@@ -1210,7 +1210,7 @@ mod tests {
             },
             vec![],
             ReviewQueue {
-                final_round_due: Vec::new(),
+                final_round_needed: Vec::new(),
                 workable: vec![],
                 waiting_for_human: vec![waiting],
             },

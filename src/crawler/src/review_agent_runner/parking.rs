@@ -35,15 +35,20 @@ pub enum FinalRoundOutcome {
     /// The round stopped for a usage limit, a pause or the runner's stop; the next run goes on with
     /// it.
     Open,
-    /// It ended without approval and the runner could not park the source; the review waits for a
-    /// human, which the human queue report shows.
+    /// It ended without approval and the runner could not park the source; the next run parks it,
+    /// since a review whose final round ended is queued for its park.
     NotParked,
+    /// A human changed or judged the review while its final round ran, which handed it back to
+    /// the agents' regular rounds; the runner parks nothing.
+    HandedBack,
 }
 
 /// One entry of the parking ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ParkingEvent {
+    /// The console started a final round on a review: the event the day's cap counts.
+    FinalRoundStarted { review_id: CrawlerReviewId },
     /// A final round on a review ended, or stopped.
     FinalRound {
         review_id: CrawlerReviewId,
@@ -201,15 +206,17 @@ pub async fn retry_expired_parks(
 }
 
 /// How many final rounds, of reviews and qualifications, the ledger records at or after `since`:
-/// each started round once, however many runs it took.
+/// a review's round when the console started it, so a round a crash or a usage limit interrupted
+/// counts once, however many runs it takes, and a qualification's when it ended.
 pub fn final_rounds_since(records: &[ParkingRecord], since: OffsetDateTime) -> usize {
     records
         .iter()
         .filter(|record| record.at >= since)
-        .filter(|record| match &record.event {
-            ParkingEvent::FinalRound { outcome, .. } => *outcome != FinalRoundOutcome::Open,
-            ParkingEvent::FinalQualification { .. } => true,
-            ParkingEvent::Retried { .. } => false,
+        .filter(|record| {
+            matches!(
+                record.event,
+                ParkingEvent::FinalRoundStarted { .. } | ParkingEvent::FinalQualification { .. }
+            )
         })
         .count()
 }
@@ -229,6 +236,7 @@ pub fn digest_section(records: &[ParkingRecord], approved_sources: &[ListingSour
     let mut qualifications: BTreeMap<&str, usize> = BTreeMap::new();
     let mut retried_by_label: BTreeMap<&str, usize> = BTreeMap::new();
     let mut retried_sources = BTreeSet::new();
+    let mut started = 0;
     for record in records {
         match &record.event {
             ParkingEvent::FinalRound {
@@ -259,6 +267,7 @@ pub fn digest_section(records: &[ParkingRecord], approved_sources: &[ListingSour
                 *retried_by_label.entry(label).or_default() += 1;
                 retried_sources.insert(record.listing_source_id);
             }
+            ParkingEvent::FinalRoundStarted { .. } => started += 1,
         }
     }
     let came_back = approved_sources
@@ -276,6 +285,7 @@ pub fn digest_section(records: &[ParkingRecord], approved_sources: &[ListingSour
                 .join(", ")
         }
     };
+    let _ = writeln!(out, "- Final rounds started on reviews: {started}");
     let _ = writeln!(
         out,
         "- Final rounds on reviews: {}",
@@ -346,8 +356,16 @@ mod tests {
     }
 
     #[test]
-    fn should_count_each_finished_final_round_once_against_the_daily_cap() {
+    fn should_count_each_started_final_round_once_against_the_daily_cap() {
+        let started = ParkingRecord {
+            event: ParkingEvent::FinalRoundStarted {
+                review_id: CrawlerReviewId::new(),
+            },
+            ..final_round(FinalRoundOutcome::Open, None, false)
+        };
         let records = vec![
+            started.clone(),
+            started,
             final_round(FinalRoundOutcome::Approved, None, false),
             final_round(FinalRoundOutcome::Open, None, false),
             final_round(FinalRoundOutcome::Parked, Some("AGENTS_UNRESOLVED"), false),

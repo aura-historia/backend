@@ -1333,6 +1333,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "FINAL_ROUND_NEEDS_AUTHOR_AGENT")
         }
         ReviewRepositoryError::FinalRoundNotDue(_) => conflict(&error, "FINAL_ROUND_NOT_DUE"),
+        ReviewRepositoryError::FinalRoundOnlyLabel(_) => conflict(&error, "FINAL_ROUND_ONLY_LABEL"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }
@@ -4489,6 +4490,19 @@ Origin: http://127.0.0.1:7878/x
                     })
                     .unwrap_or_else(|| panic!("review not queued: {queue}"))
             };
+            let source_label = format!("POST /api/reviews/{review_id}/source-label");
+            let unresolved = json!({
+                "label": "AGENTS_UNRESOLVED",
+                "note": "Author: the h1 holds the title. Reviewer: it holds the shop name.",
+            })
+            .to_string();
+            let (status, refused) =
+                send_as(&server, AUTHOR_TOKEN, &source_label, &unresolved).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(
+                refused["reason"], "FINAL_ROUND_ONLY_LABEL",
+                "a regular round parks nothing as unresolved"
+            );
             let (status, _) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status}");
             let (_, waiting) = send_as(
@@ -4549,17 +4563,7 @@ Origin: http://127.0.0.1:7878/x
             let (status, refused) = send_as(&server, AUTHOR_TOKEN, &schema_field, &edit).await;
             assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
             assert_eq!(refused["reason"], "HUMAN_REQUIRED");
-            let (status, parked) = send_as(
-                &server,
-                AUTHOR_TOKEN,
-                &format!("POST /api/reviews/{review_id}/source-label"),
-                &json!({
-                    "label": "AGENTS_UNRESOLVED",
-                    "note": "Author: the h1 holds the title. Reviewer: it holds the shop name.",
-                })
-                .to_string(),
-            )
-            .await;
+            let (status, parked) = send_as(&server, AUTHOR_TOKEN, &source_label, &unresolved).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {parked}");
             assert_eq!(parked["labelled_by"], "AGENT_AUTHOR");
             assert!(parked["retry_at"].is_string(), "{parked}");

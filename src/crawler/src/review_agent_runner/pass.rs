@@ -304,7 +304,7 @@ impl Pass<'_> {
         let now = OffsetDateTime::now_utc();
         let final_rounds = self.take_final_rounds(
             queue
-                .final_round_due
+                .final_round_needed
                 .into_iter()
                 .filter(|review| !started.contains(&review.review_id))
                 .filter(|review| {

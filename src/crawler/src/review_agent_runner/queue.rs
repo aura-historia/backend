@@ -100,8 +100,9 @@ pub struct HumanRequiredReview {
 pub struct ReviewQueue {
     pub workable: Vec<QueuedReview>,
     pub waiting_for_human: Vec<HumanRequiredReview>,
-    /// Of those that wait for a human, the ones that may get the agents' final round now.
-    pub final_round_due: Vec<QueuedReview>,
+    /// Of those that wait for a human, the ones the agents' final round takes now: those due for
+    /// it, and those whose round ended, whose source the runner still has to park.
+    pub final_round_needed: Vec<QueuedReview>,
 }
 
 /// The agents' queue: every page of the reviews they can work, then every page of those that wait
@@ -171,9 +172,14 @@ impl ReviewQueue {
                 .filter(|review| !waiting_ids.contains(&review.review_id))
                 .filter_map(queued)
                 .collect(),
-            final_round_due: waiting_for_human
+            final_round_needed: waiting_for_human
                 .iter()
-                .filter(|review| review.final_round == FinalRoundStatus::Due)
+                .filter(|review| {
+                    matches!(
+                        review.final_round,
+                        FinalRoundStatus::Due | FinalRoundStatus::Ended
+                    )
+                })
                 .cloned()
                 .filter_map(queued)
                 .collect(),

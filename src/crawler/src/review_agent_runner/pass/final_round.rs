@@ -38,21 +38,27 @@ struct Park {
 }
 
 impl Pass<'_> {
-    /// Takes, of the reviews `due` for a final round, as many as `free` slots and the day's cap
-    /// admit, and counts the others as held back by the cap.
+    /// Takes, of the reviews that wait for a human and `need` their final round, as many as
+    /// `free` slots admit: every review whose round ended, which only needs its park and starts no
+    /// process, then the reviews due for a final round as far as the day's cap admits, counting the
+    /// others as held back by it.
     pub(super) fn take_final_rounds(
         &self,
-        due: Vec<QueuedReview>,
+        need: Vec<QueuedReview>,
         free: usize,
     ) -> Vec<QueuedReview> {
+        let (ended, due): (Vec<_>, Vec<_>) = need
+            .into_iter()
+            .partition(|review| review.final_round == FinalRoundStatus::Ended);
+        let mut taken: Vec<QueuedReview> = ended.into_iter().take(free).collect();
+        let free = free - taken.len();
         self.with(|shared| {
-            let taken = due.len().min(free).min(shared.final_rounds_left);
-            shared.final_rounds_left -= taken;
-            if taken < due.len().min(free) {
-                shared.summary.final_rounds_held_back += due.len().min(free) - taken;
-            }
-            due.into_iter().take(taken).collect()
-        })
+            let admitted = due.len().min(free).min(shared.final_rounds_left);
+            shared.final_rounds_left -= admitted;
+            shared.summary.final_rounds_held_back += due.len().min(free) - admitted;
+            taken.extend(due.into_iter().take(admitted));
+        });
+        taken
     }
 
     /// The review's event trail as a final-round process reads it after its prompt, as data: the
@@ -171,6 +177,17 @@ impl Pass<'_> {
             .await
         {
             Ok(_) => {
+                parking::record(
+                    &self.settings.state_dir,
+                    &ParkingRecord {
+                        at: OffsetDateTime::now_utc(),
+                        listing_source_id: review.listing_source_id,
+                        listing_source_name: review.listing_source_name.clone().unwrap_or_default(),
+                        event: ParkingEvent::FinalRoundStarted {
+                            review_id: review.review_id,
+                        },
+                    },
+                );
                 info!(
                     event = "crawler.review_agent.final_round_started",
                     review_id = %review.review_id,
@@ -230,6 +247,10 @@ impl Pass<'_> {
     /// Parks the review's source with `park`'s label and note as the author agent, and records
     /// how the final round ended.
     async fn park(&self, review: &QueuedReview, park: Park) {
+        if !self.final_round_still_runs(review).await {
+            self.finish_final_round(review, FinalRoundOutcome::HandedBack, None);
+            return;
+        }
         match self.label_source(review, &park).await {
             Ok(applied) => {
                 let parked_again = self.parked_again(&applied);
@@ -249,6 +270,24 @@ impl Pass<'_> {
                     "Cannot park the source after the review's final round; the review waits for a human"
                 );
                 self.finish_final_round(review, FinalRoundOutcome::NotParked, None);
+            }
+        }
+    }
+
+    /// Whether the review's trail still holds the final round it was given: a `FINAL_ROUND_STARTED`
+    /// event no `HUMAN` event follows. A human who changed or judged the review meanwhile took it
+    /// over, so the runner parks nothing; a trail it cannot read parks nothing either, and the
+    /// review stays with the agents for the next run.
+    async fn final_round_still_runs(&self, review: &QueuedReview) -> bool {
+        match review_trail(self.console, review.review_id).await {
+            Ok(events) => final_round_runs_in(&events),
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    "Cannot read the review's trail before parking its source; the next run tries again"
+                );
+                false
             }
         }
     }
@@ -455,6 +494,17 @@ fn shortened(text: &str, chars: usize) -> String {
     short
 }
 
+/// Whether `events`, the review's trail oldest first, holds a final round no human acted after.
+fn final_round_runs_in(events: &[TrailEvent]) -> bool {
+    let Some(started) = events
+        .iter()
+        .rposition(|event| event.action == "FINAL_ROUND_STARTED")
+    else {
+        return false;
+    };
+    !events[started..].iter().any(|event| event.actor == "HUMAN")
+}
+
 /// The outcome a decision the trail records gives the final round; `None` for no decision.
 fn decided_outcome(
     verdict: crate::review_agent_runner::reports::TrailVerdict,
@@ -621,6 +671,33 @@ mod tests {
             "{}",
             park.note
         );
+    }
+
+    /// A human who changed or judged the review after its final round started took it over: the
+    /// runner parks nothing then.
+    #[test]
+    fn should_park_only_while_no_human_acted_after_the_final_round_started() {
+        let event = |actor: &str, action: &str| TrailEvent {
+            actor: actor.to_owned(),
+            action: action.to_owned(),
+            candidate_version: 1,
+            notes: None,
+            created: OffsetDateTime::UNIX_EPOCH,
+        };
+        let started = event("AGENT_AUTHOR", "FINAL_ROUND_STARTED");
+        let repair = event("AGENT_REVIEWER", "REPAIR_REQUESTED");
+        let human = event("HUMAN", "CANDIDATE_EDITED");
+
+        assert!(final_round_runs_in(&[
+            event("HUMAN", "REPAIR_REQUESTED"),
+            event("AGENT_AUTHOR", "FINAL_ROUND_STARTED"),
+            event("AGENT_REVIEWER", "REPAIR_REQUESTED"),
+        ]));
+        assert!(!final_round_runs_in(&[started, repair, human]));
+        assert!(!final_round_runs_in(&[event(
+            "AGENT_REVIEWER",
+            "REPAIR_REQUESTED"
+        )]));
     }
 
     #[test]

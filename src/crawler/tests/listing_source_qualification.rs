@@ -964,3 +964,74 @@ async fn should_keep_a_human_s_qualification_when_a_park_expires() {
     sync(&pool, QualificationGate::Required, scope()).await;
     assert!(crawl_enabled(&pool, listing_source_id).await);
 }
+
+/// A retry time stands only beside what it retries: an agent's park label or an agent's
+/// `NEEDS_HUMAN`. A row without a label or a qualification refuses one, so the retry never reads
+/// a park that is not there.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_a_retry_time_without_the_park_it_retries() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    sync(
+        &pool,
+        QualificationGate::Required,
+        vec![registered(listing_source_id, "https://bare.example/")],
+    )
+    .await;
+
+    for column in ["source_label_retry_at", "qualification_retry_at"] {
+        let refused = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {column} = NOW() WHERE listing_source_id = $1"
+        )))
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await;
+        assert!(refused.is_err(), "{column} without its park");
+    }
+}
+
+/// An expired park of a source without a qualification clears the label and writes no
+/// qualification clear, since there is none to clear.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_write_no_qualification_clear_when_a_parked_source_had_none() {
+    let pool = get_postgres_client().await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    sync(
+        &pool,
+        QualificationGate::Required,
+        vec![registered(
+            listing_source_id,
+            "https://unqualified.example/",
+        )],
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET source_label = 'JAVASCRIPT_RENDERED', source_label_note = 'empty item pages', \
+             source_labelled_at = NOW() - INTERVAL '31 days', source_labelled_by = 'AGENT_AUTHOR', \
+             source_label_retry_at = NOW() - INTERVAL '1 day', crawl_enabled = FALSE \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let retried = reviews
+        .retry_parked_sources(ReviewActor::AgentAuthor)
+        .await
+        .unwrap();
+
+    assert_eq!(retried.len(), 1);
+    assert!(retried[0].requalifies);
+    let clears: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_qualification_events WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(clears, 0);
+    assert!(queued(&pool).await.contains(&(listing_source_id, false)));
+}

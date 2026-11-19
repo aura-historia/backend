@@ -35,7 +35,8 @@ impl CrawlerReviewRepository {
         let mut transaction = self.pool.begin().await?;
         let expired = sqlx::query(
             "SELECT listing_source_id, listing_source_name, source_label, source_labelled_at, \
-                    qualified_by IS DISTINCT FROM $1 AS requalifies \
+                    qualified_by IS DISTINCT FROM $1 AS requalifies, \
+                    qualification IS NOT NULL AS qualified \
              FROM listing_sources \
              WHERE source_label_retry_at <= NOW() \
              ORDER BY source_label_retry_at, listing_source_id \
@@ -57,8 +58,10 @@ impl CrawlerReviewRepository {
             };
             clear_label(&mut transaction, &source.listing_source_id, actor).await?;
             if source.requalifies {
-                clear_stored_qualification(&mut transaction, &source.listing_source_id, actor)
-                    .await?;
+                if row.try_get::<bool, _>("qualified")? {
+                    clear_stored_qualification(&mut transaction, &source.listing_source_id, actor)
+                        .await?;
+                }
                 self.withhold_crawl(&mut transaction, &source.listing_source_id)
                     .await?;
             }
