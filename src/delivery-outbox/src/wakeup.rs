@@ -29,12 +29,29 @@ impl OutboxWakeups {
     }
 
     /// Waits for the next notification, at most `poll_interval`. Notifications that arrived
-    /// while the dispatcher was busy return at once.
+    /// while the dispatcher was busy return at once, all in one wake-up, since one dispatch
+    /// round answers every capture committed before it.
     pub async fn wait(&mut self, poll_interval: Duration) -> Result<OutboxWakeup, OutboxError> {
         match tokio::time::timeout(poll_interval, self.listener.try_recv()).await {
             Err(_) | Ok(Ok(None)) => Ok(OutboxWakeup::Poll),
-            Ok(Ok(Some(_))) => Ok(OutboxWakeup::Captured),
+            Ok(Ok(Some(_))) => {
+                self.drain_arrived().await?;
+                Ok(OutboxWakeup::Captured)
+            }
             Ok(Err(error)) => Err(error.into()),
+        }
+    }
+
+    /// Consumes the notifications that already arrived, without waiting for more.
+    async fn drain_arrived(&mut self) -> Result<(), OutboxError> {
+        loop {
+            match tokio::time::timeout(Duration::ZERO, self.listener.try_recv()).await {
+                Ok(Ok(Some(_))) => {}
+                // Nothing else arrived, or the listener reconnected after a capture that the
+                // coming dispatch round answers anyway.
+                Err(_) | Ok(Ok(None)) => return Ok(()),
+                Ok(Err(error)) => return Err(error.into()),
+            }
         }
     }
 }

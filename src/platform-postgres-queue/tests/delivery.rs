@@ -8,7 +8,8 @@ use platform_postgres_queue::{
 };
 use std::{collections::HashSet, time::Duration};
 use support::{
-    DATABASE, SHORT, ack, claim_ids, claim_one, class, custody_row, push, scope, sorted, standard,
+    DATABASE, SHORT, ack, claim_ids, claim_one, class, custody_row, last_error_class, push, scope,
+    sorted, standard,
 };
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 
@@ -47,7 +48,7 @@ async fn should_redeliver_a_job_once_its_lease_expires_and_reject_the_stale_leas
     let pool = get_postgres_client().await;
     let scope = scope("lease", QueueOrdering::Standard, SHORT, 5, Duration::ZERO);
     let id = push(&pool, &scope, None, "{}").await;
-    let queue = JobQueue::new(pool, scope);
+    let queue = JobQueue::new(pool.clone(), scope);
 
     let first = claim_one(&queue).await.unwrap();
     assert_eq!((id, 1), (first.job_id(), first.attempt()));
@@ -56,11 +57,16 @@ async fn should_redeliver_a_job_once_its_lease_expires_and_reject_the_stale_leas
         claim_one(&queue).await,
         "a leased job is not claimable"
     );
+    assert_eq!(None, last_error_class(&pool, id).await);
 
     tokio::time::sleep(SHORT * 2).await;
     let second = claim_one(&queue).await.unwrap();
 
     assert_eq!((id, 2), (second.job_id(), second.attempt()));
+    assert_eq!(
+        Some("lease_expired".to_owned()),
+        last_error_class(&pool, id).await
+    );
     assert_eq!(
         Settlement::StaleLease,
         queue

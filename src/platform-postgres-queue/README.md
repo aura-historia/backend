@@ -30,8 +30,9 @@ the interrupted attempt is not counted, except that a claimed job keeps at least
 attempt so it never re-enters deduplication. Repeated releases therefore never spend its budget.
 
 A settlement with a superseded token, or a repeated one, reports a stale lease and changes
-nothing. A job whose lease expires unsettled becomes claimable again; if that was its last
-allowed attempt, the next claim moves it to custody instead. Handlers must still tolerate
+nothing. A job whose lease expires unsettled becomes claimable again, and the next claim records
+`lease_expired` as its last error class; if that was its last allowed attempt, the next claim
+moves it to custody instead. Handlers must still tolerate
 duplicates: a lost acknowledgment or an expired lease redelivers work that may have completed.
 
 Claims pin their plans to ordered index scans, because statistics of a table that swings between
@@ -66,8 +67,9 @@ which takes the same group lock, so a producer role needs no table privilege
 ([admission](../../docs/product-listing.md#asynchronous-ingestion-submission)). A statement trigger notifies the channel `job_queue:<scope>` once
 per committing transaction. PostgreSQL serializes the commits of transactions that notify, which
 bounds enqueue throughput across all scopes. `JobWakeups` listens on a worker's scopes; workers also poll, since
-retries, expired leases and unblocked FIFO groups become claimable without a notification and a
-reconnecting listener can miss one.
+retries, expired leases and unblocked FIFO groups become claimable without a notification. A
+listener that lost its connection reconnects and reports `Wakeup::Reconnected`, since it may
+have missed notifications of any scope.
 
 ## Failure custody and operator functions
 

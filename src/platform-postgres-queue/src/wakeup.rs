@@ -9,10 +9,12 @@ use std::time::Duration;
 pub enum Wakeup {
     /// A transaction that enqueued jobs of this scope committed.
     Enqueued(ScopeName),
-    /// The poll interval elapsed, or the listener reconnected and may have missed
-    /// notifications. Claim from every scope: retries, expired leases and unblocked FIFO
-    /// groups become claimable without a notification.
+    /// The poll interval elapsed, or a notification named no listened scope. Retries, expired
+    /// leases and unblocked FIFO groups become claimable without a notification.
     Poll,
+    /// The listener lost its connection and reconnected, so it may have missed notifications
+    /// of any scope. Claim from every scope.
+    Reconnected,
 }
 
 /// A dedicated listening connection for a worker's scopes.
@@ -38,7 +40,7 @@ impl JobWakeups {
     pub async fn wait(&mut self, poll_interval: Duration) -> Result<Wakeup, JobQueueError> {
         match tokio::time::timeout(poll_interval, self.listener.try_recv()).await {
             Err(_elapsed) => Ok(Wakeup::Poll),
-            Ok(Ok(None)) => Ok(Wakeup::Poll),
+            Ok(Ok(None)) => Ok(Wakeup::Reconnected),
             Ok(Ok(Some(notification))) => {
                 Ok(ScopeName::from_notify_channel(notification.channel())
                     .map_or(Wakeup::Poll, Wakeup::Enqueued))
