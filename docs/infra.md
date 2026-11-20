@@ -245,9 +245,9 @@ reads the parameter only when the subscription changes. CloudFront publishes its
 in `us-east-1`, where CloudFormation cannot reference the `api` stack's distributions, so their
 IDs are pinned in the configuration; replacing a distribution must update them.
 
-Deploy `monitoring` before the host ships logs to its groups. `edge-monitoring` has no assets,
-so `cdk deploy application-prod-edge-monitoring` deploys its template inline to `us-east-1`,
-which needs no CDK bootstrap.
+Deploy `monitoring` before the host ships logs to its groups. `edge-monitoring` has no assets
+and names no bootstrap roles, so `cdk deploy application-prod-edge-monitoring` deploys its
+template inline to `us-east-1` with the CLI's credentials; that region has no CDK bootstrap.
 
 ### Deploying the reduced app
 
