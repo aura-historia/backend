@@ -1,8 +1,8 @@
 -- Role bootstrap of the self-hosted PostgreSQL. Run inside one transaction as the administrator
 -- after the caller sets the three aura.bootstrap.* password settings. An optional fourth,
 -- aura.bootstrap.crawler_ingestion_password, lets the crawler's ingestion role log in; without it
--- the role exists but cannot log in. Derived from
--- rds-bootstrap-roles-core.sql without logical replication: the delivery outbox replaced DMS.
+-- the role exists but cannot log in. There is no logical replication: the delivery outbox
+-- replaced DMS.
 --
 -- The immutable initial business schema still grants the retired DMS heartbeat schema to
 -- aura_replication, so a fresh database needs that role while the migrations run. It is created

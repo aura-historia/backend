@@ -12,7 +12,7 @@ use sqlx::{PgConnection, migrate::Migrate};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 use thiserror::Error;
 
-const SCHEMA_SQL: &str = include_str!("../../../../infra/sql/rds-inspect-schema.sql");
+const SCHEMA_SQL: &str = include_str!("../../../../infra/sql/inspect-schema.sql");
 const DATABASE_TARGET_ENV: &str = "DATABASE_TARGET";
 /// The bound of one migration run; past it the outcome is unknown and the ledger decides.
 const MIGRATION_LIMIT: Duration = Duration::from_secs(600);

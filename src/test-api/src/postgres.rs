@@ -701,27 +701,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_the_production_rds_bundle_for_the_fixture() {
-        let reservation = crate::reserve_exclusive()
-            .await
-            .expect("reserve raw PostgreSQL fixture");
-        reservation
-            .scope(async {
-                ensure_container_started().await;
-                let production_bundle = Path::new(env!("CARGO_WORKSPACE_DIR"))
-                    .join("infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem");
-
-                assert!(
-                    postgres_connect_options(&production_bundle)
-                        .connect()
-                        .await
-                        .is_err()
-                );
-            })
-            .await;
-    }
-
-    #[tokio::test]
     async fn should_reject_wrong_hostname_and_missing_root_certificate() {
         let reservation = crate::reserve_exclusive()
             .await
