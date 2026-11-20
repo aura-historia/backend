@@ -35,7 +35,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
-time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+time = { workspace = true, features = ["local-offset", "macros", "formatting", "parsing"] }
 user-core = { workspace = true }
 user-service = { workspace = true }
 

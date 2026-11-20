@@ -126,6 +126,7 @@ use oauth_service::use_cases::{
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
+use product_listing_service::ports::shopify_webhook_clock::SystemShopifyWebhookClock;
 use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
 use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingMutationHandler,
@@ -1867,6 +1868,7 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceReaders::new(pool.clone()),
         Arc::clone(&partner_ingestion.submit_internal),
         ShopifyProductPayloadDecoder,
+        SystemShopifyWebhookClock,
     );
     let access_token_use_case =
         AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));

@@ -47,3 +47,33 @@ async fn should_wake_listeners_of_the_scope_when_an_enqueue_commits() {
         "one transaction announces its scope once"
     );
 }
+
+#[aura_integration_test(services = [DATABASE], isolated = true)]
+async fn should_report_a_reconnect_after_the_listening_connection_is_lost() {
+    let pool = get_postgres_client().await;
+    let watched = standard("watched");
+    let mut wakeups = JobWakeups::listen(&pool, [watched.name()]).await.unwrap();
+
+    let terminated: Vec<bool> = sqlx::query_scalar(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+         WHERE datname = current_database() AND pid <> pg_backend_pid() \
+           AND query LIKE 'LISTEN %'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(vec![true], terminated);
+
+    assert_eq!(
+        Wakeup::Reconnected,
+        wakeups.wait(Duration::from_secs(10)).await.unwrap()
+    );
+    enqueue(&pool, &NewJob::new(&watched, None, "{}").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        Wakeup::Enqueued(watched.name().clone()),
+        wakeups.wait(Duration::from_secs(10)).await.unwrap(),
+        "the reconnected listener listens again"
+    );
+}

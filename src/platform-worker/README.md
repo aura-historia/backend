@@ -7,7 +7,8 @@ retry or park a job.
 
 - **Claiming.** One loop per scope keeps at most `concurrency` jobs in flight and claims as many
   as it has free slots. It waits for a `LISTEN/NOTIFY` wake-up of its scope, a finished job or
-  the poll interval; polling picks up retries, expired leases and unblocked FIFO groups.
+  the poll interval; polling picks up retries, expired leases and unblocked FIFO groups. A
+  listener that lost its connection wakes every scope once it reconnects.
 - **Settlement.** The handler's `Disposition` settles the job: `Complete` acknowledges it,
   `Retry` releases it after the scope's retry delay and `Park` moves a redelivered job to
   custody. Handlers see a `Job` without its lease, so only the runtime settles.

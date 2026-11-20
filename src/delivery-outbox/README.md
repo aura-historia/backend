@@ -32,8 +32,9 @@ Publication is never partial: a crash or error before commit leaves every snapsh
 to be dispatched again with the same effect, and the jobs and the deletion commit together.
 `dispatch_within` runs the same steps inside a caller's transaction.
 
-`OutboxWakeups` listens for captures and redrives; the dispatcher also polls, since a
-reconnecting listener can miss a notification. Every transaction that writes a selected source
+`OutboxWakeups` listens for captures and redrives and answers the notifications that arrived
+while the dispatcher was busy with one wake-up; the dispatcher also polls, since a reconnecting
+listener can miss a notification. Every transaction that writes a selected source
 therefore notifies on commit, and PostgreSQL serializes the commits of notifying transactions.
 
 ## Ordering

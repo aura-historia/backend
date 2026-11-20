@@ -1,4 +1,4 @@
-"""Local HTTP checks for the optional smoke command; never contacts stage."""
+"""Local HTTP checks for the optional smoke command; never contacts a live environment."""
 import importlib.util
 import json
 import pathlib
@@ -190,7 +190,7 @@ class SmokeTests(unittest.TestCase):
         metadata = f'resource_metadata="{self.origin}/.well-known/oauth-protected-resource/v1"'
         protected = {"WWW-Authenticate": f'Bearer {metadata}, scope="users:read"'}
         invalid = {"WWW-Authenticate": f'Bearer {metadata}, error="invalid_token"'}
-        cors = {"Access-Control-Allow-Origin": "https://stage.aura-historia.com",
+        cors = {"Access-Control-Allow-Origin": smoke.SITE_ORIGIN,
                 "Access-Control-Expose-Headers": "www-authenticate,x-request-id,x-correlation-id,content-type",
                 "Access-Control-Allow-Headers": "authorization,content-type,mcp-protocol-version,mcp-method,mcp-name",
                 "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS"}

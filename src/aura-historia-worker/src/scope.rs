@@ -3,8 +3,8 @@
 use aura_historia_jobs::WorkerScope;
 use platform_postgres_queue::JobScope;
 use platform_worker_queue_contract::job_queue::{
-    PRODUCT_LISTING_INGESTION_SCOPE, ProjectionGeneration, ProjectionTarget,
-    product_listing_ingestion_job_scope, worker_job_scope,
+    ProjectionGeneration, ProjectionTarget, ServedScope, product_listing_ingestion_job_scope,
+    worker_job_scope,
 };
 use std::time::Duration;
 
@@ -58,21 +58,7 @@ impl ConsumedScope {
     /// Parses a scope by its queue name, such as `geo-resolution` or
     /// `product-listing-opensearch-g7` for a projection generation.
     pub fn parse(name: &str) -> Option<Self> {
-        if name == PRODUCT_LISTING_INGESTION_SCOPE {
-            return Some(Self::ProductListingIngestion);
-        }
-        if let Some(scope) = WorkerScope::ALL
-            .into_iter()
-            .find(|scope| scope.as_str() == name)
-        {
-            return Some(Self::Worker(scope));
-        }
-        let generation = name
-            .strip_prefix(WorkerScope::ProductListingOpenSearch.as_str())?
-            .strip_prefix('-')?;
-        ProjectionGeneration::new(generation)
-            .ok()
-            .map(Self::ProjectionGeneration)
+        ServedScope::parse(name).map(Self::from)
     }
 
     pub fn job_scope(&self) -> JobScope {
@@ -123,29 +109,27 @@ impl ConsumedScope {
     }
 }
 
+impl From<ServedScope> for ConsumedScope {
+    fn from(scope: ServedScope) -> Self {
+        match scope {
+            ServedScope::Worker(scope) => Self::Worker(scope),
+            ServedScope::ProductListingIngestion => Self::ProductListingIngestion,
+            ServedScope::ProjectionGeneration(generation) => Self::ProjectionGeneration(generation),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn should_parse_every_consumed_scope_by_its_queue_name() {
-        for scope in ConsumedScope::all() {
+        let generation =
+            ConsumedScope::ProjectionGeneration(ProjectionGeneration::new("g7").unwrap());
+        for scope in ConsumedScope::all().into_iter().chain([generation]) {
             let name = scope.job_scope().name().as_str().to_owned();
             assert_eq!(Some(scope), ConsumedScope::parse(&name), "{name}");
-        }
-        assert_eq!(
-            Some(ConsumedScope::ProjectionGeneration(
-                ProjectionGeneration::new("g7").unwrap()
-            )),
-            ConsumedScope::parse("product-listing-opensearch-g7")
-        );
-        for unknown in [
-            "",
-            "unknown",
-            "product-listing-opensearch-",
-            "product-listing-opensearch-G7",
-        ] {
-            assert_eq!(None, ConsumedScope::parse(unknown), "{unknown}");
         }
     }
 

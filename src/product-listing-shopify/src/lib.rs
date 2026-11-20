@@ -16,9 +16,6 @@ use product_listing_service::ports::shopify_product_decoder::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use time::OffsetDateTime;
-#[cfg(test)]
-use time::format_description::well_known::Rfc3339;
 
 const PAYLOAD_SCHEMA_VERSION: u16 = 1;
 
@@ -74,18 +71,14 @@ enum ShopifyProductEventError {
     MissingHandle,
     #[error("Shopify listing source currency is missing for a nonblank product price")]
     MissingListingSourceCurrency,
-    #[cfg(test)]
-    #[error("Shopify trigger timestamp is invalid")]
-    InvalidTriggeredAt(#[source] time::error::Parse),
 }
 
 /// Maps Shopify's provider vocabulary to Aura's generic raw-input contract.
 /// Unknown keys other than `body_html` remain in `source_payload` unchanged.
-fn listing_action_with_source_occurred_at(
+fn listing_action(
     kind: ShopifyProductEventKind,
     source: &ShopifySource,
     payload: Value,
-    source_occurred_at: Option<OffsetDateTime>,
 ) -> Result<ShopifyListingAction, ShopifyProductEventError> {
     let mut sanitized_payload = payload;
     if let Some(object) = sanitized_payload.as_object_mut() {
@@ -140,20 +133,7 @@ fn listing_action_with_source_occurred_at(
     Ok(ShopifyListingAction::Capture(ShopifyRawObservation {
         source_record_key,
         input,
-        source_occurred_at,
     }))
-}
-
-#[cfg(test)]
-fn source_occurred_at_from_triggered_at(
-    triggered_at: Option<&str>,
-) -> Result<Option<OffsetDateTime>, ShopifyProductEventError> {
-    triggered_at
-        .map(|value| {
-            OffsetDateTime::parse(value, &Rfc3339)
-                .map_err(ShopifyProductEventError::InvalidTriggeredAt)
-        })
-        .transpose()
 }
 
 fn upsert_raw_values(
@@ -277,23 +257,8 @@ impl ShopifyProductDecoder for ShopifyProductPayloadDecoder {
         source: &ShopifySource,
         payload: SourcePayload,
     ) -> Result<ShopifyListingAction, application::error::BoxError> {
-        listing_action_with_source_occurred_at(kind, source, payload.value().clone(), None)
-            .map_err(application::error::box_error)
+        listing_action(kind, source, payload.value().clone()).map_err(application::error::box_error)
     }
-}
-
-#[cfg(test)]
-fn listing_action(
-    kind: ShopifyProductEventKind,
-    source: &ShopifySource,
-    payload: Value,
-) -> Result<ShopifyListingAction, ShopifyProductEventError> {
-    listing_action_with_source_occurred_at(
-        kind,
-        source,
-        serde_json::json!({"product_listing": payload}),
-        None,
-    )
 }
 
 #[cfg(test)]
@@ -304,9 +269,18 @@ mod tests {
     use money::Currency;
     use serde_json::json;
 
+    /// Decodes one webhook body whose `product_listing` is `listing`.
+    fn wrapped_listing_action(
+        kind: ShopifyProductEventKind,
+        source: &ShopifySource,
+        listing: Value,
+    ) -> Result<ShopifyListingAction, ShopifyProductEventError> {
+        listing_action(kind, source, json!({"product_listing": listing}))
+    }
+
     #[test]
     fn should_map_active_product_to_generic_raw_values_and_context() {
-        let action = listing_action(ShopifyProductEventKind::Add,
+        let action = wrapped_listing_action(ShopifyProductEventKind::Add,
                 &source(),
                 json!({
                     "product_id": 42,
@@ -373,7 +347,7 @@ mod tests {
             observation.input.raw_values().value()["description"]
         );
 
-        let alternative = listing_action(ShopifyProductEventKind::Add,
+        let alternative = wrapped_listing_action(ShopifyProductEventKind::Add,
                 &source(),
                 json!({
                     "product_id": 42,
@@ -399,7 +373,7 @@ mod tests {
             alternative.input.source_payload().value()
         );
 
-        let update = listing_action(
+        let update = wrapped_listing_action(
             ShopifyProductEventKind::Update,
             &source(),
             json!({
@@ -435,12 +409,12 @@ mod tests {
             let mut snapshot = payload(None);
             snapshot.as_object_mut().unwrap().remove("status");
             assert!(matches!(
-                listing_action(kind, &source(), snapshot),
+                wrapped_listing_action(kind, &source(), snapshot),
                 Ok(ShopifyListingAction::Capture(_))
             ));
         }
         assert!(
-            matches!(listing_action(ShopifyProductEventKind::Remove, &source(), json!({"product_id": 42})), Ok(ShopifyListingAction::Capture(o)) if o.input.operation() == RawProductListingOperation::Delete)
+            matches!(wrapped_listing_action(ShopifyProductEventKind::Remove, &source(), json!({"product_id": 42})), Ok(ShopifyListingAction::Capture(o)) if o.input.operation() == RawProductListingOperation::Delete)
         );
         for id in [
             json!(null),
@@ -452,7 +426,7 @@ mod tests {
             json!("042"),
         ] {
             assert!(
-                listing_action(
+                wrapped_listing_action(
                     ShopifyProductEventKind::Remove,
                     &source(),
                     json!({"product_id": id})
@@ -461,7 +435,7 @@ mod tests {
             );
         }
         let exact = 9_007_199_254_740_993_u64;
-        let action = listing_action(
+        let action = wrapped_listing_action(
             ShopifyProductEventKind::Remove,
             &source(),
             json!({"product_id": exact}),
@@ -475,7 +449,7 @@ mod tests {
     #[test]
     fn should_preserve_exact_unsigned_64_bit_product_ids() {
         for id in [9_007_199_254_740_993_u64, u64::MAX] {
-            let ShopifyListingAction::Capture(observation) = listing_action(
+            let ShopifyListingAction::Capture(observation) = wrapped_listing_action(
                 ShopifyProductEventKind::Remove,
                 &source(),
                 json!({"product_id": id}),
@@ -497,7 +471,7 @@ mod tests {
         product["variants"] = json!([{"price": "42.00"}]);
 
         assert!(matches!(
-            listing_action(
+            wrapped_listing_action(
                 ShopifyProductEventKind::Add,
                 &source_without_currency(),
                 product
@@ -511,7 +485,7 @@ mod tests {
         let mut product = payload(Some("active"));
         product["variants"] = json!([{"price": " \t "}]);
 
-        let action = listing_action(
+        let action = wrapped_listing_action(
             ShopifyProductEventKind::Add,
             &source_without_currency(),
             product,
@@ -525,31 +499,6 @@ mod tests {
             json!({"action": "CLEAR"}),
             observation.input.raw_values().value()["price"]
         );
-    }
-
-    #[test]
-    fn should_parse_shopify_trigger_time_for_id_only_delete() {
-        assert_eq!(
-            Some(
-                OffsetDateTime::parse("2026-09-07T10:02:00Z", &Rfc3339)
-                    .unwrap_or_else(|error| panic!("timestamp: {error}")),
-            ),
-            source_occurred_at_from_triggered_at(Some("2026-09-07T10:02:00Z"))
-                .unwrap_or_else(|error| panic!("trigger timestamp: {error}")),
-        );
-        assert!(matches!(
-            listing_action_with_source_occurred_at(ShopifyProductEventKind::Remove,
-                    &source(),
-                    json!({"product_listing": {"product_id": 42}}),
-                    source_occurred_at_from_triggered_at(Some("2026-09-07T10:02:00Z"))
-                        .unwrap_or_else(|error| panic!("trigger timestamp: {error}")),
-                ),
-            Ok(ShopifyListingAction::Capture(ShopifyRawObservation {
-                source_occurred_at: Some(_),
-                input,
-                ..
-            })) if input.operation() == RawProductListingOperation::Delete
-        ));
     }
 
     #[test]

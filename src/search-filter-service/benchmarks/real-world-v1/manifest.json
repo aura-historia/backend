@@ -6,9 +6,9 @@
   "scope": "Purposive challenge set of real CC0 museum objects, plus explicitly constructed lots. Not a random sample of dealer listings; not a population error-rate estimate.",
   "created_at": "2026-10-31",
   "threshold": 0.5,
-  "classifier_model": "clef-flash",
-  "neurons_per_million_input_tokens": 3455,
-  "max_estimated_neurons": 1500,
+  "classifier_model": "clef",
+  "neurons_per_million_input_tokens": 21818,
+  "max_estimated_neurons": 7500,
   "case_count": 88,
   "unique_object_count": 69,
   "groups": [

@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-20 — Bounded Shopify trigger time (#3080)
+
+- **Behavior change:** `POST /v1/webhooks/shopify` rejects a forwarded delivery for a shop with a Shopify ListingSource whose `X-Shopify-Triggered-At` is more than five minutes in the future or more than six hours old with `400 BAD_HEADER_VALUE` and `source.field` `X-Shopify-Triggered-At`. The HMAC covers only the body, so the header is unauthenticated; the bound keeps a replayed body from ordering an observation, such as a removal, at a time Shopify would never send. A trigger time that is not RFC 3339 now also returns `400 BAD_HEADER_VALUE` instead of `BAD_BODY_VALUE`. Shopify's own deliveries and retries fall inside the bound.
+
 ## 2026-11-18 — Request-rate limits in the API (#3027)
 
 - **Behavior change:** the API now enforces the request-rate limits that API Gateway's throttles enforced. When a limit is exhausted, every operation, and `POST /v1/address-suggestions` with its own lower limit, returns `429 REQUEST_RATE_LIMITED` with `Retry-After: 1` and the usual problem body, instead of the gateway's `{"message":"Too Many Requests"}`. Clients should back off and retry. Only `GET /v1/health` is not limited.

@@ -137,3 +137,24 @@ async fn should_wake_the_dispatcher_only_when_a_capture_commits() {
         wakeups.wait(Duration::from_secs(5)).await.unwrap()
     );
 }
+
+#[aura_integration_test(services = [DATABASE], isolated = true)]
+async fn should_answer_every_capture_that_arrived_while_busy_with_one_wakeup() {
+    let pool = get_postgres_client().await;
+    let mut wakeups = OutboxWakeups::listen(&pool).await.unwrap();
+    for _ in 0..3 {
+        capture_invalid(&pool, json!({"unknown": 1})).await;
+    }
+    // The dispatcher is busy while the committed captures' notifications arrive.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    assert_eq!(
+        OutboxWakeup::Captured,
+        wakeups.wait(Duration::from_secs(5)).await.unwrap()
+    );
+    assert_eq!(
+        OutboxWakeup::Poll,
+        wakeups.wait(Duration::from_millis(300)).await.unwrap(),
+        "the arrived notifications were answered together"
+    );
+}

@@ -148,7 +148,9 @@ impl JobQueue {
     }
 
     /// Selects and locks candidates, moves exhausted ones to custody and leases the rest, in
-    /// one statement. Custody rows come back with only the ID and attempt count.
+    /// one statement. A claimable candidate that still holds a lease was not settled before the
+    /// lease expired, so both paths record `lease_expired` as its last error class. Custody rows
+    /// come back with only the ID and attempt count.
     async fn claim_once(
         &self,
         connection: &mut PgConnection,
@@ -205,7 +207,9 @@ impl JobQueue {
                      lease_token = gen_random_uuid(), \
                      leased_until = now() + $4::bigint * interval '1 microsecond', \
                      available_at = now() + $4::bigint * interval '1 microsecond', \
-                     last_claimed_at = now() \
+                     last_claimed_at = now(), \
+                     last_error_class = CASE WHEN jobs.lease_token IS NULL \
+                         THEN jobs.last_error_class ELSE '{lease_expired}' END \
                  FROM candidates \
                  WHERE jobs.job_id = candidates.job_id AND candidates.attempts < $3 \
                  RETURNING jobs.job_id, jobs.lease_token, jobs.attempts, jobs.group_key, \

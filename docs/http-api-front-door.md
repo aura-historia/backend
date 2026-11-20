@@ -234,7 +234,7 @@ sampling and payload logging are disabled for MCP. Review metrics without record
 headers or arguments/results. The [hosting tests](../infra/test/mcp-hosting.test.ts)
 pin these boundaries to the transport budgets.
 
-### MCP deployment and stage verification
+### MCP deployment and release verification
 
 Deploy CDK changes as described in [deploying the CDK stacks](infra.md#deploying-the-cdk-stacks).
 Before first traffic, verify domain ownership, then provision an issued
@@ -268,7 +268,7 @@ curl -i "$mcp_origin/v1" \
 Require readiness `204`, a supported initialization result and successful discovery.
 Compare `tools/list` with the release's disjoint public/authenticated manifests and
 call one actual listed public tool with bounded inputs and verify its complete
-result. The [generic OAuth/MCP runbook](mcp.md#generic-oauth-acceptance-and-stage-smoke)
+result. The [generic OAuth/MCP runbook](mcp.md#generic-oauth-acceptance-and-release-smoke)
 provides a bounded optional command and a separate delegated-read check. Complete
 these checks before approving traffic:
 

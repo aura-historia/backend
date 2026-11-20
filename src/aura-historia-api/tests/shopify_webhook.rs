@@ -29,7 +29,10 @@ use product_listing_postgres::{
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::{
-    ports::{ProductListingIngestionPublishError, ProductListingIngestionPublisher},
+    ports::{
+        ProductListingIngestionPublishError, ProductListingIngestionPublisher,
+        shopify_webhook_clock::ShopifyWebhookClock,
+    },
     use_cases::{
         ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
         ProductListingIngestionCompletion, ProductListingIngestionEffect,
@@ -135,8 +138,8 @@ async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
         revision.provenance.0["shopifyWebhookId"]
     );
     assert_eq!(
-        serde_json::Value::Null,
-        revision.provenance.0["eventBridgeEventId"]
+        Some(&serde_json::Value::Null),
+        revision.provenance.0.get("eventBridgeEventId")
     );
     assert_eq!(Some("shopify-event-1".to_owned()), revision.source_event_id);
     assert_eq!(
@@ -939,6 +942,15 @@ impl ProductListingIngestionPublisher for CapturingPublisher {
     }
 }
 
+/// Receives every delivery shortly after `DEFAULT_TRIGGERED_AT`, inside Shopify's retry horizon.
+struct DeliveryClock;
+
+impl ShopifyWebhookClock for DeliveryClock {
+    fn now_utc(&self) -> OffsetDateTime {
+        occurred_at(DEFAULT_TRIGGERED_AT) + time::Duration::minutes(1)
+    }
+}
+
 struct ShopifyTestHarness {
     pool: sqlx::PgPool,
     publisher: CapturingPublisher,
@@ -959,6 +971,7 @@ impl ShopifyTestHarness {
             SqlxListingSourceReaders::new(self.pool.clone()),
             SubmitInternalProductListingIngestionHandler::new(self.publisher.clone()),
             ShopifyProductPayloadDecoder,
+            DeliveryClock,
         );
         let secrets = ShopifyWebhookSecrets::new(CLIENT_SECRET.to_owned(), None)
             .unwrap_or_else(|_| panic!("Shopify test client secret must be nonblank"));

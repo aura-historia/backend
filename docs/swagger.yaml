@@ -3434,7 +3434,9 @@ paths:
         ListingSource also returns `200` without effects. Admission is not raw capture, normalization or
         search visibility. `X-Shopify-Triggered-At` orders observations of one product by provider source
         time, and `X-Shopify-Webhook-Id` identifies the delivery: Shopify's retries of one delivery
-        deduplicate into one command and one provider receipt.
+        deduplicate into one command and one provider receipt. Only the body is signed, so a trigger time
+        more than five minutes in the future or more than six hours old is rejected for a shop with a
+        Shopify ListingSource.
 
         `400` means the delivery is malformed or its product cannot be mapped; `5xx` means admission is
         uncertain and Shopify should retry, which it does for about four hours. After that, re-importing the
@@ -3472,7 +3474,9 @@ paths:
         - name: X-Shopify-Triggered-At
           in: header
           required: false
-          description: RFC 3339 time the event was triggered; it orders observations of one product.
+          description: >-
+            RFC 3339 time the event was triggered; it orders observations of one product. Must be at most five
+            minutes in the future and at most six hours old.
           schema: { type: string, format: date-time }
         - name: X-Shopify-API-Version
           in: header
@@ -3512,8 +3516,9 @@ paths:
           description: Admission of the mapped command was confirmed, or the topic or shop needs no forwarding. No response body.
         "400":
           description: >-
-            Malformed delivery: a required header is missing, repeated or blank, the shop domain is invalid, the
-            body is not a JSON object, or the product cannot be mapped. Uses `BAD_HEADER_VALUE` or `BAD_BODY_VALUE`.
+            Malformed delivery: a required header is missing, repeated or blank, the shop domain is invalid,
+            `X-Shopify-Triggered-At` is malformed or out of bounds, the body is not a JSON object, or the product
+            cannot be mapped. Uses `BAD_HEADER_VALUE` or `BAD_BODY_VALUE`.
           content:
             application/problem+json:
               schema: { $ref: "#/components/schemas/ApiError" }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded, read-only generic MCP stage front-door verification (Python standard library)."""
+"""Bounded, read-only generic MCP production front-door verification (Python standard library)."""
 
 import argparse
 import datetime
@@ -15,8 +15,9 @@ import urllib.request
 
 CURRENT = "2026-07-28"
 LEGACY = ("2025-11-25", "2025-06-18", "2025-03-26")
-MCP_ORIGIN = "https://mcp.stage.aura-historia.com"
-ISSUER = "https://api.stage.aura-historia.com"
+MCP_ORIGIN = "https://mcp.aura-historia.com"
+ISSUER = "https://api.aura-historia.com"
+SITE_ORIGIN = "https://aura-historia.com"
 MAX_BYTES = 2 * 1024 * 1024
 MAX_REQUESTS = 40
 MAX_SECONDS = 90
@@ -84,7 +85,7 @@ class Smoke:
         if version == CURRENT:
             params["_meta"] = {
                 "io.modelcontextprotocol/protocolVersion": CURRENT,
-                "io.modelcontextprotocol/clientInfo": {"name": "generic-stage-smoke", "version": "1"},
+                "io.modelcontextprotocol/clientInfo": {"name": "generic-release-smoke", "version": "1"},
                 "io.modelcontextprotocol/clientCapabilities": {},
             }
         routing = {"Content-Type": "application/json",
@@ -126,7 +127,7 @@ class Smoke:
         metadata = json.loads(body)
         require(metadata["issuer"] == self.issuer, "wrong discovered issuer")
         require(metadata["token_endpoint"] == self.issuer + "/v1/oauth/token", "wrong token endpoint")
-        require(metadata["authorization_endpoint"] == "https://stage.aura-historia.com/en/oauth/authorize",
+        require(metadata["authorization_endpoint"] == SITE_ORIGIN + "/en/oauth/authorize",
                 "wrong browser consent endpoint")
         require(metadata["code_challenge_methods_supported"] == ["S256"], "wrong PKCE metadata")
         require(metadata["token_endpoint_auth_methods_supported"] == ["client_secret_post"],
@@ -164,7 +165,7 @@ class Smoke:
         for version in LEGACY:
             _, initialized = self.rpc(f"initialize {version}", "initialize", {
                 "protocolVersion": version, "capabilities": {},
-                "clientInfo": {"name": "generic-stage-smoke", "version": "1"}
+                "clientInfo": {"name": "generic-release-smoke", "version": "1"}
             }, version=version)
             require(initialized.get("protocolVersion") == version,
                     "unexpected negotiated revision")
@@ -178,7 +179,7 @@ class Smoke:
             "name": REMOVED_OPERATION, "arguments": {},
             "_meta": {
                 "io.modelcontextprotocol/protocolVersion": CURRENT,
-                "io.modelcontextprotocol/clientInfo": {"name": "generic-stage-smoke", "version": "1"},
+                "io.modelcontextprotocol/clientInfo": {"name": "generic-release-smoke", "version": "1"},
                 "io.modelcontextprotocol/clientCapabilities": {},
             }}}
         _, payload = self.request(label, "/v1", 200, method="POST", headers={
@@ -206,8 +207,8 @@ class Smoke:
         require(metadata in invalid.get("WWW-Authenticate", "")
                 and 'error="invalid_token"' in invalid["WWW-Authenticate"], "wrong invalid-token challenge")
         allowed, _ = self.rpc("allowed Origin", "tools/list", {},
-                              headers={"Origin": "https://stage.aura-historia.com"})
-        require(allowed.get("Access-Control-Allow-Origin") == "https://stage.aura-historia.com",
+                              headers={"Origin": SITE_ORIGIN})
+        require(allowed.get("Access-Control-Allow-Origin") == SITE_ORIGIN,
                 "allowed POST drops allow-origin")
         exposed = {value.strip().lower() for value in allowed.get("Access-Control-Expose-Headers", "").split(",")}
         require({"www-authenticate", "x-request-id", "x-correlation-id", "content-type"} <= exposed,
@@ -215,10 +216,10 @@ class Smoke:
         for origin in ("https://unapproved.example", "null"):
             self.rpc(f"denied Origin {origin}", "tools/list", {}, 403, headers={"Origin": origin})
         allowed, _ = self.request("allowed preflight", "/v1", 204, method="OPTIONS", headers={
-            "Origin": "https://stage.aura-historia.com", "Access-Control-Request-Method": "POST",
+            "Origin": SITE_ORIGIN, "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "authorization,content-type,mcp-protocol-version,mcp-method,mcp-name"
         })
-        require(allowed.get("Access-Control-Allow-Origin") == "https://stage.aura-historia.com",
+        require(allowed.get("Access-Control-Allow-Origin") == SITE_ORIGIN,
                 "wrong allow-origin")
         allowed_headers = {value.strip().lower() for value in allowed.get("Access-Control-Allow-Headers", "").split(",")}
         require({"authorization", "content-type", "mcp-protocol-version", "mcp-method", "mcp-name"} <= allowed_headers,
@@ -259,7 +260,7 @@ def evidence_headers(headers):
     """Persist only known public values; a broken front door may reflect credentials."""
     allowed = {
         "Cache-Control": {"no-store"}, "Allow": {"POST"},
-        "Access-Control-Allow-Origin": {"https://stage.aura-historia.com"},
+        "Access-Control-Allow-Origin": {SITE_ORIGIN},
         "MCP-Protocol-Version": {CURRENT, *LEGACY}, "Retry-After": {"1"},
     }
     safe = {}
@@ -304,7 +305,7 @@ def verify_catalogue(result):
     actual = {tool["name"]: tool for tool in tools}
     expected = manifest_operations()
     require(actual.keys() == expected.keys() and len(tools) == len(expected),
-            "stage catalogue differs from this release's disjoint manifests")
+            "live catalogue differs from this release's disjoint manifests")
     require(not result.get("nextCursor"), "unexpected catalogue continuation")
     for name, tool in actual.items():
         metadata = tool.get("_meta", {})
@@ -339,7 +340,7 @@ def verify_tool_result(label, result, schema):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-commit", required=True, help="exact deployed 40-character commit SHA")
-    parser.add_argument("--token-file", type=pathlib.Path, help="optional stage users:read token; never printed")
+    parser.add_argument("--token-file", type=pathlib.Path, help="optional users:read token of a dedicated smoke user; never printed")
     parser.add_argument("--output", type=pathlib.Path, help="safe JSON evidence file (default stdout)")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.release_commit):
@@ -350,7 +351,7 @@ def main():
     smoke = Smoke()
     report = {"started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "release_commit": args.release_commit, "origin": MCP_ORIGIN,
-              "evidence_kind": "live-stage", "runner_commit": subprocess.check_output(
+              "evidence_kind": "live-production", "runner_commit": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True,
                   cwd=pathlib.Path(__file__).resolve().parents[1]).strip()}
     def deadline_exceeded(signum, frame):

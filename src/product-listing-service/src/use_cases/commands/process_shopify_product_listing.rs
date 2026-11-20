@@ -17,22 +17,41 @@ use listing_source_service::ports::{ListingSourceReadError, ShopifySourceReader}
 use product_listing_normalization::{RawProductListingProvenance, SourcePayload};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use time::format_description::well_known::Rfc3339;
+use time::{Duration, OffsetDateTime};
 use tracing::{info, warn};
 
 use crate::ports::shopify_product_decoder::{
     ShopifyListingAction, ShopifyProductDecoder, ShopifyProductEventKind,
 };
+use crate::ports::shopify_webhook_clock::ShopifyWebhookClock;
 const SHOPIFY_WEBHOOK_RECEIPT_DELIVERY_ID_PREFIX: &str = "shopify-webhook:";
-const EVENTBRIDGE_RECEIPT_DELIVERY_ID_PREFIX: &str = "eventbridge:";
-const SQS_DELIVERY_ID_PREFIX: &str = "sqs:";
 const SHOPIFY_SUBMISSION_IDENTITY_DOMAIN: &[u8] = b"aura.shopify.ingestion.delivery.v1";
+/// Shopify retries a failed delivery for about four hours; the margin covers a delayed first
+/// attempt. An older trigger time is not a delivery Shopify still makes.
+const SHOPIFY_TRIGGER_MAX_AGE: Duration = Duration::hours(6);
+/// Clock skew tolerated between Shopify and this host.
+const SHOPIFY_TRIGGER_MAX_LEAD: Duration = Duration::minutes(5);
+
+/// The provider metadata of one Shopify delivery. Only the body is signed, so every field is
+/// unauthenticated and bounded before it orders or identifies an observation.
 #[derive(Debug, Clone)]
 pub struct ShopifyEventProvenance {
     pub topic: String,
     pub shopify_event_id: Option<String>,
-    pub webhook_id: Option<String>,
-    pub event_bridge_event_id: Option<String>,
+    pub webhook_id: String,
     pub triggered_at: Option<String>,
+}
+
+/// Why `X-Shopify-Triggered-At` cannot order an observation.
+#[derive(Debug, thiserror::Error)]
+pub enum ShopifyTriggeredAtError {
+    #[error("Shopify trigger time is not an RFC 3339 timestamp")]
+    Malformed(#[source] time::error::Parse),
+    #[error("Shopify trigger time is too far in the future")]
+    InFuture,
+    #[error("Shopify trigger time is older than Shopify's retry horizon")]
+    Expired,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +68,8 @@ pub enum ShopifyProviderReceiptError {
 pub enum ShopifyProductListingProcessingError {
     #[error("Shopify product payload is invalid")]
     InvalidPayload(#[source] application::error::BoxError),
+    #[error("Shopify trigger time is invalid")]
+    InvalidTriggeredAt(#[source] ShopifyTriggeredAtError),
     #[error("Shopify raw product provenance is invalid")]
     InvalidProvenance(#[source] product_listing_normalization::NormalizationInputError),
     #[error("Shopify provider receipt is invalid")]
@@ -72,32 +93,35 @@ pub trait ProcessShopifyProductListingUseCase: Send + Sync {
         shop_domain: Domain,
         payload: SourcePayload,
         provenance: ShopifyEventProvenance,
-        upstream_message_id: &str,
     ) -> Result<(), ShopifyProductListingProcessingError>;
 }
 
-pub struct ProcessShopifyProductListingHandler<S, I, D> {
+pub struct ProcessShopifyProductListingHandler<S, I, D, C> {
     sources: S,
     intake: I,
     decoder: D,
+    clock: C,
 }
 
-impl<S, I, D> ProcessShopifyProductListingHandler<S, I, D> {
-    pub fn new(sources: S, intake: I, decoder: D) -> Self {
+impl<S, I, D, C> ProcessShopifyProductListingHandler<S, I, D, C> {
+    pub fn new(sources: S, intake: I, decoder: D, clock: C) -> Self {
         Self {
             sources,
             intake,
             decoder,
+            clock,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<S, I, D> ProcessShopifyProductListingUseCase for ProcessShopifyProductListingHandler<S, I, D>
+impl<S, I, D, C> ProcessShopifyProductListingUseCase
+    for ProcessShopifyProductListingHandler<S, I, D, C>
 where
     S: ShopifySourceReader,
     I: SubmitInternalProductListingIngestionUseCase,
     D: ShopifyProductDecoder,
+    C: ShopifyWebhookClock,
 {
     async fn execute(
         &self,
@@ -106,7 +130,6 @@ where
         source_domain: Domain,
         payload: SourcePayload,
         provenance: ShopifyEventProvenance,
-        upstream_message_id: &str,
     ) -> Result<(), ShopifyProductListingProcessingError> {
         let Some(source) = self
             .sources
@@ -116,40 +139,39 @@ where
         else {
             return Ok(());
         };
-        let ShopifyListingAction::Capture(mut observation) = self
+        let ShopifyListingAction::Capture(observation) = self
             .decoder
             .decode(kind, &source, payload)
             .map_err(ShopifyProductListingProcessingError::InvalidPayload)?
         else {
             return Ok(());
         };
-        observation.source_occurred_at = provenance
-            .triggered_at
-            .as_deref()
-            .map(|value| {
-                time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
-            })
-            .transpose()
-            .map_err(|source| {
-                ShopifyProductListingProcessingError::InvalidPayload(Box::new(source))
-            })?;
+        let source_occurred_at =
+            source_occurred_at(provenance.triggered_at.as_deref(), self.clock.now_utc())
+                .map_err(ShopifyProductListingProcessingError::InvalidTriggeredAt)?;
+        let delivery_id = shopify_delivery_identity(&provenance.webhook_id).map_err(|error| {
+            ShopifyProductListingProcessingError::InvalidProviderReceipt(
+                ShopifyProviderReceiptError::DeliveryId(error),
+            )
+        })?;
         let provider_receipt = shopify_provider_receipt(
             provenance.topic.as_str(),
-            provenance.webhook_id.as_deref(),
-            provenance.event_bridge_event_id.as_deref(),
+            &delivery_id,
             observation.input.source_payload(),
         )
         .map_err(ShopifyProductListingProcessingError::InvalidProviderReceipt)?;
+        // `eventBridgeEventId` stays in the retained shape, always `null`, so raw provenance keeps
+        // one schema across the EventBridge and HTTPS delivery eras.
         let raw_provenance = RawProductListingProvenance::new(json!({
             "topic": &provenance.topic,
             "shopifyEventId": &provenance.shopify_event_id,
             "shopifyWebhookId": &provenance.webhook_id,
-            "eventBridgeEventId": &provenance.event_bridge_event_id,
+            "eventBridgeEventId": null,
             "shopifyTriggeredAt": &provenance.triggered_at,
         }))
         .map_err(ShopifyProductListingProcessingError::InvalidProvenance)?;
 
-        let idempotency_key = shopify_submission_key(&provenance, upstream_message_id)?;
+        let idempotency_key = shopify_submission_key(&provenance.topic, &delivery_id)?;
         let actor = match &context.principal {
             Principal::Service(service_id) => {
                 ProductListingIngestionActor::Service(service_id.clone())
@@ -177,7 +199,7 @@ where
                         input: observation.input,
                         provenance: raw_provenance,
                         source_event_id: provenance.shopify_event_id,
-                        source_occurred_at: observation.source_occurred_at,
+                        source_occurred_at,
                         provider_receipt,
                     },
                 ),
@@ -220,17 +242,31 @@ where
     }
 }
 
-fn shopify_provider_receipt(
-    topic: &str,
-    webhook_id: Option<&str>,
-    event_bridge_event_id: Option<&str>,
-    source_payload: &SourcePayload,
-) -> Result<Option<ProductListingRawProviderReceipt>, ShopifyProviderReceiptError> {
-    let Some(delivery_id) = shopify_receipt_delivery_identity(webhook_id, event_bridge_event_id)
-        .map_err(ShopifyProviderReceiptError::DeliveryId)?
-    else {
+/// Bounds the unsigned trigger time: a replayed body must not carry an ordering time, such as a
+/// far-future deletion barrier, that Shopify would never send.
+fn source_occurred_at(
+    triggered_at: Option<&str>,
+    now: OffsetDateTime,
+) -> Result<Option<OffsetDateTime>, ShopifyTriggeredAtError> {
+    let Some(triggered_at) = triggered_at else {
         return Ok(None);
     };
+    let occurred_at = OffsetDateTime::parse(triggered_at, &Rfc3339)
+        .map_err(ShopifyTriggeredAtError::Malformed)?;
+    if occurred_at > now + SHOPIFY_TRIGGER_MAX_LEAD {
+        return Err(ShopifyTriggeredAtError::InFuture);
+    }
+    if occurred_at < now - SHOPIFY_TRIGGER_MAX_AGE {
+        return Err(ShopifyTriggeredAtError::Expired);
+    }
+    Ok(Some(occurred_at))
+}
+
+fn shopify_provider_receipt(
+    topic: &str,
+    delivery_id: &str,
+    source_payload: &SourcePayload,
+) -> Result<Option<ProductListingRawProviderReceipt>, ShopifyProviderReceiptError> {
     let scope =
         ProviderReceiptScope::new(topic.to_owned()).map_err(ShopifyProviderReceiptError::Scope)?;
     let source_evidence_sha256 = source_payload
@@ -238,53 +274,31 @@ fn shopify_provider_receipt(
         .map_err(ShopifyProviderReceiptError::SourcePayload)?;
     ProductListingRawProviderReceipt::new(
         scope,
-        delivery_id,
+        delivery_id.to_owned(),
         SourceEvidenceSha256::new(*source_evidence_sha256.as_bytes()),
     )
     .map(Some)
     .map_err(ShopifyProviderReceiptError::DeliveryId)
 }
 
-fn shopify_receipt_delivery_identity(
-    webhook_id: Option<&str>,
-    event_bridge_event_id: Option<&str>,
-) -> Result<Option<String>, ProviderReceiptDeliveryIdError> {
-    let (prefix, delivery_id) = match webhook_id {
-        Some(webhook_id) => (SHOPIFY_WEBHOOK_RECEIPT_DELIVERY_ID_PREFIX, webhook_id),
-        None => match event_bridge_event_id {
-            Some(event_bridge_event_id) => (
-                EVENTBRIDGE_RECEIPT_DELIVERY_ID_PREFIX,
-                event_bridge_event_id,
-            ),
-            None => return Ok(None),
-        },
-    };
-    if delivery_id.is_empty() {
+fn shopify_delivery_identity(webhook_id: &str) -> Result<String, ProviderReceiptDeliveryIdError> {
+    if webhook_id.is_empty() {
         return Err(ProviderReceiptDeliveryIdError::Empty);
     }
-
-    Ok(Some(format!("{prefix}{delivery_id}")))
+    Ok(format!(
+        "{SHOPIFY_WEBHOOK_RECEIPT_DELIVERY_ID_PREFIX}{webhook_id}"
+    ))
 }
 
 fn shopify_submission_key(
-    provenance: &ShopifyEventProvenance,
-    upstream_message_id: &str,
+    topic: &str,
+    delivery_id: &str,
 ) -> Result<ProductListingIngestionIdempotencyKey, ShopifyProductListingProcessingError> {
-    let delivery = shopify_receipt_delivery_identity(
-        provenance.webhook_id.as_deref(),
-        provenance.event_bridge_event_id.as_deref(),
-    )
-    .map_err(|error| {
-        ShopifyProductListingProcessingError::InvalidProviderReceipt(
-            ShopifyProviderReceiptError::DeliveryId(error),
-        )
-    })?
-    .unwrap_or_else(|| format!("{SQS_DELIVERY_ID_PREFIX}{upstream_message_id}"));
     let mut hasher = Sha256::new();
     for field in [
         SHOPIFY_SUBMISSION_IDENTITY_DOMAIN,
-        provenance.topic.as_bytes(),
-        delivery.as_bytes(),
+        topic.as_bytes(),
+        delivery_id.as_bytes(),
     ] {
         hasher.update((field.len() as u64).to_be_bytes());
         hasher.update(field);
@@ -303,111 +317,94 @@ mod tests {
     use super::*;
     const SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD: &str = "product_listings/add";
     const SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE: &str = "product_listings/update";
-    #[test]
-    fn should_namespace_receipt_delivery_identity_by_origin() {
-        let webhook_identity =
-            shopify_receipt_delivery_identity(Some("same-delivery-id"), Some("same-delivery-id"))
-                .unwrap_or_else(|error| panic!("webhook identity failed: {error}"));
-        let eventbridge_identity =
-            shopify_receipt_delivery_identity(None, Some("same-delivery-id"))
-                .unwrap_or_else(|error| panic!("EventBridge identity failed: {error}"));
 
+    fn at(value: &str) -> OffsetDateTime {
+        OffsetDateTime::parse(value, &Rfc3339).unwrap()
+    }
+
+    #[test]
+    fn should_namespace_delivery_identity_and_reject_empty_webhook_id() {
         assert_eq!(
-            Some("shopify-webhook:same-delivery-id".to_owned()),
-            webhook_identity
-        );
-        assert_eq!(
-            Some("eventbridge:same-delivery-id".to_owned()),
-            eventbridge_identity
+            "shopify-webhook:delivery-1",
+            shopify_delivery_identity("delivery-1").unwrap()
         );
         assert!(matches!(
-            shopify_receipt_delivery_identity(Some(""), None),
+            shopify_delivery_identity(""),
             Err(ProviderReceiptDeliveryIdError::Empty)
         ));
     }
 
     #[test]
-    fn delivery_identity_is_scoped_to_topic_and_not_batch_position() {
-        let provenance = |topic: &str, webhook: Option<&str>, event_bridge: Option<&str>| {
-            ShopifyEventProvenance {
-                topic: topic.to_owned(),
-                shopify_event_id: Some("same-content-event".to_owned()),
-                webhook_id: webhook.map(str::to_owned),
-                event_bridge_event_id: event_bridge.map(str::to_owned),
-                triggered_at: None,
-            }
+    fn should_scope_submission_key_to_topic_and_delivery() {
+        let key = |topic: &str, webhook: &str| {
+            shopify_submission_key(topic, &shopify_delivery_identity(webhook).unwrap()).unwrap()
         };
-        let key = |p: ShopifyEventProvenance, sqs: &str| shopify_submission_key(&p, sqs).unwrap();
         assert_eq!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
-                "second"
-            )
+            key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, "webhook"),
+            key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, "webhook")
         );
         assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, Some("webhook"), None),
-                "first"
-            )
+            key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, "webhook"),
+            key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, "webhook")
         );
         assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, Some("webhook")),
-                "first"
-            )
+            key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, "webhook"),
+            key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, "other-webhook")
         );
-        assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, None),
-                "second"
-            )
-        );
-        assert_ne!(
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, None),
-                "first"
-            ),
-            key(
-                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, Some("first")),
-                "first"
-            )
-        );
-        let delivery_key = key(
-            provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
-            "first",
-        );
-        let first_source = listing_source_core::ListingSourceId::new();
-        let second_source = listing_source_core::ListingSourceId::new();
+        let delivery_key = key(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, "webhook");
         let (_, first_command) = product_listing_ingestion_identity(
             &ProductListingIngestionActor::System,
-            first_source,
+            listing_source_core::ListingSourceId::new(),
             &delivery_key,
             ProductListingIngestionOperation::CaptureRaw,
             0,
         );
         let (_, second_command) = product_listing_ingestion_identity(
             &ProductListingIngestionActor::System,
-            second_source,
+            listing_source_core::ListingSourceId::new(),
             &delivery_key,
             ProductListingIngestionOperation::CaptureRaw,
             0,
         );
         assert_ne!(first_command, second_command);
+    }
+
+    #[test]
+    fn should_accept_trigger_time_within_retry_horizon_and_clock_skew() {
+        let now = at("2026-11-20T12:00:00Z");
+        for triggered_at in [
+            "2026-11-20T12:00:00Z",
+            "2026-11-20T12:05:00Z",
+            "2026-11-20T06:00:00Z",
+            "2026-11-20T13:00:00+01:00",
+        ] {
+            assert_eq!(
+                Some(at(triggered_at)),
+                source_occurred_at(Some(triggered_at), now).unwrap(),
+                "{triggered_at}"
+            );
+        }
+        assert_eq!(None, source_occurred_at(None, now).unwrap());
+    }
+
+    #[test]
+    fn should_reject_trigger_time_outside_retry_horizon_and_clock_skew() {
+        let now = at("2026-11-20T12:00:00Z");
+        assert!(matches!(
+            source_occurred_at(Some("2026-11-20T12:05:01Z"), now),
+            Err(ShopifyTriggeredAtError::InFuture)
+        ));
+        assert!(matches!(
+            source_occurred_at(Some("9999-12-31T23:59:59Z"), now),
+            Err(ShopifyTriggeredAtError::InFuture)
+        ));
+        assert!(matches!(
+            source_occurred_at(Some("2026-11-20T05:59:59Z"), now),
+            Err(ShopifyTriggeredAtError::Expired)
+        ));
+        assert!(matches!(
+            source_occurred_at(Some("yesterday"), now),
+            Err(ShopifyTriggeredAtError::Malformed(_))
+        ));
     }
 }

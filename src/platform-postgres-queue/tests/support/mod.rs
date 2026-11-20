@@ -97,3 +97,12 @@ pub async fn custody_row(pool: &PgPool, id: JobId) -> (String, i32, String, Opti
     .await
     .unwrap()
 }
+
+/// The last error class of a queued job.
+pub async fn last_error_class(pool: &PgPool, id: JobId) -> Option<String> {
+    sqlx::query_scalar("SELECT last_error_class FROM job_queue_jobs WHERE job_id = $1")
+        .bind(id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}

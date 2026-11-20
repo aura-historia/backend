@@ -150,8 +150,8 @@ disconnect an individual connection without displaying its bearer. Revocation re
 next REST or MCP authorization check. It does not retroactively cancel work already
 authorized. After revocation, reconnect through a new human authorization and code exchange;
 the old bearer cannot be refreshed. A deliberately expiring token is rejected after expiry.
-See [generic MCP acceptance and stage verification](mcp.md#generic-oauth-acceptance-and-stage-smoke)
-for local coverage and the optional bounded stage command.
+See [generic MCP acceptance and release verification](mcp.md#generic-oauth-acceptance-and-release-smoke)
+for local coverage and the optional bounded production command.
 
 ## Metadata document clients
 

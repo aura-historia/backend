@@ -13,7 +13,6 @@ openssl = { workspace = true, features = ["vendored"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-time = { workspace = true, features = ["parsing"] }
 
 [dev-dependencies]
 listing-source-core = { workspace = true }
