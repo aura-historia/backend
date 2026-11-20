@@ -198,8 +198,9 @@ async fn settle_shown_identity(
         evidence,
     );
     match evidence {
-        Some(_) => {
-            retire_duplicate_of_known_identity(candidate, ctx, page_identity, carrier_url).await
+        Some(evidence) => {
+            retire_duplicate_of_known_identity(candidate, ctx, page_identity, carrier_url, evidence)
+                .await
         }
         None => {
             persist_identity_conflict(
@@ -288,10 +289,11 @@ mod tests {
     use super::*;
     use crate::scraper::candidate_service::ScraperCandidate;
     use crate::scraper::candidate_service::{IdentityCarrier, MockScraperCandidateService};
+    use crate::scraper::duplicate_retirement::{DuplicateEvidence, DuplicateRetirement};
     use crate::scraper::raw_input::crawler_verified_removal_input;
     use crate::scraper::scraper_service::{MockScraperService, ScrapedProduct};
     use crate::service::cron::test_support::scraper_candidate;
-    use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
+    use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 
     const IDENTITY: &str = "source-listing";
     const GILLMARK_PAGE: &str =
@@ -366,14 +368,22 @@ mod tests {
             });
     }
 
-    fn expect_retired(scraper_candidates: &mut MockScraperCandidateService, retired: &url::Url) {
+    /// Expects `retired` to be retired as the duplicate of `carrier`, recording `evidence`.
+    fn expect_retired(
+        scraper_candidates: &mut MockScraperCandidateService,
+        retired: &url::Url,
+        carrier: &url::Url,
+        evidence: SameProductEvidence,
+    ) {
         let retired = retired.clone();
+        let expected = DuplicateRetirement {
+            duplicate_of: carrier.clone(),
+            evidence: DuplicateEvidence::SameProduct(evidence),
+        };
         scraper_candidates
-            .expect_set_disposition()
+            .expect_retire_as_duplicate()
             .once()
-            .withf(move |_, url, disposition, _| {
-                *url == retired && *disposition == CrawlerDisposition::Duplicate
-            })
+            .withf(move |_, url, retirement, _| *url == retired && *retirement == expected)
             .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
     }
 
@@ -431,7 +441,12 @@ mod tests {
                     Some("Another title"),
                 )),
             );
-            expect_retired(&mut scraper_candidates, &page);
+            expect_retired(
+                &mut scraper_candidates,
+                &page,
+                &url("https://example.com/view.php?p_idx=7"),
+                SameProductEvidence::Spelling,
+            );
             scraper_candidates.expect_mark_as_scraped().never();
             let ctx = scrape_candidate_context(
                 scraper_candidates,
@@ -458,7 +473,7 @@ mod tests {
                     Some("Rolf Palm stoneware vase"),
                 )),
             );
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             expect_conflict(&mut scraper_candidates, &page);
             let ctx = scrape_candidate_context(
                 scraper_candidates,
@@ -479,7 +494,7 @@ mod tests {
             let page = url("https://example.com/view.php?p_idx=7");
             let mut scraper_candidates = MockScraperCandidateService::new();
             carrying(&mut scraper_candidates, IDENTITY, None);
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             let ctx = scrape_candidate_context(
                 scraper_candidates,
                 scraping(IDENTITY, Some(IDENTITY), Some("Chair")),
@@ -539,7 +554,12 @@ mod tests {
         async fn should_retire_the_second_spelling_while_the_first_capture_may_become_durable() {
             let (first, second) = spellings();
             let mut scraper_candidates = without_carrier(2);
-            expect_retired(&mut scraper_candidates, &second);
+            expect_retired(
+                &mut scraper_candidates,
+                &second,
+                &first,
+                SameProductEvidence::Title,
+            );
             let ctx = scrape_candidate_context(
                 scraper_candidates,
                 scraping("#2798", Some("#2798"), Some("Table")),
@@ -560,7 +580,12 @@ mod tests {
         async fn should_retire_the_second_spelling_after_the_first_capture_became_durable() {
             let (first, second) = spellings();
             let mut scraper_candidates = without_carrier(2);
-            expect_retired(&mut scraper_candidates, &second);
+            expect_retired(
+                &mut scraper_candidates,
+                &second,
+                &first,
+                SameProductEvidence::Title,
+            );
             let ctx = scrape_candidate_context(
                 scraper_candidates,
                 scraping("#2798", Some("#2798"), Some("Table")),
@@ -587,7 +612,7 @@ mod tests {
         async fn should_capture_the_second_spelling_when_the_first_capture_failed() {
             let (first, second) = spellings();
             let mut scraper_candidates = without_carrier(2);
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             let ctx = scrape_candidate_context(
                 scraper_candidates,
                 scraping("#2798", Some("#2798"), Some("Table")),
@@ -626,7 +651,7 @@ mod tests {
                     Box::pin(async move { scrape_outcome(Ok(Some(scraped))) })
                 });
             let mut scraper_candidates = without_carrier(2);
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             expect_conflict(&mut scraper_candidates, &second);
             let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
 
@@ -687,7 +712,7 @@ mod tests {
                 "https://haresfur.example/products/j156",
                 None,
             );
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             scraper_candidates.expect_mark_fetch_failure().never();
             let ctx = scrape_candidate_context(
                 scraper_candidates,
@@ -708,21 +733,24 @@ mod tests {
             "H-1",
             Some("Estampe"),
             "https://hara.example/print/40475",
-            Some("Print")
+            Some("Print"),
+            SameProductEvidence::Spelling
         )]
         #[case::identity_token(
             "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=40475",
             "/ukiyoe/ukiyoe_detail.php?print_id=40475",
             Some("Hiroshige, Tokaido Hara"),
             "https://hara.example/print/40475",
-            Some("Hiroshige: Tokaido, Hara station")
+            Some("Hiroshige: Tokaido, Hara station"),
+            SameProductEvidence::IdentityToken
         )]
         #[case::title(
             "https://hara.example/ukiyoe/hiroshige-hara",
             "H-1",
             Some("Hiroshige: Tokaido, Hara station"),
             "https://hara.example/print/40475",
-            Some("Hiroshige: Tokaido, Hara station")
+            Some("Hiroshige: Tokaido, Hara station"),
+            SameProductEvidence::Title
         )]
         #[tokio::test]
         async fn should_retire_a_url_whose_page_shows_the_product_another_url_carries(
@@ -731,6 +759,7 @@ mod tests {
             #[case] title: Option<&str>,
             #[case] carrier: &'static str,
             #[case] carrier_title: Option<&'static str>,
+            #[case] evidence: SameProductEvidence,
         ) {
             let page_url = url(page);
             let mut scraper_candidates = MockScraperCandidateService::new();
@@ -739,7 +768,7 @@ mod tests {
                 "40475",
                 Some((carrier, carrier_title)),
             );
-            expect_retired(&mut scraper_candidates, &page_url);
+            expect_retired(&mut scraper_candidates, &page_url, &url(carrier), evidence);
             scraper_candidates.expect_mark_fetch_failure().never();
             let ctx = scrape_candidate_context(
                 scraper_candidates,
@@ -764,7 +793,7 @@ mod tests {
                 "5169",
                 Some((GILLMARK_CARRIER, Some("June 1971"))),
             );
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             expect_conflict(&mut scraper_candidates, &page);
             let ctx = scrape_candidate_context(
                 scraper_candidates,
@@ -820,7 +849,7 @@ mod tests {
                 .expect_identity_carrier()
                 .times(2)
                 .returning(|_, _, _| Box::pin(async { Ok(None) }));
-            scraper_candidates.expect_set_disposition().never();
+            scraper_candidates.expect_retire_as_duplicate().never();
             expect_conflict(&mut scraper_candidates, &captured);
             let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
 

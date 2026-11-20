@@ -1,5 +1,6 @@
 pub mod candidate_service;
 pub mod css_selector;
+pub mod duplicate_retirement;
 pub mod plausibility;
 pub(crate) mod raw_input;
 pub mod removal_guard;

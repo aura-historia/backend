@@ -6,6 +6,8 @@ use crawler::scraper::candidate_service::{
     ScrapeCompletion, ScrapeHealthSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
     UnsettledRedirect, UnsettledRedirectRequest,
 };
+use crawler::scraper::duplicate_retirement::{DuplicateEvidence, DuplicateRetirement};
+use crawler::scraper::same_product::SameProductEvidence;
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, NEEDS_OPERATOR_CRAWL_OUTCOME,
     RATE_LIMITED_CRAWL_OUTCOME, SpiderCandidateService, SpiderCandidateServiceImpl,
@@ -3972,10 +3974,10 @@ async fn scraper_newer_active_completion_should_fence_delayed_disposition_change
 
     assert_eq!(
         service
-            .set_disposition(
+            .retire_as_duplicate(
                 &listing_source_id,
                 &url,
-                CrawlerDisposition::DormantSold,
+                &retirement_of(&url),
                 Some(observed_raw_input_sha256.as_slice()),
             )
             .await
@@ -4136,10 +4138,10 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
             );
             assert_eq!(
                 service
-                    .set_disposition(
+                    .retire_as_duplicate(
                         &delayed_listing_source_id,
                         &url,
-                        CrawlerDisposition::DormantSold,
+                        &retirement_of(&url),
                         Some(observed_raw_input_sha256.as_slice()),
                     )
                     .await
@@ -5285,17 +5287,34 @@ async fn scraper_should_never_select_a_url_retired_as_duplicate() {
     insert_product_url(&pool, listing_source_id, duplicate.as_str()).await;
     insert_product_url(&pool, listing_source_id, destination.as_str()).await;
 
+    let retirement = DuplicateRetirement {
+        duplicate_of: destination.clone(),
+        evidence: DuplicateEvidence::SameProduct(SameProductEvidence::Spelling),
+    };
     assert_eq!(
         service
-            .set_disposition(
-                &listing_source_id,
-                &duplicate,
-                CrawlerDisposition::Duplicate,
-                None
-            )
+            .retire_as_duplicate(&listing_source_id, &duplicate, &retirement, None)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
+    );
+    let record: (String, Option<String>, Option<String>, bool) = sqlx::query_as(
+        "SELECT crawler_disposition, duplicate_of_url, duplicate_evidence, \
+         duplicate_retired_at IS NOT NULL FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(duplicate.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        record,
+        (
+            CrawlerDisposition::Duplicate.as_str().to_owned(),
+            Some(destination.to_string()),
+            Some("SPELLING".to_owned()),
+            true
+        ),
+        "the retirement records the URL it duplicates, the evidence and when"
     );
 
     assert_eq!(
@@ -5306,22 +5325,130 @@ async fn scraper_should_never_select_a_url_retired_as_duplicate() {
             .into_iter()
             .map(|candidate| candidate.url)
             .collect::<Vec<_>>(),
-        vec![destination]
+        vec![destination.clone()]
     );
     assert_eq!(service.count_due_urls().await.unwrap(), 1);
     assert_eq!(
         service
-            .set_disposition(
+            .retire_as_duplicate(
                 &listing_source_id,
                 &duplicate,
-                CrawlerDisposition::Active,
+                &retirement_of(&destination),
                 None
             )
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::NoopStale,
-        "no scraper write revives a retired duplicate"
+        "no scraper write changes a retired duplicate"
     );
+}
+
+/// The undo the retirement record is for: one UPDATE sets the URL live and clears the record,
+/// and the scraper selects it again.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_select_a_retired_duplicate_again_once_its_retirement_is_undone() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "duplicate-undone.example.com").await;
+    let duplicate =
+        url::Url::parse("https://duplicate-undone.example.com/products/1?l=en").unwrap();
+    let carrier = url::Url::parse("https://duplicate-undone.example.com/products/1").unwrap();
+    insert_product_url(&pool, listing_source_id, duplicate.as_str()).await;
+    service
+        .retire_as_duplicate(
+            &listing_source_id,
+            &duplicate,
+            &retirement_of(&carrier),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let undone = sqlx::query(
+        "UPDATE listing_source_urls SET crawler_disposition = 'ACTIVE', duplicate_of_url = NULL, \
+         duplicate_evidence = NULL, duplicate_retired_at = NULL \
+         WHERE duplicate_of_url = $1 AND duplicate_evidence = 'TITLE'",
+    )
+    .bind(carrier.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(undone.rows_affected(), 1);
+    assert_eq!(
+        service
+            .get_candidates(10, 100, &[])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|candidate| candidate.url)
+            .collect::<Vec<_>>(),
+        vec![duplicate]
+    );
+}
+
+/// The crawler database refuses a retirement record that is incomplete, on a live URL, or with
+/// an evidence it does not know, so an undo can rely on it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn crawler_database_should_refuse_an_invalid_duplicate_retirement_record() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "duplicate-record.example.com").await;
+    let url = "https://duplicate-record.example.com/products/1";
+    insert_product_url(&pool, listing_source_id, url).await;
+
+    for (disposition, carrier, evidence, retired) in [
+        (
+            "DUPLICATE",
+            Some("https://duplicate-record.example.com/p/1"),
+            None,
+            true,
+        ),
+        (
+            "DUPLICATE",
+            Some("https://duplicate-record.example.com/p/1"),
+            Some("TITLE"),
+            false,
+        ),
+        (
+            "ACTIVE",
+            Some("https://duplicate-record.example.com/p/1"),
+            Some("TITLE"),
+            true,
+        ),
+        (
+            "DUPLICATE",
+            Some("https://duplicate-record.example.com/p/1"),
+            Some("title"),
+            true,
+        ),
+    ] {
+        let refused = sqlx::query(
+            "UPDATE listing_source_urls SET crawler_disposition = $2, duplicate_of_url = $3, \
+             duplicate_evidence = $4, \
+             duplicate_retired_at = CASE WHEN $5 THEN NOW() END WHERE url = $1",
+        )
+        .bind(url)
+        .bind(disposition)
+        .bind(carrier)
+        .bind(evidence)
+        .bind(retired)
+        .execute(&pool)
+        .await;
+
+        assert!(
+            refused.is_err(),
+            "{disposition} {carrier:?} {evidence:?} {retired} must be refused"
+        );
+    }
+}
+
+fn retirement_of(carrier: &url::Url) -> DuplicateRetirement {
+    DuplicateRetirement {
+        duplicate_of: carrier.clone(),
+        evidence: DuplicateEvidence::SameProduct(SameProductEvidence::Title),
+    }
 }
 
 // ---------------------------------------------------------------------------

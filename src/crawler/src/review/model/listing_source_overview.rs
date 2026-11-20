@@ -50,8 +50,9 @@ pub struct ListingSourceOverview {
     #[serde(with = "time::serde::rfc3339::option")]
     pub held_since: Option<time::OffsetDateTime>,
     /// Product URLs in an identity conflict (`SourceListingIdConflict`): they redirect to a page
-    /// that derives another identity than the one their listings were captured under, so the
-    /// redirected page is not captured.
+    /// that derives another identity than the one their listings were captured under, show the
+    /// identity another product URL carries without evidence of one product, or show another
+    /// product than at their last capture under unchanged schemas, so the page is not captured.
     pub identity_conflict_urls: i64,
     /// The earliest start of a current URL's run of identity conflicts; `None` while
     /// `identity_conflict_urls` is 0.
