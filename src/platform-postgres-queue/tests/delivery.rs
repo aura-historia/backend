@@ -89,7 +89,9 @@ async fn should_redeliver_a_job_once_its_lease_expires_and_reject_the_stale_leas
 
 #[aura_integration_test(services = [DATABASE], isolated = true)]
 async fn should_redeliver_a_job_whose_worker_crashed_between_claim_and_ack() {
-    let scope = scope("crash", QueueOrdering::Standard, SHORT, 5, Duration::ZERO);
+    // Long enough to outlast closing one pool and connecting another on a loaded machine.
+    let lease = Duration::from_secs(5);
+    let scope = scope("crash", QueueOrdering::Standard, lease, 5, Duration::ZERO);
     let id = push(&get_postgres_client().await, &scope, None, "{}").await;
 
     // The crashed worker's claim committed; its process, pool and transaction are gone.
@@ -103,7 +105,7 @@ async fn should_redeliver_a_job_whose_worker_crashed_between_claim_and_ack() {
 
     let survivor = JobQueue::new(get_postgres_client().await, scope);
     assert_eq!(None, claim_one(&survivor).await);
-    tokio::time::sleep(SHORT * 2).await;
+    tokio::time::sleep(lease + SHORT).await;
     let redelivered = claim_one(&survivor).await.unwrap();
 
     assert_eq!(id, lost.job_id());
