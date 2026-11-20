@@ -46,8 +46,9 @@ export const PRE_SIGN_UP_TRIGGER: TriggerDefinition = {
 
 /**
  * Forwards each confirmation, signed and timestamped, to the host's internal endpoint through the
- * public API hostname, because the host accepts only CloudFront. It holds no business state. The
- * signing key is resolved at deployment from the version-pinned secret the host stack generates.
+ * public API hostname, because the host answers only requests carrying CloudFront's origin secret.
+ * It holds no business state. The signing key is resolved at deployment from the version-pinned
+ * secret the host stack generates.
  */
 export const POST_CONFIRMATION_TRIGGER: TriggerDefinition = {
   id: "PostConfirmation",

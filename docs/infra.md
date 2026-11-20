@@ -168,19 +168,22 @@ host, read from the SSM `String` parameter `/origin/prod/host-domain-name`. Do n
 name. CloudFront forwards the viewer `Host` (AllViewer), so the host's proxy serves and routes
 by the public hostnames and holds their certificates; the origin name only locates the host.
 CloudFront adds the `X-Origin-Verify` header to every origin request, overwriting any viewer
-value. The host's proxy accepts a request only with that header; port 443 does not yet
-restrict sources to CloudFront's origin-facing IP ranges
-([#3077](https://github.com/aura-historia/backend/issues/3077)). Cache policies, response headers, selective caching
-and Web ACLs are unchanged by the origin; see the [HTTP front door](http-api-front-door.md).
+value. The host's proxy accepts a request only with that header. Port 443 deliberately accepts
+every source rather than only CloudFront's address ranges, so the header is the origin's only
+barrier and is a credential: whoever holds it reaches the origin directly, past the Web ACLs,
+though still subject to the application's authentication and rate limits. Rotate it as above
+when it may have leaked. Cache policies, response headers, selective caching and Web ACLs are
+unchanged by the origin; see the [HTTP front door](http-api-front-door.md).
 
 CloudFormation reads the origin name and the secret only when it updates a distribution. After
 changing either, deploy `api` with a template change, such as the new secret version.
 
 The Cognito triggers run outside any VPC, so neither can reach the host's database. Each calls
-its internal endpoint on the host through the public API hostname, because the host accepts only
-CloudFront, and signs the request with HMAC-SHA256 over its purpose, timestamp and body. The host
-accepts a request only within five minutes of its own clock and only for the configured user
-pool, and any failure, refusal or timeout fails the sign-up or confirmation. The endpoints are not
+its internal endpoint on the host through the public API hostname, because the host answers only
+requests carrying CloudFront's origin secret, and signs the request with HMAC-SHA256 over its
+purpose, timestamp and body. The host accepts a request only within five minutes of its own clock
+and only for the configured user pool, and any failure, refusal or timeout fails the sign-up or
+confirmation. The endpoints are not
 part of the public OpenAPI contract.
 
 - **Post-confirmation** forwards each confirmation event to
