@@ -54,7 +54,7 @@ async fn compose_fanout(config: CdcRouterQueueConfig) -> Result<CdcFanout, Error
     let region = Region::new(config.region().to_owned());
     let sdk = tokio::time::timeout(
         COMPOSITION_TIMEOUT,
-        aws_config::defaults(aws_config::BehaviorVersion::v2026_11_10())
+        aws_config::defaults(aws_config::BehaviorVersion::v2026_11_17())
             .region(region)
             .load(),
     )
