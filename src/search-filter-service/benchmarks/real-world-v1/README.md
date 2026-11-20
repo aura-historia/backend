@@ -52,10 +52,10 @@ the prod host, from the checkout of the deployed release, with root access for
 `host/prod/compose.sh` (directly or through passwordless `sudo`) and an AWS CLI that can
 write the temporary images. It needs an admin bearer file and a state directory, both
 outside the repository, and an empty active catalogue. It reads the matcher settings from
-the rendered Compose configuration and refuses a classifier model other than the
-manifest's `classifier_model`. The corpus is pinned to `clef-flash`, its recorded baseline's
-model, while prod runs `clef`: re-pin the manifest, with its neuron conversion, before
-measuring the deployed model. It runs one bounded matcher exactly like the scheduled job,
+the rendered Compose configuration and measures the model prod runs, `clef`. The manifest's
+`classifier_model` names that model only so its neuron conversion and budget stay right:
+the run refuses when prod's model differs, and then the manifest's model, conversion and
+`max_estimated_neurons` change together. It runs one bounded matcher exactly like the scheduled job,
 `compose.sh run --rm --no-deps -T ops periodic-match`, with a short projection lag and run
 budget, and reads its decision events from the run's output. Do not start it while the
 scheduled matching run is active. A failed run is cleaned up with `run.py cleanup` and the
@@ -75,7 +75,8 @@ manifest's pinned pricing conversion, not an account invoice or remaining quota.
 ## Recorded production baseline
 
 [The recorded report](results-prod-2026-10-31.json) used deployed revision
-`8614fdac7dec923134ea399864def4e86ebaf8d1` on 2026-10-31. All eight filters completed;
+`8614fdac7dec923134ea399864def4e86ebaf8d1` on 2026-10-31, when prod ran `clef-flash`; a
+`clef` run is not directly comparable. All eight filters completed;
 87 candidates received model decisions and one negative case was excluded during
 lexical retrieval. All 108 requested images were delivered. There were no stale
 candidates, provider failures or scan/candidate caps.
@@ -103,8 +104,8 @@ share a small pool of images, so their errors are correlated and do not establis
 a general four-image failure rate. Review these cases in the gallery before
 changing labels, instructions, model or threshold.
 
-The run consumed 134,143 recorded input tokens, approximately 463.5 neurons at the
-pinned conversion. Cleanup completed: 88 listings withdrawn, eight filters removed,
+The run consumed 134,143 recorded input tokens, approximately 463.5 neurons at
+`clef-flash`'s conversion of 3,455 neurons per million input tokens. Cleanup completed: 88 listings withdrawn, eight filters removed,
 69 temporary image versions deleted, grants removed and Free tier restored. The
 caller-owned test credential was separately revoked after final verification.
 
