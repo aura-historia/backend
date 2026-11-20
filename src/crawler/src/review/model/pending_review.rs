@@ -31,6 +31,11 @@ pub struct PendingReviewSummary {
     /// which `agent_rounds` count; `None` while no human acted on it.
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub handed_back: Option<OffsetDateTime>,
+    /// Whether the page classifier judges the review before an author works it: a
+    /// `manual_schema_required` review of triggering pages that no one changed or judged yet
+    /// (`docs/crawler/extraction-and-review.md#page-classifier`).
+    #[serde(default)]
+    pub classification_due: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -74,6 +79,7 @@ mod tests {
             agent_rounds: 0,
             human_required: false,
             handed_back,
+            classification_due: false,
             created,
             updated: created,
         }

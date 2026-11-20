@@ -27,7 +27,8 @@ use super::decision_cap::{
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
-use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
+use super::ledger::{LEDGER_RETENTION, ProcessEnd, ProcessLedger, ProcessRecord};
+use super::page_classification::ClassifiedReviews;
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
     QueuedReview, ReviewArtifact, approval_failures, hand_to_human, review_events_since,
@@ -95,6 +96,9 @@ struct Pass<'a> {
     /// The limits of the agents' decisions the console applies, which the prompts tell them.
     limits: AgentLimits,
     runner_stop: &'a RunnerStop,
+    /// The page classifier's latest record of each review, which tells whether a review's
+    /// author may start and gives the author the verdicts.
+    classified: ClassifiedReviews,
     shared: Mutex<Shared>,
 }
 
@@ -151,6 +155,10 @@ pub async fn work_pending_reviews(
         console,
         limits,
         runner_stop,
+        classified: ClassifiedReviews::read(
+            &settings.state_dir,
+            OffsetDateTime::now_utc() - LEDGER_RETENTION,
+        ),
         shared: Mutex::new(Shared {
             state,
             cache_warm_up: CacheWarmUp::new(settings.cache_warm_up),
@@ -268,11 +276,15 @@ impl Pass<'_> {
             .map_err(PassError::Console)?;
         let pending = queue.workable.len();
         let waiting_for_human = queue.waiting_for_human.len();
-        let unworked: Vec<QueuedReview> = queue
-            .workable
-            .into_iter()
-            .filter(|review| !started.contains(&review.review_id))
-            .collect();
+        let unworked: Vec<QueuedReview> = self.with(|shared| {
+            queue
+                .workable
+                .into_iter()
+                .filter(|review| !started.contains(&review.review_id))
+                // A review due for the page classifier waits for its verdicts.
+                .filter(|review| self.classified.author_may_work(review, &shared.state))
+                .collect()
+        });
         let (cooldowns, last_worked) =
             self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
         let (selected, cooling_down) = select_reviews(
@@ -673,7 +685,12 @@ impl Pass<'_> {
         let mut record =
             ProcessRecord::started(review, role, contract.prompt_sha256(review.artifact_type));
         let step = match agent_command(self.settings, role, review) {
-            Ok(command) => {
+            Ok(mut command) => {
+                if role == AgentRole::Author
+                    && let Some(note) = self.classified.author_note(review.review_id)
+                {
+                    command.prompt.push_str(&note);
+                }
                 let output = run_agent(
                     &command,
                     self.settings.process_timeout,

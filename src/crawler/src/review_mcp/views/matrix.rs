@@ -3,8 +3,8 @@
 
 use super::{note, timestamp, value};
 use crate::review::model::{
-    RemovedPageTemplateMatch, RemovedPageTemplateOutcome, SchemaPageEvaluation,
-    SchemaPageReference, SelectorFieldEvaluation,
+    LinkIdentity, LiveMatrixEvaluation, RemovedPageTemplateMatch, RemovedPageTemplateOutcome,
+    SchemaPageEvaluation, SchemaPageReference, SelectorFieldEvaluation,
 };
 use crate::review::page_content_checks::{StateReading, candidate_has_sold_state};
 use crate::review_mcp::wire;
@@ -147,6 +147,12 @@ pub struct FindingView {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub exempt_as_status_slot: bool,
+    /// An identity that is a page URL of the shop, which an agent's approval accepts because the
+    /// ListingSource's listings were captured under such identities and the candidate keeps
+    /// deriving them. The finding stays true; it just does not block.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub exempt_as_captured_url_identity: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -179,6 +185,10 @@ impl MatrixView {
             matrix,
             not_evaluated_pages,
         } = review_matrix;
+        let link_identity = matrix
+            .live_evaluation
+            .as_ref()
+            .map_or(LinkIdentity::Blocks, LiveMatrixEvaluation::link_identity);
         Self {
             live_evaluation: matrix.live_evaluation.map(|evaluation| LiveEvaluationView {
                 candidate_version: evaluation.candidate_version,
@@ -198,7 +208,7 @@ impl MatrixView {
                         pages: candidate
                             .pages
                             .into_iter()
-                            .map(|page| SchemaPageView::of(page, status_slot))
+                            .map(|page| SchemaPageView::of(page, status_slot, link_identity))
                             .collect(),
                     }
                 })
@@ -230,8 +240,8 @@ impl PageRefView {
 }
 
 impl SchemaPageView {
-    fn of(page: SchemaPageEvaluation, status_slot: bool) -> Self {
-        let findings = page_findings(&page, status_slot);
+    fn of(page: SchemaPageEvaluation, status_slot: bool, link_identity: LinkIdentity) -> Self {
+        let findings = page_findings(&page, status_slot, link_identity);
         Self {
             page: PageRefView::of(page.page_reference, page.url, page.role),
             applies: page.apply_ok,
@@ -243,7 +253,12 @@ impl SchemaPageView {
     }
 }
 
-fn page_findings(page: &SchemaPageEvaluation, status_slot: bool) -> Vec<FindingView> {
+fn page_findings(
+    page: &SchemaPageEvaluation,
+    status_slot: bool,
+    link_identity: LinkIdentity,
+) -> Vec<FindingView> {
+    let accepts_link_identity = page.accepts_link_identity(link_identity);
     let per_page = page
         .plausibility_findings
         .as_slice()
@@ -255,6 +270,8 @@ fn page_findings(page: &SchemaPageEvaluation, status_slot: bool) -> Vec<FindingV
             message: finding.to_string(),
             values: Vec::new(),
             exempt_as_status_slot: status_slot && finding.is_price_text_on_state(),
+            exempt_as_captured_url_identity: accepts_link_identity
+                && finding.is_link_or_path_identity(),
         });
     let cross_page = page
         .cross_page_findings
@@ -267,6 +284,7 @@ fn page_findings(page: &SchemaPageEvaluation, status_slot: bool) -> Vec<FindingV
             message: finding.to_string(),
             values: finding.values.iter().map(|text| value(text)).collect(),
             exempt_as_status_slot: false,
+            exempt_as_captured_url_identity: false,
         });
     let identity = page
         .identity_agreement_findings
@@ -279,6 +297,7 @@ fn page_findings(page: &SchemaPageEvaluation, status_slot: bool) -> Vec<FindingV
             message: finding.to_string(),
             values: finding.values.iter().map(|text| value(text)).collect(),
             exempt_as_status_slot: false,
+            exempt_as_captured_url_identity: false,
         });
     per_page.chain(cross_page).chain(identity).collect()
 }
@@ -534,5 +553,58 @@ mod tests {
             none["schemas"][0]["pages"][0]["findings"][0].get("exempt_as_status_slot"),
             None
         );
+    }
+
+    /// The guard accepts a page-URL identity only where the sampled listings were captured under
+    /// page URLs and the candidate keeps deriving them; the view marks exactly that finding.
+    #[test]
+    fn should_mark_a_url_identity_the_listings_were_captured_under_as_exempt() {
+        let matrix = |captured_identity: &str, outcome: Value| -> wire::ReviewMatrix {
+            let mut sampled = json!({
+                "url": "https://shop.example/products/vase",
+                "captured_identity": captured_identity,
+            });
+            for (key, value) in outcome.as_object().unwrap() {
+                sampled[key] = value.clone();
+            }
+            decoded(json!({
+                "review_id": null,
+                "candidates": [{ "schema_index": 0, "pages": [{
+                    "page_reference": { "kind": "persisted", "review_page_id": CrawlerReviewPageId::new().to_string() },
+                    "url": "https://shop.example/products/chair", "role": "PRIMARY", "apply_ok": true,
+                    "extracted": {
+                        "source_listing_id": "https://shop.example/products/chair", "title": "Chair",
+                        "description": [], "price": null, "price_estimate_min": null,
+                        "price_estimate_max": null, "state": "Sold", "images": [], "raw_attributes": {},
+                    },
+                    "error": null,
+                    "plausibility_findings": [{ "field": "source_listing_id", "check": "LINK_OR_PATH" }],
+                    "cross_page_findings": [], "identity_agreement_findings": [], "fields": [],
+                }]}],
+                "removed_page_matches": [],
+                "live_evaluation": {
+                    "candidate_version": 3, "configuration_sha256": "x",
+                    "fetched_at": "2026-11-17T12:00:00Z",
+                    "captured_identity_sample": { "pages": [sampled] },
+                },
+                "not_evaluated_pages": [],
+            }))
+        };
+        let finding = |matrix: wire::ReviewMatrix| {
+            json!(MatrixView::of(matrix))["schemas"][0]["pages"][0]["findings"][0].clone()
+        };
+
+        let captured = finding(matrix(
+            "https://shop.example/products/vase",
+            json!({ "outcome": "AGREES" }),
+        ));
+        let coded = finding(matrix(
+            "SKU-1",
+            json!({ "outcome": "DIFFERS", "identities": ["https://shop.example/products/vase"] }),
+        ));
+
+        assert_eq!(captured["check"], "LINK_OR_PATH");
+        assert_eq!(captured["exempt_as_captured_url_identity"], true);
+        assert_eq!(coded.get("exempt_as_captured_url_identity"), None);
     }
 }

@@ -65,7 +65,9 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     agent_rounds_of_review!(),
     " AS agent_rounds, ",
     handed_review_to_human!(),
-    " AS handed_to_human \
+    " AS handed_to_human, ",
+    crate::review::repository::classifiable_review!(),
+    " AS classification_due \
              FROM crawler_reviews r \
              JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
              WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
@@ -180,6 +182,7 @@ fn row_to_summary(
         agent_rounds: rounds.needs_repair,
         human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, rounds),
         handed_back: row.try_get("handed_back")?,
+        classification_due: row.try_get("classification_due")?,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })

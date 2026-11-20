@@ -83,7 +83,7 @@ impl QueueHealth {
 
 /// The CloudWatch client of the host's credentials, with bounds well inside one round.
 pub async fn client() -> Client {
-    let config = aws_config::defaults(BehaviorVersion::v2026_11_10())
+    let config = aws_config::defaults(BehaviorVersion::v2026_11_17())
         .timeout_config(
             TimeoutConfig::builder()
                 .connect_timeout(Duration::from_secs(5))

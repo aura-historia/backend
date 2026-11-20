@@ -302,7 +302,7 @@ impl JobHandler for NotificationDeliveryJobs {
 pub async fn compose(pool: &PgPool) -> Result<Arc<dyn JobHandler>, CompositionError> {
     let email = email_config_from(platform_process::config::required)
         .map_err(|error| CompositionError::new(SCOPE, error))?;
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_10())
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_17())
         .timeout_config(
             TimeoutConfig::builder()
                 .connect_timeout(Duration::from_secs(5))

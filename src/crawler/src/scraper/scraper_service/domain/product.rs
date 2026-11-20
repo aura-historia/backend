@@ -17,7 +17,12 @@ pub struct ScrapedProduct {
     /// Complete source-neutral normalization input. The worker later performs canonical writes.
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,
+    /// The identity the raw input captures: the URL's first captured identity on an unredirected
+    /// page, else the extracted one or its URL-hash fallback.
     pub source_listing_id: String,
+    /// The identity the selected schema extracted from the page, `None` when it extracted none
+    /// the crawler could capture (the URL-hash fallback is no extracted identity).
+    pub extracted_source_listing_id: Option<String>,
     /// The title the raw input captures, `None` when the page left it out or blank: the raw
     /// input then leaves the listing's title unchanged.
     pub title: Option<String>,

@@ -130,7 +130,7 @@ impl ReviewServer {
 
     /// Fetches the URL of the ListingSource that `request`'s `url` query names, its crawl root
     /// when it names none, and answers its projection in the `view` it names, the outline by
-    /// default, as a live job. The fetch obeys robots.txt like every crawler fetch: a page
+    /// default, with the page's links from `links_offset` on, as a live job. The fetch obeys robots.txt like every crawler fetch: a page
     /// robots.txt refuses answers `502` with `reason` `ROBOTS_DISALLOWED` and the refusing rule.
     async fn project_source_page(
         &self,
@@ -140,6 +140,15 @@ impl ReviewServer {
         let view = named::<PageView>(&request.query, "view")
             .map_err(|error| HttpResponse::json(400, &json!({ "error": error })))?
             .unwrap_or_default();
+        let links_offset = match request.query.get("links_offset") {
+            None => 0,
+            Some(offset) => offset.trim().parse::<usize>().map_err(|_| {
+                HttpResponse::json(
+                    400,
+                    &json!({ "error": "links_offset must be a whole number" }),
+                )
+            })?,
+        };
         let crawl_root = self
             .repository
             .listing_source_crawl_root(&listing_source_id)
@@ -178,7 +187,7 @@ impl ReviewServer {
             let _live_job = live_job;
             (
                 ProjectedHtml::of(&html, view),
-                page_links(&html, &final_url),
+                page_links(&html, &final_url, links_offset),
             )
         })
         .await
@@ -192,7 +201,10 @@ impl ReviewServer {
                 view: projected.view,
                 projection: projected.projection,
                 describes_one_product: projected.describes_one_product,
-                links,
+                links: links.links,
+                links_offset,
+                links_total: links.total,
+                other_hosts: links.other_hosts,
             },
         ))
     }

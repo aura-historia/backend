@@ -298,7 +298,7 @@ const TONES = {
     PENDING_REVIEW: 'warn', APPROVED: 'ok', REJECTED: 'bad', SUPERSEDED: 'neutral',
     human_required: 'bad', waiting_for_repair: 'warn', live: 'ok', rejection_revoked: 'neutral', source_disabled: 'neutral',
     rejected_by_model: 'bad',
-    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn', identity_conflict: 'bad',
+    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn', identity_conflict: 'bad', page_identity_changed: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
     awaiting_qualification: 'warn', qualification_needs_human: 'bad',
     QUALIFIED: 'ok', DISQUALIFIED: 'bad', NEEDS_HUMAN: 'bad',
@@ -1071,7 +1071,15 @@ function sourceConditions(source) {
             key: 'identity_conflict', text: 'Identity conflict',
             more: `${formatCount(conflicted)} of ${formatCount(Number(source.product_urls) || 0)} URLs not captured`,
             since: source.identity_conflict_since, sinceLabel: 'In conflict since',
-            title: 'The product schemas derive another identity from these pages than the one their listings were captured under, so their listings stop updating until an identity rule matches the captured identities again'
+            title: 'These URLs redirect to a page that derives another identity than the one their listings were captured under, or show the identity another product URL of the source carries without evidence of the same product, so they are not captured; check the pages'
+        });
+    }
+    const pageIdentityChanged = Number(source.page_identity_changed_urls) || 0;
+    if (pageIdentityChanged > 0) {
+        conditions.push({
+            key: 'page_identity_changed', text: 'Another product at a URL?',
+            more: `${formatCount(pageIdentityChanged)} URL${pageIdentityChanged === 1 ? '' : 's'} in the last 7 days`,
+            title: 'These pages showed another product identity than at their previous capture while the schemas stayed the same, so the shop may have put another product at the URL. They are still captured under their captured identity; check the pages (crawler.product_url_page_identity_changed in the log names them).'
         });
     }
     const held = Number(source.held_removal_urls) || 0;
@@ -1180,7 +1188,7 @@ const FAILURES = {
     ConnectionDropped: {label: 'Connection dropped', cause: 'The shop closed the connection without answering the page.', profile: 'page'},
     RobotsConnectionDropped: {label: 'robots.txt connection dropped', cause: 'The shop closed the connection without answering robots.txt, so the page was not requested.', profile: 'page'},
     RawCaptureFailed: {label: 'Capture failed', cause: "The page's content could not be stored.", profile: 'page'},
-    SourceListingIdConflict: {label: 'Identity conflict', cause: 'The schemas derive another identity from the page than the one its listing was captured under, so the page is not captured; the retry delay grows until the product schemas change.', profile: 'page'},
+    SourceListingIdConflict: {label: 'Identity conflict', cause: 'The URL redirects to a page that derives another identity than the one its listing was captured under, or its page shows the identity another product URL carries without evidence of the same product, so the page is not captured; the retry delay grows until the product schemas change.', profile: 'page'},
     FreshSchemaNormalizationFailed: {label: 'New schema failed', cause: 'A freshly generated schema extracts values that fail the plausibility checks.', profile: 'page'},
     SchemaGenerationValidationFailed: {label: 'Schema generation failed', cause: 'The generated schemas did not pass the checks.', profile: 'page'}
 };
@@ -4149,6 +4157,7 @@ function renderCoverageSection(matrix) {
     return `<div class="section">
       <div class="section-head"><h3>Coverage</h3>${badge(`${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}${coverage.notEvaluated ? ` · ${coverage.notEvaluated} not evaluated` : ''}`, tone)}</div>
       <div class="small muted">${escapeHtml(coverageSentences(matrix, coverage))}</div>
+      ${capturedIdentityChanges(matrix).length ? `<div class="small tone-warn">${escapeHtml(identityChangeWarning(capturedIdentityChanges(matrix)))}</div>` : ''}
       <div class="actions">
         <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages" type="button">Evaluate on live pages</button>
         ${matrix.live_evaluation ? `<span class="small muted">evaluated ${evaluated ? timeBadge(evaluated, 'Evaluated') : 'never'}</span>` : ''}
@@ -4190,7 +4199,7 @@ const plausibilityCheckDescriptions = {
     PRICE_TEXT: 'is a price, not an availability label',
     AVAILABILITY_TEXT: 'is an availability label, not a price',
     NO_LETTER: 'has no letter',
-    LINK_OR_PATH: 'is a link or file path, not a label',
+    LINK_OR_PATH: 'is a link or file path',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
@@ -5040,15 +5049,19 @@ function approveReview() {
     // reviewer confirms the counts; the approval names them, and the server refuses it without
     // them or once the review's coverage differs from them.
     const shownCoverage = incompleteApprovalCoverage();
+    // A candidate that derives another identity from a sampled captured listing is the agents'
+    // CAPTURED_IDENTITY_DIFFERS refusal; a human may mean it, so it only warns.
+    const identityChanges = capturedIdentityChanges(selectedMatrix);
+    const coverageMessage = shownCoverage
+        ? (shownCoverage.total === 0
+            ? 'This review has no pages, so nothing was tested. Approve anyway?'
+            : `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`)
+        : '';
     openActionPanel({
         title: 'Approve?',
-        message: shownCoverage
-            ? (shownCoverage.total === 0
-                ? 'This review has no pages, so nothing was tested. Approve anyway?'
-                : `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`)
-            : '',
+        message: [coverageMessage, identityChangeWarning(identityChanges)].filter(Boolean).join(' '),
         notes: 'optional',
-        confirmLabel: shownCoverage ? 'Approve anyway' : 'Approve',
+        confirmLabel: shownCoverage || identityChanges.length ? 'Approve anyway' : 'Approve',
         // The panel stays open while the reviewer works on: edits made since it opened, or a
         // coverage that changed, ask again instead of approving past them.
         run: notes => {
@@ -5063,6 +5076,23 @@ function approveReview() {
             return submitVerdict('approve', verdict);
         }
     });
+}
+
+// The sampled captured listings from which the candidate the matrix evaluated derives another
+// identity than the one the listing was captured under, from the matrix's live evaluation.
+function capturedIdentityChanges(matrix) {
+    const pages = matrix?.live_evaluation?.captured_identity_sample?.pages || [];
+    return pages.filter(page => page.outcome === 'DIFFERS');
+}
+
+// Why approving the candidate changes the shop's identity, naming up to three sampled listings,
+// or '' when it does not.
+function identityChangeWarning(changes) {
+    if (!changes.length) return '';
+    const named = changes.slice(0, 3)
+        .map(page => `${page.url}: captured as ${page.captured_identity}, now ${(page.identities || []).join(', ')}`)
+        .join('; ');
+    return `Identity change: the candidate derives another identity than ${changes.length} sampled captured listing${changes.length === 1 ? '' : 's'} (${named}). Their listings keep their captured identity, but new listings and new spellings of these products would take the new kind.`;
 }
 
 // The selected product-schema review's coverage while it is incomplete, or null.

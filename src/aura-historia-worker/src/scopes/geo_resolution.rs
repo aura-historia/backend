@@ -134,7 +134,7 @@ impl JobHandler for GeoResolutionJobs {
 }
 
 pub async fn compose(pool: &PgPool) -> Result<Arc<dyn JobHandler>, CompositionError> {
-    let config = aws_config::defaults(BehaviorVersion::v2026_11_10())
+    let config = aws_config::defaults(BehaviorVersion::v2026_11_17())
         .region(aws_config::Region::new(REGION))
         .load()
         .await;

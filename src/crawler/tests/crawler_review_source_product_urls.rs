@@ -240,3 +240,61 @@ async fn should_offer_at_most_forty_urls_keeping_the_most_recently_scraped() {
     assert_eq!(offered[0].url, "https://shop.example/item-00");
     assert_eq!(offered[39].url, "https://shop.example/item-39");
 }
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_offer_each_url_with_its_captured_identity_and_the_identity_its_page_showed() {
+    let pool = get_postgres_client().await;
+    let source = listing_source(&pool, "shop").await;
+    let review_id = schema_review(&pool, source, "https://shop.example/review-page").await;
+    stored_url(
+        &pool,
+        source,
+        "https://shop.example/tea-bowl",
+        "product",
+        "ACTIVE",
+        Some(5),
+        None,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET last_source_listing_id = 'J054', last_extracted_source_listing_id = 'HF-0054' \
+         WHERE url = 'https://shop.example/tea-bowl'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let offered = offered(&pool, review_id).await;
+
+    assert_eq!(offered[0].captured_identity.as_deref(), Some("J054"));
+    assert_eq!(offered[0].page_identity.as_deref(), Some("HF-0054"));
+}
+
+/// The identity rule of each live product schema of the review's ListingSource, which its
+/// listings were captured under; none before a schema is live.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_read_the_identity_rule_of_each_live_product_schema() {
+    let pool = get_postgres_client().await;
+    let source = listing_source(&pool, "shop").await;
+    let review_id = schema_review(&pool, source, "https://shop.example/review-page").await;
+    let reader = SourceProductUrlReader::new(pool.clone());
+    assert_eq!(reader.live_identity_rules(review_id).await.unwrap(), vec![]);
+    let without_identity = ProductCssSelectorSchema {
+        source_listing_id: None,
+        ..schema()
+    };
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas (listing_source_id, product_schema, created, updated) \
+         VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(source.as_uuid())
+    .bind(json!([schema(), without_identity]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rules = reader.live_identity_rules(review_id).await.unwrap();
+
+    assert_eq!(rules, vec![Some(rule("span.id")), None]);
+}

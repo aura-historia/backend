@@ -822,7 +822,7 @@ impl ClosingVerdict {
             Self::Approve => approve_acknowledging_coverage(repository, fixture.review_id).await,
             Self::Reject => {
                 repository
-                    .reject_review(fixture.review_id, ReviewActor::Human, None)
+                    .reject_review(fixture.review_id, ReviewActor::Human, None, None)
                     .await
             }
         }
@@ -887,7 +887,12 @@ async fn should_rearm_pages_of_retired_templates_when_approved() {
     let fixture = WaitingPageFixture::new(&pool).await;
     fixture
         .review_repository
-        .reject_review(fixture.review_id, ReviewActor::Human, Some("superseded"))
+        .reject_review(
+            fixture.review_id,
+            ReviewActor::Human,
+            Some("superseded"),
+            None,
+        )
         .await
         .unwrap();
     let narrowed = notice_schema("no longer available");
@@ -975,7 +980,7 @@ async fn should_rearm_pages_of_retired_templates_when_approved() {
     let rejected = open_schema_review(&fixture).await;
     fixture
         .review_repository
-        .reject_review(rejected, ReviewActor::Human, Some("not now"))
+        .reject_review(rejected, ReviewActor::Human, Some("not now"), None)
         .await
         .unwrap();
     assert!(
@@ -3801,7 +3806,12 @@ async fn reject_manual_review_over(
         .await
         .unwrap();
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not a product page"),
+            None,
+        )
         .await
         .unwrap();
 }
@@ -4356,7 +4366,7 @@ async fn should_release_waiting_crawl_without_changing_pattern_when_url_pattern_
     .await;
 
     repository
-        .reject_review(review_id, ReviewActor::Human, Some("not a shop"))
+        .reject_review(review_id, ReviewActor::Human, Some("not a shop"), None)
         .await
         .unwrap();
 
@@ -4376,7 +4386,7 @@ async fn should_release_waiting_crawl_without_changing_pattern_when_url_pattern_
     assert_eq!((pattern, state.as_str()), (None, "UNKNOWN"));
     assert!(matches!(
         repository
-            .reject_review(review_id, ReviewActor::Human, None)
+            .reject_review(review_id, ReviewActor::Human, None, None)
             .await,
         Err(ReviewRepositoryError::NotPending(_))
     ));
@@ -4604,7 +4614,7 @@ async fn should_refuse_repair_request_without_a_note_or_once_the_review_is_close
     assert_eq!(review.repair_request, None);
 
     repository
-        .reject_review(review_id, ReviewActor::Human, None)
+        .reject_review(review_id, ReviewActor::Human, None, None)
         .await
         .unwrap();
     assert!(matches!(

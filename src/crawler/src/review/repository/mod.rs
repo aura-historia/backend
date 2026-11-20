@@ -31,6 +31,7 @@ use time::OffsetDateTime;
 use tracing::debug;
 use url::Url;
 
+mod classifier_rejection;
 mod crawl_resumption;
 mod inspected_pages;
 mod live_matrix;
@@ -56,6 +57,8 @@ mod source_qualification;
 mod url_pattern_sample;
 mod verdicts;
 
+pub use classifier_rejection::ClassifierRejectionRefusal;
+pub(crate) use classifier_rejection::{classifiable_review, classifier_rejection_event};
 pub use crawl_resumption::CrawlResumption;
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use mass_removal_confirmation::MassRemovalConfirmation;
@@ -283,6 +286,15 @@ pub enum ReviewRepositoryError {
     AgentCoverageAcknowledgement,
     #[error("an agent rejection needs notes saying why the candidate is rejected")]
     MissingRejectionNote,
+    #[error("only the reviewer agent rejects on the page classifier's verdicts (classification)")]
+    ClassificationNeedsReviewerAgent,
+    #[error(
+        "the rejection of review {review_id} on the page classifier's verdicts is refused: {refusal}"
+    )]
+    ClassifierRejectionRefused {
+        review_id: CrawlerReviewId,
+        refusal: ClassifierRejectionRefusal,
+    },
     #[error(
         "the review agents made their {limit} approvals, rejections and qualifications of the last hour; retry in {} seconds",
         retry_after.as_secs()

@@ -15,6 +15,7 @@ use regex::regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::LazyLock;
 
 mod cross_page;
 mod identity_agreement;
@@ -137,7 +138,10 @@ pub enum PlausibilityCheck {
     /// expected, or punctuation and symbols alone, without a digit either, where a `state` is.
     NoLetter,
     /// An absolute or relative URL, a file path or a `javascript:` link where a `state` label is
-    /// expected: a rule that reads a cart image's `src` or a link's `href`.
+    /// expected, as a rule that reads a cart image's `src` or a link's `href`; or where a
+    /// `source_listing_id` is, as a rule that reads the page URL, its canonical link or
+    /// `og:url`, which changes when the shop moves the product and adds nothing to the URL-hash
+    /// fallback.
     LinkOrPath,
 }
 
@@ -171,7 +175,7 @@ impl PlausibilityCheck {
             Self::PriceText => "is a price, not an availability label",
             Self::AvailabilityText => "is an availability label, not a price",
             Self::NoLetter => "has no letter",
-            Self::LinkOrPath => "is a link or file path, not a label",
+            Self::LinkOrPath => "is a link or file path",
         }
     }
 }
@@ -218,6 +222,9 @@ impl PlausibilityFinding {
             (Price | PriceEstimateMin | PriceEstimateMax | Images, _) => {
                 PlausibilityImpact::LowersRank
             }
+            // Every identity finding but an uncapturable one is report-only: listings already
+            // captured under a URL identity keep updating, while `blocks_approval` keeps new
+            // schemas from introducing one.
             (SourceListingId | Description | RawAttribute(_), _) => PlausibilityImpact::ReportOnly,
         }
     }
@@ -228,6 +235,18 @@ impl PlausibilityFinding {
         matches!(
             (&self.field, self.check),
             (PlausibilityField::State, PlausibilityCheck::PriceText)
+        )
+    }
+
+    /// Whether the finding is an identity that is a URL or path, which a review agent's approval
+    /// accepts where the listings were captured under such identities (see `LinkIdentity`).
+    pub fn is_link_or_path_identity(&self) -> bool {
+        matches!(
+            (&self.field, self.check),
+            (
+                PlausibilityField::SourceListingId,
+                PlausibilityCheck::LinkOrPath
+            )
         )
     }
 
@@ -392,8 +411,17 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
     } else if is_word_list(source_listing_id) {
         vec![PlausibilityCheck::WordList]
     } else {
-        Vec::new()
+        is_link_or_path_identity(source_listing_id)
+            .then_some(PlausibilityCheck::LinkOrPath)
+            .into_iter()
+            .collect()
     }
+}
+
+/// Whether an identity is one URL or path, as a rule on the page URL, its canonical link or an
+/// image `src` reads it ([`is_link_or_path`] with [`LinkReading::Identity`]).
+pub(crate) fn is_link_or_path_identity(identity: &str) -> bool {
+    is_link_or_path(identity, LinkReading::Identity)
 }
 
 /// Whether `value` is a list of names rather than one identifier: at least
@@ -401,7 +429,7 @@ fn identity_checks(source_listing_id: &str) -> Vec<PlausibilityCheck> {
 /// A whole class attribute reads like this, as Vauclair's `<body class>`
 /// ("portfolio-template-default single single-portfolio postid-13892 …") does: it holds
 /// the post id but changes with the page template and the product's tags. So does a
-/// phrase such as "Price on application". An identifier is one code, number or URL, and
+/// phrase such as "Price on application". An identifier is one code or number, and
 /// a label in front of it brings punctuation or a number ("Stock Number: 38088",
 /// "Ref. 12432", "SKU #42/Blue"), so it never reads as such a list.
 fn is_word_list(value: &str) -> bool {
@@ -543,20 +571,74 @@ fn is_availability_value(state: &str) -> bool {
         )
 }
 
-/// A `state` that is one URL, path or `javascript:` link, as a rule reads from an image's `src`
-/// or a link's `href`: `https://shop.example/img/cart.png`, `/images/add_to_order.gif` or
-/// `javascript:LoadIntoBasket()`. A label has words and no scheme, leading slash or file
-/// extension; a scheme counts only with something after its colon, so a `Tel:` label is none.
-/// The caller exempts availability values such as `https://schema.org/InStock`.
-fn link_or_path_check(state: &str) -> Option<PlausibilityCheck> {
-    let scheme_or_path_start =
-        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto|tel|data):\S)");
-    let file_extension =
-        regex!(r"(?i)\.(?:png|jpe?g|gif|svg|webp|avif|bmp|ico|html?|php|aspx?|jsp)(?:[?#]\S*)?$");
-    let value = state.trim();
-    let is_link_or_path = !value.contains(char::is_whitespace)
-        && (scheme_or_path_start.is_match(value) || file_extension.is_match(value));
-    is_link_or_path.then_some(PlausibilityCheck::LinkOrPath)
+/// The `state` finding of a value that is one URL, path or link ([`is_link_or_path`] with
+/// [`LinkReading::State`]). A `state` caller exempts availability values such as
+/// `https://schema.org/InStock`.
+fn link_or_path_check(value: &str) -> Option<PlausibilityCheck> {
+    is_link_or_path(value, LinkReading::State).then_some(PlausibilityCheck::LinkOrPath)
+}
+
+/// The file extensions of an image a link or path may name.
+const IMAGE_FILE_EXTENSIONS: &str = "png|jpe?g|gif|svg|webp|avif|bmp|ico";
+
+/// A link or path that ends in an image's or a web page's file name, before a query or fragment.
+static FILE_NAME: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(&format!(
+        r"(?i)\.(?:{IMAGE_FILE_EXTENSIONS}|html?|php|aspx?|jsp)(?:[?#]\S*)?$"
+    ))
+    .expect("file name regex")
+});
+
+static IMAGE_FILE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(&format!(r"(?i)\.(?:{IMAGE_FILE_EXTENSIONS})$")).expect("image file regex")
+});
+
+/// Whether a URL path ends in an image file name.
+pub(crate) fn names_image_file(path: &str) -> bool {
+    IMAGE_FILE.is_match(path)
+}
+
+/// What a value that may be a link or path stands for, which decides what counts as one.
+#[derive(Clone, Copy)]
+enum LinkReading {
+    /// A `state` label has words and no scheme, leading slash or file extension, so any of them
+    /// makes it a link, `tel:` and `data:` links included; a scheme counts only with something
+    /// after its colon, so a `Tel:` label is none.
+    State,
+    /// A product code may carry a colon or a file-like suffix (`Tel:0123`, `12.JPG`, `A12.htm`),
+    /// and a dot and a slash (`Inv.nr/17`, `Ref.no/123`), so an identity is a link only as an
+    /// absolute, protocol-relative or relative URL, a `javascript:` or `mailto:` link, a host
+    /// name with a path (`shop.example/products/x`, `www.shop.de/x`: a top-level domain of at
+    /// least three letters or at least three labels), or a file name that comes with a path or
+    /// a query (`product.php?id=9685`).
+    Identity,
+}
+
+/// Whether `value` is one URL, path or link, as a rule reads it from an image's `src`, a link's
+/// `href` or a page's canonical link: `https://shop.example/img/cart.png`,
+/// `/images/add_to_order.gif` or `javascript:LoadIntoBasket()`, read as `reading` says.
+fn is_link_or_path(value: &str, reading: LinkReading) -> bool {
+    let link_start =
+        regex!(r"(?i)^(?:[a-z][a-z0-9+.\-]*://\S|//\S|\.{0,2}/|(?:javascript|mailto):\S)");
+    let value = value.trim();
+    if value.contains(char::is_whitespace) {
+        return false;
+    }
+    match reading {
+        LinkReading::State => {
+            link_start.is_match(value)
+                || regex!(r"(?i)^(?:tel|data):\S").is_match(value)
+                || FILE_NAME.is_match(value)
+        }
+        LinkReading::Identity => {
+            let host_with_path = regex!(
+                r"(?i)^(?:(?:[a-z0-9-]+\.){2,}[a-z]{2,}|[a-z0-9-]+\.[a-z]{3,})(?::[0-9]+)?/"
+            );
+            link_start.is_match(value)
+                || host_with_path.is_match(value)
+                || (FILE_NAME.is_match(value) && value.contains(['/', '?']))
+        }
+    }
 }
 
 /// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
@@ -878,8 +960,14 @@ mod tests {
         #[case::dated_code("2025-0219-03")]
         #[case::range("22234-22238")]
         #[case::marhamchurch_reference("#Marh3682")]
-        #[case::canonical_url("https://galerie-vauclair.fr/portfolio-item/atelier-grenet/")]
-        #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
+        #[case::inventory_number_with_slash("17/203")]
+        #[case::labelled_inventory_number("Inventarnr. 17/203")]
+        #[case::code_with_a_colon("Tel:0123")]
+        #[case::code_with_a_scheme_like_prefix("DATA:42")]
+        #[case::code_with_an_image_suffix("12.JPG")]
+        #[case::code_with_a_page_suffix("A12.htm")]
+        #[case::dotted_inventory_number_with_slash("Inv.nr/17")]
+        #[case::dotted_reference_with_slash("Ref.no/123")]
         #[case::labelled_with_nbsp("Artikel-Nr:\u{a0}02092")]
         #[case::labelled_stock_number("Stock Number: 38088")]
         #[case::labelled_reference("Ref. 12432")]
@@ -1301,6 +1389,33 @@ mod tests {
             assert_eq!(findings.rank_penalty(), 0);
         }
 
+        /// A rule on the canonical link or `og:url` yields the page URL, as Vauclair's and
+        /// HaresFur's did: listings captured under it keep updating, but no new schema may
+        /// introduce it.
+        #[rstest::rstest]
+        #[case::canonical_url("https://galerie-vauclair.fr/portfolio-item/atelier-grenet/")]
+        #[case::og_url("https://shop.example/products/j054-tea-bowl")]
+        #[case::protocol_relative("//shop.example/products/j054-tea-bowl")]
+        #[case::path("/products/demetre-chiparus-venetian-lady-9685")]
+        #[case::page_file("product.php?id=9685")]
+        #[case::host_without_scheme("shop.example/products/j054-tea-bowl")]
+        #[case::subdomain_without_scheme("shop.example.com/p/1")]
+        #[case::two_letter_domain_with_www("www.shop.de/p/1")]
+        #[case::image_src("https://cdn.shop.example/images/j054.jpg")]
+        fn should_report_an_identity_that_is_a_link_or_path_and_block_its_approval(
+            #[case] identity: &str,
+        ) {
+            let mut raw = plausible();
+            raw.source_listing_id = identity.to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(SourceListingId, LinkOrPath)]);
+            assert!(!findings.rejects_candidate());
+            assert_eq!(findings.rank_penalty(), 0);
+            assert!(findings.blocks_approval());
+        }
+
         /// A `first` attribute rule whose every match is blank yields its blank, which the
         /// check reports for these optional fields without affecting selection.
         #[test]
@@ -1465,5 +1580,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// One list of image extensions serves the identity, `state` and review checks.
+    #[rstest::rstest]
+    #[case::jpeg("/images/j054.JPEG", true)]
+    #[case::svg("/a/b.svg", true)]
+    #[case::page("/products/j054.html", false)]
+    #[case::no_extension("/products/j054", false)]
+    fn should_tell_an_image_file_name_from_another_path(#[case] path: &str, #[case] image: bool) {
+        assert_eq!(names_image_file(path), image);
+    }
+
+    /// A `state` keeps reading a `tel:` link or a file name as a link, while an identity keeps
+    /// them as codes.
+    #[rstest::rstest]
+    #[case::tel_link("tel:0123", true, false)]
+    #[case::image_file("12.JPG", true, false)]
+    #[case::dotted_code("Inv.nr/17", false, false)]
+    #[case::path("/images/add_to_order.gif", true, true)]
+    fn should_read_a_value_as_a_link_as_its_field_does(
+        #[case] value: &str,
+        #[case] as_state: bool,
+        #[case] as_identity: bool,
+    ) {
+        assert_eq!(is_link_or_path(value, LinkReading::State), as_state);
+        assert_eq!(is_link_or_path(value, LinkReading::Identity), as_identity);
     }
 }

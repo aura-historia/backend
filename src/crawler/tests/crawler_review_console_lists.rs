@@ -761,7 +761,7 @@ async fn should_read_a_listing_source_with_its_live_configuration() {
     let shop = source(&pool, "Antik", "antik.example.com", true).await;
     let pattern_review = pending_url_pattern_review(&repository, shop).await;
     repository
-        .reject_review(pattern_review, ReviewActor::Human, Some("no"))
+        .reject_review(pattern_review, ReviewActor::Human, Some("no"), None)
         .await
         .unwrap();
     let approved_schema = closed_schema_review(&repository, shop, "APPROVED").await;

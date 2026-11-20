@@ -1,0 +1,84 @@
+{
+  "description": "Product URLs of one ListingSource that carry one identity, as shops serve them. `same_product::same_product_evidence` (unit tests) judges each row that is no survivor against the survivor that carries its `page_identity`: a row with evidence of the same product is retired with that evidence, any other row is kept. `page_identity` is the identity the row's page derived. Paths are relative to the shop's root.",
+  "groups": [
+    {
+      "name": "spellings with tracking parameters and doubled slashes",
+      "rows": [
+        {"path": "products/hagi-tea-bowl", "captured": "T-1", "page_identity": "T-1", "title": "Hagi tea bowl", "expected": "survivor", "evidence": null},
+        {"path": "products/hagi-tea-bowl?utm_source=mail&fbclid=1", "captured": "T-1", "page_identity": "T-1", "title": "Hagi tea bowl, Edo period", "expected": "retire", "evidence": "spelling"},
+        {"path": "products//hagi-tea-bowl/", "captured": "T-1", "page_identity": "T-1", "title": "Hagi-Teeschale", "expected": "retire", "evidence": "spelling"}
+      ]
+    },
+    {
+      "name": "translations under a language parameter, with different titles",
+      "rows": [
+        {"path": "artikel.php?id=5&Sprache=de", "captured": "W-5", "page_identity": "W-5", "title": "Briefmarke Rigi 1882", "expected": "survivor", "evidence": null},
+        {"path": "artikel.php?id=5&Sprache=fr", "captured": "W-5", "page_identity": "W-5", "title": "Timbre Rigi 1882", "expected": "retire", "evidence": "spelling"},
+        {"path": "werk/12?l=en", "captured": "W-5", "page_identity": "W-5", "title": "Rigi stamp 1882", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "translations under a language segment, with different titles",
+      "rows": [
+        {"path": "en/products/delft-vase", "captured": "H-9", "page_identity": "H-9", "title": "Delft vase", "expected": "survivor", "evidence": null},
+        {"path": "nl/products/delft-vase/", "captured": "H-9", "page_identity": "H-9", "title": "Delftse vaas", "expected": "retire", "evidence": "spelling"}
+      ]
+    },
+    {
+      "name": "distinct products under a reused stock code",
+      "rows": [
+        {"path": "products/rolf-palm-stoneware-vase", "captured": "C327", "page_identity": "C327", "title": "Rolf Palm stoneware vase", "expected": "survivor", "evidence": null},
+        {"path": "products/stig-lindberg-faience-dish", "captured": "C327", "page_identity": "C327", "title": "Stig Lindberg Faience dish", "expected": "keep", "evidence": null},
+        {"path": "libro.php?id=88", "captured": "1956", "page_identity": "1956", "title": "Cien años de soledad", "expected": "survivor", "evidence": null},
+        {"path": "libro.php?id=91", "captured": "1956", "page_identity": "1956", "title": "La colmena", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "a numbered list page captured under the product it listed first, titled by year (Gillmark)",
+      "rows": [
+        {"path": "map/asia-210/page-5/", "captured": "9282", "page_identity": "9282", "title": "1893", "expected": "survivor", "evidence": null},
+        {"path": "map/asia-210/european-russia-johnston-9282/", "captured": "9282", "page_identity": "9282", "title": "1893", "expected": "keep", "evidence": null},
+        {"path": "map/asia-210/european-russia-johnston-9282/?l=en", "captured": "9282", "page_identity": "9282", "title": null, "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "a product page next to a list page, a translation and another map of the same year (Gillmark)",
+      "rows": [
+        {"path": "map/europe-211/france-cary-9301/", "captured": "9301", "page_identity": "9301", "title": "1801", "expected": "survivor", "evidence": null},
+        {"path": "map/europe-211/page/2", "captured": "9301", "page_identity": "9301", "title": "1801", "expected": "keep", "evidence": null},
+        {"path": "map/europe-211/france-cary-9301/?l=en", "captured": "9301", "page_identity": "9301", "title": "1801", "expected": "retire", "evidence": "spelling"},
+        {"path": "map/europe-211/spain-cary-9310/", "captured": "9301", "page_identity": "9301", "title": "1801", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "a reused stock code on two pieces titled by their year alone",
+      "rows": [
+        {"path": "products/c412", "captured": "C412", "page_identity": "C412", "title": "1962", "expected": "survivor", "evidence": null},
+        {"path": "products/c412-1", "captured": "C412", "page_identity": "C412", "title": "1962", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "a copy without a captured title, as after a captured removal",
+      "rows": [
+        {"path": "product/3051/oak-chest/", "captured": "#3051", "page_identity": "#3051", "title": "Oak chest", "expected": "survivor", "evidence": null},
+        {"path": "product/3051/oak-chest-1/", "captured": "#3051", "page_identity": "#3051", "title": null, "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "slug copies of one product with equal titles",
+      "rows": [
+        {"path": "products/brass-lamp", "captured": "SKU-77", "page_identity": "SKU-77", "title": "Brass lamp", "expected": "retire", "evidence": "title"},
+        {"path": "products/brass-lamp-2", "captured": "SKU-77", "page_identity": "SKU-77", "title": "Brass lamp", "expected": "survivor", "evidence": null},
+        {"path": "products/brass-lamp-3", "captured": "SKU-77", "page_identity": "SKU-77", "title": "Brass lamp", "expected": "retire", "evidence": "title"}
+      ]
+    },
+    {
+      "name": "an identity read from the page URL and the number the page shows now",
+      "rows": [
+        {"path": "print/40475", "captured": "40475", "page_identity": "40475", "title": "Hiroshige: Tokaido, Hara station", "expected": "survivor", "evidence": null},
+        {"path": "ukiyoe/ukiyoe_detail.php?print_id=40475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=40475", "page_identity": "40475", "title": "Hiroshige, Tokaido Hara", "expected": "retire", "evidence": "identity_token"},
+        {"path": "ukiyoe/ukiyoe_detail.php?print_id=140475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=140475", "page_identity": "40475", "title": "Kuniyoshi, warrior print", "expected": "keep", "evidence": null}
+      ]
+    }
+  ]
+}

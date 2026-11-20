@@ -11,6 +11,7 @@ use crate::review::page_projection::PageView;
 use crate::review::product_markup::JsonLdProductIds;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Deserialize;
 
@@ -23,6 +24,8 @@ pub(super) struct ReviewDetail {
     pub(super) urls: Vec<CrawlerReviewUrl>,
     #[serde(default)]
     pub(super) source_product_urls: Vec<SourceProductUrl>,
+    #[serde(default)]
+    pub(super) live_identity_rules: Vec<Option<ExtractionRule>>,
     pub(super) events: Vec<ReviewEvent>,
 }
 

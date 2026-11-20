@@ -9,7 +9,11 @@
 use super::qualification::QueuedSource;
 use super::queue::{QueuedReview, ReviewArtifact};
 use super::settings::{AgentProcessSettings, RunnerSettings, effort_flag};
-use crate::review_mcp::{AgentRole, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV};
+use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
+use crate::review_mcp::{
+    AgentRole, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV, ToolSchemaError,
+    tools_for_artifact,
+};
 use serde_json::{Value, json};
 use std::fmt;
 use std::path::PathBuf;
@@ -150,11 +154,6 @@ pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
 }
 
 impl RoleContract {
-    /// The report schema as one line of JSON, as `--json-schema` takes it.
-    pub(super) fn report_schema(&self) -> Result<String, serde_json::Error> {
-        serde_json::from_str::<Value>(self.report_schema).map(|schema| schema.to_string())
-    }
-
     /// The prompt for `review`. It names the review and nothing of
     /// its content: the agent reads that through its tools, as data. The review comes last, so the
     /// prompt before it is the same for every review of an artifact type and the model's prompt
@@ -202,19 +201,43 @@ pub(super) struct AgentCommand {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("the {role} report schema is not JSON")]
-pub(super) struct ReportSchemaError {
-    role: AgentRole,
-    #[source]
-    source: serde_json::Error,
+pub(super) enum CommandError {
+    #[error("the {process} report schema is not JSON")]
+    ReportSchema {
+        process: &'static str,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("the reviewer's tools cannot be listed")]
+    Tools(#[source] ToolSchemaError),
 }
+
+/// Which tools of its `review-mcp` a process may call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolAccess {
+    /// Every tool of the role it starts `review-mcp` as.
+    AllOfItsRole,
+    /// Only [`CLASSIFIER_TOOLS`]; the reviewer's other tools on a product-schema review are
+    /// disallowed by name, so the page classifier reads and never changes or decides a review.
+    ClassifierReads,
+}
+
+/// The reviewer's tools the page classifier calls: it reads the review and its pages.
+pub(super) const CLASSIFIER_TOOLS: [&str; 2] = ["get_review", "inspect_page"];
+
+/// The page classifier's prompt and report schema.
+const CLASSIFIER_PROMPT: &str = include_str!("prompts/classifier.md");
+const CLASSIFIER_REPORT_SCHEMA: &str = include_str!("schemas/classifier-report.v1.json");
+
+/// The process name the classifier's ledger records and its errors name.
+const CLASSIFIER_PROCESS: &str = "classifier";
 
 /// The `claude -p` process of `role` for `review`.
 pub(super) fn agent_command(
     settings: &RunnerSettings,
     role: AgentRole,
     review: &QueuedReview,
-) -> Result<AgentCommand, ReportSchemaError> {
+) -> Result<AgentCommand, CommandError> {
     let contract = role_contract(role);
     let process = settings.process(role, review.artifact_type);
     let mcp_args = [
@@ -225,7 +248,13 @@ pub(super) fn agent_command(
     ];
     Ok(AgentCommand {
         program: settings.claude_bin.clone(),
-        args: cli_args(settings, role, &process, &mcp_args)?,
+        args: cli_args(
+            settings,
+            ReportContract::of(role),
+            ToolAccess::AllOfItsRole,
+            &process,
+            &mcp_args,
+        )?,
         env: settings.child_env.clone(),
         prompt: contract.prompt(review),
     })
@@ -237,7 +266,7 @@ pub(super) fn agent_command(
 pub(super) fn qualifier_command(
     settings: &RunnerSettings,
     source: &QueuedSource,
-) -> Result<AgentCommand, ReportSchemaError> {
+) -> Result<AgentCommand, CommandError> {
     let role = AgentRole::Qualifier;
     let process = settings.process(role, ReviewArtifact::UrlPattern);
     let mcp_args = [
@@ -248,10 +277,117 @@ pub(super) fn qualifier_command(
     ];
     Ok(AgentCommand {
         program: settings.claude_bin.clone(),
-        args: cli_args(settings, role, &process, &mcp_args)?,
+        args: cli_args(
+            settings,
+            ReportContract::of(role),
+            ToolAccess::AllOfItsRole,
+            &process,
+            &mcp_args,
+        )?,
         env: settings.child_env.clone(),
         prompt: qualifier_prompt(role_contract(role).prompt, source),
     })
+}
+
+/// The page classifier's `claude -p` process for the fresh product-schema review `review`: the
+/// classifier's process settings, and the reviewer's `review-mcp` for that review, of whose tools
+/// it may call only [`CLASSIFIER_TOOLS`]. The classifier is no `review-mcp` role; the reviewer's
+/// token reads the review as the reviewer would, and the runner, not the model, takes the
+/// rejection its verdicts may lead to.
+pub(super) fn classifier_command(
+    settings: &RunnerSettings,
+    review: &QueuedReview,
+) -> Result<AgentCommand, CommandError> {
+    let mcp_args = [
+        "--role".to_owned(),
+        AgentRole::Reviewer.as_str().to_owned(),
+        "--review".to_owned(),
+        review.review_id.to_string(),
+    ];
+    Ok(AgentCommand {
+        program: settings.claude_bin.clone(),
+        args: cli_args(
+            settings,
+            ReportContract::classifier(),
+            ToolAccess::ClassifierReads,
+            &settings.classifier,
+            &mcp_args,
+        )?,
+        env: settings.child_env.clone(),
+        prompt: CLASSIFIER_PROMPT.replace("{review_id}", &review.review_id.to_string()),
+    })
+}
+
+/// The page classifier's prompt and report schema as the ledger names them: the first 12 hex
+/// characters of their SHA-256, as [`RoleContract::prompt_sha256`] names a role's.
+pub(super) fn classifier_prompt_sha256() -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::new()
+        .chain_update(CLASSIFIER_PROMPT)
+        .chain_update(CLASSIFIER_REPORT_SCHEMA)
+        .finalize();
+    digest
+        .iter()
+        .take(6)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// The report schema a process answers and the name its errors carry.
+#[derive(Debug, Clone, Copy)]
+struct ReportContract {
+    process: &'static str,
+    schema: &'static str,
+}
+
+impl ReportContract {
+    const fn of(role: AgentRole) -> Self {
+        Self {
+            process: role.as_str(),
+            schema: role_contract(role).report_schema,
+        }
+    }
+
+    const fn classifier() -> Self {
+        Self {
+            process: CLASSIFIER_PROCESS,
+            schema: CLASSIFIER_REPORT_SCHEMA,
+        }
+    }
+
+    /// The schema as one line of JSON, as `--json-schema` takes it.
+    fn one_line(self) -> Result<String, CommandError> {
+        serde_json::from_str::<Value>(self.schema)
+            .map(|schema| schema.to_string())
+            .map_err(|source| CommandError::ReportSchema {
+                process: self.process,
+                source,
+            })
+    }
+}
+
+/// The `--allowedTools` and `--disallowedTools` of a process with `access`.
+fn tool_flags(access: ToolAccess) -> Result<Vec<String>, CommandError> {
+    let qualified = |name: &str| format!("mcp__{MCP_SERVER_NAME}__{name}");
+    match access {
+        ToolAccess::AllOfItsRole => Ok(vec!["--allowedTools".to_owned(), qualified("*")]),
+        ToolAccess::ClassifierReads => {
+            let disallowed: Vec<String> =
+                tools_for_artifact(AgentRole::Reviewer, ARTIFACT_PRODUCT_SCHEMA)
+                    .map_err(CommandError::Tools)?
+                    .iter()
+                    .map(|tool| tool.name().to_owned())
+                    .filter(|name| !CLASSIFIER_TOOLS.contains(&name.as_str()))
+                    .map(|name| qualified(&name))
+                    .collect();
+            Ok(vec![
+                "--allowedTools".to_owned(),
+                CLASSIFIER_TOOLS.map(qualified).join(","),
+                "--disallowedTools".to_owned(),
+                disallowed.join(","),
+            ])
+        }
+    }
 }
 
 /// The qualifier's prompt for `source`: its id, name and crawl root, and the label it carries as
@@ -294,18 +430,18 @@ fn qualifier_prompt(template: &str, source: &QueuedSource) -> String {
         .replace("{source_label}", &format!("{label}{reviews}{earlier}"))
 }
 
-/// The CLI flags of a process of `role` started with `process`'s settings and the role's
-/// `review-mcp` started with `mcp_args`.
+/// The CLI flags of a process answering `report`, calling the tools `access` allows, started with
+/// `process`'s settings and its `review-mcp` started with `mcp_args`.
 fn cli_args(
     settings: &RunnerSettings,
-    role: AgentRole,
+    report: ReportContract,
+    access: ToolAccess,
     process: &AgentProcessSettings,
     mcp_args: &[String],
-) -> Result<Vec<String>, ReportSchemaError> {
-    let report_schema = role_contract(role)
-        .report_schema()
-        .map_err(|source| ReportSchemaError { role, source })?;
-    Ok([
+) -> Result<Vec<String>, CommandError> {
+    let report_schema = report.one_line()?;
+    let mcp_config = mcp_config(settings, mcp_args).to_string();
+    let head = [
         "-p",
         "--system-prompt",
         SYSTEM_PROMPT,
@@ -316,10 +452,11 @@ fn cli_args(
         "--json-schema",
         &report_schema,
         "--mcp-config",
-        &mcp_config(settings, mcp_args).to_string(),
+        &mcp_config,
         "--strict-mcp-config",
-        "--allowedTools",
-        &format!("mcp__{MCP_SERVER_NAME}__*"),
+    ];
+    let max_turns = process.max_turns.to_string();
+    let tail = [
         "--permission-mode",
         "dontAsk",
         "--no-session-persistence",
@@ -330,13 +467,17 @@ fn cli_args(
         "--effort",
         effort_flag(process.effort),
         "--max-turns",
-        &process.max_turns.to_string(),
+        &max_turns,
         // No built-in tool: no shell, files, web or browser.
         "--tools",
         "",
-    ]
-    .map(str::to_owned)
-    .to_vec())
+    ];
+    Ok(head
+        .into_iter()
+        .map(str::to_owned)
+        .chain(tool_flags(access)?)
+        .chain(tail.into_iter().map(str::to_owned))
+        .collect())
 }
 
 /// The MCP configuration of one process: `review-mcp` started with `args`, which name the role
@@ -396,6 +537,7 @@ mod tests {
             handed_back: None,
             created: time::OffsetDateTime::UNIX_EPOCH,
             repair_requested: false,
+            classification_due: false,
         }
     }
 
@@ -421,8 +563,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(command.program, PathBuf::from("/usr/local/bin/claude"));
-        let schema = role_contract(AgentRole::Reviewer)
-            .report_schema()
+        let schema = ReportContract::of(AgentRole::Reviewer)
+            .one_line()
             .unwrap_or_else(|error| panic!("{error}"));
         let mcp_config = mcp_config(
             &settings(),
@@ -635,8 +777,8 @@ mod tests {
                 source.listing_source_id.to_string()
             ])
         );
-        let schema = role_contract(AgentRole::Qualifier)
-            .report_schema()
+        let schema = ReportContract::of(AgentRole::Qualifier)
+            .one_line()
             .unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(flag(&command.args, "--json-schema"), Some(schema.as_str()));
         assert_eq!(flag(&command.args, "--tools"), Some(""));
@@ -661,6 +803,68 @@ mod tests {
                 .prompt
                 .contains("It carries no label.")
         );
+    }
+
+    /// The page classifier starts the reviewer's `review-mcp` for the review, may call only its two
+    /// read tools and has every other reviewer tool disallowed by name, so neither a page nor a
+    /// mistake lets it change or decide the review; it runs on its own model and effort.
+    #[test]
+    fn should_start_the_classifier_with_the_reviewer_s_read_tools_only() {
+        let review = review();
+
+        let command =
+            classifier_command(&settings(), &review).unwrap_or_else(|error| panic!("{error}"));
+
+        let allowed: Vec<&str> = flag(&command.args, "--allowedTools")
+            .unwrap_or_default()
+            .split(',')
+            .collect();
+        assert_eq!(
+            allowed,
+            [
+                "mcp__crawler_review__get_review",
+                "mcp__crawler_review__inspect_page"
+            ]
+        );
+        let disallowed: Vec<&str> = flag(&command.args, "--disallowedTools")
+            .unwrap_or_default()
+            .split(',')
+            .collect();
+        let reviewer_tools = tools_for_artifact(AgentRole::Reviewer, ARTIFACT_PRODUCT_SCHEMA)
+            .unwrap_or_else(|error| panic!("{error}"));
+        for tool in &reviewer_tools {
+            let qualified = format!("mcp__crawler_review__{}", tool.name());
+            assert_ne!(
+                allowed.contains(&qualified.as_str()),
+                disallowed.contains(&qualified.as_str()),
+                "{qualified}"
+            );
+        }
+        for decision in ["approve", "reject", "mark_needs_repair", "refresh_matrix"] {
+            assert!(
+                disallowed.contains(&format!("mcp__crawler_review__{decision}").as_str()),
+                "{decision}"
+            );
+        }
+        let config: Value =
+            serde_json::from_str(flag(&command.args, "--mcp-config").unwrap_or_default())
+                .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            config["mcpServers"][MCP_SERVER_NAME]["args"],
+            json!([
+                "--role",
+                "reviewer",
+                "--review",
+                review.review_id.to_string()
+            ])
+        );
+        assert_eq!(flag(&command.args, "--model"), Some("claude-haiku-5-5"));
+        assert_eq!(flag(&command.args, "--effort"), Some("low"));
+        assert_eq!(flag(&command.args, "--max-turns"), Some("15"));
+        assert_eq!(flag(&command.args, "--tools"), Some(""));
+        assert!(command.prompt.contains(&review.review_id.to_string()));
+        assert!(!command.prompt.contains('{'), "{}", command.prompt);
+        assert_eq!(classifier_prompt_sha256().len(), 12);
     }
 
     /// The allowed-tools pattern covers the configured server's tools and nothing else: Claude Code
@@ -943,14 +1147,18 @@ mod tests {
                 None => panic!("{path} has no type"),
             }
         }
-        for role in [AgentRole::Author, AgentRole::Reviewer] {
+        for contract in [
+            ReportContract::of(AgentRole::Author),
+            ReportContract::of(AgentRole::Reviewer),
+            ReportContract::classifier(),
+        ] {
             let schema: Value = serde_json::from_str(
-                &role_contract(role)
-                    .report_schema()
+                &contract
+                    .one_line()
                     .unwrap_or_else(|error| panic!("{error}")),
             )
             .unwrap_or_else(|error| panic!("{error}"));
-            assert_strict(&schema, role.as_str());
+            assert_strict(&schema, contract.process);
         }
     }
 }

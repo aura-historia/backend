@@ -4,6 +4,7 @@ pub mod list_window;
 pub mod listing_source_detail;
 pub mod listing_source_filter;
 pub mod listing_source_overview;
+pub mod page_classification;
 pub mod page_role;
 pub mod page_signals;
 pub mod page_size;
@@ -42,6 +43,10 @@ pub use listing_source_detail::{
 };
 pub use listing_source_filter::{SourceActivity, SourceSort, SourceStatus};
 pub use listing_source_overview::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
+pub use page_classification::{
+    ClassifiedPage, MAX_PAGE_VERDICT_REASON_CHARS, PageClassification, PageClassificationError,
+    PageVerdict, PageVerdictReason,
+};
 pub use page_role::*;
 pub use page_signals::PageSignals;
 pub use page_size::PageSize;
@@ -66,7 +71,9 @@ pub use sample_labels::{
 };
 pub use schema_candidate_evaluation::SchemaCandidateEvaluation;
 pub use schema_matrix::{LiveMatrixEvaluation, ReviewSchemaMatrix, SchemaMatrix};
-pub use schema_page_evaluation::{PriceTextOnState, SchemaPageEvaluation, SchemaPageReference};
+pub use schema_page_evaluation::{
+    ApprovalExemptions, LinkIdentity, PriceTextOnState, SchemaPageEvaluation, SchemaPageReference,
+};
 pub use schema_review_page_input::SchemaReviewPageInput;
 pub use search_term::{MAX_SEARCH_TERM_CHARS, SearchTerm};
 pub use selector_field_evaluation::SelectorFieldEvaluation;

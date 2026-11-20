@@ -18,6 +18,7 @@ use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::spider::classification::product_url_pattern::{UrlPatternMatching, path_and_query};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -151,6 +152,10 @@ pub struct ReviewBody {
     /// with `add_review_page`; empty on a URL-pattern review. At most 40: those that scraped
     /// without an error first, the most recently scraped first, then the rest.
     pub source_product_urls: Vec<SourceProductUrlView>,
+    /// The `source_listing_id` rule of each live product schema of the ListingSource, in schema
+    /// order, null for a schema without one: the rules its listings were captured under. Empty on a
+    /// URL-pattern review and for a source without live schemas.
+    pub live_identity_rules: Vec<Option<ExtractionRule>>,
     /// The product-schema matrix the console stored for the candidate, if any. A candidate change
     /// drops it; `refresh_matrix` evaluates a new one.
     pub matrix: Option<MatrixView>,
@@ -237,6 +242,14 @@ pub struct SourceProductUrlView {
     /// The error kind of the last scrape, such as `BotChallenge`; null when it scraped
     /// without one.
     pub last_error_kind: Option<String>,
+    /// The identity the URL's listing was captured under, which the candidate's identity rule
+    /// must derive from the page; left out before its first capture.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captured_identity: Option<String>,
+    /// The identity the live schemas derived from the page at its last capture, when it differs
+    /// from the captured one; left out otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_identity: Option<String>,
 }
 
 /// One URL of a URL-pattern review's sample. A field that is unknown, such as every pattern match
@@ -380,6 +393,22 @@ pub(super) struct SourcePageAnswer {
     describes_one_product: bool,
     #[serde(default)]
     links: Vec<SourcePageLink>,
+    #[serde(default)]
+    links_offset: usize,
+    #[serde(default)]
+    links_total: usize,
+    #[serde(default)]
+    other_hosts: Vec<SourcePageOtherHost>,
+}
+
+/// The links of a page to another host than the shop's.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SourcePageOtherHost {
+    pub host: String,
+    /// How many distinct pages on the host the page links.
+    pub links: usize,
+    /// One of them.
+    pub example: String,
 }
 
 /// A page of the shop a page links, with the link's text.
@@ -403,8 +432,16 @@ pub struct SourcePage {
     /// Whether the page's structured data describes exactly one product.
     pub describes_one_product: bool,
     /// The shop's pages this page links, with their texts, which the projection leaves out: the
-    /// category, shop and item pages to read next.
+    /// category, shop and item pages to read next. The page's own content's links come first.
     pub links: Vec<SourcePageLink>,
+    /// The position of the first of `links` among the page's links.
+    pub links_offset: usize,
+    /// How many shop pages the page links; when more than `links_offset` plus `links` count, read
+    /// the page again with a later `links_offset` for the rest.
+    pub links_total: usize,
+    /// The other hosts the page links, the most linked first: when the item pages lie on one of
+    /// them, the crawler cannot reach them from this crawl root.
+    pub other_hosts: Vec<SourcePageOtherHost>,
 }
 
 impl From<SourcePageAnswer> for SourcePage {
@@ -418,6 +455,9 @@ impl From<SourcePageAnswer> for SourcePage {
             truncated,
             describes_one_product: answer.describes_one_product,
             links: answer.links,
+            links_offset: answer.links_offset,
+            links_total: answer.links_total,
+            other_hosts: answer.other_hosts,
         }
     }
 }
@@ -551,6 +591,7 @@ impl ReviewView {
             pages,
             urls,
             source_product_urls,
+            live_identity_rules,
             events,
         } = detail;
         let mut truncations = Vec::new();
@@ -566,6 +607,7 @@ impl ReviewView {
                 candidate,
                 pages,
                 source_product_urls,
+                live_identity_rules,
                 events,
                 &mut truncations,
             )
@@ -600,6 +642,7 @@ impl ReviewBody {
         candidate: wire::Candidate,
         pages: Vec<CrawlerReviewPage>,
         source_product_urls: Vec<SourceProductUrl>,
+        live_identity_rules: Vec<Option<ExtractionRule>>,
         events: Vec<wire::ReviewEvent>,
         truncations: &mut Vec<String>,
     ) -> Self {
@@ -613,6 +656,7 @@ impl ReviewBody {
                 .into_iter()
                 .map(SourceProductUrlView::of)
                 .collect(),
+            live_identity_rules,
             matrix,
             events: events.into_iter().map(EventView::of).collect(),
             events_total,
@@ -777,6 +821,10 @@ impl SourceProductUrlView {
             url: url.url,
             last_scraped: url.last_scraped.map(timestamp),
             last_error_kind: url.last_error_kind,
+            page_identity: url
+                .page_identity
+                .filter(|page| url.captured_identity.as_ref() != Some(page)),
+            captured_identity: url.captured_identity,
         }
     }
 }
@@ -1191,6 +1239,43 @@ mod tests {
         );
     }
 
+    /// The agent sees what each URL's listing was captured under, and what its page showed when
+    /// that differs, next to the live identity rules, before the approval guard refuses a rule
+    /// that would derive another identity.
+    #[test]
+    fn should_show_the_captured_identities_and_the_live_identity_rules() {
+        let candidate = json!({ "schemas": [] });
+        let mut detail = url_pattern_detail(&candidate, 0, 0);
+        detail.source_product_urls = decoded(json!([
+            { "url": "https://antiques.example/item/1", "last_scraped": null, "last_error_kind": null,
+              "captured_identity": "J054", "page_identity": "J054" },
+            { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": null,
+              "captured_identity": "J055", "page_identity": "https://antiques.example/item/2" },
+            { "url": "https://antiques.example/item/3", "last_scraped": null, "last_error_kind": null },
+        ]));
+        detail.live_identity_rules = decoded(json!([
+            { "selector": "script[type=\"application/ld+json\"]", "type": "json_ld_product", "property": "sku" },
+            null,
+        ]));
+
+        let view = json!(ReviewView::of(
+            detail,
+            wire::Candidate::ProductSchema(decoded(candidate)),
+            0,
+        ));
+
+        let urls = &view["source_product_urls"];
+        assert_eq!(urls[0]["captured_identity"], "J054");
+        assert!(
+            urls[0].get("page_identity").is_none(),
+            "a page that agrees adds nothing"
+        );
+        assert_eq!(urls[1]["page_identity"], "https://antiques.example/item/2");
+        assert!(urls[2].get("captured_identity").is_none());
+        assert_eq!(view["live_identity_rules"][0]["property"], "sku");
+        assert_eq!(view["live_identity_rules"][1], Value::Null);
+    }
+
     fn url_pattern_detail(candidate: &Value, urls: usize, events: usize) -> wire::ReviewDetail {
         decoded(json!({
             "review": review("PENDING_REVIEW", "URL_PATTERN", candidate.clone()),
@@ -1332,6 +1417,7 @@ mod tests {
             "candidate",
             "pages",
             "source_product_urls",
+            "live_identity_rules",
             "matrix",
             "events",
             "events_total",

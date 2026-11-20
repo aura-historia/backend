@@ -33,6 +33,10 @@ base64 = { workspace = true }
 google-cloud-auth = { workspace = true }
 html-escape = { workspace = true }
 encoding_rs = { workspace = true }
+# Decode gzip, deflate and Brotli shop bodies whose framing the crawler reads itself;
+# see `src/network/response_body.rs`.
+flate2 = { workspace = true }
+brotli = { workspace = true }
 httpdate = { workspace = true }
 # Tells a connection the shop closed without an answer apart from other request
 # failures; see `src/network/policy.rs`.

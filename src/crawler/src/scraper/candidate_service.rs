@@ -37,7 +37,13 @@ pub struct ScraperCandidate {
     pub url: Url,
     /// Stable raw-stream identity retained when the crawler URL moves.
     pub source_record_key: String,
+    /// The identity the URL's listing was first captured under, which its later scrapes keep.
     pub last_source_listing_id: Option<String>,
+    /// The identity the selected schema extracted at the URL's last capture that extracted one,
+    /// `None` before it was recorded.
+    pub last_extracted_source_listing_id: Option<String>,
+    /// The title the URL's last capture recorded, `None` before any capture recorded one.
+    pub last_captured_title: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -198,6 +204,10 @@ pub struct RedirectUrlMove {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
+    /// The identity the selected schema extracted; `None` when it extracted none, such as a sold
+    /// page without the element, keeps the one recorded before, so a later swap to another
+    /// product is still seen and the URL still [carries](IdentityCarrier) its identity.
+    pub extracted_source_listing_id: Option<String>,
     pub title: Option<String>,
     pub disposition: CrawlerDisposition,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -223,6 +233,59 @@ pub enum RedirectDestination {
     Unsettled,
 }
 
+/// The product URL of a ListingSource that carries a source listing id another URL's page shows:
+/// the earliest stored product URL of the ListingSource, not retired, that was captured under the
+/// identity and whose page showed it at its last capture (`last_extracted_source_listing_id` equals
+/// `last_source_listing_id`). A URL in an identity conflict, one whose page identity is not yet
+/// recorded and one whose last capture was a removal (which forgets the page identity) carry
+/// nothing, so two URLs whose pages swapped identities never retire or strand each other, and a
+/// product that moved to another URL is not judged against the page it left
+/// (`docs/crawler/scheduling-and-retries.md#captured-identity`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityCarrier {
+    pub url: Url,
+    /// The title the carrier's last capture recorded.
+    pub title: Option<String>,
+}
+
+/// The [`IdentityCarrier`] of `source_listing_id` among the product URLs of `listing_source_id`
+/// other than `excluding_url`, the earliest stored when several qualify.
+pub async fn identity_carrier<'e, E>(
+    executor: E,
+    listing_source_id: &ListingSourceId,
+    source_listing_id: &str,
+    excluding_url: &Url,
+) -> Result<Option<IdentityCarrier>, sqlx::Error>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT url, last_captured_title
+         FROM listing_source_urls
+         WHERE listing_source_id = $1
+           AND last_source_listing_id = $2
+           AND last_extracted_source_listing_id IS NOT DISTINCT FROM last_source_listing_id
+           AND last_error_kind IS DISTINCT FROM 'SourceListingIdConflict'
+           AND url <> $3
+           AND url_class = 'product'
+           AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+         ORDER BY created, url
+         LIMIT 1",
+    )
+    .bind(listing_source_id_uuid)
+    .bind(source_listing_id)
+    .bind(excluding_url.as_str())
+    .fetch_optional(executor)
+    .await?;
+    row.map(|(url, title)| {
+        Url::parse(&url)
+            .map(|url| IdentityCarrier { url, title })
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))
+    })
+    .transpose()
+}
+
 /// Durable completion state for one ordinary crawler scrape.
 #[derive(Debug, Clone)]
 pub struct ScrapeCompletion {
@@ -232,6 +295,13 @@ pub struct ScrapeCompletion {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
+    /// The identity the selected schema extracted; `None` when it extracted none, such as a sold
+    /// page without the element, keeps the one recorded before, so a later swap to another
+    /// product is still seen and the URL still [carries](IdentityCarrier) its identity.
+    pub extracted_source_listing_id: Option<String>,
+    /// The page showed another identity than at its previous capture under unchanged schemas,
+    /// which records when (`page_identity_changed_at`).
+    pub page_identity_changed: bool,
     /// The title the capture recorded; `None` keeps the one recorded before, as the capture
     /// leaves the listing's title unchanged.
     pub title: Option<String>,
@@ -365,14 +435,14 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// The product URL of the ListingSource other than `excluding_url` that is not retired and
-    /// already carries `source_listing_id`; the earliest stored row when several do.
-    async fn url_carrying_source_listing_id(
+    /// The [carrier](IdentityCarrier) of `source_listing_id` among the ListingSource's product
+    /// URLs other than `excluding_url`.
+    async fn identity_carrier(
         &self,
         listing_source_id: &ListingSourceId,
         source_listing_id: &str,
         excluding_url: &Url,
-    ) -> Result<Option<Url>, sqlx::Error>;
+    ) -> Result<Option<IdentityCarrier>, sqlx::Error>;
     /// What the crawler stores at the page a scrape of a URL of `listing_source_id` was
     /// redirected to, read before any raw observation is queued.
     async fn redirect_destination(
@@ -386,7 +456,9 @@ pub trait ScraperCandidateService: Send + Sync {
         redirect_move: RedirectUrlMove,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Forgets the URL's last capture before a verified removal is captured: the page hash,
-    /// scraper-context fingerprint and captured raw-input hash become `NULL`. Neither a failed
+    /// scraper-context fingerprint and captured raw-input hash become `NULL`, and with them the
+    /// title and the page identity, so the URL no longer [carries](IdentityCarrier) its identity
+    /// for a product that moved to another URL. Neither a failed
     /// removal capture nor a failed [`mark_removed`](Self::mark_removed) afterwards can then
     /// leave the URL matching the product capture before the removal, which would skip a page
     /// that comes back unchanged and leave the listing removed.
@@ -399,7 +471,9 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Records a verified removal whose raw delete is durably captured, or was captured by an
     /// earlier check, and makes the URL eligible for later rechecks. It forgets the page hash and
     /// scraper-context fingerprint of the last product scrape, so a page that comes back
-    /// unchanged is extracted and captured again instead of skipped. A removal that
+    /// unchanged is extracted and captured again instead of skipped, and its title and page
+    /// identity, so the URL [carries](IdentityCarrier) nothing until a capture shows a product
+    /// again. A removal that
     /// `removed_by_templates` captured is recorded with them; when the stored list no longer
     /// holds one of them unchanged, retired or narrowed since the page was matched, the URL is
     /// left due at once, as the change's re-arm leaves the removals it finds. A removal a shared
@@ -888,6 +962,8 @@ struct ScraperCandidateRow {
     next_scrape_at: Option<OffsetDateTime>,
     is_circuit_probe: bool,
     last_source_listing_id: Option<String>,
+    last_extracted_source_listing_id: Option<String>,
+    last_captured_title: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
     unsettled_redirect_target: Option<String>,
@@ -1008,6 +1084,8 @@ macro_rules! eligible_scraper_urls_cte {
                 AND s.next_scrape_at IS NOT NULL
                 AND s.next_scrape_at <= NOW()) AS is_circuit_probe
             , su.last_source_listing_id
+            , su.last_extracted_source_listing_id
+            , su.last_captured_title
             , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_waited_on END AS schema_review_waited_on
@@ -1088,7 +1166,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
-        last_source_listing_id, schema_review_waited_on,
+        last_source_listing_id, last_extracted_source_listing_id, last_captured_title,
+        schema_review_waited_on,
         schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
         removed_by_redirect_target,
         page_error_streak, last_error_kind,
@@ -1178,6 +1257,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 },
                 is_circuit_probe: row.is_circuit_probe,
                 last_source_listing_id: row.last_source_listing_id,
+                last_extracted_source_listing_id: row.last_extracted_source_listing_id,
+                last_captured_title: row.last_captured_title,
                 schema_review_wait,
                 unsettled_redirect,
                 removed_by_redirect_target,
@@ -1257,6 +1338,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
             source_listing_id,
+            extracted_source_listing_id,
+            page_identity_changed,
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
@@ -1271,6 +1354,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = $4,
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
+                 last_extracted_source_listing_id = COALESCE($10, last_extracted_source_listing_id),
+                 page_identity_changed_at = CASE WHEN $11 THEN NOW()
+                                                 ELSE page_identity_changed_at END,
                  last_captured_title = COALESCE($9, last_captured_title),
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
@@ -1301,6 +1387,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
+        .bind(&extracted_source_listing_id)
+        .bind(page_identity_changed)
         .execute(&self.pool)
         .await?;
 
@@ -1311,31 +1399,19 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         })
     }
 
-    async fn url_carrying_source_listing_id(
+    async fn identity_carrier(
         &self,
         listing_source_id: &ListingSourceId,
         source_listing_id: &str,
         excluding_url: &Url,
-    ) -> Result<Option<Url>, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url: Option<String> = sqlx::query_scalar(
-            "SELECT url
-             FROM listing_source_urls
-             WHERE listing_source_id = $1
-               AND last_source_listing_id = $2
-               AND url <> $3
-               AND url_class = 'product'
-               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-             ORDER BY created, url
-             LIMIT 1",
+    ) -> Result<Option<IdentityCarrier>, sqlx::Error> {
+        identity_carrier(
+            &self.pool,
+            listing_source_id,
+            source_listing_id,
+            excluding_url,
         )
-        .bind(listing_source_id_uuid)
-        .bind(source_listing_id)
-        .bind(excluding_url.as_str())
-        .fetch_optional(&self.pool)
-        .await?;
-        url.map(|url| Url::parse(&url).map_err(|error| sqlx::Error::Decode(Box::new(error))))
-            .transpose()
+        .await
     }
 
     async fn redirect_destination(
@@ -1358,6 +1434,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
             source_listing_id,
+            extracted_source_listing_id,
             title,
             disposition,
             expected_last_captured_raw_input_sha256,
@@ -1415,6 +1492,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE listing_source_urls
              SET url = $3,
                  last_source_listing_id = $4,
+                 last_extracted_source_listing_id = COALESCE($11, last_extracted_source_listing_id),
                  last_captured_title = COALESCE($10, last_captured_title),
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
@@ -1446,6 +1524,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
         .bind(&title)
+        .bind(&extracted_source_listing_id)
         .execute(&mut *transaction)
         .await?;
         if moved.rows_affected() != 1 {
@@ -1468,6 +1547,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = NULL,
                  last_captured_title = NULL,
+                 last_extracted_source_listing_id = NULL,
                  removed_by_templates = NULL,
                  removed_by_redirect_target = NULL,
                  updated = NOW()
@@ -1525,6 +1605,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
                  last_captured_title = NULL,
+                 last_extracted_source_listing_id = NULL,
                  removed_by_templates = $5,
                  removed_by_redirect_target = $7,
                  crawler_disposition = 'ACTIVE',

@@ -286,6 +286,76 @@ async fn should_capture_url_hash_identity_when_the_extracted_identity_is_blank()
     assert_eq!(scraped.source_listing_id, url_hash_identity.to_string());
 }
 
+/// HaresFur after its second approval: the listing was captured under its JSON-LD SKU, and the
+/// live schema now derives another identity from the page. The listing keeps updating under the
+/// identity it was captured under, and the capture records what the schema derived.
+#[tokio::test]
+async fn should_capture_under_the_captured_identity_when_the_schema_derives_another() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut schema_svc = schema_service_with_cached(
+        id,
+        vec![schema_with(|schema| {
+            schema.source_listing_id = Some(text_rule("#product-id"));
+        })],
+    );
+    schema_svc.expect_generate_single_schema_for_page().never();
+    let service = service(
+        fetcher_returning(page_with_implausible_elements()),
+        schema_svc,
+        MockScraperCandidateService::new(),
+    );
+    let mut request = primary_only_request(&id, &url);
+    request.last_source_listing_id = Some("J054".to_owned());
+
+    let scraped = service
+        .scrape(request)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("a page with a captured identity must be captured"));
+
+    assert_eq!(scraped.source_listing_id, "J054");
+    assert_eq!(
+        captured_raw_value(&scraped, "sourceListingId"),
+        &serde_json::json!("J054")
+    );
+    assert_eq!(
+        scraped.extracted_source_listing_id.as_deref(),
+        Some("SKU-42")
+    );
+}
+
+/// A schema that derives no identity from a page captured before, such as a sold page that lost
+/// the element, keeps the captured identity instead of the URL-hash fallback.
+#[tokio::test]
+async fn should_capture_under_the_captured_identity_when_the_schema_derives_none() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut schema_svc = schema_service_with_cached(
+        id,
+        vec![schema_with(|schema| {
+            schema.source_listing_id = Some(text_rule("#missing-product-id"));
+        })],
+    );
+    schema_svc.expect_generate_single_schema_for_page().never();
+    let service = service(
+        fetcher_returning(sample_html()),
+        schema_svc,
+        MockScraperCandidateService::new(),
+    );
+    let mut request = primary_only_request(&id, &url);
+    request.last_source_listing_id = Some("SKU-42".to_owned());
+
+    let scraped = service
+        .scrape(request)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("a page with a captured identity must be captured"));
+
+    assert_eq!(scraped.source_listing_id, "SKU-42");
+    assert_eq!(scraped.extracted_source_listing_id, None);
+}
+
 #[tokio::test]
 async fn should_generate_fresh_schema_when_every_cached_extraction_is_implausible() {
     let id = listing_source_id();

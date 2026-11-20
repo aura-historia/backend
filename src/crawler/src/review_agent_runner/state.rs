@@ -56,8 +56,15 @@ pub struct RunnerState {
     /// row, and until when the source waits before its next one.
     #[serde(default)]
     pub qualification_failures: BTreeMap<ListingSourceId, QualificationFailures>,
+    /// Each review whose page classifier processes ended without a verdict: how many did in a
+    /// row, and until when the review waits before its next one. Left out while empty, so a
+    /// runner of an older build still reads the state.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub classification_failures: BTreeMap<CrawlerReviewId, QualificationFailures>,
 }
 
+/// A run of agent processes on one source or review that ended without a decision: how many in a
+/// row, and until when the next one waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QualificationFailures {
     pub in_a_row: u32,
@@ -213,6 +220,7 @@ mod tests {
                     until: NOW + Duration::hours(3),
                 },
             )]),
+            classification_failures: BTreeMap::new(),
         };
 
         save_state(directory.path(), &state).unwrap_or_else(|e| panic!("{e}"));
@@ -231,6 +239,28 @@ mod tests {
         assert_eq!(read.paused, None);
         assert!(read.cooldowns.is_empty());
         assert_eq!(read.last_digest, state.last_digest);
+    }
+
+    /// A state without classification failures writes no key for them, so a runner of a build
+    /// before the page classifier, which refuses unknown keys, still reads it; one with failures
+    /// reads back as written.
+    #[test]
+    fn should_write_classification_failures_only_when_there_are_some() {
+        let empty = serde_json::to_value(RunnerState::default()).unwrap_or_default();
+        assert!(empty.get("classification_failures").is_none(), "{empty}");
+
+        let mut state = RunnerState::default();
+        state.classification_failures.insert(
+            CrawlerReviewId::new(),
+            QualificationFailures {
+                in_a_row: 2,
+                until: NOW,
+            },
+        );
+        let directory = StateDirectory::new();
+        save_state(directory.path(), &state).unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(load_state(directory.path()).ok(), Some(state));
     }
 
     #[test]

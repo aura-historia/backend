@@ -1,8 +1,9 @@
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    CrawlerReviewPage, MatchedRemovedPageTemplate, PriceTextOnState, RemovedPageTemplateMatch,
-    RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
-    SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
+    ApprovalExemptions, CrawlerReviewPage, LinkIdentity, MatchedRemovedPageTemplate,
+    PriceTextOnState, RemovedPageTemplateMatch, RemovedPageTemplateOutcome,
+    SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation, SchemaPageReference,
+    SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::review::page_content_checks::candidate_has_sold_state;
 use crate::review::page_signals::page_signals as signals_of_page;
@@ -148,20 +149,43 @@ fn evaluate_matrix(
     matrix
 }
 
-/// The schema matrix a review's `validation_summary` stores, with the cross-page findings of
-/// this crawler's checks: `None` when it stores none, or the decoding error of one that no longer
-/// decodes, such as a matrix stored before a later per-page check. Every reader of a stored
-/// matrix, the console, the approval guard and the review tools, reads it through this, so a
-/// cross-page check added after the matrix was stored applies to it everywhere alike.
+/// The schema matrix a review's `validation_summary` stores, with the per-page and cross-page
+/// findings of this crawler's checks: `None` when it stores none, or the decoding error of one
+/// that no longer decodes, such as a matrix stored before a later kind of per-page finding. Every
+/// reader of a stored matrix, the console, the approval guard and the review tools, reads it
+/// through this, so a check added after the matrix was stored, such as the identity
+/// `LINK_OR_PATH` check, applies to it everywhere alike.
 pub(crate) fn stored_schema_matrix(
     validation_summary: &serde_json::Value,
 ) -> Option<Result<SchemaMatrix, serde_json::Error>> {
     Some(
         SchemaMatrix::stored_in(validation_summary)?.map(|mut matrix| {
+            evaluate_page_findings(&mut matrix);
             evaluate_cross_page_findings(&mut matrix);
             matrix
         }),
     )
+}
+
+/// Sets every page's per-page findings from its stored extraction, as evaluating the page does,
+/// replacing the ones a cached matrix was stored with. A finding that now rejects the extraction
+/// fails the page as it would at runtime; a page that failed stays failed.
+fn evaluate_page_findings(matrix: &mut SchemaMatrix) {
+    for page in matrix
+        .candidates
+        .iter_mut()
+        .flat_map(|candidate| candidate.pages.iter_mut())
+    {
+        let Some(extracted) = &page.extracted else {
+            continue;
+        };
+        let findings = PlausibilityFindings::of(extracted);
+        if let Some(rejection) = findings.rejection_reason() {
+            page.apply_ok = false;
+            page.error = Some(rejection);
+        }
+        page.plausibility_findings = findings;
+    }
 }
 
 /// Sets every candidate's cross-page findings from its extractions of the review pages,
@@ -304,34 +328,39 @@ fn add_identity_agreement_findings(
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
-        && implausible_page_evaluations(matrix, PriceTextOnState::Blocks)
+        && implausible_page_evaluations(matrix, ApprovalExemptions::NONE)
             .next()
             .is_none()
 }
 
 /// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
-/// checks block approval, each with its candidate's schema index and the price text rule that
-/// applied to it. Deterministic approval refuses a
-/// matrix with any of them, and so does the review agent's [approval
-/// guard](crate::review::approval_guard), except that the guard accepts price text in the `state`
-/// of a candidate whose `state` rule is a status slot (`price_text` is [`Accepted`]
-/// (PriceTextOnState::Accepted)).
+/// checks block approval, each with its candidate's schema index and the exemptions that
+/// applied to it. Deterministic approval refuses a matrix with any of them
+/// ([`ApprovalExemptions::NONE`]), and so does the review agent's [approval
+/// guard](crate::review::approval_guard), except for what `exemptions` accepts: price text in
+/// the `state` of a candidate whose `state` rule is a status slot, where `price_text` is
+/// [`Accepted`](PriceTextOnState::Accepted), and an identity that is a URL or path, where
+/// `link_identity` is [`Captured`](LinkIdentity::Captured).
 fn implausible_page_evaluations(
     matrix: &SchemaMatrix,
-    price_text: PriceTextOnState,
-) -> impl Iterator<Item = (usize, &SchemaPageEvaluation, PriceTextOnState)> {
+    exemptions: ApprovalExemptions,
+) -> impl Iterator<Item = (usize, &SchemaPageEvaluation, ApprovalExemptions)> {
     matrix.candidates.iter().flat_map(move |candidate| {
-        let price_text = match price_text {
+        let price_text = match exemptions.price_text {
             PriceTextOnState::Accepted if candidate_has_sold_state(&candidate.pages) => {
                 PriceTextOnState::Accepted
             }
             _ => PriceTextOnState::Blocks,
         };
+        let exemptions = ApprovalExemptions {
+            price_text,
+            ..exemptions
+        };
         candidate
             .pages
             .iter()
-            .filter(move |page| page.blocks_approval(price_text))
-            .map(move |page| (candidate.schema_index, page, price_text))
+            .filter(move |page| page.blocks_approval(exemptions))
+            .map(move |page| (candidate.schema_index, page, exemptions))
     })
 }
 
@@ -344,21 +373,30 @@ pub struct ImplausiblePage {
     pub url: String,
     pub role: String,
     /// Only the per-page findings that block under the guard's decision: price text in the
-    /// `state` of a status slot is exempt, so it is not listed.
+    /// `state` of a status slot, and a URL identity the listings were captured under, are
+    /// exempt, so they are not listed.
     pub plausibility_findings: PlausibilityFindings,
     pub cross_page_findings: CrossPageFindings,
     pub identity_agreement_findings: IdentityAgreementFindings,
 }
 
-/// The extractions the approval guard refuses, as [`implausible_page_evaluations`] finds them.
-pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage> {
-    implausible_page_evaluations(matrix, PriceTextOnState::Accepted)
-        .map(|(schema_index, page, price_text)| ImplausiblePage {
+/// The extractions the approval guard refuses, as [`implausible_page_evaluations`] finds them
+/// with price text accepted on a status slot and `link_identity` deciding URL identities.
+pub(crate) fn implausible_pages(
+    matrix: &SchemaMatrix,
+    link_identity: LinkIdentity,
+) -> Vec<ImplausiblePage> {
+    let exemptions = ApprovalExemptions {
+        price_text: PriceTextOnState::Accepted,
+        link_identity,
+    };
+    implausible_page_evaluations(matrix, exemptions)
+        .map(|(schema_index, page, exemptions)| ImplausiblePage {
             schema_index,
             page_reference: page.page_reference.clone(),
             url: page.url.clone(),
             role: page.role.clone(),
-            plausibility_findings: page.blocking_plausibility_findings(price_text),
+            plausibility_findings: page.blocking_plausibility_findings(exemptions),
             cross_page_findings: page.cross_page_findings.clone(),
             identity_agreement_findings: page.identity_agreement_findings.clone(),
         })
@@ -1655,7 +1693,7 @@ mod tests {
 
             let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
 
-            assert!(implausible_pages(&matrix).is_empty());
+            assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
@@ -1679,7 +1717,7 @@ mod tests {
                     PlausibilityCheck::DuplicateValues
                 )]
             );
-            assert!(implausible_pages(&matrix).is_empty());
+            assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
@@ -2079,6 +2117,46 @@ mod tests {
                     vec![no_image_on_any_page(), no_image_on_any_page()]
                 );
             }
+
+            /// A matrix stored before the identity `LINK_OR_PATH` check holds a page-URL
+            /// identity without the finding; read now, it shows it, so the approval guard
+            /// refuses it instead of passing it until the matrix expires.
+            #[test]
+            fn should_replace_the_per_page_findings_a_matrix_was_cached_with() {
+                let pages = vec![
+                    product_page("chair", "<img src=\"chair.jpg\">"),
+                    product_page("table", "<img src=\"table.jpg\">"),
+                ];
+                let evaluated = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+                let mut cached = serde_json::to_value(&evaluated)
+                    .unwrap_or_else(|error| panic!("a matrix must serialize: {error}"));
+                for page in 0..2 {
+                    cached["candidates"][0]["pages"][page]["extracted"]["source_listing_id"] =
+                        serde_json::json!(format!("https://shop.example/products/{page}"));
+                    cached["candidates"][0]["pages"][page]["plausibility_findings"] =
+                        serde_json::json!([]);
+                }
+
+                let matrix = stored_schema_matrix(&serde_json::json!({ "schema_matrix": cached }))
+                    .unwrap_or_else(|| panic!("the review stores a matrix"))
+                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
+
+                for page in &matrix.candidates[0].pages {
+                    assert_eq!(
+                        page.plausibility_findings.as_slice(),
+                        [PlausibilityFinding {
+                            field: PlausibilityField::SourceListingId,
+                            check: PlausibilityCheck::LinkOrPath,
+                        }]
+                    );
+                    assert!(page.apply_ok, "a report-only finding fails no page");
+                }
+                assert_eq!(
+                    implausible_pages(&matrix, LinkIdentity::Blocks).len(),
+                    2,
+                    "the guard refuses both pages"
+                );
+            }
         }
     }
 
@@ -2231,7 +2309,7 @@ mod tests {
                 "the sold page has no other applying schema to disagree with"
             );
             assert!(!schema_matrix_deterministic_approval_ok(&matrix));
-            assert_eq!(implausible_pages(&matrix).len(), 2);
+            assert_eq!(implausible_pages(&matrix, LinkIdentity::Blocks).len(), 2);
         }
 
         #[test]
@@ -2329,7 +2407,7 @@ mod tests {
                 )]
             );
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
-            assert!(implausible_pages(&matrix).is_empty());
+            assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
         }
     }
 

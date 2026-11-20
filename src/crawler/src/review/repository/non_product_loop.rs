@@ -62,7 +62,9 @@ pub(super) struct ClosedManualReview {
 }
 
 /// A ListingSource's latest `manual_schema_required` reviews that closed with their opening pages
-/// ruled no product pages, in a row and recently enough to hold its next one for a human.
+/// ruled no product pages, in a row and recently enough to hold its next one for a human. A
+/// rejection that rests on the page classifier's verdicts neither counts nor breaks the row: the
+/// classifier spends no agent rounds, so the loop it guards against does not arise.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct NonProductLoop {
     /// The opening pages of those reviews, newest first.
@@ -91,7 +93,7 @@ impl NonProductLoop {
         executor: impl sqlx::PgExecutor<'e>,
         listing_source_id: &ListingSourceId,
     ) -> Result<Option<Self>, sqlx::Error> {
-        let latest = sqlx::query_as::<_, (bool, bool, Vec<String>)>(
+        let latest = sqlx::query_as::<_, (bool, bool, Vec<String>)>(concat!(
             "SELECT \
                  CASE WHEN r.status = 'REJECTED' THEN NOT EXISTS ( \
                           SELECT 1 FROM crawler_review_events e \
@@ -110,9 +112,13 @@ impl NonProductLoop {
              WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
                AND r.reason = $2 AND r.status IN ('APPROVED', 'REJECTED') \
                AND r.reviewed IS NOT NULL \
+               AND NOT EXISTS (SELECT 1 FROM crawler_review_events e \
+                               WHERE e.review_id = r.review_id AND ",
+            crate::review::repository::classifier_rejection_event!(),
+            ") \
              ORDER BY r.reviewed DESC, r.review_id DESC \
-             LIMIT $6",
-        )
+             LIMIT $6"
+        ))
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(MANUAL_SCHEMA_REASON)
         .bind(ReviewEventAction::RejectionRevoked.as_str())
