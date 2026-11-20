@@ -28,7 +28,7 @@ readonly IMAGE_PATTERN='^ghcr\.io/aura-historia/aura-historia@sha256:([0-9a-f]{6
 readonly IMAGE_SOURCE=https://github.com/aura-historia/backend
 # Only commits on these branches deploy; a commit elsewhere, such as one from a fork, never
 # reaches the checkout the host's timers run as root. Keep in sync with deploy.yml.
-readonly DEPLOY_BRANCHES=(develop epic/aws-exit-single-host)
+readonly DEPLOY_BRANCHES=(develop)
 readonly APPLICATION_SERVICES=(api-a api-b worker mcp)
 # Caddy probes each API replica every 5 s and, after a failed request, leaves it out for 30 s
 # (caddy/Caddyfile). Before the other replica restarts, the restarted one must be back in.

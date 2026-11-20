@@ -24,7 +24,7 @@ concurrency:
 env:
   IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/aura-historia
   # The host enforces the same list (host/prod/deploy.sh); this only fails earlier.
-  DEPLOY_BRANCHES: develop epic/aws-exit-single-host
+  DEPLOY_BRANCHES: develop
   TRIGGER_BUCKET: aura-historia-binary-artifacts-eu-central-1
 
 jobs:

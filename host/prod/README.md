@@ -172,8 +172,8 @@ the `opensearch.` site has no gap: stop the gateway, copy the volume
 
 ## Deploys
 
-The [Deploy workflow](../../.github/workflows/deploy.yml) deploys a commit on `develop` or the
-epic branch, named by branch, tag or SHA:
+The [Deploy workflow](../../.github/workflows/deploy.yml) deploys a commit on `develop`, named by
+branch, tag or SHA:
 
 1. It builds the commit's image with the same image and Compose smoke tests as a pull request.
    A separate job, the only one allowed to write the package, publishes it as
