@@ -51,6 +51,8 @@ passphrase so that each value agrees across the files that share it; it never ov
 file. Fill in the rest, then `sudo host/prod/secrets.sh check` must pass. Sources:
 
 - `aws.env` and `pgbackrest.env`: the host IAM user's access key ([host access](../../docs/infra.md#host-access)); rotate both files together.
+  Docker's log driver reads `aws.env` too, so after a rotation also restart Docker
+  ([logs](#logs)) before deleting the old key.
 - `caddy.env`: a Cloudflare API token limited to *Zone.Zone read* and *Zone.DNS edit* on
   the zone, and the [origin secret](../../docs/infra.md#cloudfront-origin-lock).
 - `cognito-trigger.env`: the [trigger signing key](../../docs/infra.md#host-access).
@@ -108,12 +110,51 @@ everything else, including any request while the secret is unset, gets 403. The 
 removed before the request is forwarded. The API is balanced over both replicas, and a replica
 that fails `/v1/health` is taken out until it passes again.
 
+## Logs
+
+Every service logs to its own CloudWatch Logs group, `/aura-historia/prod/host/<service>`, kept
+30 days ([monitoring](../../docs/infra.md#monitoring)); `ops`, `migrate` and `bootstrap` share
+`ops`, and `restore-check` uses `postgres`. Streams are named after the containers. Docker's
+`awslogs` driver ships them, so no agent runs, and it keeps a local copy, so
+`compose.sh logs <service>` still works. It is non-blocking: while CloudWatch is unreachable a
+service never waits for its log output, and lines beyond the 4 MB buffer are lost.
+
+The driver runs in the Docker daemon and signs with the daemon's own credentials:
+`install.sh prod` installs a `docker.service` drop-in ([`awslogs.conf`](docker/awslogs.conf))
+that loads `secrets/aws.env`, and sets Docker's `live-restore`, so restarting Docker keeps
+every container running. After installing it, or after changing `aws.env`,
+`sudo systemctl restart docker`; check that new events arrive in the groups before deleting an
+old key.
+
+## Monitoring
+
+The worker publishes the host's health metrics once a minute
+([contract](../../src/aura-historia-worker/README.md#health-metrics)); the `monitoring` and
+`edge-monitoring` stacks hold the alarms that email the operators
+([alarms](../../docs/infra.md#monitoring)). The worker reads two host paths through a
+read-only mount of `/var/lib/aura-historia/prod/backup`: `backup.sh` touches `last-success` there
+after each successful full or differential backup, and the free space reported is that of the
+host's root filesystem, which holds Docker, PostgreSQL and OpenSearch.
+
+To test an alarm, cause its condition where that is harmless, or else set its state by hand,
+which tests the notification path only, and confirm the email arrives, then the OK email:
+
+| Alarm | Controlled test |
+| --- | --- |
+| heartbeat missing | `compose.sh stop worker` for six minutes, then `compose.sh up -d worker`; jobs wait meanwhile |
+| backup stale | Clears with `backup.sh diff`; before the first backup it is in alarm already |
+| parked jobs | In alarm while anything is in custody (`ops inspect`) |
+| PostgreSQL unreachable, backlog age, low free disk, CloudFront 5xx | `aws cloudwatch set-alarm-state --alarm-name <name> --state-value ALARM --state-reason test` (the 5xx alarms in `us-east-1`); the next evaluation resets it |
+
 ## First start
 
-On the host, from the stable checkout of a reviewed ref, with the OpenSearch project running:
+On the host, from the stable checkout of a reviewed ref, with the OpenSearch project running
+and the `monitoring` stack deployed:
 
-1. `sudo host/install.sh prod`: socket directory, external volumes, units.
-2. `sudo host/prod/secrets.sh init`, fill in the files, `sudo host/prod/secrets.sh check`.
+1. `sudo host/install.sh prod`: socket and state directories, external volumes, units, Docker's
+   log credentials.
+2. `sudo host/prod/secrets.sh init`, fill in the files, `sudo host/prod/secrets.sh check`, then
+   `sudo systemctl restart docker` so the log driver has the key.
 3. `sudo host/prod/compose.sh build postgres caddy`.
 4. `sudo host/prod/compose.sh up -d --wait postgres`, then `sudo host/prod/backup.sh stanza`:
    WAL archiving fails until the stanza exists.
@@ -176,9 +217,10 @@ and it needs a reviewed manual procedure.
 **Changes a deploy does not apply.** It restarts only `api-a`, `api-b`, the worker and `mcp`.
 Its output ends with the changed files that need an operator: `postgres/` and `caddy/` take
 `compose.sh build <service>` and `compose.sh up -d --force-recreate <service>` (a changed
-bind-mounted file alone does not recreate the container); the units and tmpfiles
+bind-mounted file alone does not recreate the container); the units, tmpfiles and `docker/`
 `install.sh prod`; the deploy script, the planner and [`host/deploy/`](../deploy)
-`install.sh deploy`, after the deploy that brings them.
+`install.sh deploy`, after the deploy that brings them. A change to `compose.yaml` that touches
+`postgres` or `caddy` takes `compose.sh up -d <service>`.
 
 ### Deploy access
 
@@ -223,7 +265,8 @@ repository under `pgbackrest/` in the backup bucket, encrypted with the passphra
 the last 14 days restorable; pgBackRest expires older backups and WAL itself. If S3 is
 unreachable, WAL queues up to 16 GiB and is then dropped rather than filling the disk, which
 breaks point-in-time recovery until the next backup. `sudo host/prod/backup.sh info` shows
-the backups and the WAL range. OpenSearch is not backed up; `ops reproject-all` rebuilds it.
+the backups and the WAL range. Each successful full or differential backup touches the marker
+the [backup alarm](#monitoring) watches. OpenSearch is not backed up; `ops reproject-all` rebuilds it.
 
 ### Restore
 
