@@ -22,10 +22,11 @@ describe("Application stacks", () => {
     expect(() => stageConfig("dev" as StageName)).toThrow("Unsupported CDK stage 'dev'");
   });
 
-  test("keeps the retained stack names and adds the host stack, all termination-protected", () => {
+  test("keeps the retained stack names and adds the host and monitoring stacks, all termination-protected", () => {
     const stacks = createStacks();
     expect(Object.values(stacks).map((stack) => stack.stackName)).toEqual([
       "application-prod-host", "application-prod-identity", "application-prod-api",
+      "application-prod-monitoring", "application-prod-edge-monitoring",
     ]);
     for (const stack of Object.values(stacks)) expect(stack.terminationProtection).toBe(true);
   });
@@ -35,6 +36,17 @@ describe("Application stacks", () => {
     expect(stacks.host.dependencies).toEqual([]);
     expect(stacks.identity.dependencies).toEqual([stacks.host]);
     expect(stacks.api.dependencies).toEqual([stacks.host]);
+    expect(stacks.monitoring.dependencies).toEqual([]);
+    expect(stacks.edgeMonitoring.dependencies).toEqual([]);
+  });
+
+  test("puts only the CloudFront alarms in the edge metrics region, deployable without a bootstrap", () => {
+    const stacks = createStacks();
+    expect(stacks.edgeMonitoring.region).toBe("us-east-1");
+    expect(stacks.edgeMonitoring.synthesizer).toBeInstanceOf(cdk.BootstraplessSynthesizer);
+    for (const stack of [stacks.host, stacks.identity, stacks.api, stacks.monitoring]) {
+      expect(cdk.Token.isUnresolved(stack.region)).toBe(true);
+    }
   });
 
   test("declares no resource of the retired serverless runtime", () => {

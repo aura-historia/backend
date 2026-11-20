@@ -2,12 +2,13 @@ import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
-import { CLOUDFORMATION_STAGING_BUCKET_NAME, stageConfig, type StageConfig, type StageName } from "./config";
+import { CLOUDFORMATION_STAGING_BUCKET_NAME, EDGE_METRICS_REGION, stageConfig, type StageConfig, type StageName } from "./config";
 import { constrainRoutineRoles } from "./routine-role-boundary";
 import { ApiCloudFront } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { CognitoTriggers } from "./constructs/cognito-triggers";
 import { HostAccess } from "./constructs/host-access";
+import { EdgeMonitoring, HostMonitoring } from "./constructs/host-monitoring";
 import { McpCloudFront } from "./constructs/mcp";
 import { TriggerArtifactPublisher } from "./constructs/trigger-artifact-publisher";
 
@@ -25,6 +26,8 @@ export interface ApplicationStageStacks {
   readonly host: ApplicationHostStack;
   readonly identity: ApplicationIdentityStack;
   readonly api: ApplicationApiStack;
+  readonly monitoring: ApplicationMonitoringStack;
+  readonly edgeMonitoring: ApplicationEdgeMonitoringStack;
 }
 
 export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
@@ -38,8 +41,14 @@ export function createApplicationStacks(scope: Construct, props: ApplicationStag
   identity.addStackDependency(host);
   const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, stack("api"));
   api.addStackDependency(host);
+  // Both name what they watch rather than importing it, so either deploys on its own.
+  const monitoring = new ApplicationMonitoringStack(scope, `${stackNamePrefix}-monitoring`, stack("monitoring"));
+  const edgeMonitoring = new ApplicationEdgeMonitoringStack(scope, `${stackNamePrefix}-edge-monitoring`, {
+    ...stack("edge-monitoring"),
+    env: { account: baseProps.env?.account, region: EDGE_METRICS_REGION },
+  });
 
-  return { host, identity, api };
+  return { host, identity, api, monitoring, edgeMonitoring };
 }
 
 /**
@@ -171,6 +180,34 @@ export class ApplicationApiStack extends cdk.Stack {
     new cdk.CfnOutput(this, "McpEndpointUrl", { value: this.mcp.endpointUrl });
     new cdk.CfnOutput(this, "McpCloudFrontDistributionDomainName", { value: this.mcp.distribution.attrDomainName });
     new cdk.CfnOutput(this, "ApiCloudFrontDistributionDomainName", { value: this.api.distribution.attrDomainName });
+  }
+}
+
+/** The host's container log groups, the host health alarms and their email topic. */
+export class ApplicationMonitoringStack extends cdk.Stack {
+  readonly monitoring: HostMonitoring;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+    super(scope, id, stackProps(props));
+    this.templateOptions.description = "Aura Historia host monitoring stack";
+    this.monitoring = new HostMonitoring(this, "HostMonitoring", { config: stageConfig(props.stage) });
+    new cdk.CfnOutput(this, "AlarmTopicArn", { value: this.monitoring.alarms.topic.topicArn });
+  }
+}
+
+/**
+ * The CloudFront 5xx alarms and their own email topic, in the only region CloudFront publishes
+ * metrics to. Its template has no assets and deploys inline, so the region needs no CDK
+ * bootstrap or staging bucket.
+ */
+export class ApplicationEdgeMonitoringStack extends cdk.Stack {
+  readonly monitoring: EdgeMonitoring;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+    super(scope, id, { ...stackProps(props), synthesizer: new cdk.BootstraplessSynthesizer() });
+    this.templateOptions.description = "Aura Historia edge monitoring stack";
+    this.monitoring = new EdgeMonitoring(this, "EdgeMonitoring", { config: stageConfig(props.stage) });
+    new cdk.CfnOutput(this, "AlarmTopicArn", { value: this.monitoring.alarms.topic.topicArn });
   }
 }
 

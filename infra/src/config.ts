@@ -11,6 +11,8 @@ export type StageName = (typeof STAGES)[number];
 export const LAMBDA_ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
 export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
 export const WORKLOAD_REGION = "eu-central-1";
+/** CloudFront publishes its metrics only here, so alarms on them live here too. */
+export const EDGE_METRICS_REGION = "us-east-1";
 
 const PROD_FRONTEND_URL = "https://aura-historia.com/";
 
@@ -89,6 +91,34 @@ export interface HostAccessConfig {
   readonly metricNamespace: string;
 }
 
+/** The Compose services whose container logs the host ships, one log group each. */
+export const CONTAINER_LOG_SERVICES = ["postgres", "api", "mcp", "worker", "caddy", "ops"] as const;
+
+/**
+ * Host health alarms and their email topic. The worker publishes the metrics; the contract is in
+ * src/aura-historia-worker/README.md#health-metrics.
+ */
+export interface MonitoringConfig {
+  /**
+   * Operator-owned SSM `String` parameter, in each monitoring stack's region, holding the address
+   * alarms email. Deliberately unpublished, like the origin name.
+   */
+  readonly alarmEmailParameterName: string;
+  readonly containerLogRetentionDays: number;
+  /** The oldest waiting job may be this old before its class alarms. */
+  readonly backlogAgeThresholdSeconds: { readonly normal: number; readonly bulk: number };
+  readonly minimumFreeDiskPercent: number;
+  readonly maximumBackupAgeSeconds: number;
+  /**
+   * The `api` stack's distributions. CloudFormation cannot reference them from the edge region,
+   * so their IDs are pinned here; replacing a distribution must update them.
+   */
+  readonly cloudFrontDistributionIds: { readonly api: string; readonly mcp: string };
+  /** The 5xx share of a 5-minute period that alarms, once the period has enough requests. */
+  readonly cloudFront5xxRatePercent: number;
+  readonly cloudFrontMinimumRequests: number;
+}
+
 export interface StageConfig {
   readonly stage: StageName;
   readonly removalPolicy: cdk.RemovalPolicy;
@@ -98,6 +128,7 @@ export interface StageConfig {
   readonly mcp: McpConfig;
   readonly hostOrigin: HostOriginConfig;
   readonly host: HostAccessConfig;
+  readonly monitoring: MonitoringConfig;
   readonly cognitoCustomDomain: CognitoCustomDomainConfig | undefined;
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
@@ -135,6 +166,19 @@ export function stageConfig(stage: StageName): StageConfig {
       backupNoncurrentVersionRetentionDays: 30,
       containerLogGroupPrefix: `/aura-historia/${stage}/host/`,
       metricNamespace: "AuraHistoria/Host",
+    },
+    monitoring: {
+      alarmEmailParameterName: `/monitoring/${stage}/alarm-email`,
+      containerLogRetentionDays: 30,
+      // From the retired queue alarms: 15 minutes, and the translation queue's observed jams.
+      backlogAgeThresholdSeconds: { normal: 15 * 60, bulk: 12 * 60 * 60 },
+      // Above OpenSearch's low disk watermark (85% used), which stops shard allocation.
+      minimumFreeDiskPercent: 20,
+      // A daily backup plus two hours' slack.
+      maximumBackupAgeSeconds: 26 * 60 * 60,
+      cloudFrontDistributionIds: { api: "EP6DVM7VDGBW3", mcp: "ESDMRH0023HN6" },
+      cloudFront5xxRatePercent: 5,
+      cloudFrontMinimumRequests: 10,
     },
     cognitoCustomDomain: {
       domainName: "auth.aura-historia.com",

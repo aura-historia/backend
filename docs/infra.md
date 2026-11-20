@@ -29,6 +29,7 @@ One host runs the whole application next to OpenSearch and the crawler:
 | pgBackRest backups and restore | [Backups](../host/prod/README.md#backups) |
 | OpenSearch | [OpenSearch operations](opensearch-stage.md) and [rebuilding OpenSearch](#rebuilding-opensearch) |
 | Outbox, job queue, custody and redrive | [Worker runbook](durable-worker-runbook.md) |
+| Container logs, health metrics and alarms | [Monitoring](#monitoring), [logs](../host/prod/README.md#logs) and [alarm tests](../host/prod/README.md#monitoring) |
 
 The API, MCP and the Cognito triggers' internal endpoints are reachable only through CloudFront
 ([origin lock](#cloudfront-origin-lock)); PostgreSQL and OpenSearch never leave the host's
@@ -103,14 +104,16 @@ deleting the old one.
 ## Remaining AWS resources
 
 The application runs on the self-hosted host. The CDK app declares only what stays on AWS,
-for `prod` in `eu-central-1`; there is no AWS staging copy. [`application-stack.ts`](../infra/src/application-stack.ts)
-composes three stacks:
+for `prod` in `eu-central-1`, except the CloudFront alarms; there is no AWS staging copy.
+[`application-stack.ts`](../infra/src/application-stack.ts) composes five stacks:
 
 | Stack suffix under `application-prod` | Ownership |
 | --- | --- |
 | `host` | The host's IAM user, the versioned backup bucket, the CloudFront origin secret, the Cognito triggers' signing key and the role that publishes their code |
 | `identity` | Cognito pool, client, domains, identity providers and both Cognito triggers; the SES configuration set; the host user's Cognito admin grant |
 | `api` | CloudFront distributions and Web ACLs for `api.` and `mcp.`, both on the host origin |
+| `monitoring` | The host's container log groups, its health alarms and their email topic |
+| `edge-monitoring` | In `us-east-1`: the CloudFront 5xx alarms and their own email topic |
 
 The `assets.` distribution and its bucket, the SES identity, DNS and the host itself are
 externally owned; CDK does not reconcile them. The two consent-evidence log groups
@@ -216,6 +219,36 @@ An update that intentionally replaces or removes an `identity` resource other th
 (such as a trigger permission) needs a reviewed, resource-specific
 `--stack-policy-during-update-body`; never one that covers the pool.
 
+### Monitoring
+
+The alarms watch the host from AWS, so they fire when the host itself is gone. The worker
+publishes the host's [health metrics](../src/aura-historia-worker/README.md#health-metrics) to
+`AuraHistoria/Host` once a minute; Docker ships each service's [logs](../host/prod/README.md#logs)
+to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. Thresholds are in
+[`config.ts`](../infra/src/config.ts):
+
+| Alarm | Fires when |
+| --- | --- |
+| `…-host-heartbeat-missing` | No heartbeat for 5 minutes; missing data breaches, so a dead host, Docker or worker, or a host cut off from AWS, fires it |
+| `…-host-postgres-unreachable` | The worker could not read the queues for 3 minutes |
+| `…-host-normal-backlog-age`, `…-host-bulk-backlog-age` | The oldest waiting job of the class is at least 15 minutes, or 12 hours for bulk, old |
+| `…-host-parked-jobs` | Anything is in failure custody; see the [worker runbook](durable-worker-runbook.md) |
+| `…-host-low-free-disk` | The host filesystem has at most 20% free, above OpenSearch's low watermark |
+| `…-host-backup-stale` | The last successful backup is at least 26 hours old; no recorded backup counts as stale |
+| `…-api-cloudfront-5xx-rate`, `…-mcp-cloudfront-5xx-rate` | At least 5% of a distribution's requests failed with 5xx in two consecutive 5-minute periods of at least 10 requests |
+
+Every alarm emails its topic when it fires and when it clears. Each stack's topic subscribes the
+address in the operator-owned SSM `String` parameter `/monitoring/prod/alarm-email` of its own
+region, so the parameter exists in both `eu-central-1` and `us-east-1`; do not publish the
+address. A subscription delivers nothing until the address confirms it, and CloudFormation
+reads the parameter only when the subscription changes. CloudFront publishes its metrics only
+in `us-east-1`, where CloudFormation cannot reference the `api` stack's distributions, so their
+IDs are pinned in the configuration; replacing a distribution must update them.
+
+Deploy `monitoring` before the host ships logs to its groups. `edge-monitoring` has no assets,
+so `cdk deploy application-prod-edge-monitoring` deploys its template inline to `us-east-1`,
+which needs no CDK bootstrap.
+
 ### Deploying the reduced app
 
 The reduced `identity` and `api` stacks reach prod only at the cutover, after the host serves
@@ -310,8 +343,8 @@ Every application process reads `LOG_LEVEL`; production runs at `warn`
 ([compose project](../host/prod/compose.yaml)), except the one-shot `ops`, `migrate` and
 `bootstrap` runs, whose reports are info events. Spans stay at INFO, so a WARN or ERROR line keeps
 its request and correlation IDs. Consent evidence stays at INFO whatever the level. Raise a level for one service by changing its `LOG_LEVEL` and recreating it.
-Container logs stay on the host in Docker's `json-file` driver, rotated at five files of 20 MB
-per container (`compose.sh logs <service>`).
+Container logs go to CloudWatch Logs, one group per service, and Docker keeps a local copy for
+`compose.sh logs <service>` ([logs](../host/prod/README.md#logs)).
 
 The Cognito triggers log in Lambda's JSON format with system level `WARN` and filter themselves at
 `warn` ([trigger logging](../infra/src/constructs/lambda-logging.ts)); their groups keep seven
