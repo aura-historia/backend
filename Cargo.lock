@@ -819,9 +819,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cognitoidentityprovider"
-version = "1.148.0"
+version = "1.149.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c91a9eb5fa9e9e0e80a19a1c0df4856df059b6b182de4e3036e0d28d485f038e"
+checksum = "c1fc33c6ff50b8310ace2847f8c072cdfadb496bd58ff22b8c2bc263a8395298"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1306,9 +1306,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime-api"
-version = "1.21.0"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0467a2414e84b1b01e37452896fb3562b93926e81c619eba6ecf27ce9e682a0e"
+checksum = "c0b79dbb5331ccd297686df811d50ab3f39db171f5c765372a69272a0990b014"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api-macros",
