@@ -42,6 +42,23 @@ enum TrailCheck {
     Unknown,
 }
 
+/// How one exchange of a final round, its author and then its reviewer, ended.
+enum Exchange {
+    /// A usage limit, a pause or the runner's stop interrupted it; the round stays open.
+    Interrupted,
+    /// The final-round author labelled the source itself.
+    AuthorParked,
+    /// What the author left calls for this park before any reviewer runs.
+    Park(Park),
+    /// The final-round reviewer approved or rejected the review.
+    Decided(FinalRoundOutcome),
+    /// The final-round reviewer ran and decided nothing, with both sides' last reports.
+    Undecided {
+        author: Option<Box<AuthorReport>>,
+        reviewer: Option<Box<ReviewerReport>>,
+    },
+}
+
 /// Why the runner parks a source after a final round.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Park {
@@ -107,11 +124,36 @@ impl Pass<'_> {
             return;
         }
         self.with(|shared| shared.summary.final_rounds += 1);
-        let author = match self.run_process(AgentRole::Author, &review).await.step {
-            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {
-                self.finish_final_round(&review, FinalRoundOutcome::Open, None);
-                return;
+        match self.final_round_exchange(&review).await {
+            Exchange::Interrupted => {
+                self.finish_final_round(&review, FinalRoundOutcome::Open, None)
             }
+            Exchange::AuthorParked => self.record_author_park(&review).await,
+            Exchange::Park(park) => self.park(&review, park).await,
+            Exchange::Decided(outcome) => {
+                self.with(|shared| {
+                    shared.summary.decided += 1;
+                    shared.summary.final_rounds_approved +=
+                        usize::from(outcome == FinalRoundOutcome::Approved);
+                });
+                self.finish_final_round(&review, outcome, None);
+            }
+            Exchange::Undecided { author, reviewer } => {
+                let park = unresolved(
+                    "The final round ended without an approval.",
+                    author.as_deref(),
+                    reviewer.as_deref(),
+                );
+                self.park(&review, park).await;
+            }
+        }
+    }
+
+    /// Runs one exchange of the final round on `review`: the final-round author and, when it
+    /// leaves a candidate the guard does not refuse outright, the final-round reviewer.
+    async fn final_round_exchange(&self, review: &QueuedReview) -> Exchange {
+        let author = match self.run_process(AgentRole::Author, review).await.step {
+            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return Exchange::Interrupted,
             Step::NoDecision => None,
             Step::Reported(AgentReport::Author(report)) => Some(report),
             Step::Reported(_) => None,
@@ -119,37 +161,28 @@ impl Pass<'_> {
         if let Some(report) = &author
             && report.action == AuthorAction::SourceLabelled
         {
-            self.record_author_park(&review).await;
-            return;
+            return Exchange::AuthorParked;
         }
         if let Some(park) = author_park(author.as_ref(), review.artifact_type) {
-            self.park(&review, park).await;
-            return;
+            return Exchange::Park(park);
         }
-        if self.waits_after_final_author(&review).await {
-            let park = unresolved(
+        if self.waits_after_final_author(review).await {
+            return Exchange::Park(unresolved(
                 "The final-round author ended the round with a needs-repair verdict.",
                 author.as_ref(),
                 None,
-            );
-            self.park(&review, park).await;
-            return;
+            ));
         }
-        if let Some(park) = self.guard_park(&review, author.as_ref()).await {
-            self.park(&review, park).await;
-            return;
+        if let Some(park) = self.guard_park(review, author.as_ref()).await {
+            return Exchange::Park(park);
         }
         if let Some(until) = self.reviewer_pause_until(OffsetDateTime::now_utc()) {
-            self.hold_back_reviewer(&review, until);
-            self.finish_final_round(&review, FinalRoundOutcome::Open, None);
-            return;
+            self.hold_back_reviewer(review, until);
+            return Exchange::Interrupted;
         }
-        let processed = self.run_process(AgentRole::Reviewer, &review).await;
+        let processed = self.run_process(AgentRole::Reviewer, review).await;
         let reviewer = match processed.step {
-            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {
-                self.finish_final_round(&review, FinalRoundOutcome::Open, None);
-                return;
-            }
+            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return Exchange::Interrupted,
             Step::Reported(report) => {
                 self.pause_reviewers_at_decision_cap(&report).await;
                 match report {
@@ -160,22 +193,11 @@ impl Pass<'_> {
             Step::NoDecision => None,
         };
         match processed.trail_verdict.and_then(decided_outcome) {
-            Some(outcome) => {
-                self.with(|shared| {
-                    shared.summary.decided += 1;
-                    shared.summary.final_rounds_approved +=
-                        usize::from(outcome == FinalRoundOutcome::Approved);
-                });
-                self.finish_final_round(&review, outcome, None);
-            }
-            None => {
-                let park = unresolved(
-                    "The final round ended without an approval.",
-                    author.as_ref(),
-                    reviewer.as_ref(),
-                );
-                self.park(&review, park).await;
-            }
+            Some(outcome) => Exchange::Decided(outcome),
+            None => Exchange::Undecided {
+                author: author.map(Box::new),
+                reviewer: reviewer.map(Box::new),
+            },
         }
     }
 
