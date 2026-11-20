@@ -223,7 +223,8 @@ An update that intentionally replaces or removes an `identity` resource other th
 
 The alarms watch the host from AWS, so they fire when the host itself is gone. The worker
 publishes the host's [health metrics](../src/aura-historia-worker/README.md#health-metrics) to
-`AuraHistoria/Host` once a minute; Docker ships each service's [logs](../host/prod/README.md#logs)
+`AuraHistoria/Host` once a minute, and a metric filter counts rejected ingestion commands in the
+worker's log; Docker ships each service's [logs](../host/prod/README.md#logs)
 to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. Thresholds are in
 [`config.ts`](../infra/src/config.ts):
 
@@ -233,6 +234,7 @@ to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. Thres
 | `…-host-postgres-unreachable` | The worker could not read the queues for 3 minutes |
 | `…-host-normal-backlog-age`, `…-host-bulk-backlog-age` | The oldest waiting job of the class is at least 15 minutes, or 12 hours for bulk, old |
 | `…-host-parked-jobs` | Anything is in failure custody; see the [worker runbook](durable-worker-runbook.md) |
+| `…-host-ingestion-rejected` | ProductListing ingestion rejected a command in the last 5 minutes. A rejection is acknowledged without effect, so neither custody nor the backlog shows it; the worker log names its command and error code |
 | `…-host-low-free-disk` | The host filesystem has at most 20% free, above OpenSearch's low watermark |
 | `…-host-backup-stale` | The last successful backup is at least 26 hours old; no recorded backup counts as stale |
 | `…-api-cloudfront-5xx-rate`, `…-mcp-cloudfront-5xx-rate` | At least 5% of a distribution's requests failed with 5xx in two consecutive 5-minute periods of at least 10 requests |

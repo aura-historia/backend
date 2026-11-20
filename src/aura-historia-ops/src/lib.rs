@@ -35,6 +35,13 @@ pub enum OpsError {
 }
 
 impl OpsError {
+    /// What an operator may read about the failure: a schema operation's static outcome or the
+    /// setting at fault. Other causes can carry configuration or provider text and stay unnamed.
+    pub fn reason(&self) -> Option<String> {
+        database::operation_outcome(self)
+            .or_else(|| platform_process::config::find_config_error(self).map(ToString::to_string))
+    }
+
     pub(crate) fn failed(command: &'static str, source: impl Into<BoxError>) -> Self {
         Self::Failed {
             command,
@@ -71,4 +78,32 @@ pub(crate) async fn pool() -> Result<PgPool, OpsError> {
         .connect()
         .await
         .map_err(|error| OpsError::Config(error.into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use platform_process::config::ConfigError;
+
+    #[test]
+    fn should_name_only_the_setting_of_a_configuration_failure() {
+        let error = OpsError::Config(Box::new(ConfigError::Missing {
+            name: "FXRATES_API_KEY".to_owned(),
+        }));
+
+        assert_eq!(
+            Some("missing required configuration FXRATES_API_KEY".to_owned()),
+            error.reason()
+        );
+    }
+
+    #[test]
+    fn should_leave_other_failure_causes_unnamed() {
+        let error = OpsError::failed(
+            "fx-refresh",
+            std::io::Error::other("provider said: key abc"),
+        );
+
+        assert_eq!(None, error.reason());
+    }
 }

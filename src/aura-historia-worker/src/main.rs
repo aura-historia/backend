@@ -1,7 +1,9 @@
 use aura_historia_worker::{compose_handlers, config::WorkerConfig, run};
 use platform_observability::{LoggingConfig, init};
 use platform_process::{
-    Shutdown, config::load_file_backed_environment, install_bounded_panic_hook,
+    Shutdown,
+    config::{find_config_error, load_file_backed_environment},
+    install_bounded_panic_hook,
     postgres::pool_config_from_env,
 };
 use std::process::ExitCode;
@@ -50,7 +52,12 @@ async fn start() -> Result<(), &'static str> {
         .await
         .map_err(|_| "postgres_pool")?;
     let handlers = compose_handlers(&config, &pool).await.map_err(|error| {
-        tracing::error!(event = "worker.composition.failed", job_scope = %error.scope);
+        // Only a configuration error is named: other causes can carry provider text.
+        tracing::error!(
+            event = "worker.composition.failed",
+            job_scope = %error.scope,
+            config_error = find_config_error(&error).map(tracing::field::display),
+        );
         "composition"
     })?;
     tracing::info!(event = "worker.started", scopes = handlers.len());

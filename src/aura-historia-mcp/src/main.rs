@@ -1,11 +1,15 @@
 use aura_historia_mcp::{McpDependencies, TransportConfig, mcp_router};
 use aura_historia_runtime::{ProductListingConfig, Runtime};
 use platform_observability::{LoggingConfig, init_with_directives};
-use platform_process::{Shutdown, config::load_file_backed_environment};
+use platform_process::{
+    Shutdown, config::load_file_backed_environment, install_bounded_panic_hook,
+};
 
 type MainError = application::error::BoxError;
 
 fn main() -> Result<(), MainError> {
+    // A handler can panic on provider or persisted data; never print the payload.
+    install_bounded_panic_hook("aura-historia-mcp");
     load_file_backed_environment()?;
     // SDK trace events include protocol messages and must never enter operational logs.
     init_with_directives(LoggingConfig::from_env(), &["rmcp=off"]);

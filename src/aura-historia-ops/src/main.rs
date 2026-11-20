@@ -36,9 +36,14 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            // The error chain can carry configuration or provider text; record only the command
-            // and the top-level message, which is a static description.
-            tracing::error!(event = "ops.command.failed", command = name, error = %error);
+            // The error chain can carry configuration or provider text; record only the command,
+            // the top-level message and the reason, which are static descriptions.
+            tracing::error!(
+                event = "ops.command.failed",
+                command = name,
+                error = %error,
+                reason = error.reason(),
+            );
             ExitCode::FAILURE
         }
     }

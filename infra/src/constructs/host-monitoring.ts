@@ -16,6 +16,12 @@ export const HOST_METRICS = {
   sinceLastBackup: "SecondsSinceLastBackup",
 } as const;
 
+/**
+ * The metric counted from the worker's log: the ingestion scope prints one static
+ * `{"ingestion_outcome":…}` line per job (src/aura-historia-worker/src/scopes/product_listing_ingestion.rs).
+ */
+export const INGESTION_REJECTED_METRIC = "IngestionRejectedCommands";
+
 export interface AlarmTopicProps {
   readonly config: StageConfig;
 }
@@ -113,6 +119,22 @@ export class HostMonitoring extends Construct {
     }
     alarm("parked-jobs", "Jobs or outbox snapshots are in failure custody; see docs/durable-worker-runbook.md before any redrive.", {
       metric: metric(HOST_METRICS.parkedJobs, "Maximum", fiveMinutes),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    // A rejected command is acknowledged without effect, so neither custody nor backlog sees it.
+    const worker = this.logGroups[CONTAINER_LOG_SERVICES.indexOf("worker")];
+    const rejected = new logs.MetricFilter(this, "IngestionRejectedFilter", {
+      logGroup: worker,
+      filterPattern: logs.FilterPattern.literal('{ $.ingestion_outcome = "rejected" }'),
+      metricNamespace: config.host.metricNamespace,
+      metricName: INGESTION_REJECTED_METRIC,
+      metricValue: "1",
+    });
+    alarm("ingestion-rejected", "ProductListing ingestion rejected a command without applying it; find its command and error code in the worker log.", {
+      metric: rejected.metric({ statistic: "Sum", period: fiveMinutes }),
       threshold: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       evaluationPeriods: 1,

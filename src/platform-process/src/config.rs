@@ -113,6 +113,15 @@ pub fn optional<T: FromStr>(name: &str, default: T) -> Result<T, ConfigError> {
     }
 }
 
+/// The configuration error in `error`'s source chain, if any. Its message names only a setting,
+/// never a value, so it is safe to log where the rest of the chain is not.
+pub fn find_config_error<'a>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a ConfigError> {
+    std::iter::successors(Some(error), |error| error.source())
+        .find_map(|error| error.downcast_ref::<ConfigError>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +197,22 @@ mod tests {
                     .unwrap_err();
             assert!(matches!(error, ConfigError::Invalid { name } if name == "TOKEN_FILE"));
         }
+    }
+
+    #[test]
+    fn should_find_the_configuration_error_behind_a_wrapping_error() {
+        #[derive(Debug, thiserror::Error)]
+        #[error("composition failed")]
+        struct Wrapper(#[source] ConfigError);
+
+        let wrapped = Wrapper(ConfigError::Missing {
+            name: "VERTEX_AI_PROJECT_ID".to_owned(),
+        });
+
+        assert_eq!(
+            "missing required configuration VERTEX_AI_PROJECT_ID",
+            find_config_error(&wrapped).unwrap().to_string()
+        );
+        assert!(find_config_error(&std::io::Error::other("provider text")).is_none());
     }
 }

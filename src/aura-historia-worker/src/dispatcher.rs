@@ -1,6 +1,7 @@
 //! The outbox dispatcher loop: routes captured inserts into the job queue as they commit.
 
 use delivery_outbox::{Dispatch, OutboxDispatcher, OutboxWakeups};
+use platform_postgres::PostgresFailure;
 use sqlx::PgPool;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -34,9 +35,13 @@ pub async fn run(
                 report.claimed >= batch_size
             }
             Ok(Dispatch::Busy) => false,
-            Err(_) => {
+            Err(error) => {
+                let failure = PostgresFailure::find(&error);
+                let sqlstate = failure.and_then(|f| f.sqlstate());
                 tracing::warn!(
                     event = "worker.dispatch.failed",
+                    error_category = failure.map_or("unclassified", |f| f.kind()),
+                    sqlstate = sqlstate.as_ref().map(|s| s.as_str()),
                     "Outbox dispatch failed and rolled back; retrying"
                 );
                 tokio::select! {
@@ -49,7 +54,20 @@ pub async fn run(
             continue;
         }
         if wakeups.is_none() {
-            wakeups = OutboxWakeups::listen(&pool).await.ok();
+            wakeups = match OutboxWakeups::listen(&pool).await {
+                Ok(listener) => Some(listener),
+                Err(error) => {
+                    let failure = PostgresFailure::find(&error);
+                    let sqlstate = failure.and_then(|f| f.sqlstate());
+                    tracing::warn!(
+                        event = "worker.dispatch.listen_failed",
+                        error_category = failure.map_or("unclassified", |f| f.kind()),
+                        sqlstate = sqlstate.as_ref().map(|s| s.as_str()),
+                        "Outbox notifications unavailable; polling until the next round"
+                    );
+                    None
+                }
+            };
         }
         let waited = match wakeups.as_mut() {
             Some(listener) => tokio::select! {

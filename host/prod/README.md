@@ -144,7 +144,7 @@ which tests the notification path only, and confirm the email arrives, then the 
 | heartbeat missing | `compose.sh stop worker` for six minutes, then `compose.sh up -d worker`; jobs wait meanwhile |
 | backup stale | Clears with `backup.sh diff`; before the first backup it is in alarm already |
 | parked jobs | In alarm while anything is in custody (`ops inspect`) |
-| PostgreSQL unreachable, backlog age, low free disk, CloudFront 5xx | `aws cloudwatch set-alarm-state --alarm-name <name> --state-value ALARM --state-reason test` (the 5xx alarms in `us-east-1`); the next evaluation resets it |
+| PostgreSQL unreachable, backlog age, ingestion rejected, low free disk, CloudFront 5xx | `aws cloudwatch set-alarm-state --alarm-name <name> --state-value ALARM --state-reason test` (the 5xx alarms in `us-east-1`); the next evaluation resets it |
 
 ## First start
 

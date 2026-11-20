@@ -17,6 +17,14 @@ const INSPECTOR_PASSWORD_ENV: &str = "POSTGRES_INSPECTOR_PASSWORD";
 
 static ROOT_MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
+/// The static outcome of a failed schema operation in `error`'s source chain, such as a ledger
+/// mismatch or an unknown outcome after a timeout. It never carries database text.
+pub(crate) fn operation_outcome(error: &(dyn std::error::Error + 'static)) -> Option<String> {
+    std::iter::successors(Some(error), |error| error.source())
+        .find_map(|error| error.downcast_ref::<operations::OperationError>())
+        .map(ToString::to_string)
+}
+
 /// Applies the reviewed migration plan in `plan` as the migrator role.
 pub(crate) async fn migrate(plan: &Path) -> Result<Value, OpsError> {
     let request =

@@ -226,8 +226,9 @@ enum IngestionMetricOutcome {
 }
 
 impl IngestionMetricOutcome {
-    // The shared tracing formatter nests event fields under `fields`, while the CDK metric
-    // filters match `$.ingestion_outcome`. Keep this one top-level JSON line static and payload-free.
+    // The shared tracing formatter nests event fields under `fields`, while the host monitoring's
+    // metric filter matches a top-level `$.ingestion_outcome`, bypassing the log level. Keep this
+    // one JSON line static and payload-free.
     const fn json(self) -> &'static str {
         match self {
             Self::Completed => r#"{"ingestion_outcome":"completed"}"#,

@@ -3,13 +3,17 @@ use aura_historia_api::consent_evidence::{
 };
 use aura_historia_api::{ApiConfig, ApiConfigError, ApiRunError, run_until_shutdown};
 use platform_observability::LoggingConfig;
-use platform_process::{Shutdown, ShutdownError, config::load_file_backed_environment};
+use platform_process::{
+    Shutdown, ShutdownError, config::load_file_backed_environment, install_bounded_panic_hook,
+};
 use std::time::Duration;
 
 /// Shipping queued consent evidence after the drain; within the container's stop timeout.
 const EVIDENCE_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() -> Result<(), MainError> {
+    // A handler can panic on provider or persisted data; never print the payload.
+    install_bounded_panic_hook("aura-historia-api");
     load_file_backed_environment().map_err(|source| MainError::Config(Box::new(source)))?;
     let evidence_groups = ConsentEvidenceLogGroups::from_getter(|name| std::env::var(name).ok())?;
     let evidence = init_logging(LoggingConfig::from_env(), evidence_groups);

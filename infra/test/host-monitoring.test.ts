@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { CONTAINER_LOG_SERVICES, stageConfig } from "../src/config";
-import { HOST_METRICS } from "../src/constructs/host-monitoring";
+import { HOST_METRICS, INGESTION_REJECTED_METRIC } from "../src/constructs/host-monitoring";
 
 type Resource = { readonly Properties: Record<string, any>; readonly DeletionPolicy?: string };
 
@@ -54,8 +54,22 @@ describe("monitoring stacks", () => {
     for (const name of Object.values(HOST_METRICS)) expect(worker).toContain(`: &str = "${name}";`);
     for (const resource of resources(monitoring, "AWS::CloudWatch::Alarm")) {
       expect(resource.Properties.Namespace).toBe(config.host.metricNamespace);
-      expect(Object.values(HOST_METRICS)).toContain(resource.Properties.MetricName);
+      expect([...Object.values(HOST_METRICS), INGESTION_REJECTED_METRIC]).toContain(resource.Properties.MetricName);
     }
+  });
+
+  test("count rejected ingestion commands from the line the worker prints for each", () => {
+    const scope = readFileSync(join(__dirname, "../../src/aura-historia-worker/src/scopes/product_listing_ingestion.rs"), "utf8");
+    expect(scope).toContain(`r#"{"ingestion_outcome":"rejected"}"#`);
+    const [filter] = resources(monitoring, "AWS::Logs::MetricFilter");
+    expect(filter.Properties).toMatchObject({
+      FilterPattern: '{ $.ingestion_outcome = "rejected" }',
+      MetricTransformations: [{ MetricNamespace: "AuraHistoria/Host", MetricName: INGESTION_REJECTED_METRIC, MetricValue: "1" }],
+    });
+    expect(alarm(monitoring, "aura-historia-prod-host-ingestion-rejected").Properties).toMatchObject({
+      MetricName: INGESTION_REJECTED_METRIC, Statistic: "Sum", Period: 300, Threshold: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching",
+    });
   });
 
   test("catch a dead host: a missing heartbeat breaches", () => {
@@ -68,7 +82,7 @@ describe("monitoring stacks", () => {
     // Without a recorded backup the backup is as stale as an old one.
     expect(alarm(monitoring, "aura-historia-prod-host-backup-stale").Properties)
       .toMatchObject({ Threshold: 26 * 3600, TreatMissingData: "breaching" });
-    for (const name of ["postgres-unreachable", "normal-backlog-age", "bulk-backlog-age", "parked-jobs", "low-free-disk"]) {
+    for (const name of ["postgres-unreachable", "normal-backlog-age", "bulk-backlog-age", "parked-jobs", "ingestion-rejected", "low-free-disk"]) {
       expect(alarm(monitoring, `aura-historia-prod-host-${name}`).Properties.TreatMissingData).toBe("notBreaching");
     }
   });
@@ -124,7 +138,7 @@ describe("monitoring stacks", () => {
       const paths = stack.node.findAll().map((construct) => construct.node.path);
       expect(paths.filter((path) => path.includes("resolve"))).toEqual([]);
     }
-    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(7);
+    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(8);
     expect(resources(edge, "AWS::CloudWatch::Alarm")).toHaveLength(2);
   });
 });

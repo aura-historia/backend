@@ -342,6 +342,26 @@ async fn apply_locked(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_report_the_static_outcome_of_a_failed_schema_operation() {
+        let ledger = crate::OpsError::failed("migrate", OperationError::LedgerMismatch);
+        let database = crate::OpsError::failed(
+            "migrate",
+            OperationError::Database(Box::new(sqlx::Error::Protocol(
+                "server text with a value".to_owned(),
+            ))),
+        );
+
+        assert_eq!(
+            Some("database ledger differs from approved migration history".to_owned()),
+            ledger.reason()
+        );
+        assert_eq!(
+            Some("database operation failed; inspect actual ledger before retry".to_owned()),
+            database.reason()
+        );
+    }
     use sqlx::{
         SqlSafeStr,
         migrate::{Migration, MigrationType},
