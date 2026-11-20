@@ -450,7 +450,6 @@ dependencies = [
  "product-listing-core",
  "product-listing-service",
  "search-filter-core",
- "serde",
  "serde_json",
  "shipping-core",
  "shipping-json",

@@ -23,7 +23,6 @@ use product_listing_core::{
     title::Title,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tracing::warn;
@@ -32,55 +31,32 @@ use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
 use user_core::user_id::UserId;
 use uuid::Uuid;
 
+/// The delivery outbox captures committed inserts only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     Insert,
-    Update,
-    Delete,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
+/// A committed source-row change. The delivery outbox's strict snapshot codec builds it from a
+/// captured row whose columns and JSON types it has already checked.
+#[derive(Debug, Clone, PartialEq)]
 pub struct CdcChange {
-    #[serde(default, alias = "table_schema")]
     pub schema: Option<String>,
-    #[serde(alias = "relation")]
     pub table: String,
-    #[serde(
-        alias = "op",
-        alias = "action",
-        deserialize_with = "deserialize_operation"
-    )]
     pub operation: Operation,
-    #[serde(default, alias = "keys")]
     pub primary_key: BTreeMap<String, Value>,
-    #[serde(default, alias = "new", alias = "new_record")]
     pub record: Option<Value>,
-    #[serde(default, rename = "old", alias = "old_record", alias = "previous")]
     pub old_record: Option<Value>,
-    #[serde(default, alias = "changed")]
     pub changed_columns: Vec<String>,
-    #[serde(default)]
     pub commit_lsn: Option<String>,
-    #[serde(default)]
     pub commit_timestamp: Option<String>,
 }
 
-fn deserialize_operation<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Operation, D::Error> {
-    let value = String::deserialize(deserializer)?;
-    match value.as_str() {
-        "insert" => Ok(Operation::Insert),
-        "update" => Ok(Operation::Update),
-        "delete" => Ok(Operation::Delete),
-        _ => Err(serde::de::Error::custom("unsupported CDC operation")),
-    }
-}
-
 pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
-    let table = CdcTable::from(change.table.as_str());
-    match (table, change.operation) {
-        (CdcTable::ListingGeographyWakeups, Operation::Insert) => {
+    // Routing reads inserts only; a new operation must be routed here explicitly.
+    let Operation::Insert = change.operation;
+    match CdcTable::from(change.table.as_str()) {
+        CdcTable::ListingGeographyWakeups => {
             let row = required_row(change)?;
             let object = row
                 .as_object()
@@ -114,8 +90,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
                 }),
             )])
         }
-        (CdcTable::ListingGeographyWakeups, _) => Ok(Vec::new()),
-        (CdcTable::ListingShippingWakeups, Operation::Insert) => {
+        CdcTable::ListingShippingWakeups => {
             let row = required_row(change)?;
             let object = row
                 .as_object()
@@ -149,8 +124,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
                 }),
             )])
         }
-        (CdcTable::ListingShippingWakeups, _) => Ok(Vec::new()),
-        (CdcTable::GeoResolutionWakeups, Operation::Insert) => {
+        CdcTable::GeoResolutionWakeups => {
             let row = required_row(change)?;
             let id = required_string(row, "resolution_id")?;
             let resolution_id: ResolutionId = parse_canonical_storage_object_id(
@@ -174,8 +148,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
                 }),
             )])
         }
-        (CdcTable::GeoResolutionWakeups, _) => Ok(Vec::new()),
-        (CdcTable::UserIdentityDeletionRequests, Operation::Insert) => {
+        CdcTable::UserIdentityDeletionRequests => {
             let row = required_row(change)?;
             if row
                 .as_object()
@@ -200,31 +173,20 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
                 ),
             )])
         }
-        (CdcTable::UserIdentityDeletionRequests, _) => Ok(Vec::new()),
-        (CdcTable::ProductListingEvents, Operation::Insert) => product_event_jobs(change),
-        (CdcTable::ProductListingEvents, _) => Ok(Vec::new()),
-        (CdcTable::ProductListingRawRevisions, Operation::Insert) => {
-            product_listing_raw_revision_job(change)
-        }
-        (CdcTable::ProductListingRawRevisions, _) => Ok(Vec::new()),
-        (CdcTable::SearchFilterMatches, Operation::Insert) => {
-            search_filter_match_created_job(change)
-        }
-        (CdcTable::SearchFilterMatches, _) => Ok(Vec::new()),
-        (CdcTable::Users, _) => Ok(Vec::new()),
-        (CdcTable::NotificationDeliveries, Operation::Insert) => {
-            notification_delivery_created_job(change)
-        }
-        (CdcTable::NotificationDeliveries, _) => Ok(Vec::new()),
-        (CdcTable::MarketingEmailConsentSyncIntents, Operation::Insert) => {
+        CdcTable::ProductListingEvents => product_event_jobs(change),
+        CdcTable::ProductListingRawRevisions => product_listing_raw_revision_job(change),
+        CdcTable::SearchFilterMatches => search_filter_match_created_job(change),
+        CdcTable::NotificationDeliveries => notification_delivery_created_job(change),
+        CdcTable::MarketingEmailConsentSyncIntents => {
             marketing_consent_sync_intent_created_job(change)
         }
-        (CdcTable::MarketingEmailConsentSyncIntents, _) => Ok(Vec::new()),
-        (CdcTable::Unknown(table), _) => {
-            warn!(operation = ?change.operation, "rejecting unregistered CDC table");
+        CdcTable::Unknown(table) => {
+            warn!("rejecting unregistered CDC table");
             Err(CdcRouteError::UnsupportedTableForWorker(table))
         }
-        (CdcTable::ProductListings | CdcTable::ProductListingWatchlist, _) => Ok(Vec::new()),
+        CdcTable::ProductListings | CdcTable::Users | CdcTable::ProductListingWatchlist => {
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -1367,40 +1329,16 @@ pub fn required_row(change: &CdcChange) -> Result<&Value, CdcRouteError> {
 }
 
 fn required_string(row: &Value, field: &'static str) -> Result<String, CdcRouteError> {
-    string_field(row, field).ok_or(CdcRouteError::MissingColumn(field))
-}
-
-fn string_field(row: &Value, field: &str) -> Option<String> {
-    let value = row.get(field)?;
-    match value {
-        Value::String(value) => Some(value.clone()),
-        Value::Number(value) => Some(value.to_string()),
-        _ => None,
-    }
-}
-
-fn integer_field(row: &Value, field: &str) -> Option<i64> {
-    match row.get(field)? {
-        Value::Number(value) => value.as_i64(),
-        Value::String(value) => canonical_decimal_i64(value),
-        _ => None,
-    }
-}
-
-fn canonical_decimal_i64(value: &str) -> Option<i64> {
-    let digits = value.strip_prefix('-').unwrap_or(value);
-    if digits.is_empty()
-        || !digits.bytes().all(|byte| byte.is_ascii_digit())
-        || (digits.len() > 1 && digits.starts_with('0'))
-        || value == "-0"
-    {
-        return None;
-    }
-    value.parse().ok()
+    row.get(field)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .ok_or(CdcRouteError::MissingColumn(field))
 }
 
 fn required_integer(row: &Value, field: &'static str) -> Result<i64, CdcRouteError> {
-    integer_field(row, field).ok_or(CdcRouteError::MissingColumn(field))
+    row.get(field)
+        .and_then(Value::as_i64)
+        .ok_or(CdcRouteError::MissingColumn(field))
 }
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
@@ -1487,44 +1425,40 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn change(table: &str, operation: &str, record: Value) -> CdcChange {
-        serde_json::from_value(json!({
-            "table": table,
-            "operation": operation,
-            "record": record,
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn notification_delivery_insert_routes_only_the_delivery_id_whatever_its_source() {
-        let delivery_id = "01900000-0000-7000-8000-000000000007";
-        // DMS strips source columns; tolerate them if a capture still carries them.
-        for row in [
-            json!({ "notification_delivery_id": delivery_id }),
-            json!({
-                "notification_delivery_id": delivery_id,
-                "notification_id": null,
-                "digest_id": null,
-                "external_email_message_id": "01900000-0000-7000-8000-000000000008",
-            }),
-        ] {
-            let jobs = route_change(&change("notification_deliveries", "insert", row)).unwrap();
-
-            assert_eq!(1, jobs.len());
-            let body: Value =
-                serde_json::from_str(&aura_historia_jobs::encode(&jobs[0]).unwrap()).unwrap();
-            assert_eq!(
-                json!({ "notification_delivery_id": "nd_01j0000000e008000000000007" }),
-                body["payload"]
-            );
+    /// The committed insert the delivery outbox's snapshot codec builds from a captured row.
+    fn change(table: &str, record: Value) -> CdcChange {
+        CdcChange {
+            schema: Some("public".into()),
+            table: table.into(),
+            operation: Operation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(record),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
         }
     }
 
     #[test]
-    fn user_identity_deletion_requests_route_only_compact_valid_inserts() {
+    fn notification_delivery_insert_routes_only_the_delivery_id() {
+        let row = json!({ "notification_delivery_id": "01900000-0000-7000-8000-000000000007" });
+
+        let jobs = route_change(&change("notification_deliveries", row)).unwrap();
+
+        assert_eq!(1, jobs.len());
+        let body: Value =
+            serde_json::from_str(&aura_historia_jobs::encode(&jobs[0]).unwrap()).unwrap();
+        assert_eq!(
+            json!({ "notification_delivery_id": "nd_01j0000000e008000000000007" }),
+            body["payload"]
+        );
+    }
+
+    #[test]
+    fn user_identity_deletion_requests_route_only_compact_valid_rows() {
         let row = json!({"user_id": "01900000-0000-7000-8000-000000000009"});
-        let source = change("user_identity_deletion_requests", "insert", row.clone());
+        let source = change("user_identity_deletion_requests", row.clone());
         let jobs = route_change(&source).unwrap();
         assert_eq!(jobs, route_change(&source).unwrap());
         assert_eq!(1, jobs.len());
@@ -1541,25 +1475,12 @@ mod tests {
                 .unwrap()
                 .starts_with("usr_")
         );
-        for operation in ["update", "delete"] {
-            assert!(
-                route_change(&change(
-                    "user_identity_deletion_requests",
-                    operation,
-                    row.clone()
-                ))
-                .unwrap()
-                .is_empty()
-            );
-        }
         for row in [
             json!({"user_id":"bad"}),
             json!({"user_id":"01900000-0000-7000-8000-000000000009", "subject":"private"}),
             json!({}),
         ] {
-            assert!(
-                route_change(&change("user_identity_deletion_requests", "insert", row)).is_err()
-            );
+            assert!(route_change(&change("user_identity_deletion_requests", row)).is_err());
         }
     }
 
@@ -1567,7 +1488,6 @@ mod tests {
     fn discovered_event_fanout_preserves_order_and_keys() {
         let jobs = route_change(&change(
             "product_listing_events",
-            "insert",
             json!({
                 "event_id": "01900000-0000-7000-8000-000000000004",
                 "product_listing_id": "01900000-0000-7000-8000-000000000003",
@@ -1609,7 +1529,6 @@ mod tests {
         let discovered = |title: &str| {
             change(
                 "product_listing_events",
-                "insert",
                 json!({
                     "event_id": "01900000-0000-7000-8000-000000000004",
                     "product_listing_id": "01900000-0000-7000-8000-000000000003",
@@ -1652,7 +1571,7 @@ mod tests {
             json!({"title":text,"description":text,"images":{"previousCount":1,"currentCount":1},"pricing":{"price":{"previous":null,"current":{"type":"ON_REQUEST"}}}}),
         ] {
             let row = json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":payload});
-            let jobs = route_change(&change("product_listing_events", "insert", row)).unwrap();
+            let jobs = route_change(&change("product_listing_events", row)).unwrap();
             let queues = jobs.iter().map(|job| job.target_queue).collect::<Vec<_>>();
             for queue in [
                 WorkerQueue::ProductListingOpenSearch,
@@ -1679,7 +1598,7 @@ mod tests {
             json!({"previous":null,"current":{"text":"Title","language":"en","extra":true}}),
         ] {
             let row = json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"title":delta}});
-            assert!(route_change(&change("product_listing_events", "insert", row)).is_err());
+            assert!(route_change(&change("product_listing_events", row)).is_err());
         }
     }
 
@@ -1769,7 +1688,6 @@ mod tests {
         ] {
             let jobs = route_change(&change(
                 "product_listing_events",
-                "insert",
                 json!({
                     "event_id": "01900000-0000-7000-8000-000000000004",
                     "product_listing_id": "01900000-0000-7000-8000-000000000003",
@@ -1797,7 +1715,6 @@ mod tests {
     fn raw_revision_fanout_has_stable_keys_and_typed_metadata() {
         let jobs = route_change(&change(
             "product_listing_raw_revisions",
-            "insert",
             json!({
                 "product_listing_raw_stream_id": "01900000-0000-7000-8000-000000000001",
                 "product_listing_raw_revision_id": "01900000-0000-7000-8000-000000000002",
@@ -1824,17 +1741,25 @@ mod tests {
     }
 
     #[test]
-    fn removed_search_filter_source_fails_closed_for_all_operations() {
+    fn removed_search_filter_source_fails_closed() {
         assert_eq!(
             CdcTable::Unknown("search_filters".into()),
             CdcTable::from("search_filters")
         );
-        for operation in ["insert", "update", "delete"] {
-            assert_eq!(
-                Err(CdcRouteError::UnsupportedTableForWorker(
-                    "search_filters".into()
-                )),
-                route_change(&change("search_filters", operation, json!({}))),
+        assert_eq!(
+            Err(CdcRouteError::UnsupportedTableForWorker(
+                "search_filters".into()
+            )),
+            route_change(&change("search_filters", json!({}))),
+        );
+    }
+
+    #[test]
+    fn tables_without_routes_produce_no_jobs() {
+        for table in ["users", "product_listings", "product_listing_watchlist"] {
+            assert!(
+                route_change(&change(table, json!({}))).unwrap().is_empty(),
+                "{table}"
             );
         }
     }
@@ -1843,7 +1768,6 @@ mod tests {
     fn consent_insert_creates_one_compact_schema_one_fifo_job() {
         let jobs = route_change(&change(
             "marketing_email_consent_sync_intents",
-            "insert",
             json!({
                 "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
                 "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1899,7 +1823,6 @@ mod tests {
     fn consent_jobs_group_by_recipient_and_replay_deterministically() {
         let first = change(
             "marketing_email_consent_sync_intents",
-            "insert",
             json!({
                 "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
                 "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1907,7 +1830,6 @@ mod tests {
         );
         let second = change(
             "marketing_email_consent_sync_intents",
-            "insert",
             json!({
                 "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f76",
                 "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1915,7 +1837,6 @@ mod tests {
         );
         let different_recipient = change(
             "marketing_email_consent_sync_intents",
-            "insert",
             json!({
                 "intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f77",
                 "recipient_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -1939,26 +1860,7 @@ mod tests {
     }
 
     #[test]
-    fn consent_routes_only_inserts_and_rejects_invalid_ids_or_recipient_keys() {
-        for operation in ["update", "delete"] {
-            assert!(
-                route_change(&change(
-                    "marketing_email_consent_sync_intents",
-                    operation,
-                    json!({}),
-                ))
-                .unwrap()
-                .is_empty()
-            );
-        }
-        for operation in ["insert", "update", "delete"] {
-            assert!(
-                route_change(&change("users", operation, json!({})))
-                    .unwrap()
-                    .is_empty()
-            );
-        }
-
+    fn consent_rejects_invalid_ids_or_recipient_keys() {
         for record in [
             json!({"recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
             json!({"intent_id": "usr_01h455vb4pex5vy7enb1p677vn", "recipient_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}),
@@ -1967,54 +1869,15 @@ mod tests {
             json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
         ] {
             assert!(
-                route_change(&change(
-                    "marketing_email_consent_sync_intents",
-                    "insert",
-                    record,
-                ))
-                .is_err()
+                route_change(&change("marketing_email_consent_sync_intents", record,)).is_err()
             );
         }
     }
 
     #[test]
-    fn operation_deserialization_accepts_only_canonical_strings() {
-        for field in ["operation", "op", "action"] {
-            for invalid in [
-                json!(null),
-                json!(1),
-                json!(true),
-                json!([]),
-                json!({"insert": null}),
-                json!({"update": null}),
-                json!({"delete": null}),
-            ] {
-                let mut value = json!({"table": "search_filter_matches"});
-                value[field] = invalid;
-                assert!(serde_json::from_value::<CdcChange>(value).is_err());
-            }
-            for (value, expected) in [
-                ("insert", Operation::Insert),
-                ("update", Operation::Update),
-                ("delete", Operation::Delete),
-            ] {
-                let mut change = json!({"table": "search_filter_matches"});
-                change[field] = json!(value);
-                assert_eq!(
-                    expected,
-                    serde_json::from_value::<CdcChange>(change)
-                        .unwrap()
-                        .operation
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn policy_rejects_invalid_revision_and_strict_operation_aliases() {
+    fn raw_revision_rejects_revision_zero() {
         let invalid = change(
             "product_listing_raw_revisions",
-            "insert",
             json!({
                 "product_listing_raw_stream_id": "01900000-0000-7000-8000-000000000001",
                 "product_listing_raw_revision_id": "01900000-0000-7000-8000-000000000002",
@@ -2025,17 +1888,8 @@ mod tests {
             route_change(&invalid).unwrap_err(),
             CdcRouteError::InvalidProductListingRawRevision
         );
-        for operation in [
-            "create", "INSERT", "UPDATE", "DELETE", "Insert", " insert", "insert ", "",
-        ] {
-            assert!(
-                serde_json::from_value::<CdcChange>(json!({
-                    "table": "search_filter_matches", "operation": operation
-                }))
-                .is_err()
-            );
-        }
     }
+
     #[test]
     fn delivery_projects_without_price_notifications_or_private_job_content() {
         let config = product_listing_core::delivery::ListingDelivery::inherited(
@@ -2046,7 +1900,7 @@ mod tests {
         >(&config)
         .unwrap();
         let row = serde_json::json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"delivery":{"previous":null,"current":current}}});
-        let jobs = route_change(&change("product_listing_events", "insert", row.clone())).unwrap();
+        let jobs = route_change(&change("product_listing_events", row.clone())).unwrap();
         assert_eq!(
             vec![WorkerQueue::ProductListingOpenSearch],
             jobs.iter().map(|j| j.target_queue).collect::<Vec<_>>()
@@ -2057,13 +1911,13 @@ mod tests {
         }
         let mut unsupported = row.clone();
         unsupported["event_type_schema_version"] = serde_json::json!(2);
-        assert!(route_change(&change("product_listing_events", "insert", unsupported)).is_err());
+        assert!(route_change(&change("product_listing_events", unsupported)).is_err());
         let mut corrupt = row;
         corrupt["payload"]["delivery"]
             .as_object_mut()
             .unwrap()
             .remove("previous");
-        assert!(route_change(&change("product_listing_events", "insert", corrupt)).is_err());
+        assert!(route_change(&change("product_listing_events", corrupt)).is_err());
     }
 
     #[test]
@@ -2095,17 +1949,12 @@ mod tests {
             }
         });
         let without_delivery =
-            route_change(&change("product_listing_events", "insert", row.clone())).unwrap();
+            route_change(&change("product_listing_events", row.clone())).unwrap();
         let mut with_delivery = row;
         with_delivery["payload"]["delivery"] = delivery;
         assert_eq!(
             without_delivery,
-            route_change(&change(
-                "product_listing_events",
-                "insert",
-                with_delivery.clone()
-            ))
-            .unwrap()
+            route_change(&change("product_listing_events", with_delivery.clone())).unwrap()
         );
         for (field, value) in [
             ("listingSourceId", json!(ListingSourceId::new().into_uuid())),
@@ -2114,27 +1963,10 @@ mod tests {
         ] {
             let mut corrupt = with_delivery.clone();
             corrupt["payload"][field] = value;
-            assert!(route_change(&change("product_listing_events", "insert", corrupt)).is_err());
+            assert!(route_change(&change("product_listing_events", corrupt)).is_err());
         }
     }
-}
 
-#[cfg(test)]
-mod geography_tests {
-    use super::*;
-    fn change(table: &str, row: Value) -> CdcChange {
-        CdcChange {
-            schema: Some("public".into()),
-            table: table.into(),
-            operation: Operation::Insert,
-            primary_key: Default::default(),
-            record: Some(row),
-            old_record: None,
-            changed_columns: vec![],
-            commit_lsn: None,
-            commit_timestamp: None,
-        }
-    }
     #[test]
     fn geography_routes_only_compact_work_and_actual_enrichment() {
         let row = serde_json::json!({"event_id":EventId::new().into_uuid(),"product_listing_id":ProductListingId::new().into_uuid(),"event_type":"ENRICHMENT_GEOGRAPHY_UPDATED","event_group":"ENRICHMENT","event_type_schema_version":1,"payload":{}});
@@ -2147,7 +1979,7 @@ mod geography_tests {
         let mut poison = row;
         poison["payload"] = serde_json::json!({"coordinates":[1,2]});
         assert!(route_change(&change("product_listing_events", poison)).is_err());
-        let row = serde_json::json!({"work_id":product_listing_service::geography::GeographyWorkId::new().into_uuid(),"generation":"2"});
+        let row = serde_json::json!({"work_id":product_listing_service::geography::GeographyWorkId::new().into_uuid(),"generation":2});
         let jobs = route_change(&change("listing_geography_wakeups", row.clone()))
             .expect("compact wake-up");
         assert_eq!(WorkerQueue::ListingGeography, jobs[0].target_queue);
@@ -2155,10 +1987,14 @@ mod geography_tests {
         let mut poison = row.clone();
         poison["generation"] = serde_json::json!(0);
         assert!(route_change(&change("listing_geography_wakeups", poison)).is_err());
+        let mut poison = row.clone();
+        poison["generation"] = serde_json::json!("2");
+        assert!(route_change(&change("listing_geography_wakeups", poison)).is_err());
         let mut poison = row;
         poison["address"] = serde_json::json!("must never enter a job");
         assert!(route_change(&change("listing_geography_wakeups", poison)).is_err());
     }
+
     #[test]
     fn shipping_routes_only_compact_work_and_actual_enrichment() {
         let row = serde_json::json!({"event_id":EventId::new().into_uuid(),"product_listing_id":ProductListingId::new().into_uuid(),"event_type":"ENRICHMENT_SHIPPING_UPDATED","event_group":"ENRICHMENT","event_type_schema_version":1,"payload":{}});
@@ -2171,13 +2007,16 @@ mod geography_tests {
         let mut poison = row;
         poison["payload"] = serde_json::json!({"coordinates":[1,2]});
         assert!(route_change(&change("product_listing_events", poison)).is_err());
-        let row = serde_json::json!({"work_id":product_listing_service::shipping_projection::ShippingWorkId::new().into_uuid(),"generation":"2"});
+        let row = serde_json::json!({"work_id":product_listing_service::shipping_projection::ShippingWorkId::new().into_uuid(),"generation":2});
         let jobs = route_change(&change("listing_shipping_wakeups", row.clone()))
             .expect("compact wake-up");
         assert_eq!(WorkerQueue::ListingShipping, jobs[0].target_queue);
         assert!(aura_historia_jobs::encode(&jobs[0]).is_ok());
         let mut poison = row.clone();
         poison["generation"] = serde_json::json!(0);
+        assert!(route_change(&change("listing_shipping_wakeups", poison)).is_err());
+        let mut poison = row.clone();
+        poison["generation"] = serde_json::json!("2");
         assert!(route_change(&change("listing_shipping_wakeups", poison)).is_err());
         let mut poison = row;
         poison["address"] = serde_json::json!("must never enter a job");
