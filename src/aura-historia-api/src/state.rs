@@ -65,7 +65,9 @@ use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
 use party_service::use_cases::queries::get_party::GetPartyUseCase;
 use party_service::use_cases::queries::list_party_location_managers::ListPartyLocationManagersUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
+use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerifier;
 use product_listing_service::use_cases::commands::partner_product_listing_batches::PartnerProductListingBatchesUseCase;
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingUseCase;
 use product_listing_service::use_cases::{
     GetAuctionCatalogueUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetPublicCatalogueOverviewUseCase, GetSimilarProductListingsUseCase,
@@ -99,7 +101,7 @@ use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
 use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeUseCase;
 use std::sync::Arc;
-use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
+use user_service::ports::stripe_subscription_sync::StripeWebhookVerifier;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenUseCase;
@@ -114,6 +116,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase;
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensUseCase;
 use user_service::use_cases::queries::search_users::SearchUsersUseCase;
+use user_service::use_cases::{ApplyLoopsPreferenceEventUseCase, ApplyStripeSubscriptionUseCase};
 use user_service::use_cases::{
     ConfirmNewsletterSubscriptionUseCase, RequestNewsletterSubscriptionUseCase,
 };
@@ -172,6 +175,10 @@ pub struct AppState {
     pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
     pub(crate) loops_webhooks: Option<LoopsWebhooksState>,
+    pub(crate) shopify_webhooks: Option<ShopifyWebhooksState>,
+    pub(crate) stripe_webhooks: Option<StripeWebhooksState>,
+    pub(crate) cognito_post_confirmation: Option<CognitoPostConfirmationState>,
+    pub(crate) cognito_pre_sign_up: Option<CognitoPreSignUpState>,
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
@@ -228,6 +235,10 @@ impl AppState {
             notifications: None,
             webhooks: None,
             loops_webhooks: None,
+            cognito_post_confirmation: None,
+            cognito_pre_sign_up: None,
+            shopify_webhooks: None,
+            stripe_webhooks: None,
             auctions: None,
             admin_product_listings: None,
             public_auctions: None,
@@ -390,6 +401,26 @@ impl AppState {
         self
     }
 
+    pub fn with_cognito_post_confirmation(mut self, state: CognitoPostConfirmationState) -> Self {
+        self.cognito_post_confirmation = Some(state);
+        self
+    }
+
+    pub fn with_cognito_pre_sign_up(mut self, state: CognitoPreSignUpState) -> Self {
+        self.cognito_pre_sign_up = Some(state);
+        self
+    }
+
+    pub fn with_shopify_webhooks(mut self, webhooks: ShopifyWebhooksState) -> Self {
+        self.shopify_webhooks = Some(webhooks);
+        self
+    }
+
+    pub fn with_stripe_webhooks(mut self, webhooks: StripeWebhooksState) -> Self {
+        self.stripe_webhooks = Some(webhooks);
+        self
+    }
+
     pub fn with_notifications(mut self, notifications: NotificationsState) -> Self {
         self.notifications = Some(notifications);
         self
@@ -543,6 +574,52 @@ impl WebhooksState {
     }
 }
 
+/// The internal endpoint Cognito's post-confirmation forwarder calls.
+#[derive(Clone)]
+pub struct CognitoPostConfirmationState {
+    pub(crate) verifier: Arc<cognito_trigger_signing::signature::SignatureVerifier>,
+    pub(crate) expected_issuer: Arc<str>,
+    pub(crate) register: Arc<dyn user_service::use_cases::RegisterCognitoUserUseCase>,
+}
+
+impl CognitoPostConfirmationState {
+    /// `expected_issuer` is the configured user pool's issuer; other pools' events are refused.
+    pub fn new(
+        verifier: cognito_trigger_signing::signature::SignatureVerifier,
+        expected_issuer: impl Into<String>,
+        register: Arc<dyn user_service::use_cases::RegisterCognitoUserUseCase>,
+    ) -> Self {
+        Self {
+            verifier: Arc::new(verifier),
+            expected_issuer: Arc::from(expected_issuer.into()),
+            register,
+        }
+    }
+}
+
+/// The internal endpoint Cognito's pre-sign-up trigger calls.
+#[derive(Clone)]
+pub struct CognitoPreSignUpState {
+    pub(crate) verifier: Arc<cognito_trigger_signing::signature::SignatureVerifier>,
+    pub(crate) expected_issuer: Arc<str>,
+    pub(crate) resolve: Arc<dyn user_service::use_cases::ResolveFederatedAccountUseCase>,
+}
+
+impl CognitoPreSignUpState {
+    /// `expected_issuer` is the configured user pool's issuer; other pools' requests are refused.
+    pub fn new(
+        verifier: cognito_trigger_signing::signature::SignatureVerifier,
+        expected_issuer: impl Into<String>,
+        resolve: Arc<dyn user_service::use_cases::ResolveFederatedAccountUseCase>,
+    ) -> Self {
+        Self {
+            verifier: Arc::new(verifier),
+            expected_issuer: Arc::from(expected_issuer.into()),
+            resolve,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct LoopsWebhooksState {
     pub(crate) signing_secret: Arc<str>,
@@ -560,6 +637,39 @@ impl LoopsWebhooksState {
             signing_secret: Arc::from(signing_secret.into()),
             verifier,
             apply_preference_event,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ShopifyWebhooksState {
+    pub(crate) verifier: Arc<dyn ShopifyWebhookVerifier>,
+    pub(crate) process: Arc<dyn ProcessShopifyProductListingUseCase>,
+}
+
+impl ShopifyWebhooksState {
+    pub fn new(
+        verifier: Arc<dyn ShopifyWebhookVerifier>,
+        process: Arc<dyn ProcessShopifyProductListingUseCase>,
+    ) -> Self {
+        Self { verifier, process }
+    }
+}
+
+#[derive(Clone)]
+pub struct StripeWebhooksState {
+    pub(crate) verifier: Arc<dyn StripeWebhookVerifier>,
+    pub(crate) apply_subscription: Arc<dyn ApplyStripeSubscriptionUseCase>,
+}
+
+impl StripeWebhooksState {
+    pub fn new(
+        verifier: Arc<dyn StripeWebhookVerifier>,
+        apply_subscription: Arc<dyn ApplyStripeSubscriptionUseCase>,
+    ) -> Self {
+        Self {
+            verifier,
+            apply_subscription,
         }
     }
 }

@@ -1,0 +1,386 @@
+# The prod runtime on the host: PostgreSQL, two API replicas, MCP, the worker, Caddy and the
+# one-shot ops commands, from images built from this repository. OpenSearch keeps its own
+# project (opensearch/prod/compose.yaml) and is reached on its network. Run every command
+# through host/prod/compose.sh, as root. Operator notes: host/prod/README.md.
+name: aura-prod
+
+# Container logs go to CloudWatch Logs, one group per service, through Docker's awslogs driver
+# with the host user's key (host/prod/README.md#logs). Docker keeps a local copy for
+# `docker logs`. Non-blocking: while CloudWatch is unreachable, lines beyond the buffer are
+# dropped rather than stalling the service; stream names are the container names.
+x-log-options: &log-options
+  awslogs-region: eu-central-1
+  mode: non-blocking
+  max-buffer-size: 4m
+  tag: "{{.Name}}"
+
+x-logging:
+  postgres: &postgres-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/postgres}
+  api: &api-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/api}
+  mcp: &mcp-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/mcp}
+  worker: &worker-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/worker}
+  caddy: &caddy-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/caddy}
+  ops: &ops-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/ops}
+
+x-app: &app
+  image: ${AURA_HISTORIA_IMAGE:?set the application image in /etc/aura-historia/prod/compose.env}
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp:size=64m,mode=0700,uid=10001,gid=10001"]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  # Covers the API's 25 s request budget and the worker's 25 s shutdown grace.
+  stop_grace_period: 40s
+  # Every service names its own group; this one catches a service that does not.
+  logging: *ops-logging
+  # A missing host file fails the start instead of being created as a directory.
+  volumes:
+    - &opensearch-root-ca
+      type: bind
+      source: /etc/aura-historia/prod/opensearch-root-ca.pem
+      target: /run/aura/opensearch-root-ca.pem
+      read_only: true
+      bind: {create_host_path: false}
+    - &google-credentials
+      type: bind
+      source: /etc/aura-historia/prod/google-credentials.json
+      target: /run/aura/google-credentials.json
+      read_only: true
+      bind: {create_host_path: false}
+  networks: [default, database, search]
+  depends_on:
+    postgres: {condition: service_healthy}
+
+# Secrets are root-owned mode-0600 env files under /etc/aura-historia/prod/secrets, one per
+# credential, which Compose reads as root; each service lists only the ones it uses
+# (host/prod/README.md#secrets).
+
+# Settings every application process shares. Prod constants live here; deployment-specific but
+# non-secret values (pool and client IDs, provider account IDs) in settings.env.
+x-app-environment: &app-environment
+  STAGE: prod
+  LOG_LEVEL: warn
+  COMMIT_SHA: ${AURA_HISTORIA_REVISION:?set the deployed revision in /etc/aura-historia/prod/compose.env}
+  AWS_REGION: eu-central-1
+  AWS_EC2_METADATA_DISABLED: "true"
+  GOOGLE_APPLICATION_CREDENTIALS: /run/aura/google-credentials.json
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: aura
+  OPENSEARCH_ENDPOINT_URL: https://opensearch:9200
+  OPENSEARCH_CA_CERT_FILE: /run/aura/opensearch-root-ca.pem
+  OAUTH_ISSUER_URL: https://api.aura-historia.com
+
+x-listing-environment: &listing-environment
+  PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED: "true"
+
+x-classifier-environment: &classifier-environment
+  CLASSIFIER_MODEL_PROVIDER: cloudflare
+  CLASSIFIER_MODEL: clef
+  SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: "5000"
+
+x-email-environment: &email-environment
+  NOTIFICATION_EMAIL_CONFIGURATION_SET: aura-historia-prod-email
+  NOTIFICATION_EMAIL_FRONTEND_ORIGIN: https://aura-historia.com
+  NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: aura-historia-prod-email
+  NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN: https://aura-historia.com
+  LOOPS_API_BASE_URL: https://app.loops.so/api
+
+x-api: &api
+  <<: *app
+  command: [api]
+  # Serving tier; API, MCP and Caddy share 3 GiB of the host memory plan (host/README.md).
+  cgroup_parent: aura_serving.slice
+  mem_limit: 1g
+  memswap_limit: 1g
+  logging: *api-logging
+  env_file:
+    - &settings /etc/aura-historia/prod/settings.env
+    - /etc/aura-historia/prod/secrets/aws.env
+    - /etc/aura-historia/prod/secrets/postgres-runtime.env
+    - /etc/aura-historia/prod/secrets/opensearch-reader.env
+    - /etc/aura-historia/prod/secrets/anthropic.env
+    - /etc/aura-historia/prod/secrets/cloudflare-workers-ai.env
+    - /etc/aura-historia/prod/secrets/stripe.env
+    - /etc/aura-historia/prod/secrets/loops.env
+    - /etc/aura-historia/prod/secrets/shopify.env
+    - /etc/aura-historia/prod/secrets/cognito-trigger.env
+  environment:
+    <<: [*app-environment, *listing-environment, *classifier-environment, *email-environment]
+    OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED: "true"
+    OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS: "3600"
+    OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS: "2592000"
+    OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS: "7776000"
+    STRIPE_CHECKOUT_CANCEL_URL: https://aura-historia.com
+    STRIPE_CHECKOUT_SUCCESS_URL: https://aura-historia.com/me/account
+    STRIPE_PORTAL_RETURN_URL: https://aura-historia.com/me/account
+    CONSENT_EVIDENCE_API_LOG_GROUP: /aws/lambda/aura-historia-api-prod
+    CONSENT_EVIDENCE_POST_CONFIRMATION_LOG_GROUP: /aws/lambda/cognito-post-confirmation-prod
+
+services:
+  postgres:
+    build: postgres
+    image: aura-prod-postgres:local
+    restart: unless-stopped
+    # pgBackRest's asynchronous archiver daemonizes; with PostgreSQL as PID 1 the orphan would
+    # be reaped by the postmaster, which treats its exit as a backend crash and restarts.
+    init: true
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: aura
+      POSTGRES_INITDB_ARGS: --data-checksums
+      PGBACKREST_REPO1_S3_BUCKET: ${AURA_BACKUP_BUCKET:?set the backup bucket in /etc/aura-historia/prod/compose.env}
+    env_file:
+      - /etc/aura-historia/prod/secrets/postgres-server.env
+      - /etc/aura-historia/prod/secrets/pgbackrest.env
+    # Serving tier, last choice of a host-wide OOM kill (host/README.md#memory-plan).
+    cgroup_parent: aura_serving.slice
+    mem_limit: 14g
+    mem_reservation: 12g
+    memswap_limit: 14g
+    oom_score_adj: -900
+    shm_size: 1g
+    stop_grace_period: 120s
+    security_opt: [no-new-privileges:true]
+    logging: *postgres-logging
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - pgbackrest-spool:/var/spool/pgbackrest
+      # A second socket directory, shared with the host so the crawler can reach its
+      # enqueue-only role; only the container's postgres user can write it.
+      - type: bind
+        source: /run/aura-historia/postgresql
+        target: /run/postgresql-host
+        bind: {create_host_path: false}
+    networks: [database, backup]
+    healthcheck:
+      test: [CMD, gosu, postgres, pg_isready, -h, /var/run/postgresql, -d, aura]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+
+  api-a: *api
+  api-b: *api
+
+  mcp:
+    <<: *app
+    command: [mcp]
+    cgroup_parent: aura_serving.slice
+    mem_limit: 768m
+    memswap_limit: 768m
+    logging: *mcp-logging
+    env_file:
+      - *settings
+      - /etc/aura-historia/prod/secrets/aws.env
+      - /etc/aura-historia/prod/secrets/postgres-runtime.env
+      - /etc/aura-historia/prod/secrets/opensearch-reader.env
+      - /etc/aura-historia/prod/secrets/anthropic.env
+    environment:
+      <<: [*app-environment, *listing-environment]
+      MCP_BIND_ADDR: 0.0.0.0:8080
+      MCP_ALLOWED_HOSTS: mcp.aura-historia.com
+      MCP_ALLOWED_ORIGINS: https://aura-historia.com
+      # Public domain-verification tokens, served at their well-known paths.
+      MCP_OPENAI_APPS_CHALLENGE: _d_8VglwY-g1mC_cJRoTQ7yS04s4x8say68ByQT8R0E
+      MCP_MUSE_CHALLENGE: a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11
+
+  worker:
+    <<: *app
+    command: [worker]
+    # Pipeline tier: the worker's 2 GiB plus 768 MiB for each ops job (host/README.md#memory-plan).
+    cgroup_parent: aura_pipeline.slice
+    mem_limit: 2g
+    memswap_limit: 2g
+    logging: *worker-logging
+    env_file:
+      - *settings
+      - /etc/aura-historia/prod/secrets/aws.env
+      - /etc/aura-historia/prod/secrets/postgres-runtime.env
+      - /etc/aura-historia/prod/secrets/opensearch-projector.env
+      - /etc/aura-historia/prod/secrets/anthropic.env
+      - /etc/aura-historia/prod/secrets/loops.env
+    environment:
+      <<: [*app-environment, *email-environment]
+      # Host health metrics (src/aura-historia-worker/README.md#health-metrics); the backup
+      # marker's directory is on the host's root filesystem, whose free space they report.
+      AURA_HISTORIA_WORKER_METRICS_NAMESPACE: AuraHistoria/Host
+      AURA_HISTORIA_WORKER_METRICS_BACKUP_MARKER: /run/aura/backup/last-success
+      AURA_HISTORIA_WORKER_METRICS_DISK_PATH: /run/aura/backup
+      AURA_HISTORIA_WORKER_METRICS_JOB_MARKERS: /run/aura/jobs
+    volumes:
+      - *opensearch-root-ca
+      - *google-credentials
+      # A directory, so creating it when missing is harmless: the marker appears with the
+      # next backup.
+      - type: bind
+        source: /var/lib/aura-historia/prod/backup
+        target: /run/aura/backup
+        read_only: true
+        bind: {create_host_path: true}
+      # The scheduled ops jobs' success markers, one file per job.
+      - type: bind
+        source: /var/lib/aura-historia/prod/jobs
+        target: /run/aura/jobs
+        read_only: true
+        bind: {create_host_path: true}
+    networks: [default, database, search]
+
+  caddy:
+    build: caddy
+    image: aura-prod-caddy:local
+    restart: unless-stopped
+    depends_on: [api-a, api-b, mcp]
+    env_file:
+      - /etc/aura-historia/prod/secrets/caddy.env
+    cgroup_parent: aura_serving.slice
+    mem_limit: 256m
+    memswap_limit: 256m
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    logging: *caddy-logging
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    tmpfs: [/config:size=16m, /tmp:size=16m]
+    ports:
+      - 443:443
+      - 443:443/udp
+    networks: [default]
+
+  # One-shot commands: `compose.sh run --rm ops <command>`. Host timers run the scheduled ones.
+  ops:
+    <<: *app
+    profiles: [ops]
+    restart: "no"
+    entrypoint: [ops]
+    command: []
+    cgroup_parent: aura_pipeline.slice
+    mem_limit: 768m
+    memswap_limit: 768m
+    env_file:
+      - *settings
+      - /etc/aura-historia/prod/secrets/aws.env
+      - /etc/aura-historia/prod/secrets/postgres-runtime.env
+      - /etc/aura-historia/prod/secrets/postgres-inspector.env
+      - /etc/aura-historia/prod/secrets/opensearch-reader.env
+      - /etc/aura-historia/prod/secrets/anthropic.env
+      - /etc/aura-historia/prod/secrets/cloudflare-workers-ai.env
+      - /etc/aura-historia/prod/secrets/fxrates.env
+    environment:
+      <<: [*app-environment, *classifier-environment]
+      # Periodic matching's decision and run reports are info events.
+      LOG_LEVEL: info
+      DATABASE_TARGET: prod
+      EXPIRY_CLEANUP_BATCH_SIZE: "100"
+      PERIODIC_MATCH_BATCH_CANDIDATES: "1"
+      PERIODIC_MATCH_FILTER_PAGE_SIZE: "100"
+      PERIODIC_MATCH_HYBRID_SCAN_LIMIT: "100"
+      PERIODIC_MATCH_EVALUATION_LIMIT: "50"
+      PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY: "8"
+      PERIODIC_MATCH_MAX_ATTEMPTS: "3"
+      PERIODIC_MATCH_PROJECTION_LAG_SECONDS: "900"
+      PERIODIC_MATCH_REPLAY_OVERLAP_SECONDS: "7200"
+      PERIODIC_MATCH_MAX_RUN_SECONDS: "7200"
+    # Periodic matching runs up to two hours; let it stop between filters.
+    stop_grace_period: 60s
+
+  # `compose.sh run --rm -T migrate migrate --plan /dev/stdin < plan.json` as the migrator role;
+  # the container has no host mounts.
+  migrate:
+    <<: *app
+    profiles: [ops]
+    restart: "no"
+    entrypoint: [ops]
+    command: []
+    cgroup_parent: aura_pipeline.slice
+    mem_limit: 512m
+    memswap_limit: 512m
+    env_file:
+      - /etc/aura-historia/prod/secrets/postgres-migrator.env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: aura
+      DATABASE_TARGET: prod
+      LOG_LEVEL: info
+    volumes: []
+    networks: [database]
+
+  # `compose.sh run --rm bootstrap` once on an empty database: creates the roles and applies
+  # every migration (host/prod/README.md#first-start).
+  bootstrap:
+    <<: *app
+    profiles: [bootstrap]
+    restart: "no"
+    entrypoint: [ops]
+    command: [bootstrap]
+    cgroup_parent: aura_pipeline.slice
+    mem_limit: 512m
+    memswap_limit: 512m
+    env_file:
+      - /etc/aura-historia/prod/secrets/postgres-bootstrap.env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: aura
+      LOG_LEVEL: info
+    volumes: []
+    networks: [database]
+
+  # `backup.sh restore-check`: restores the newest backup and the WAL archive into this
+  # throwaway container; it never joins the database network.
+  restore-check:
+    image: aura-prod-postgres:local
+    profiles: [backup]
+    restart: "no"
+    entrypoint: [aura-restore-check]
+    init: true
+    environment:
+      PGBACKREST_REPO1_S3_BUCKET: ${AURA_BACKUP_BUCKET}
+    env_file:
+      - /etc/aura-historia/prod/secrets/pgbackrest.env
+    cgroup_parent: aura_pipeline.slice
+    mem_limit: 4g
+    memswap_limit: 4g
+    shm_size: 256m
+    security_opt: [no-new-privileges:true]
+    logging: *postgres-logging
+    networks: [backup]
+
+volumes:
+  postgres-data:
+    name: aura-historia-prod-postgres-data
+    external: true
+  pgbackrest-spool:
+    name: aura-historia-prod-pgbackrest-spool
+  caddy-data:
+    name: aura-historia-prod-caddy-data
+    external: true
+
+networks:
+  default:
+    name: aura-prod-default
+  # PostgreSQL has no route out except the backup network; nothing else joins that one.
+  database:
+    name: aura-prod-database
+    internal: true
+  backup:
+    name: aura-prod-backup
+  search:
+    name: aura-opensearch-prod_search
+    external: true

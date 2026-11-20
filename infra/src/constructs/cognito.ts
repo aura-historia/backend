@@ -13,8 +13,8 @@ export interface IdentityProps {
   readonly config: StageConfig;
   readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly stageName: string;
-  readonly postConfirmationLambda: lambda.IFunction;
-  readonly preSignUpLambda?: lambda.IFunction;
+  readonly postConfirmationTrigger: lambda.IFunction;
+  readonly preSignUpTrigger: lambda.IFunction;
 }
 
 interface CreatedIdentityProvider {
@@ -61,7 +61,7 @@ export class Identity extends Construct {
         emailBody: verificationEmailBody(),
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      deletionProtection: props.config.isProd ? true : undefined,
+      deletionProtection: true,
       removalPolicy: props.config.removalPolicy,
     });
 
@@ -69,13 +69,9 @@ export class Identity extends Construct {
 
     const identityProviders = createIdentityProviders(this, this.userPool, props.config);
 
-    this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, props.postConfirmationLambda);
-    if (props.config.cognitoIdentityProviders.length > 0) {
-      if (!props.preSignUpLambda) {
-        throw new Error("Federated account-collision checks require the pre-sign-up Lambda.");
-      }
-      this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, props.preSignUpLambda);
-    }
+    this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, props.postConfirmationTrigger);
+    // Federated account-collision checks run before every sign-up.
+    this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, props.preSignUpTrigger);
 
     this.publicClient = this.userPool.addClient("PrimaryUserPoolClientPublic", {
       userPoolClientName: `primary-userpool-client-public-${props.stageName}`,

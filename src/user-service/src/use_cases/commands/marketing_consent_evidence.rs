@@ -8,8 +8,11 @@ use user_core::user_id::UserId;
 const PURPOSE: &str = "EMAIL_MARKETING";
 const EVENT_NAME: &str = "marketing_consent.evidence.v1";
 /// The `tracing` target of evidence records, so a binary can keep them flowing at INFO while
-/// its base level is quieter ([`CONSENT_EVIDENCE_LOG_DIRECTIVE`]).
-const EVIDENCE_LOG_TARGET: &str = "marketing_consent_evidence";
+/// its base level is quieter ([`CONSENT_EVIDENCE_LOG_DIRECTIVE`]) or send them to a dedicated
+/// destination.
+pub const CONSENT_EVIDENCE_LOG_TARGET: &str = "marketing_consent_evidence";
+/// The `consent_source` of the evidence Cognito's post-confirmation path records.
+pub const COGNITO_SIGNUP_CONSENT_SOURCE: &str = "COGNITO_SIGNUP";
 /// The log directive that keeps consent evidence at INFO whatever base level an operator
 /// configures, so a quiet production level cannot drop it. A binary that can emit evidence adds
 /// it to its filter.
@@ -32,7 +35,7 @@ pub(crate) enum ConsentEvidenceSource {
 impl ConsentEvidenceSource {
     const fn as_str(self) -> &'static str {
         match self {
-            Self::CognitoSignup => "COGNITO_SIGNUP",
+            Self::CognitoSignup => COGNITO_SIGNUP_CONSENT_SOURCE,
             Self::AuraDoubleOptIn => "AURA_DOUBLE_OPT_IN",
             Self::UserWithdrawal => "USER_WITHDRAWAL",
             Self::AccountDeleted => "ACCOUNT_DELETED",
@@ -183,7 +186,7 @@ impl MarketingConsentEvidence {
             self.consent_revision,
         ) {
             tracing::info!(
-                target: EVIDENCE_LOG_TARGET,
+                target: CONSENT_EVIDENCE_LOG_TARGET,
                 event = EVENT_NAME,
                 consent_purpose = PURPOSE,
                 consent_source = self.source.as_str(),
@@ -205,7 +208,7 @@ impl MarketingConsentEvidence {
             );
         } else {
             tracing::info!(
-                target: EVIDENCE_LOG_TARGET,
+                target: CONSENT_EVIDENCE_LOG_TARGET,
                 event = EVENT_NAME,
                 consent_purpose = PURPOSE,
                 consent_source = self.source.as_str(),
@@ -289,7 +292,7 @@ mod tests {
     fn should_keep_the_evidence_directive_in_step_with_the_evidence_target() {
         assert_eq!(
             CONSENT_EVIDENCE_LOG_DIRECTIVE,
-            format!("{EVIDENCE_LOG_TARGET}=info")
+            format!("{CONSENT_EVIDENCE_LOG_TARGET}=info")
         );
     }
 

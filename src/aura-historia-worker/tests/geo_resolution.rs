@@ -1,0 +1,303 @@
+use application::{
+    operation_context::{OperationContext, Principal},
+    transaction::{Transaction, UnitOfWork},
+};
+use aura_historia_worker::scopes::geo_resolution::GeoResolutionJobs;
+use geo::AddressText;
+use geo_postgres::SqlxResolutionRepositoryFactory;
+use geo_service::{geocoding::*, resolution::*};
+use platform_postgres::SqlxUnitOfWork;
+use platform_postgres_queue::{Disposition, JobId};
+use platform_worker::{Job, JobHandler, error_class};
+use sqlx::PgPool;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
+use uuid::Uuid;
+
+const SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
+const PROFILE: &str = "WORKER_TEST_V1";
+
+struct Provider {
+    pool: PgPool,
+    calls: AtomicUsize,
+    failure: Option<GeocodingFailure>,
+}
+#[async_trait::async_trait]
+impl GeocodingProvider for Provider {
+    async fn geocode(&self, _: &GeocodingRequest) -> Result<GeocodingResult, GeocodingError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        // The composition shares this one-connection pool. Provider I/O must release it.
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            sqlx::query("SELECT 1").execute(&self.pool),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        if let Some(kind) = self.failure {
+            return Err(GeocodingError {
+                kind,
+                source: Box::new(std::io::Error::other("isolated provider failure")),
+            });
+        }
+        Ok(GeocodingResult {
+            outcome: GeocodingOutcome::NoMatch,
+            retention: ResultRetention::Storage,
+        })
+    }
+    async fn look_up_place(
+        &self,
+        _: &PlaceReference,
+        _: &GeocodingRequest,
+    ) -> Result<PlaceLookup, GeocodingError> {
+        Ok(PlaceLookup::Unknown)
+    }
+}
+async fn setup(
+    failure: Option<GeocodingFailure>,
+) -> (PgPool, Arc<Provider>, ResolutionBinding, ResolutionWork) {
+    let fixture = get_postgres_client().await;
+    sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
+        .execute(&fixture)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES($1,true)")
+        .bind(PROFILE)
+        .execute(&fixture)
+        .await
+        .unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(fixture.connect_options().as_ref().clone())
+        .await
+        .unwrap();
+    test_api::TestContext::current()
+        .unwrap()
+        .register_postgres_pool(pool.clone())
+        .unwrap();
+    let provider = Arc::new(Provider {
+        pool: pool.clone(),
+        calls: AtomicUsize::new(0),
+        failure,
+    });
+    let binding = ResolutionBinding {
+        subject: ResolutionSubject::new(RetentionPurpose::UserLocation, Uuid::now_v7()).unwrap(),
+        input_revision: 1,
+        guard: 1,
+    };
+    let input = ResolutionInput::new(
+        GeocodingRequest::new(AddressText::new("isolated private input").unwrap()),
+        ResolutionScope::new(ScopeKind::User, Some(Uuid::now_v7())).unwrap(),
+        RetentionPurpose::UserLocation,
+    )
+    .unwrap();
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    let id = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .bind(&input, binding)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    (
+        pool,
+        provider,
+        binding,
+        ResolutionWork { id, generation: 1 },
+    )
+}
+fn compose(pool: &PgPool, provider: &Arc<Provider>) -> Arc<dyn ResolveUseCase> {
+    Arc::new(ResolveHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxResolutionRepositoryFactory,
+        Arc::clone(provider),
+        PROFILE.into(),
+    ))
+}
+fn job(work: ResolutionWork) -> String {
+    // Exact compact wire format used by CDC and DLQ redrive, without address/evidence.
+    let id = work.id.to_string();
+    serde_json::json!({
+        "schema_version":1, "scope":"geo-resolution", "job_type":"GEO_RESOLUTION",
+        "idempotency_key":format!("geo-resolution:{id}:{}", work.generation),
+        "ordering_key":format!("geo-resolution:{id}"),
+        "payload": { "resolution_id":id, "generation":work.generation }
+    })
+    .to_string()
+}
+/// One delivery of `body`, as the worker hands a claimed job to its handler.
+async fn process(body: String, handler: &GeoResolutionJobs) -> Disposition {
+    handler
+        .handle(&Job::new(JobId::from_uuid(Uuid::now_v7()), 1, None, body))
+        .await
+}
+fn deferred() -> Disposition {
+    Disposition::Retry(error_class("resolution_deferred"))
+}
+async fn view(pool: &PgPool, binding: ResolutionBinding) -> ResolutionView {
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    let view = SqlxResolutionRepositoryFactory
+        .resolution_reader(&mut tx)
+        .inspect(binding.subject)
+        .await
+        .unwrap()
+        .unwrap();
+    tx.commit().await.unwrap();
+    view
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_authority() {
+    let (pool, provider, binding, work) = setup(None).await;
+    let use_case = compose(&pool, &provider);
+    let jobs = GeoResolutionJobs::new(Arc::clone(&use_case));
+    assert_eq!(Disposition::Complete, process(job(work), &jobs).await);
+    assert_eq!(
+        Disposition::Retry(error_class("invalid_job")),
+        process("invalid".into(), &jobs).await
+    );
+    assert_eq!(Disposition::Complete, process(job(work), &jobs).await);
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+    assert_eq!(ResolutionStatus::NoMatch, view(&pool, binding).await.status);
+
+    // Completed cache can be acknowledged while the provider circuit is open.
+    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=3,open_until=clock_timestamp()+interval '5 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(Disposition::Complete, process(job(work), &jobs).await);
+    sqlx::query(
+        "UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .requeue(binding, work, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let current = view(&pool, binding).await.work;
+    assert_eq!(Disposition::Complete, process(job(work), &jobs).await);
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    assert!(matches!(
+        SqlxResolutionRepositoryFactory
+            .resolutions(&mut tx)
+            .claim(current, PROFILE)
+            .await
+            .unwrap(),
+        ClaimOutcome::Claimed(_)
+    ));
+    tx.commit().await.unwrap();
+    assert_eq!(deferred(), process(job(current), &jobs).await);
+    sqlx::query("UPDATE geo_resolutions SET lease_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
+        .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
+    let maintenance = MaintainResolutionsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxResolutionRepositoryFactory,
+    );
+    let context = OperationContext {
+        principal: Principal::Service("backend-cleanup-worker".into()),
+        request_id: "test".into(),
+        correlation_id: "test".into(),
+    };
+    assert_eq!(
+        ResolutionMaintenanceCounts {
+            expired: 0,
+            requeued: 1
+        },
+        maintenance.execute(&context, 100).await.unwrap()
+    );
+    let recovered = view(&pool, binding).await.work;
+    assert_eq!(current.generation + 1, recovered.generation);
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+    assert_eq!(Disposition::Complete, process(job(current), &jobs).await);
+    assert_eq!(Disposition::Complete, process(job(recovered), &jobs).await);
+    assert_eq!(2, provider.calls.load(Ordering::SeqCst));
+
+    // Evidence has no time limit: maintenance leaves bound evidence in place.
+    assert!(view(&pool, binding).await.evidence.is_some());
+    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=3,open_until=clock_timestamp()+interval '5 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        ResolutionMaintenanceCounts {
+            expired: 0,
+            requeued: 0
+        },
+        maintenance.execute(&context, 100).await.unwrap()
+    );
+    // Forced Retry requeues work that stays provider-gated while the circuit is open.
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .requeue(binding, recovered, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let retried = view(&pool, binding).await;
+    assert_eq!(recovered.generation + 1, retried.work.generation);
+    assert!(retried.evidence.is_none());
+    assert_eq!(Disposition::Complete, process(job(current), &jobs).await);
+    assert_eq!(
+        Disposition::Retry(error_class("provider_gated")),
+        process(job(retried.work), &jobs).await
+    );
+    assert_eq!(2, provider.calls.load(Ordering::SeqCst));
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
+    let (pool, provider, binding, work) = setup(Some(GeocodingFailure::Unavailable)).await;
+    let use_case = compose(&pool, &provider);
+    let jobs = GeoResolutionJobs::new(Arc::clone(&use_case));
+    let context = OperationContext {
+        principal: Principal::Service("worker-test".into()),
+        request_id: "test".into(),
+        correlation_id: "test".into(),
+    };
+    let error = use_case.execute(&context, work).await.unwrap_err();
+    let ResolutionError::Provider(error) = error else {
+        panic!("provider source must survive");
+    };
+    assert_eq!(GeocodingFailure::Unavailable, error.kind);
+    assert_eq!(
+        "isolated provider failure",
+        error
+            .source
+            .downcast_ref::<std::io::Error>()
+            .unwrap()
+            .to_string()
+    );
+    let current = view(&pool, binding).await;
+    assert_eq!(ResolutionStatus::Pending, current.status);
+    assert_eq!(Some("UNAVAILABLE"), current.last_failure.as_deref());
+    assert!(current.evidence.is_none());
+    assert_eq!(deferred(), process(job(work), &jobs).await);
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn blocked_completion_and_its_redelivery_acknowledge_without_another_call() {
+    let (pool, provider, binding, work) = setup(Some(GeocodingFailure::UnsupportedInput)).await;
+    let use_case = compose(&pool, &provider);
+    let jobs = GeoResolutionJobs::new(Arc::clone(&use_case));
+
+    let blocked = process(job(work), &jobs).await;
+    let redelivered = process(job(work), &jobs).await;
+
+    assert_eq!(Disposition::Complete, blocked);
+    assert_eq!(Disposition::Complete, redelivered);
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+    let current = view(&pool, binding).await;
+    assert_eq!(ResolutionStatus::Blocked, current.status);
+    assert_eq!(Some("UNSUPPORTED_INPUT"), current.last_failure.as_deref());
+}

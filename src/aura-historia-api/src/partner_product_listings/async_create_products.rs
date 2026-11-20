@@ -410,7 +410,7 @@ mod tests {
         let sent = publisher.sent.clone();
         let app = crate::transport::with_transport_middleware(
             app(publisher, true),
-            crate::transport::NATIVE_REQUEST_TIMEOUT,
+            crate::transport::REQUEST_TIMEOUT,
         );
         let response = request(
             &app,

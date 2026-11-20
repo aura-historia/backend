@@ -1,0 +1,5 @@
+# Installed as /etc/sudoers.d/aura-prod-deploy by host/install.sh deploy. The deploy user may run
+# the installed deploy script as root without arguments and nothing else; its request arrives in
+# SSH_ORIGINAL_COMMAND, which sudo would otherwise drop.
+Defaults!/usr/local/sbin/aura-prod-deploy env_keep += "SSH_ORIGINAL_COMMAND"
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/aura-prod-deploy ""

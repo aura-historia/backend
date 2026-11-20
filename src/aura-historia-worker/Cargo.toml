@@ -1,0 +1,74 @@
+[package]
+name = "aura-historia-worker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+auction-postgres = { workspace = true }
+aura-historia-jobs = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-cloudwatch = { workspace = true }
+aws-sdk-cognitoidentityprovider = { workspace = true }
+aws-sdk-geoplaces = { workspace = true }
+aws-sdk-sesv2 = { workspace = true }
+aws-smithy-types = { workspace = true }
+delivery-outbox = { workspace = true }
+embedding = { workspace = true }
+fxrate-postgres = { workspace = true }
+geo-amazon-location = { workspace = true }
+geo-postgres = { workspace = true }
+geo-service = { workspace = true }
+libc = { workspace = true }
+large-language-model = { workspace = true }
+notification-core = { workspace = true }
+notification-email-aws = { workspace = true }
+notification-postgres = { workspace = true }
+notification-service = { workspace = true }
+opensearch = { workspace = true }
+platform-aws = { workspace = true }
+platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
+platform-postgres = { workspace = true }
+platform-postgres-queue = { workspace = true }
+platform-process = { workspace = true }
+platform-worker = { workspace = true }
+platform-worker-queue-contract = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
+product-listing-opensearch = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
+product-listing-translation-llm = { workspace = true }
+product-service = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-service = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+user-cognito = { workspace = true }
+user-core = { workspace = true }
+user-loops = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
+watchlist-postgres = { workspace = true }
+
+[dev-dependencies]
+content-notice-core = { workspace = true }
+domain-primitives = { workspace = true }
+geo = { workspace = true }
+listing-source-core = { workspace = true }
+localization = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-normalization = { workspace = true }
+search-filter-core = { workspace = true }
+serde = { workspace = true }
+serde-email = { workspace = true }
+test-api = { workspace = true, features = ["opensearch", "postgres", "ses"] }
+time = { workspace = true, features = ["macros"] }
+uuid = { workspace = true, features = ["v7"] }
+wiremock = "0.6"

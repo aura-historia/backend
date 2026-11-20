@@ -4,20 +4,20 @@ pub mod keyset;
 pub use failure::{PostgresFailure, SqlState};
 
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use std::fmt;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 const DEFAULT_ACQUIRE_TIMEOUT_SECONDS: u64 = 5;
-const LAMBDA_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
-const LAMBDA_STATEMENT_TIMEOUT: Duration = Duration::from_secs(5);
-const LAMBDA_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
-const LAMBDA_IDLE_IN_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(10);
-const LAMBDA_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
-const LAMBDA_MAX_LIFETIME: Duration = Duration::from_secs(600);
+/// A long-running process's pool is shared by many concurrent requests or jobs.
+const SERVICE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVICE_STATEMENT_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVICE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+const SERVICE_IDLE_IN_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(10);
+const SERVICE_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+const SERVICE_MAX_LIFETIME: Duration = Duration::from_secs(1_800);
 const MIGRATION_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const MIGRATION_STATEMENT_TIMEOUT: Duration = Duration::from_secs(300);
 const MIGRATION_LOCK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -146,11 +146,6 @@ pub enum PostgresCredentialRefreshError {
     InvalidSecret,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PostgresTlsConfig {
-    VerifyFull { root_certificate: PathBuf },
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PostgresPoolTimeouts {
     acquire: Duration,
@@ -160,12 +155,12 @@ pub struct PostgresPoolTimeouts {
 }
 
 impl PostgresPoolTimeouts {
-    pub const fn lambda() -> Self {
+    pub const fn service() -> Self {
         Self {
-            acquire: LAMBDA_ACQUIRE_TIMEOUT,
-            statement: LAMBDA_STATEMENT_TIMEOUT,
-            lock: LAMBDA_LOCK_TIMEOUT,
-            idle_in_transaction: LAMBDA_IDLE_IN_TRANSACTION_TIMEOUT,
+            acquire: SERVICE_ACQUIRE_TIMEOUT,
+            statement: SERVICE_STATEMENT_TIMEOUT,
+            lock: SERVICE_LOCK_TIMEOUT,
+            idle_in_transaction: SERVICE_IDLE_IN_TRANSACTION_TIMEOUT,
         }
     }
 
@@ -203,11 +198,11 @@ struct PostgresPoolProfile {
 }
 
 impl PostgresPoolProfile {
-    const fn lambda() -> Self {
+    const fn service() -> Self {
         Self {
-            timeouts: PostgresPoolTimeouts::lambda(),
-            idle_timeout: LAMBDA_IDLE_TIMEOUT,
-            max_lifetime: LAMBDA_MAX_LIFETIME,
+            timeouts: PostgresPoolTimeouts::service(),
+            idle_timeout: SERVICE_IDLE_TIMEOUT,
+            max_lifetime: SERVICE_MAX_LIFETIME,
         }
     }
 
@@ -228,7 +223,6 @@ pub struct PostgresPoolConfig {
     username: String,
     password: String,
     max_connections: u32,
-    tls: Option<PostgresTlsConfig>,
     profile: Option<PostgresPoolProfile>,
 }
 
@@ -241,7 +235,6 @@ impl fmt::Debug for PostgresPoolConfig {
             .field("username", &self.username)
             .field("password", &"<redacted>")
             .field("max_connections", &self.max_connections)
-            .field("tls", &self.tls)
             .field("timeouts", &self.timeouts())
             .finish()
     }
@@ -267,48 +260,36 @@ impl PostgresPoolConfig {
             username,
             password,
             max_connections,
-            tls: None,
             profile: None,
         })
     }
 
-    pub fn lambda(
+    /// The pool of a long-running process on the host. PostgreSQL is reachable only on internal
+    /// networks, so the connection carries no TLS; a `host` starting with `/` names the
+    /// directory of a Unix socket.
+    pub fn service(
         host: String,
         port: u16,
         database: String,
         username: String,
         password: String,
         max_connections: u32,
-        root_certificate: PathBuf,
     ) -> Result<Self, PostgresPoolConfigError> {
-        if root_certificate.as_os_str().is_empty() {
-            return Err(PostgresPoolConfigError::EmptyRootCertificate);
-        }
-
         let mut config = Self::new(host, port, database, username, password, max_connections)?;
-        config.tls = Some(PostgresTlsConfig::VerifyFull { root_certificate });
-        config.profile = Some(PostgresPoolProfile::lambda());
+        config.profile = Some(PostgresPoolProfile::service());
         Ok(config)
     }
 
+    /// One operator connection for migrations and role bootstrap, over the same internal
+    /// network or Unix socket as [`PostgresPoolConfig::service`].
     pub fn migration(
         host: String,
         port: u16,
         database: String,
         username: String,
         password: String,
-        max_connections: u32,
-        root_certificate: PathBuf,
     ) -> Result<Self, PostgresPoolConfigError> {
-        if max_connections != 1 {
-            return Err(PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne);
-        }
-        if root_certificate.as_os_str().is_empty() {
-            return Err(PostgresPoolConfigError::EmptyRootCertificate);
-        }
-
-        let mut config = Self::new(host, port, database, username, password, max_connections)?;
-        config.tls = Some(PostgresTlsConfig::VerifyFull { root_certificate });
+        let mut config = Self::new(host, port, database, username, password, 1)?;
         config.profile = Some(PostgresPoolProfile::migration());
         Ok(config)
     }
@@ -344,24 +325,13 @@ impl PostgresPoolConfig {
         }
     }
 
-    pub fn tls(&self) -> Option<&PostgresTlsConfig> {
-        self.tls.as_ref()
-    }
-
     pub fn connect_options(&self) -> PgConnectOptions {
-        let options = PgConnectOptions::new()
+        PgConnectOptions::new()
             .host(&self.host)
             .port(self.port)
             .database(&self.database)
             .username(&self.username)
-            .password(&self.password);
-
-        match &self.tls {
-            Some(PostgresTlsConfig::VerifyFull { root_certificate }) => options
-                .ssl_mode(PgSslMode::VerifyFull)
-                .ssl_root_cert(root_certificate),
-            None => options,
-        }
+            .password(&self.password)
     }
 
     pub fn pool_options(&self) -> PgPoolOptions {
@@ -454,10 +424,6 @@ fn duration_setting(duration: Duration) -> String {
 pub enum PostgresPoolConfigError {
     #[error("Postgres max connections must be greater than zero")]
     ZeroMaxConnections,
-    #[error("Postgres TLS root certificate path must not be empty")]
-    EmptyRootCertificate,
-    #[error("Postgres migration max connections must be exactly one")]
-    MigrationMaxConnectionsMustBeOne,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -565,67 +531,20 @@ mod tests {
     }
 
     #[test]
-    fn should_configure_lambda_pool_with_verified_tls_and_bounded_waits() {
-        let config = PostgresPoolConfig::lambda(
-            "database.example.test".to_owned(),
-            5432,
-            "aura".to_owned(),
-            "postgres".to_owned(),
-            "secret".to_owned(),
-            1,
-            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
-        );
-
-        let config = match config {
-            Ok(config) => config,
-            Err(error) => panic!("unexpected config error: {error}"),
-        };
-
-        assert_eq!(config.min_connections(), 0);
-        assert_eq!(config.max_connections(), 1);
-        assert_eq!(config.timeouts(), Some(PostgresPoolTimeouts::lambda()));
-        assert_eq!(
-            config.tls(),
-            Some(&PostgresTlsConfig::VerifyFull {
-                root_certificate: PathBuf::from("/opt/aura-historia/rds-ca.pem"),
-            })
-        );
-        assert!(format!("{:?}", config.connect_options()).contains("VerifyFull"));
-    }
-
-    #[test]
-    fn should_configure_migration_pool_with_verified_tls_and_single_connection() {
+    fn should_configure_migration_connection_without_tls_and_single_connection() {
         let config = PostgresPoolConfig::migration(
-            "database.example.test".to_owned(),
+            "postgres".to_owned(),
             5432,
             "aura".to_owned(),
             "postgres".to_owned(),
             "secret".to_owned(),
-            1,
-            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
         );
         let config = match config {
             Ok(config) => config,
             Err(error) => panic!("unexpected config error: {error}"),
         };
 
-        assert_eq!(config.min_connections(), 0);
         assert_eq!(config.max_connections(), 1);
-        assert_eq!(
-            config.timeouts(),
-            Some(PostgresPoolTimeouts {
-                acquire: Duration::from_secs(10),
-                statement: Duration::from_secs(300),
-                lock: Duration::from_secs(15),
-                idle_in_transaction: Duration::from_secs(60),
-            })
-        );
-        assert_eq!(
-            config.tls(),
-            Some(&PostgresTlsConfig::VerifyFull {
-                root_certificate: PathBuf::from("/opt/aura-historia/rds-ca.pem"),
-            })
-        );
         assert_eq!(
             config.profile,
             Some(PostgresPoolProfile {
@@ -644,45 +563,56 @@ mod tests {
         assert!(startup_options.contains("statement_timeout=300000ms"));
         assert!(startup_options.contains("lock_timeout=15000ms"));
         assert!(startup_options.contains("idle_in_transaction_session_timeout=60000ms"));
-        assert!(format!("{:?}", config.connect_options()).contains("VerifyFull"));
     }
 
     #[test]
-    fn should_reject_migration_pool_connection_limits_other_than_one() {
-        for max_connections in [0, 2] {
-            let config = PostgresPoolConfig::migration(
-                "localhost".to_owned(),
-                5432,
-                "aura".to_owned(),
-                "postgres".to_owned(),
-                "secret".to_owned(),
-                max_connections,
-                PathBuf::from("/opt/aura-historia/rds-ca.pem"),
-            );
+    fn should_configure_service_pool_with_bounded_statements() {
+        let config = PostgresPoolConfig::service(
+            "/run/postgresql".to_owned(),
+            5432,
+            "aura".to_owned(),
+            "aura_runtime".to_owned(),
+            "secret".to_owned(),
+            12,
+        );
+        let config = match config {
+            Ok(config) => config,
+            Err(error) => panic!("unexpected config error: {error}"),
+        };
 
-            assert_eq!(
-                Err(PostgresPoolConfigError::MigrationMaxConnectionsMustBeOne),
-                config
-            );
-        }
+        assert_eq!(config.max_connections(), 12);
+        let timeouts = config.timeouts().expect("service profile");
+        assert_eq!(
+            (
+                timeouts.acquire(),
+                timeouts.statement(),
+                timeouts.lock(),
+                timeouts.idle_in_transaction()
+            ),
+            (
+                Duration::from_secs(5),
+                Duration::from_secs(5),
+                Duration::from_secs(1),
+                Duration::from_secs(10)
+            )
+        );
     }
 
     #[test]
-    fn should_bound_direct_lambda_connection_with_startup_timeout_configuration() {
-        let lambda = PostgresPoolConfig::lambda(
+    fn should_bound_direct_service_connection_with_startup_timeout_configuration() {
+        let service = PostgresPoolConfig::service(
             "database.example.test".to_owned(),
             5432,
             "aura".to_owned(),
             "postgres".to_owned(),
             "secret".to_owned(),
             1,
-            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
         );
-        let lambda = match lambda {
+        let service = match service {
             Ok(config) => config,
             Err(error) => panic!("unexpected config error: {error}"),
         };
-        let direct_options = lambda.direct_connection_options();
+        let direct_options = service.direct_connection_options();
         let startup_options = direct_options.get_options().unwrap_or_default();
         let native = PostgresPoolConfig::new(
             "localhost".to_owned(),
@@ -698,42 +628,26 @@ mod tests {
         };
 
         assert_eq!(
-            Some(LAMBDA_ACQUIRE_TIMEOUT),
-            lambda.direct_connection_timeout()
+            Some(SERVICE_ACQUIRE_TIMEOUT),
+            service.direct_connection_timeout()
         );
         assert!(startup_options.contains("statement_timeout=5000ms"));
         assert!(startup_options.contains("lock_timeout=1000ms"));
         assert!(startup_options.contains("idle_in_transaction_session_timeout=10000ms"));
-        assert_eq!(None, lambda.connect_options().get_options());
+        assert_eq!(None, service.connect_options().get_options());
         assert_eq!(None, native.direct_connection_timeout());
         assert_eq!(None, native.direct_connection_options().get_options());
     }
 
-    #[test]
-    fn should_reject_empty_lambda_root_certificate_path() {
-        let config = PostgresPoolConfig::lambda(
-            "localhost".to_owned(),
-            5432,
-            "aura".to_owned(),
-            "postgres".to_owned(),
-            "secret".to_owned(),
-            1,
-            PathBuf::new(),
-        );
-
-        assert_eq!(Err(PostgresPoolConfigError::EmptyRootCertificate), config);
-    }
-
     #[tokio::test]
-    async fn should_create_lambda_pool_without_opening_a_connection() {
-        let config = PostgresPoolConfig::lambda(
+    async fn should_create_service_pool_without_opening_a_connection() {
+        let config = PostgresPoolConfig::service(
             "unreachable.example.test".to_owned(),
             5432,
             "aura".to_owned(),
             "postgres".to_owned(),
             "secret".to_owned(),
             1,
-            PathBuf::from("/opt/aura-historia/rds-ca.pem"),
         );
         let config = match config {
             Ok(config) => config,

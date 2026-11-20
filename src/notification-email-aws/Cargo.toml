@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 tracing = { workspace = true }
 async-trait = { workspace = true }
-aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
 application = { workspace = true }
 content-notice-core = { workspace = true }
@@ -21,6 +20,7 @@ notification-email = { workspace = true }
 notification-service = { workspace = true }
 serde-email = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true }
 url = { workspace = true }
 

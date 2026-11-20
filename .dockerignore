@@ -1,18 +1,20 @@
-# Only the workspace sources and the committed public RDS trust asset enter the build.
+# Only the workspace sources, the migrations embedded by `ops`, the role SQL and the MJML email
+# templates enter the build.
 *
 !Cargo.toml
 !Cargo.lock
 !rust-toolchain.toml
 !src
 !src/**
-!infra
-!infra/assets
-!infra/assets/rds-ca-layer
-!infra/assets/rds-ca-layer/aura-historia
-!infra/assets/rds-ca-layer/aura-historia/rds-ca
-!infra/assets/rds-ca-layer/aura-historia/rds-ca/global-bundle.pem
+!migrations
+!migrations/**
+!infra/sql
+!infra/sql/**
+!mjml
+!mjml/**
 /target
 /infra/node_modules
+/mjml/node_modules
 /infra/cdk.out
 **/target
 **/validation

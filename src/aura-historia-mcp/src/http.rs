@@ -10,7 +10,6 @@ use response::{finalize_response, protocol_error, public_document};
 use crate::{
     AdmissionGate, AdmissionRequest, ConfigError, InvocationContext, Registry, TransportConfig,
     config::normalized_origin,
-    metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
     server_card::{SERVER_CARD_MEDIA_TYPE, SERVER_CARD_PATH, server_card},
     server_info::server_info,
@@ -25,6 +24,7 @@ use axum::{
     routing::{any, get},
 };
 use oauth_core::ordinary_user_scopes::ORDINARY_USER_SCOPES;
+use platform_process::TokenBucket;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
@@ -85,7 +85,11 @@ pub fn router(
         server_card,
     };
     let response_limit = state.config.max_response_bytes;
-    Ok(Router::new()
+    let rate_limit = state
+        .config
+        .rate_limit
+        .map(|limit| Arc::new(TokenBucket::new(limit)));
+    let router = Router::new()
         .route("/v1", any(handle))
         .route(
             "/.well-known/oauth-protected-resource",
@@ -103,10 +107,30 @@ pub fn router(
         .route("/.well-known/muse-challenge/{token}", get(muse_challenge))
         .route("/health", get(probe))
         .route("/ready", get(probe))
-        .with_state(state)
-        .layer(axum::middleware::map_response(move |response| {
+        .with_state(state);
+    let router = match rate_limit {
+        Some(bucket) => router.layer(axum::middleware::from_fn_with_state(bucket, limit_rate)),
+        None => router,
+    };
+    Ok(
+        router.layer(axum::middleware::map_response(move |response| {
             finalize_response(response, response_limit)
-        })))
+        })),
+    )
+}
+
+/// Answers `429` with `Retry-After: 1` once the process's request-rate limit is exhausted,
+/// before admission or authentication. Liveness probes are never limited.
+async fn limit_rate(
+    State(bucket): State<Arc<TokenBucket>>,
+    request: Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if request.uri().path() == "/health" || bucket.try_acquire() {
+        next.run(request).await
+    } else {
+        (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "1")]).into_response()
+    }
 }
 
 async fn probe() -> impl IntoResponse {
@@ -181,14 +205,8 @@ fn verification_document(
 
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {
     let now = Instant::now();
-    let invocation = request.extensions().get::<InvocationDeadline>();
-    let deadline = invocation.map_or(now + state.config.request_timeout, |budget| {
-        budget.deadline.min(now + state.config.request_timeout)
-    });
-    let request_id = invocation.map_or_else(
-        || uuid::Uuid::new_v4().to_string(),
-        |budget| budget.request_id.clone(),
-    );
+    let deadline = now + state.config.request_timeout;
+    let request_id = uuid::Uuid::new_v4().to_string();
     let cancellation = CancellationToken::new();
     let _cancel_on_drop = cancellation.clone().drop_guard();
     let response = if deadline <= now {

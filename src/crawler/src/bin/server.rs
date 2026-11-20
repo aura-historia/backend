@@ -1,11 +1,12 @@
 //! Production server binary for the crawler.
 //!
-//! Sets up logging with optional CloudWatch export and crawler-local Postgres, then hands the
-//! production profile to [`crawler::runtime`]. The runtime continuously spiders ListingSource
-//! websites, scrapes product pages, and submits changed raw ProductListing observations to the
-//! shared ingestion queue for asynchronous capture and normalization. The crawler scope comes
-//! from the admin API; the host holds no business database credentials. SIGTERM and SIGINT stop it
-//! gracefully; see `docs/crawler/operations.md#stopping-the-crawler`.
+//! Sets up JSON logging to stdout and crawler-local Postgres, then hands the production profile
+//! to [`crawler::runtime`]. The runtime continuously spiders ListingSource websites, scrapes
+//! product pages, and submits changed raw ProductListing observations to the shared ingestion
+//! queue in the business database for asynchronous capture and normalization. The crawler scope
+//! comes from the admin API. Its business database role may only execute the ingestion enqueue
+//! function. SIGTERM and SIGINT stop it gracefully; see
+//! `docs/crawler/operations.md#stopping-the-crawler`.
 //!
 //! # Connection pool sizing
 //!
@@ -22,7 +23,7 @@
 //! | `LOCAL_DB_URL`                  | Required crawler-local Postgres connection URL, e.g. `postgres://crawler:<password>@127.0.0.1:5432/crawler_server`. The operator creates the database; `server` only applies crawler-local migrations to it. |
 //! | `AURA_API_BASE_URL`             | Required base URL of the Aura Historia API; `https`, or `http` for a loopback host only |
 //! | `CRAWLER_API_TOKEN`             | Required bearer token that may read admin ListingSources (`GET /v1/admin/listing-sources`); never logged |
-//! | `PRODUCT_LISTING_INGESTION_QUEUE_URL` | Required URL of the product-listing ingestion FIFO queue |
+//! | `PRODUCT_LISTING_INGESTION_DATABASE_URL` | Required business database URL of the role `aura_crawler_ingestion`, which may only enqueue ingestion commands; never logged |
 //! | `SPIDER_MAX_SIZE_BYTES`         | Required Spider transport page-body ceiling; set to `8388608`  |
 //! | `CRAWLER_AUTHORING_MODE`        | `auto`, `review`, `manual` or `agent`; unset or blank means `review`. `agent` needs `CRAWLER_REVIEW_AUTH_TOKEN` and writes the review agents' tokens to `review-agent-tokens.json` in the working directory |
 //! | `VERTEX_AI_PROJECT_ID`          | Google Cloud project for Vertex AI; required unless `CRAWLER_AUTHORING_MODE` is `manual` or `agent` |
@@ -34,37 +35,15 @@
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
 //! | `CRAWLER_START_REVIEW_AGENT_RUNNER` | `true` starts `review-agent-runner` from next to this binary as its child in `agent` mode, as `dev` does; unset or `false` leaves it to its own service. Never set it next to a runner service: two runners would work the same reviews. Any other value fails startup |
-//! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
-//! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
 //!
 //! With `CRAWLER_AUTHORING_MODE` `manual` or `agent` no Vertex AI or LLM setting is read
 //! ([`CrawlerRuntimeConfig::from_env`]). The review console settings are in
 //! `docs/crawler/operations.md#review-service`.
-//!
-//! # IAM permissions
-//!
-//! The crawler's AWS credentials need `sqs:SendMessage` on the ingestion FIFO queue and nothing
-//! broader.
-//!
-//! # CloudWatch IAM permissions
-//!
-//! If `CRAWLER_CLOUDWATCH_LOG_GROUP` is set, the crawler runtime needs:
-//!
-//! - `logs:CreateLogGroup`
-//! - `logs:CreateLogStream`
-//! - `logs:PutLogEvents`
 
-use async_trait::async_trait;
-use aws_config::BehaviorVersion;
-use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
-use aws_sdk_cloudwatchlogs::error::SdkError;
-use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
-use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use crawler::local_db::local_db_url_from_env;
 use crawler::logging::{
-    CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
-    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE, cloudwatch_logging_config,
-    ensure_cloudwatch_log_destination, tls_verifier_handshake_error_filter,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE,
+    tls_verifier_handshake_error_filter,
 };
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
@@ -78,8 +57,10 @@ use crawler::service::listing_source_api::{
 use crawler::service::raw_capture::{
     ProductListingRawCaptureService, ProductListingRawCaptureServiceImpl,
 };
-use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
+use product_listing_ingestion_queue::QueueProductListingIngestionPublisher;
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{Instrument, info};
@@ -87,63 +68,19 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-struct AwsSdkCloudWatchBootstrapClient {
-    client: CloudWatchLogsClient,
+const INGESTION_DATABASE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_DATABASE_URL";
+/// Connections beyond the concurrent submissions, so a slow enqueue never starves the next one.
+const INGESTION_POOL_HEADROOM: u32 = 1;
+
+/// The business database connection of the crawler's ingestion role. The value is never echoed:
+/// the URL holds the role's password.
+fn ingestion_database_options(value: Option<String>) -> Result<PgConnectOptions, String> {
+    let value = value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{INGESTION_DATABASE_URL_ENV} must be set"))?;
+    PgConnectOptions::from_str(value.trim())
+        .map_err(|_| format!("{INGESTION_DATABASE_URL_ENV} must be a PostgreSQL connection URL"))
 }
-
-#[async_trait]
-impl CloudWatchBootstrapClient for AwsSdkCloudWatchBootstrapClient {
-    async fn create_log_group(&self, log_group_name: &str) -> Result<(), CloudWatchBootstrapError> {
-        match self
-            .client
-            .create_log_group()
-            .log_group_name(log_group_name)
-            .send()
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(SdkError::ServiceError(err)) => Err(map_create_log_group_error(err.err())),
-            Err(err) => Err(CloudWatchBootstrapError::Other(err.to_string())),
-        }
-    }
-
-    async fn create_log_stream(
-        &self,
-        log_group_name: &str,
-        log_stream_name: &str,
-    ) -> Result<(), CloudWatchBootstrapError> {
-        match self
-            .client
-            .create_log_stream()
-            .log_group_name(log_group_name)
-            .log_stream_name(log_stream_name)
-            .send()
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(SdkError::ServiceError(err)) => Err(map_create_log_stream_error(err.err())),
-            Err(err) => Err(CloudWatchBootstrapError::Other(err.to_string())),
-        }
-    }
-}
-
-fn map_create_log_group_error(error: &CreateLogGroupError) -> CloudWatchBootstrapError {
-    if error.is_resource_already_exists_exception() {
-        CloudWatchBootstrapError::AlreadyExists
-    } else {
-        CloudWatchBootstrapError::Other(error.to_string())
-    }
-}
-
-fn map_create_log_stream_error(error: &CreateLogStreamError) -> CloudWatchBootstrapError {
-    if error.is_resource_already_exists_exception() {
-        CloudWatchBootstrapError::AlreadyExists
-    } else {
-        CloudWatchBootstrapError::Other(error.to_string())
-    }
-}
-
-const INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 
 fn build_log_filter() -> EnvFilter {
     let configured_log_level = std::env::var("LOG_LEVEL").ok();
@@ -157,11 +94,9 @@ fn build_log_filter() -> EnvFilter {
     EnvFilter::new(directives)
 }
 
-fn init_crawler_logging(
-    cloudwatch_config: Option<&CloudWatchLoggingConfig>,
-    cloudwatch_client: Option<CloudWatchLogsClient>,
-) -> Option<tracing_cloudwatch::CloudWatchWorkerGuard> {
-    // Both sinks write metric records as bare EMF objects; see `crawler::metrics`.
+/// JSON lines on stdout, metric records as bare EMF objects (`crawler::metrics`). The host's
+/// container log shipping carries them to CloudWatch.
+fn init_crawler_logging() {
     let stdout_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_ansi(false)
@@ -171,47 +106,11 @@ fn init_crawler_logging(
                 .with_current_span(true)
                 .with_span_list(false),
         ));
-
-    if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
-        let (cloudwatch_layer, cloudwatch_guard) = tracing_cloudwatch::layer()
-            .with_fmt_layer(
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .with_ansi(false)
-                    .event_format(EmfPassthroughFormat::new(
-                        tracing_subscriber::fmt::format()
-                            .json()
-                            .with_current_span(true)
-                            .with_span_list(false)
-                            .with_file(false)
-                            .with_line_number(false)
-                            .with_target(false),
-                    )),
-            )
-            .with_client(
-                client,
-                tracing_cloudwatch::ExportConfig::default()
-                    .with_batch_size(50usize)
-                    .with_interval(Duration::from_secs(1))
-                    .with_log_group_name(config.log_group_name.clone())
-                    .with_log_stream_name(config.log_stream_name.clone()),
-            );
-
-        tracing_subscriber::registry()
-            .with(build_log_filter())
-            .with(tls_verifier_handshake_error_filter())
-            .with(stdout_layer)
-            .with(cloudwatch_layer)
-            .init();
-        Some(cloudwatch_guard)
-    } else {
-        tracing_subscriber::registry()
-            .with(build_log_filter())
-            .with(tls_verifier_handshake_error_filter())
-            .with(stdout_layer)
-            .init();
-        None
-    }
+    tracing_subscriber::registry()
+        .with(build_log_filter())
+        .with(tls_verifier_handshake_error_filter())
+        .with(stdout_layer)
+        .init();
 }
 
 /// Whether `agent` mode starts the review agent runner as this binary's child.
@@ -250,38 +149,10 @@ fn start_review_agent_runner_child(console_port: u16) -> Option<RunnerChild> {
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let cloudwatch_logging = cloudwatch_logging_config()
-        .expect("Failed to parse crawler CloudWatch logging configuration");
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_10())
-        .load()
-        .await;
-    let cloudwatch_client = cloudwatch_logging
-        .as_ref()
-        .map(|_| CloudWatchLogsClient::new(&aws_config));
-
-    if let (Some(config), Some(client)) = (cloudwatch_logging.as_ref(), cloudwatch_client.as_ref())
-    {
-        let bootstrap_client = AwsSdkCloudWatchBootstrapClient {
-            client: client.clone(),
-        };
-        ensure_cloudwatch_log_destination(&bootstrap_client, config)
-            .await
-            .expect("Failed to ensure CloudWatch log group and stream for crawler server");
-    }
-
-    let _cloudwatch_guard =
-        init_crawler_logging(cloudwatch_logging.as_ref(), cloudwatch_client.clone());
+    init_crawler_logging();
 
     async move {
         info!("Starting Crawler Server");
-
-        if let Some(config) = cloudwatch_logging.as_ref() {
-            info!(
-                log_group = %config.log_group_name,
-                log_stream = %config.log_stream_name,
-                "CloudWatch log export enabled"
-            );
-        }
 
         // 1. Build cron config (needed for pool sizing before everything else)
         let config = CrawlerCronConfig {
@@ -357,20 +228,26 @@ async fn main() {
                 .unwrap_or_else(|error| panic!("invalid crawler API configuration: {error}")),
         );
 
-        // 5. Submit changed crawler evidence to the shared ingestion queue.
-        let queue_url = std::env::var(INGESTION_QUEUE_URL_ENV)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| panic!("{INGESTION_QUEUE_URL_ENV} must be set"));
+        // 5. Submit changed crawler evidence to the shared ingestion queue. The pool connects
+        //    lazily: an unreachable business database leaves submissions retryable instead of
+        //    stopping the crawler.
+        let ingestion_options =
+            ingestion_database_options(std::env::var(INGESTION_DATABASE_URL_ENV).ok())
+                .unwrap_or_else(|error| panic!("invalid crawler ingestion configuration: {error}"));
+        let push_concurrency = config.effective_push_max_concurrency();
+        let ingestion_pool = PgPoolOptions::new()
+            .max_connections(
+                u32::try_from(push_concurrency)
+                    .unwrap_or(u32::MAX)
+                    .saturating_add(INGESTION_POOL_HEADROOM),
+            )
+            .connect_lazy_with(ingestion_options);
         let raw_capture: Box<dyn ProductListingRawCaptureService> =
             Box::new(ProductListingRawCaptureServiceImpl::new(
                 Arc::new(SubmitInternalProductListingIngestionHandler::new(
-                    SqsProductListingIngestionPublisher::new(
-                        aws_sdk_sqs::Client::new(&aws_config),
-                        queue_url,
-                    ),
+                    QueueProductListingIngestionPublisher::postgres(ingestion_pool),
                 )),
-                config.effective_push_max_concurrency(),
+                push_concurrency,
             ));
 
         // 6. Wire the shared crawler pipeline and run until stopped.
@@ -402,7 +279,23 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::starts_review_agent_runner;
+    use super::{ingestion_database_options, starts_review_agent_runner};
+
+    #[test]
+    fn should_require_an_ingestion_database_url_without_echoing_it() {
+        assert!(ingestion_database_options(None).is_err());
+        assert!(ingestion_database_options(Some("  ".to_owned())).is_err());
+        let error = ingestion_database_options(Some("not a url with secret-password".to_owned()))
+            .unwrap_err();
+        assert!(!error.contains("secret-password"));
+
+        let options = ingestion_database_options(Some(
+            "postgres://aura_crawler_ingestion:secret@postgres:5432/aura".to_owned(),
+        ))
+        .unwrap();
+        assert_eq!("aura_crawler_ingestion", options.get_username());
+        assert_eq!("postgres", options.get_host());
+    }
 
     #[test]
     fn should_start_the_review_agent_runner_only_when_set_to_true() {

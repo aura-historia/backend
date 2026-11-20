@@ -48,7 +48,7 @@ uuid = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
 user-service = { workspace = true }
 geo-postgres = { workspace = true }
-product-listing-ingestion-sqs = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
 auction-postgres = { workspace = true }
 auction-service = { workspace = true }
 rstest = { workspace = true }

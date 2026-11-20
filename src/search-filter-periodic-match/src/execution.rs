@@ -8,16 +8,42 @@ use tokio::time::{Instant, sleep};
 
 pub(crate) const STARTUP_LIMIT: Duration = Duration::from_secs(120);
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ExecutionError {
+/// Why a periodic matching run did not complete successfully. Every message is static: causes
+/// carry provider and credential text and are never kept.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ExecutionError {
+    #[error("periodic matching startup failed")]
     StartupFailed,
+    #[error("periodic matching startup timed out")]
     StartupTimedOut,
+    #[error("periodic matching was cancelled")]
     Cancelled,
+    #[error("periodic matching exceeded its run limit")]
     MatchingTimedOut,
+    #[error("periodic matching left {0} filters failed")]
     FailedFilters(usize),
+    #[error("periodic matching service failed")]
     ServiceFailed,
+    #[error("periodic matching task panicked")]
     Panicked,
+    #[error("periodic matching task failed")]
     TaskFailed,
+}
+
+impl ExecutionError {
+    /// The `outcome` label of the terminal log event.
+    pub fn outcome(&self) -> &'static str {
+        match self {
+            Self::StartupFailed => "startup_failed",
+            Self::StartupTimedOut => "startup_timed_out",
+            Self::Cancelled => "cancelled",
+            Self::MatchingTimedOut => "matching_timed_out",
+            Self::FailedFilters(_) => "incomplete",
+            Self::ServiceFailed => "service_failed",
+            Self::Panicked => "panicked",
+            Self::TaskFailed => "task_failed",
+        }
+    }
 }
 
 pub(crate) async fn run<S, F, E>(

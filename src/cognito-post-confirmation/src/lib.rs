@@ -1,48 +1,58 @@
-use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+//! The host side of Cognito's post-confirmation trigger. The trigger Lambda forwards each
+//! confirmation event, signed (`cognito-trigger-signing`), to the host's internal endpoint, which maps it to
+//! a registration here. The mapping trusts only the event of the configured user pool.
+use application::operation_context::OperationContext;
 use aws_lambda_events::cognito::{
     CognitoEventUserPoolsPostConfirmation, CognitoEventUserPoolsPostConfirmationTriggerSource,
 };
-use lambda_runtime::LambdaEvent;
 use localization::Language;
 use user_core::{first_name::FirstName, last_name::LastName};
 use user_service::ports::{CognitoIdentity, CognitoIssuer, CognitoSubject};
 use user_service::use_cases::{
-    CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserUseCase,
+    CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserError,
+    RegisterCognitoUserResult, RegisterCognitoUserUseCase,
 };
 
+/// The event cannot be registered. Messages name the field, never its value.
 #[derive(Debug, thiserror::Error)]
-enum PostConfirmationInputError {
+pub enum PostConfirmationInputError {
     #[error("missing Cognito event field: {name}")]
     MissingField { name: &'static str },
     #[error("invalid Cognito identity")]
     InvalidIdentity,
+    #[error("the event comes from a user pool other than the configured one")]
+    ForeignUserPool,
     #[error("invalid Cognito user email")]
     InvalidEmail,
 }
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(request_id = %event.context.request_id)
-)]
-pub async fn handler(
-    event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>,
-    service: &impl RegisterCognitoUserUseCase,
-) -> Result<CognitoEventUserPoolsPostConfirmation, lambda_runtime::Error> {
-    let command = parse_user(&event.payload)?;
-    let request_id = event.context.request_id.clone();
+#[derive(Debug, thiserror::Error)]
+pub enum PostConfirmationError {
+    #[error(transparent)]
+    Input(#[from] PostConfirmationInputError),
+    #[error("Cognito user registration failed")]
+    Registration(#[source] RegisterCognitoUserError),
+}
 
+/// Registers the user an authenticated post-confirmation event confirms. `expected_issuer` is
+/// the configured user pool's issuer; an event of any other pool is refused.
+pub async fn register_confirmed_user<S>(
+    event: &CognitoEventUserPoolsPostConfirmation,
+    expected_issuer: &str,
+    context: &OperationContext,
+    service: &S,
+) -> Result<RegisterCognitoUserResult, PostConfirmationError>
+where
+    S: RegisterCognitoUserUseCase + ?Sized,
+{
+    let command = parse_user(event)?;
+    if command.identity.issuer.as_str() != expected_issuer {
+        return Err(PostConfirmationInputError::ForeignUserPool.into());
+    }
     service
-        .execute(
-            &OperationContext {
-                principal: Principal::System,
-                request_id: RequestId::new(request_id.clone()),
-                correlation_id: CorrelationId::new(request_id),
-            },
-            command,
-        )
-        .await?;
-
-    Ok(event.payload)
+        .execute(context, command)
+        .await
+        .map_err(PostConfirmationError::Registration)
 }
 
 fn parse_user(
@@ -149,10 +159,11 @@ fn parse_language(value: Option<&str>) -> Option<Language> {
 
 #[cfg(test)]
 mod tests {
-    use super::{handler, parse_user};
-    use application::operation_context::{OperationContext, Principal};
+    use super::{
+        PostConfirmationError, PostConfirmationInputError, parse_user, register_confirmed_user,
+    };
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
-    use lambda_runtime::{Context, LambdaEvent};
     use localization::Language;
     use serde_email::Email;
     use std::sync::Mutex;
@@ -194,20 +205,35 @@ mod tests {
         }
     }
 
-    fn event(attributes: serde_json::Value) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
-        let payload = match serde_json::from_value(attributes) {
-            Ok(payload) => payload,
-            Err(error) => panic!("invalid test Cognito event: {error}"),
-        };
-        let mut context = Context::default();
-        context.request_id = "lambda-request-id".to_owned();
-        LambdaEvent { payload, context }
+    const ISSUER: &str = "https://cognito-idp.eu-central-1.amazonaws.com/pool-id";
+
+    /// A Cognito event as the host endpoint receives it.
+    struct ForwardedEvent {
+        payload: CognitoEventUserPoolsPostConfirmation,
     }
 
-    fn post_confirmation_event(
-        subject: &str,
-        email: &str,
-    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    fn event(attributes: serde_json::Value) -> ForwardedEvent {
+        match serde_json::from_value(attributes) {
+            Ok(payload) => ForwardedEvent { payload },
+            Err(error) => panic!("invalid test Cognito event: {error}"),
+        }
+    }
+
+    /// Registers like the host endpoint, under its request ID, and returns the event.
+    async fn handler(
+        event: ForwardedEvent,
+        service: &FakeRegisterCognitoUserUseCase,
+    ) -> Result<CognitoEventUserPoolsPostConfirmation, PostConfirmationError> {
+        let context = OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::new("host-request-id".to_owned()),
+            correlation_id: CorrelationId::new("host-request-id".to_owned()),
+        };
+        register_confirmed_user(&event.payload, ISSUER, &context, service).await?;
+        Ok(event.payload)
+    }
+
+    fn post_confirmation_event(subject: &str, email: &str) -> ForwardedEvent {
         post_confirmation_event_with_username("provider-username", subject, email)
     }
 
@@ -215,7 +241,7 @@ mod tests {
         username: &str,
         subject: &str,
         email: &str,
-    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    ) -> ForwardedEvent {
         post_confirmation_event_with_profile(username, subject, email, None, None, None)
     }
 
@@ -226,7 +252,7 @@ mod tests {
         given_name: Option<&str>,
         family_name: Option<&str>,
         locale: Option<&str>,
-    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    ) -> ForwardedEvent {
         post_confirmation_event_with_signup_attributes(SignupEventFixture {
             profile: ProfileAttributes {
                 given_name,
@@ -270,7 +296,7 @@ mod tests {
 
     fn post_confirmation_event_with_signup_attributes(
         fixture: SignupEventFixture<'_>,
-    ) -> LambdaEvent<CognitoEventUserPoolsPostConfirmation> {
+    ) -> ForwardedEvent {
         let mut user_attributes =
             serde_json::json!({ "sub": fixture.subject, "email": fixture.email });
         for (attribute, value) in [
@@ -320,8 +346,8 @@ mod tests {
         );
         assert_eq!(1, calls.len());
         assert!(matches!(calls[0].0.principal, Principal::System));
-        assert_eq!("lambda-request-id", calls[0].0.request_id.as_str());
-        assert_eq!("lambda-request-id", calls[0].0.correlation_id.as_str());
+        assert_eq!("host-request-id", calls[0].0.request_id.as_str());
+        assert_eq!("host-request-id", calls[0].0.correlation_id.as_str());
         assert_eq!(
             "https://cognito-idp.eu-central-1.amazonaws.com/pool-id",
             calls[0].1.identity.issuer.as_str()
@@ -600,6 +626,21 @@ mod tests {
             Err(poisoned) => poisoned.into_inner(),
         };
         assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_refuse_an_event_of_another_user_pool_without_calling_service() {
+        let service = FakeRegisterCognitoUserUseCase::default();
+        let mut event = post_confirmation_event("opaque-subject", "ada@example.com");
+        event.payload.cognito_event_user_pools_header.user_pool_id = Some("other-pool".to_owned());
+
+        assert!(matches!(
+            handler(event, &service).await,
+            Err(PostConfirmationError::Input(
+                PostConfirmationInputError::ForeignUserPool
+            ))
+        ));
+        assert!(service.calls.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

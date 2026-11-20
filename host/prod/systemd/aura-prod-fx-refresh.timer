@@ -1,0 +1,13 @@
+[Unit]
+Description=Aura Historia prod FX refresh at 06:00 and 18:00 UTC
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/prod/README.md
+
+[Timer]
+OnCalendar=*-*-* 06,18:00:00 UTC
+Unit=aura-prod-ops@fx-refresh.service
+# Catch up once after downtime instead of skipping the run.
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

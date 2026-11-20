@@ -1,371 +1,47 @@
-import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
-import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-
-import type { LambdaCatalog, LambdaKey } from "./lambdas";
 import { createCloudFrontWebAcl } from "./cloudfront-web-acl";
-
-export enum RouteAuthPolicy {
-  Anonymous = "ANONYMOUS",
-  OptionalBearer = "OPTIONAL_BEARER",
-  ApplicationBearer = "APPLICATION_BEARER",
-  OAuth = "OAUTH",
-  ProviderSignature = "PROVIDER_SIGNATURE",
-  LoopsSignature = "LOOPS_SIGNATURE",
-}
-
-export enum RouteAuthorizationClass {
-  Public = "PUBLIC",
-  AuthenticatedUser = "AUTHENTICATED_USER",
-  Administrator = "ADMINISTRATOR",
-  Partner = "PARTNER",
-  PartyLocationManager = "PARTY_LOCATION_MANAGER",
-  SourceLocationManager = "SOURCE_LOCATION_MANAGER",
-  ShippingProfileManager = "SHIPPING_PROFILE_MANAGER",
-}
-
-export enum OAuthCredentialRequirement {
-  None = "NONE",
-  AuthorizationCodePkce = "AUTHORIZATION_CODE_PKCE",
-  ClientCredentials = "CLIENT_CREDENTIALS",
-  ThirdPartyExchangeCode = "THIRD_PARTY_EXCHANGE_CODE",
-}
-
-export enum ProviderProofRequirement {
-  None = "NONE",
-  WooCommerceSignature = "WOOCOMMERCE_SIGNATURE",
-  LoopsSignature = "LOOPS_SIGNATURE",
-}
-
-/**
- * Application-owned route requirements. API Gateway intentionally keeps `AuthorizationType.NONE`:
- * Axum validates Aura/Cognito bearers, OAuth protocol credentials, and provider proofs.
- */
-export interface ApplicationRouteAuthPolicy {
-  readonly bearer: "NONE" | "OPTIONAL" | "REQUIRED";
-  readonly authorization: RouteAuthorizationClass;
-  readonly oauthCredentials: OAuthCredentialRequirement;
-  readonly providerProof: ProviderProofRequirement;
-}
-
-export interface RouteDefinition {
-  readonly method: apigwv2.HttpMethod;
-  readonly path: string;
-  readonly lambda: LambdaKey;
-  /** Legacy category retained for compact catalog declarations. Use `policy` for the full contract. */
-  readonly auth: RouteAuthPolicy;
-  readonly policy: ApplicationRouteAuthPolicy;
-}
+import { hostOrigin } from "./host-origin";
 
 const CLOUDFRONT_CACHING_DISABLED_POLICY_ID = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad";
 const CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID = "216adef6-5c7f-47e4-b989-5492eafa07d3";
 
-// addRoutes derives logical IDs from the full path. Preserve the deployed IDs when
-// renaming the collection placeholder so Gateway updates these routes in place.
-const PRODUCT_LISTING_COLLECTION_ROUTE_LOGICAL_IDS: Partial<Record<apigwv2.HttpMethod, string>> = {
-  [apigwv2.HttpMethod.POST]: "HttpApiPOSTapiv1listingsourceslistingsourceidproductlistings99639C00",
-  [apigwv2.HttpMethod.PATCH]: "HttpApiPATCHapiv1listingsourceslistingsourceidproductlistingsC3BE1E06",
-  [apigwv2.HttpMethod.PUT]: "HttpApiPUTapiv1listingsourceslistingsourceidproductlistings8BCC1F25",
-  [apigwv2.HttpMethod.DELETE]: "HttpApiDELETEapiv1listingsourceslistingsourceidproductlistings756A5EAC",
-};
+/** Path patterns whose approved anonymous representations CloudFront may share. */
+export const API_SELECTIVE_READ_PATH_PATTERNS = [
+  "/v1/listing-sources",
+  "/v1/listing-sources/by-slug/*",
+  "/v1/auctions",
+  "/v1/auctions/*",
+  "/v1/product-listings",
+  "/v1/product-listings/*",
+  "/v1/overview",
+  "/.well-known/api-catalog",
+  "/v1/site-discovery/*",
+] as const;
 
-const apiRoutes = (
-  auth: RouteAuthPolicy,
-  path: string,
-  methods: readonly (keyof typeof apigwv2.HttpMethod)[],
-): RouteDefinition[] => methods.map((method) => route(method, path, "auraHistoriaApi", auth));
-
-/** Gateway route key of address suggestions, throttled on its own. */
-export const ADDRESS_SUGGESTIONS_ROUTE = "POST /v1/address-suggestions";
-
-/**
- * Closed HTTP API policy matrix. It is kept in lockstep with Axum and OpenAPI by
- * `test/api-route-matrix.test.ts`; adding an Axum or OpenAPI operation without an
- * entry here cannot expose it through API Gateway.
- */
-export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-authorization-server", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-protected-resource", ["GET"]),
-  // RFC 9727 requires HEAD; Gateway routes do not imply it from GET.
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/api-catalog", ["GET", "HEAD"]),
-  // Website discovery documents, which the webapp publishes on its own origin; HEAD is explicit.
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/ai-catalog.json", ["GET", "HEAD"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/poppy.json", ["GET", "HEAD"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/index.json", ["GET", "HEAD"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md", ["GET", "HEAD"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/auth.md", ["GET", "HEAD"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/oauth/webmcp-client.json", ["GET", "HEAD"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
-
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/overview", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/party-locations", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/auctions", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/auctions/{auction_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/auctions/{auction_id}/product-listings", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/by-slug/{product_listing_title_slug_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/{product_listing_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/{product_listing_id}/history", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/product-listings/{product_listing_id}/similar", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/listing-sources", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/listing-sources/by-slug/{listing_source_slug_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/newsletter-subscriptions", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/newsletter-subscriptions/confirm", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/content-notices", ["POST"]),
-
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}", ["GET", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles/{shipping_profile_id}/restore", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-default", ["GET", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/{source_listing_id}/delivery/async", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings", ["POST", "PATCH", "PUT", "DELETE", "GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings/async", ["POST", "PATCH", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listingSourceId}/product-listings/{productListingId}/restore", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/product-listings", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/product-listings/{product_listing_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/product-listings/{product_listing_id}/restore", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/auctions", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/auctions/{auction_id}", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/overview", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/listing-sources", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/listing-sources/{listing_source_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/listing-sources", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/parties/{party_id}/locations", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/parties/{party_id}/locations/{location_id}", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/parties/{party_id}/locations/{location_id}/lifecycle", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/location-managers/{user_id}", ["PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/location-managers", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/party-location-resolutions", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/locations/{location_id}/resolution", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/request", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/accept-candidate", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/retry", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me", ["DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/account", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/address-suggestions", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses/{address_id}", ["GET", "PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/browsing-destination", ["GET", "PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens", ["GET", "POST", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens/{access_token_id}", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist/{product_listing_id}", ["PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/preview", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches/{product_listing_id}", ["PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/notifications", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/notifications/all", ["PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/notifications/{notification_id}", ["PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/billing/checkout", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/billing/portal", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/billing/manage", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/partnership-applications", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/partnership-applications/{partnership_application_id}", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications/{partnership_application_id}", ["GET", "PATCH"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnership-applications/{partnership_application_id}/decision", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/content-notices", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/content-notices/{content_notice_id}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}/members/{user_id}", ["PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}", ["PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/suspension", ["PUT", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/sessions/revoke", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/access-tokens", ["GET", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/access-tokens/{access_token_id}", ["DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients", ["GET", "POST"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients/{client_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/metadata-document-clients", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/clients/{client_id}", ["GET"]),
-
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/authorize", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/token", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/tokens/by-third-party-code/{third_party_code}", ["GET"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/revoke", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/introspect", ["POST"]),
-
-  ...apiRoutes(RouteAuthPolicy.ProviderSignature, "/v1/webhooks/woocommerce/{listing_source_id}", ["POST"]),
-  ...apiRoutes(RouteAuthPolicy.LoopsSignature, "/v1/webhooks/loops", ["POST"]),
-];
-
-export interface HttpApiProps {
+export interface ApiCloudFrontProps {
   readonly config: StageConfig;
-  readonly stageName: string;
-  readonly functions: LambdaCatalog;
 }
 
-export class BackendHttpApi extends Construct {
-  readonly api: apigwv2.HttpApi;
-  readonly stage: apigwv2.HttpStage;
-  readonly distribution?: cloudfront.CfnDistribution;
-  readonly endpointUrl: string;
+/**
+ * The REST API's public CloudFront distribution, its cache and response policies and its Web
+ * ACL, in front of the host origin. Axum owns routing, authentication and CORS.
+ */
+export class ApiCloudFront extends Construct {
+  readonly distribution: cloudfront.CfnDistribution;
 
-  constructor(scope: Construct, id: string, props: HttpApiProps) {
+  constructor(scope: Construct, id: string, props: ApiCloudFrontProps) {
     super(scope, id);
-
-    this.api = new apigwv2.HttpApi(this, "Api", {
-      apiName: `api-${props.stageName}`,
-      createDefaultStage: false,
-      corsPreflight: {
-        allowHeaders: [
-          "Authorization",
-          "Content-Type",
-          "Idempotency-Key",
-          "Accept",
-          "X-Correlation-Id",
-          "X-WC-Webhook-Source",
-          "X-WC-Webhook-Topic",
-          "X-WC-Webhook-Signature",
-          "X-WC-Webhook-Resource",
-          "X-WC-Webhook-Event",
-          "X-WC-Webhook-ID",
-          "X-WC-Webhook-Delivery-ID",
-          "Webhook-Id",
-          "Webhook-Timestamp",
-          "Webhook-Signature",
-          "X-Api-Key",
-        ],
-        allowMethods: [apigwv2.CorsHttpMethod.ANY],
-        allowOrigins: props.config.apiCorsAllowOrigins,
-        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate", "Retry-After"],
-      },
-    });
-
-    if (props.config.apiDomainName) {
-      const cfnApi = this.api.node.defaultChild as apigwv2.CfnApi;
-      cfnApi.addPropertyOverride("DisableExecuteApiEndpoint", true);
-    }
-
-    this.stage = new apigwv2.HttpStage(this, "ApiStage", {
-      httpApi: this.api,
-      stageName: props.stageName,
-      autoDeploy: true,
-      throttle: props.config.enableProductionObservability
-        ? { burstLimit: 5000, rateLimit: 2000 }
-        : { burstLimit: 50, rateLimit: 20 },
-    });
-
-    // Every address suggestion is a paid provider call. Per-user quotas live in the API; this
-    // caps the route as a whole below the stage throttle.
-    const cfnStageSettings = this.stage.node.defaultChild as apigwv2.CfnStage;
-    cfnStageSettings.addPropertyOverride("RouteSettings", {
-      [ADDRESS_SUGGESTIONS_ROUTE]: props.config.enableProductionObservability
-        ? { ThrottlingBurstLimit: 50, ThrottlingRateLimit: 25 }
-        : { ThrottlingBurstLimit: 10, ThrottlingRateLimit: 5 },
-    });
-
-    // No access log: nothing consumes it, and CloudWatch bills its ingestion. The Lambda logs carry
-    // the application failures and the gateway metrics carry the rates.
-    if (props.config.enableProductionObservability) {
-      const cfnStage = this.stage.node.defaultChild as apigwv2.CfnStage;
-      cfnStage.addPropertyOverride("DefaultRouteSettings.DetailedMetricsEnabled", true);
-    }
-
-    const integrationsByLambda = new Map<LambdaKey, integrations.HttpLambdaIntegration>();
-    for (const definition of API_ROUTE_CATALOG) {
-      const targetFunction = props.functions[definition.lambda];
-      if (!targetFunction) {
-        throw new Error(`No Lambda function configured for route '${definition.method} ${definition.path}'`);
-      }
-
-      let integration = integrationsByLambda.get(definition.lambda);
-      if (!integration) {
-        integration = new integrations.HttpLambdaIntegration(
-          `${definition.lambda}Integration`,
-          targetFunction,
-          { scopePermissionToRoute: false },
-        );
-        integrationsByLambda.set(definition.lambda, integration);
-      }
-
-      const httpRoutes = this.api.addRoutes({
-        path: definition.path,
-        methods: [definition.method],
-        integration,
-      });
-      if (`${definition.method} ${definition.path}` === ADDRESS_SUGGESTIONS_ROUTE) {
-        // The stage's route settings name this route, so it must exist before the stage update.
-        for (const httpRoute of httpRoutes) {
-          this.stage.node.addDependency(httpRoute);
-        }
-      }
-      if (definition.path === "/v1/listing-sources/{listingSourceId}/product-listings") {
-        const logicalId = PRODUCT_LISTING_COLLECTION_ROUTE_LOGICAL_IDS[definition.method];
-        if (logicalId) {
-          for (const httpRoute of httpRoutes) {
-            (httpRoute.node.defaultChild as apigwv2.CfnRoute).overrideLogicalId(logicalId);
-          }
-        }
-      }
-    }
-
-    const customDomain = this.configureCustomDomain(props);
-    this.distribution = this.configureCloudFront(props, customDomain);
-
-    this.endpointUrl = props.config.apiEndpointUrl ?? `${this.api.apiEndpoint}/${props.stageName}`;
-  }
-
-  private configureCustomDomain(props: HttpApiProps): apigwv2.CfnDomainName | undefined {
-    if (!props.config.apiDomainName || !props.config.apiGatewayCertificateArn) {
-      return undefined;
-    }
-
-    const domain = new apigwv2.CfnDomainName(this, "ApiDomainName", {
-      domainName: props.config.apiDomainName,
-      domainNameConfigurations: [
-        {
-          certificateArn: props.config.apiGatewayCertificateArn,
-          endpointType: "REGIONAL",
-          securityPolicy: "TLS_1_2",
-        },
-      ],
-      routingMode: "API_MAPPING_ONLY",
-    });
-
-    const mapping = new apigwv2.CfnApiMapping(this, "ApiDomainMapping", {
-      apiId: this.api.apiId,
-      domainName: domain.ref,
-      stage: this.stage.stageName,
-    });
-    mapping.addDependency(domain);
-    mapping.addDependency(this.stage.node.defaultChild as apigwv2.CfnStage);
-
-    return domain;
-  }
-
-  private configureCloudFront(
-    props: HttpApiProps,
-    customDomain: apigwv2.CfnDomainName | undefined,
-  ): cloudfront.CfnDistribution | undefined {
-    if (!props.config.apiDomainName || !props.config.apiCloudFrontCertificateArn || !customDomain) {
-      return undefined;
-    }
-
 
     const originId = "HttpApiOrigin";
     const cachePolicy = new cloudfront.CfnCachePolicy(this, "SelectiveReadCachePolicy", {
       cachePolicyConfig: {
-        comment: `${props.stageName} API selective read cache`,
+        comment: `${props.config.stage} API selective read cache`,
         defaultTtl: 0,
         maxTtl: 900,
         minTtl: 0,
-        name: `api-${props.stageName}-selective-read-cache`,
+        name: `api-${props.config.stage}-selective-read-cache`,
         parametersInCacheKeyAndForwardedToOrigin: {
           cookiesConfig: { cookieBehavior: "none" },
           enableAcceptEncodingBrotli: true,
@@ -380,31 +56,20 @@ export class BackendHttpApi extends Construct {
     });
     const responseHeadersPolicy = new cloudfront.CfnResponseHeadersPolicy(this, "SelectiveReadResponseHeadersPolicy", {
       responseHeadersPolicyConfig: {
-        comment: `${props.stageName} API selective read response headers`,
-        name: `api-${props.stageName}-selective-read-response-headers`,
+        comment: `${props.config.stage} API selective read response headers`,
+        name: `api-${props.config.stage}-selective-read-response-headers`,
         removeHeadersConfig: {
           items: [{ header: "X-Request-Id" }, { header: "X-Correlation-Id" }],
         },
       },
     });
     const webAclArn = this.configureCloudFrontWebAcl(props);
-    const selectiveReadPathPatterns = [
-      "/v1/listing-sources",
-      "/v1/listing-sources/by-slug/*",
-      "/v1/auctions",
-      "/v1/auctions/*",
-      "/v1/product-listings",
-      "/v1/product-listings/*",
-      "/v1/overview",
-      "/.well-known/api-catalog",
-      "/v1/site-discovery/*",
-    ];
 
-    return new cloudfront.CfnDistribution(this, "ApiDistribution", {
+    this.distribution = new cloudfront.CfnDistribution(this, "ApiDistribution", {
       distributionConfig: {
         aliases: props.config.apiCloudFrontAliases,
         cacheBehaviors: [
-          ...selectiveReadPathPatterns.map((pathPattern) => ({
+          ...API_SELECTIVE_READ_PATH_PATTERNS.map((pathPattern) => ({
             allowedMethods: ["GET", "HEAD", "OPTIONS"],
             cachedMethods: ["GET", "HEAD"],
             cachePolicyId: cachePolicy.ref,
@@ -427,7 +92,7 @@ export class BackendHttpApi extends Construct {
             viewerProtocolPolicy: "redirect-to-https",
           },
         ],
-        comment: `${props.stageName} api`,
+        comment: `${props.config.stage} api`,
         customErrorResponses: [400, 403, 404, 405, 414, 500, 501, 502, 503, 504].map((errorCode) => ({
           errorCode,
           errorCachingMinTtl: 0,
@@ -444,20 +109,7 @@ export class BackendHttpApi extends Construct {
         enabled: true,
         httpVersion: "http2",
         ipv6Enabled: true,
-        origins: [
-          {
-            id: originId,
-            domainName: customDomain.attrRegionalDomainName,
-            customOriginConfig: {
-              httpPort: 80,
-              httpsPort: 443,
-              originKeepaliveTimeout: 5,
-              originProtocolPolicy: "https-only",
-              originReadTimeout: 30,
-              originSslProtocols: ["TLSv1.2"],
-            },
-          },
-        ],
+        origins: [hostOrigin(this, props.config, originId)],
         priceClass: "PriceClass_100",
         viewerCertificate: {
           acmCertificateArn: props.config.apiCloudFrontCertificateArn,
@@ -469,20 +121,24 @@ export class BackendHttpApi extends Construct {
     });
   }
 
-  private configureCloudFrontWebAcl(props: HttpApiProps): string {
+  private configureCloudFrontWebAcl(props: ApiCloudFrontProps): string {
     return createCloudFrontWebAcl(this, {
       id: "ApiWebAcl",
-      providerFunctionName: `api-cloudfront-web-acl-provider-${props.stageName}`,
-      description: `Aura Historia ${props.stageName} API CloudFront Web ACL`,
-      metricName: `api-cloudfront-${props.stageName}`,
-      name: `application-${props.stageName}-api-cloudfront-web-acl`,
+      providerFunctionName: `api-cloudfront-web-acl-provider-${props.config.stage}`,
+      description: `Aura Historia ${props.config.stage} API CloudFront Web ACL`,
+      metricName: `api-cloudfront-${props.config.stage}`,
+      name: `application-${props.config.stage}-api-cloudfront-web-acl`,
       customResponseBodies: cloudFrontWebAclCustomResponseBodies(),
       rules: cloudFrontFreePlanWebAclRules(),
     });
   }
 }
 
-/** Edge request-body limit; must equal the Axum whole-request limit (`MAX_REQUEST_BODY_BYTES`). */
+/**
+ * Edge request-body limit; must equal the Axum whole-request limit (`MAX_REQUEST_BODY_BYTES`).
+ * It applies to every path, provider webhooks included, so a route-specific Axum limit must not
+ * exceed it.
+ */
 export const API_MAX_REQUEST_BODY_BYTES = 1_048_576;
 
 /**
@@ -641,105 +297,5 @@ function cloudFrontManagedRule(name: string, priority: number, ruleActionOverrid
       MetricName: `AWS-${name}`,
       SampledRequestsEnabled: true,
     },
-  };
-}
-
-function applicationRouteAuthPolicy(path: string, category: RouteAuthPolicy): ApplicationRouteAuthPolicy {
-  if (path.startsWith("/v1/admin/")) {
-    return {
-      bearer: "REQUIRED",
-      authorization: RouteAuthorizationClass.Administrator,
-      oauthCredentials: OAuthCredentialRequirement.None,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path.startsWith("/v1/parties/{party_id}/locations")) {
-    return {
-      bearer: "REQUIRED",
-      authorization: RouteAuthorizationClass.PartyLocationManager,
-      oauthCredentials: OAuthCredentialRequirement.None,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path === "/v1/listing-sources/{listing_source_id}/location-default") {
-    return {
-      bearer: "REQUIRED",
-      authorization: RouteAuthorizationClass.SourceLocationManager,
-      oauthCredentials: OAuthCredentialRequirement.None,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path.startsWith("/v1/listing-sources/{listing_source_id}/shipping-profiles") ||
-      path === "/v1/listing-sources/{listing_source_id}/shipping-default" ||
-      path.startsWith("/v1/listing-sources/{listing_source_id}/product-listings/by-source-id/")) {
-    return {
-      bearer: "REQUIRED",
-      authorization: RouteAuthorizationClass.ShippingProfileManager,
-      oauthCredentials: OAuthCredentialRequirement.None,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path.startsWith("/v1/listing-sources/{listingSourceId}/product-listings") ||
-      path === "/v1/listing-sources/{listing_source_id}/ingestion-configurations/woocommerce" ||
-      path === "/v1/listing-sources/{listing_source_id}/ingestion-configurations/shopify") {
-    return {
-      bearer: "REQUIRED",
-      authorization: RouteAuthorizationClass.Partner,
-      oauthCredentials: OAuthCredentialRequirement.None,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path === "/v1/oauth/authorize") {
-    return {
-      bearer: "REQUIRED",
-      authorization: RouteAuthorizationClass.AuthenticatedUser,
-      oauthCredentials: OAuthCredentialRequirement.AuthorizationCodePkce,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path === "/v1/oauth/token" || path === "/v1/oauth/revoke" || path === "/v1/oauth/introspect") {
-    return {
-      bearer: "NONE",
-      authorization: RouteAuthorizationClass.Public,
-      oauthCredentials: OAuthCredentialRequirement.ClientCredentials,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  if (path === "/v1/oauth/tokens/by-third-party-code/{third_party_code}") {
-    return {
-      bearer: "NONE",
-      authorization: RouteAuthorizationClass.Public,
-      oauthCredentials: OAuthCredentialRequirement.ThirdPartyExchangeCode,
-      providerProof: ProviderProofRequirement.None,
-    };
-  }
-  switch (category) {
-    case RouteAuthPolicy.Anonymous:
-      return { bearer: "NONE", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
-    case RouteAuthPolicy.OptionalBearer:
-      return { bearer: "OPTIONAL", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
-    case RouteAuthPolicy.ApplicationBearer:
-      return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.AuthenticatedUser, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None };
-    case RouteAuthPolicy.ProviderSignature:
-      return { bearer: "REQUIRED", authorization: RouteAuthorizationClass.Partner, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.WooCommerceSignature };
-    case RouteAuthPolicy.LoopsSignature:
-      return { bearer: "NONE", authorization: RouteAuthorizationClass.Public, oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.LoopsSignature };
-    case RouteAuthPolicy.OAuth:
-      throw new Error(`OAuth route '${path}' has no explicit credential policy.`);
-  }
-}
-
-function route(
-  method: keyof typeof apigwv2.HttpMethod,
-  path: string,
-  lambdaKey: LambdaKey,
-  auth: RouteAuthPolicy,
-): RouteDefinition {
-  return {
-    method: apigwv2.HttpMethod[method],
-    path,
-    lambda: lambdaKey,
-    auth,
-    policy: applicationRouteAuthPolicy(path, auth),
   };
 }

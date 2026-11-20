@@ -1,84 +1,78 @@
-use aura_historia_api::{
-    ApiConfig, ApiConfigError, ApiRunError, ApiStateError, lambda_app_from_config_and_runtime,
-    run_until_shutdown,
+use aura_historia_api::consent_evidence::{
+    ConsentEvidenceConfigError, ConsentEvidenceLogGroups, init_logging,
 };
-use aura_historia_runtime::Runtime;
-use platform_lambda_bootstrap::{
-    LazyComposition, log_cold_start, materialize_google_application_credentials_from_env,
+use aura_historia_api::{ApiConfig, ApiConfigError, ApiRunError, run_until_shutdown};
+use platform_observability::LoggingConfig;
+use platform_process::{
+    Shutdown, ShutdownError, config::load_file_backed_environment, install_bounded_panic_hook,
 };
-use platform_observability::{LoggingConfig, init_with_directives};
-use std::sync::Arc;
-use std::time::Instant;
-use user_service::use_cases::CONSENT_EVIDENCE_LOG_DIRECTIVE;
+use std::time::Duration;
 
-const LAMBDA_COMPONENT: &str = "aura-historia-api";
+/// Shipping queued consent evidence after the drain; within the container's stop timeout.
+const EVIDENCE_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() -> Result<(), MainError> {
-    let initialization_started_at = Instant::now();
-
-    let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
-    if is_lambda {
-        materialize_google_application_credentials_from_env()
-            .map_err(|source| MainError::GoogleAdcCredentials(Box::new(source)))?;
-    }
-    init_with_directives(LoggingConfig::from_env(), &[CONSENT_EVIDENCE_LOG_DIRECTIVE]);
+    // A handler can panic on provider or persisted data; never print the payload.
+    install_bounded_panic_hook("aura-historia-api");
+    load_file_backed_environment().map_err(|source| MainError::Config(Box::new(source)))?;
+    let evidence_groups = ConsentEvidenceLogGroups::from_getter(|name| std::env::var(name).ok())?;
+    let evidence = init_logging(LoggingConfig::from_env(), evidence_groups);
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(MainError::Runtime)?
         .block_on(async move {
-            if is_lambda {
-                let config = Arc::new(ApiConfig::from_env()?);
-                let runtime = Arc::new(Runtime::from_env().await?);
-                let routers = Arc::new(LazyComposition::new());
-
-                log_cold_start(LAMBDA_COMPONENT, initialization_started_at);
-                aura_historia_api::lambda::run(move || {
-                    let config = Arc::clone(&config);
-                    let runtime = Arc::clone(&runtime);
-                    let routers = Arc::clone(&routers);
-                    async move {
-                        routers
-                            .get_or_try_build(|| async {
-                                lambda_app_from_config_and_runtime(&config, &runtime)
-                                    .await
-                                    .map_err(MainError::from)
-                            })
-                            .await
-                    }
-                })
-                .await?;
-            } else {
-                let config = ApiConfig::from_env()?;
-                run_until_shutdown(config, shutdown_signal()).await?;
+            // Registered before startup, so a stop request during composition is not lost.
+            let shutdown = Shutdown::register()?;
+            let evidence = match evidence {
+                Some(evidence) => Some(
+                    evidence
+                        .start(cloudwatch_logs_client().await)
+                        .await
+                        .map_err(MainError::ConsentEvidenceStart)?,
+                ),
+                None => None,
+            };
+            let config = ApiConfig::from_env()?;
+            let served = run_until_shutdown(config, shutdown.received()).await;
+            if let Some(evidence) = evidence {
+                evidence.close(EVIDENCE_CLOSE_TIMEOUT).await;
             }
-
+            served?;
             Ok(())
         })
 }
 
-async fn shutdown_signal() {
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        tracing::error!(%error, "failed to listen for shutdown signal");
-    }
+/// Bounded, so a hung delivery cannot stall the shipper while the queue fills.
+async fn cloudwatch_logs_client() -> aws_sdk_cloudwatchlogs::Client {
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .timeout_config(
+            aws_config::timeout::TimeoutConfig::builder()
+                .connect_timeout(Duration::from_secs(3))
+                .operation_attempt_timeout(Duration::from_secs(5))
+                .operation_timeout(Duration::from_secs(10))
+                .build(),
+        )
+        .load()
+        .await;
+    aws_sdk_cloudwatchlogs::Client::new(&config)
 }
 
 #[derive(thiserror::Error, Debug)]
 enum MainError {
+    #[error("invalid configuration")]
+    Config(#[source] application::error::BoxError),
     #[error(transparent)]
-    Config(#[from] ApiConfigError),
+    ConsentEvidence(#[from] ConsentEvidenceConfigError),
+    #[error("failed to reach the consent-evidence log groups")]
+    ConsentEvidenceStart(#[source] application::error::BoxError),
+    #[error(transparent)]
+    ApiConfig(#[from] ApiConfigError),
     #[error(transparent)]
     Run(#[from] ApiRunError),
-
     #[error(transparent)]
-    Composition(#[from] aura_historia_runtime::RuntimeError),
-    #[error(transparent)]
-    State(#[from] ApiStateError),
+    Shutdown(#[from] ShutdownError),
     #[error("failed to build API async runtime")]
     Runtime(#[source] std::io::Error),
-    #[error("failed to prepare Google application credentials")]
-    GoogleAdcCredentials(#[source] application::error::BoxError),
-    #[error(transparent)]
-    Lambda(#[from] lambda_http::Error),
 }

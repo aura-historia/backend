@@ -108,7 +108,7 @@ impl TestContext {
             lock,
         )
         .await?;
-        let database = self.own(Kind::Database, self.name("db", 63, "")?)?;
+        let database = self.own(Kind::Database, self.name("db", 63)?)?;
         self.persist_resources().await?;
         // A new generation fences old connections/writers. Recovery drops the previous database first.
         drop_database(&mut administrator, &database).await?;
@@ -231,7 +231,9 @@ async fn apply_baseline(
 ) -> Result<()> {
     let mut connection = options.clone().database(template).connect().await?;
     if baseline.business {
-        connection.execute(AssertSqlSafe("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aura_replication') THEN CREATE ROLE aura_replication NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; END IF; END $$;")).await?;
+        connection
+            .execute(AssertSqlSafe(crate::postgres::BUSINESS_SCHEMA_ROLES_SQL))
+            .await?;
     }
     for script in &baseline.scripts {
         connection.execute(AssertSqlSafe(script.as_str())).await?;

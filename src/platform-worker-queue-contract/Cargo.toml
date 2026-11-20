@@ -5,7 +5,5 @@ edition = "2024"
 
 [dependencies]
 aura-historia-jobs = { path = "../aura-historia-jobs" }
-aws-sdk-sqs = { workspace = true }
-serde_json = { workspace = true }
+platform-postgres-queue = { workspace = true }
 thiserror = { workspace = true }
-url = { workspace = true }

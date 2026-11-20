@@ -1,13 +1,10 @@
 [
   {
-    "id": "periodic-matcher",
-    "crate": "src/search-filter-periodic-match",
-    "binary": "search-filter-periodic-match",
-    "dockerfile": "src/search-filter-periodic-match/Dockerfile",
-    "repository": "aura-historia-periodic-matcher",
-    "platform": "linux/amd64",
-    "digestParameter": "PeriodicMatcherImageDigest",
-    "activationParameter": "PeriodicMatcherEnabled",
-    "taskDefinitionOutput": "PeriodicMatcherTaskDefinitionArn"
+    "id": "aura-historia",
+    "crate": "src/aura-historia-worker",
+    "binary": "aura-historia-worker",
+    "dockerfile": "Dockerfile",
+    "repository": "aura-historia",
+    "platform": "linux/amd64"
   }
 ]

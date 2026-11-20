@@ -1,10 +1,8 @@
-//! Complete public catalogue over local HTTP, Lambda and official SDK clients with fake services.
+//! Complete public catalogue over local HTTP and official SDK clients with fake services.
 #[path = "public_release/authentication.rs"]
 mod authentication;
 #[path = "public_release/fixtures.rs"]
 mod fixtures;
-#[path = "public_release/lambda_composition.rs"]
-mod lambda_composition;
 #[path = "public_release/personalization/mod.rs"]
 mod personalization;
 #[path = "public_release/sdk.rs"]
@@ -19,11 +17,7 @@ use axum::{
 };
 use fixtures::{Fixture, SearchOutcome};
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeSet,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tower::ServiceExt;
 
 const LISTING_ID: &str = "pl_01k6k0w000e008000000000001";
@@ -339,56 +333,5 @@ async fn should_fail_explicitly_when_complete_detail_or_history_exceeds_the_actu
         );
         assert!(response.get("result").is_none());
         assert!(bytes < 1024);
-    }
-}
-
-#[tokio::test]
-async fn should_preserve_complete_large_public_results_through_the_actual_lambda_adapter() {
-    use lambda_http::lambda_runtime::{Context, LambdaEvent};
-    let fixture = Arc::new(Fixture::default());
-    let app = app(&fixture);
-    let service = lambda_http::service_fn(move |request| {
-        aura_historia_mcp::lambda::handle_http_api_v2_request(app.clone(), request)
-    });
-    for name in ["getProductListing", "getProductListingHistory"] {
-        let body = body(
-            "tools/call",
-            json!({"name":name, "arguments":{"productListingId":LISTING_ID}}),
-        );
-        let event = json!({"version":"2.0","routeKey":"ANY /v1","rawPath":"/dev/v1","rawQueryString":"","headers":{"host":"mcp.example.test","content-type":"application/json","accept":"application/json,text/event-stream","mcp-protocol-version":"2026-07-28","mcp-method":"tools/call","mcp-name":name},"requestContext":{"stage":"dev","http":{"method":"POST","path":"/dev/v1","protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"public-release-fixture"}},"body":body.to_string(),"isBase64Encoded":false});
-        let payload: lambda_http::request::LambdaRequest = serde_json::from_value(event).unwrap();
-        let mut context = Context::default();
-        context.request_id = "fixture-public-lambda".into();
-        context.deadline = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
-            + Duration::from_secs(30))
-        .as_millis() as u64;
-        let response = lambda_http::Adapter::from(service.clone())
-            .oneshot(LambdaEvent { payload, context })
-            .await
-            .unwrap();
-        let bytes = serde_json::to_vec(&response).unwrap();
-        assert!(bytes.len() < 6 * 1024 * 1024);
-        let response: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(200, response["statusCode"]);
-        let body = response["body"].as_str().unwrap();
-        let value: Value = serde_json::from_str(body).unwrap();
-        let result = &value["result"]["structuredContent"];
-        let count = match name {
-            "getProductListing" => result["item"]["images"].as_array().unwrap().len(),
-            _ => result["result"].as_array().unwrap().len(),
-        };
-        assert_eq!(
-            if name == "getProductListing" {
-                175
-            } else {
-                128
-            },
-            count
-        );
-        println!(
-            "{name}: complete JSON body {} bytes, Lambda envelope {} bytes",
-            body.len(),
-            bytes.len()
-        );
     }
 }

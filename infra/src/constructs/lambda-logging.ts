@@ -22,9 +22,7 @@ export const LAMBDA_LOGGING = {
 } as const;
 
 /** The level the application logs at: production only reports what needs attention. */
-export function lambdaLogLevel(config: StageConfig): "warn" | "info" {
-  return config.isProd ? "warn" : "info";
-}
+export const LAMBDA_LOG_LEVEL = "warn";
 
 /** The log group of a function that has no reason to keep its logs longer than a week. */
 export function lambdaLogGroup(scope: Construct, id: string, functionName: string, config: StageConfig): logs.LogGroup {

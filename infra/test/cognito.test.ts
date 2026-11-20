@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
-import { stageConfig, type StageName } from "../src/config";
+import { STAGES, stageConfig, type StageName } from "../src/config";
 import { credentialSecrets } from "../src/credentials";
 import { credentialReference } from "./credential-reference";
 
@@ -10,11 +10,9 @@ type Resource = {
   readonly Properties: Record<string, any>;
 };
 
-function computeTemplate(stage: StageName): Template {
+function identityTemplate(stage: StageName): Template {
   const app = new cdk.App({ analyticsReporting: false });
-  const stacks = createApplicationStacks(app, { stage });
-  return Template.fromJSON({ Resources: { ...Template.fromStack(stacks.compute).toJSON().Resources,
-    ...Template.fromStack(stacks.identity).toJSON().Resources } });
+  return Template.fromStack(createApplicationStacks(app, { stage }).identity);
 }
 
 function resourceByFunctionName(template: Template, functionName: string): Resource {
@@ -28,22 +26,9 @@ function resourceByType(template: Template, type: string): [string, Resource][] 
   return Object.entries(template.findResources(type)) as [string, Resource][];
 }
 
-describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
-  test("gives the identity deletion worker only pool-scoped lifecycle access", () => {
-    const template = computeTemplate(stage);
-    const cleanup = resourceByFunctionName(template, `user-identity-deletion-lambda-${stage}`);
-    expect(cleanup.Properties.Environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
-    const policies = resourceByType(template, "AWS::IAM::Policy").map(([, resource]) => resource);
-    const cleanupPolicy = policies.find((policy) => JSON.stringify(policy.Properties.Roles).includes("UserIdentityDeletionLambdaServiceRole"));
-    const statement = cleanupPolicy?.Properties.PolicyDocument.Statement.find((entry: any) => JSON.stringify(entry.Action).includes("cognito-idp:AdminDeleteUser"));
-    expect(statement.Action).toEqual(["cognito-idp:ListUsers", "cognito-idp:AdminGetUser", "cognito-idp:AdminDeleteUser"]);
-    expect(JSON.stringify(statement.Resource)).toContain("UserPool");
-    expect(statement.Resource).not.toBe("*");
-    const apiPolicy = policies.find((policy) => JSON.stringify(policy.Properties.Roles).includes("AuraHistoriaApiLambdaServiceRole"));
-    expect(JSON.stringify(apiPolicy?.Properties)).not.toContain("cognito-idp:AdminDeleteUser");
-  });
+describe.each(STAGES)("%s Cognito federation", (stage) => {
   test("uses the generated static English verification email with Cognito's code placeholder", () => {
-    const template = computeTemplate(stage);
+    const template = identityTemplate(stage);
     const [[, pool]] = resourceByType(template, "AWS::Cognito::UserPool");
     const verification = pool.Properties.VerificationMessageTemplate;
 
@@ -61,7 +46,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
   });
 
   test("keeps the native pool contract and configures both Cognito triggers", () => {
-    const template = computeTemplate(stage);
+    const template = identityTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPool", 1);
 
     const [pool] = resourceByType(template, "AWS::Cognito::UserPool").map(([, resource]) => resource);
@@ -85,12 +70,29 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(pool.Properties.AccountRecoverySetting.RecoveryMechanisms).toEqual([
       { Name: "verified_email", Priority: 1 },
     ]);
-    expect(pool.Properties.LambdaConfig["Fn::If"][1].PostConfirmation).toBeDefined();
-    expect(pool.Properties.LambdaConfig["Fn::If"][1].PreSignUp).toBeDefined();
+    const aliases = Object.fromEntries(resourceByType(template, "AWS::Lambda::Alias")
+      .map(([id, alias]) => [alias.Properties.FunctionName.Ref as string, id]));
+    const functions = Object.fromEntries(resourceByType(template, "AWS::Lambda::Function")
+      .map(([id, fn]) => [fn.Properties.FunctionName as string, id]));
+    expect(pool.Properties.LambdaConfig).toEqual({
+      PostConfirmation: { Ref: aliases[functions[`cognito-post-confirmation-forwarder-${stage}`]] },
+      PreSignUp: { Ref: aliases[functions[`cognito-pre-sign-up-trigger-${stage}`]] },
+    });
+    // Cognito may invoke each trigger alias, and only on behalf of this pool.
+    const [[poolId]] = resourceByType(template, "AWS::Cognito::UserPool");
+    const permissions = resourceByType(template, "AWS::Lambda::Permission").map(([, permission]) => permission.Properties);
+    expect(permissions).toHaveLength(2);
+    for (const permission of permissions) {
+      expect(permission).toMatchObject({
+        Action: "lambda:InvokeFunction",
+        Principal: "cognito-idp.amazonaws.com",
+        SourceArn: { "Fn::GetAtt": [poolId, "Arn"] },
+      });
+    }
   });
 
   test("creates Google with a version-pinned client secret and the narrow mapped profile", () => {
-    const template = computeTemplate(stage);
+    const template = identityTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 2);
     const provider = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider")
       .map(([, resource]) => resource)
@@ -118,7 +120,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
   });
 
   test("pins Facebook v21.0 with only the email and public profile mappings", () => {
-    const template = computeTemplate(stage);
+    const template = identityTemplate(stage);
     const provider = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider")
       .map(([, resource]) => resource)
       .find((resource) => resource.Properties.ProviderName === "Facebook");
@@ -144,7 +146,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
   });
 
   test("keeps the public app client native, secretless, authorization-code-only, and ordered after providers", () => {
-    const template = computeTemplate(stage);
+    const template = identityTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPoolClient", 1);
     const [[, client]] = resourceByType(template, "AWS::Cognito::UserPoolClient");
     const providerIds = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider").map(([id]) => id);
@@ -178,16 +180,24 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(client.DependsOn ?? []).toEqual(expect.arrayContaining(providerIds));
   });
 
-  test("uses a PostgreSQL-backed five-second pre-sign-up Lambda with narrow federation access", () => {
-    const template = computeTemplate(stage);
-    const preSignUp = resourceByFunctionName(template, `cognito-pre-sign-up-${stage}`);
+  test("runs a five-second pre-sign-up trigger outside any VPC with narrow federation access", () => {
+    const template = identityTemplate(stage);
+    const preSignUp = resourceByFunctionName(template, `cognito-pre-sign-up-trigger-${stage}`);
     const variables = preSignUp.Properties.Environment.Variables as Record<string, unknown>;
 
-    expect(preSignUp.Properties.Timeout).toBe(5);
-    expect(preSignUp.Properties.VpcConfig).toBeDefined();
-    expect(variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
-    expect(variables.POSTGRES_PASSWORD).toEqual(credentialReference(credentialSecrets(stage).postgresRuntime, "password"));
-    expect(variables.POSTGRES_TLS_ROOT_CERT).toBeDefined();
+    expect(preSignUp.Properties).toMatchObject({ Timeout: 5, MemorySize: 256, ReservedConcurrentExecutions: 5 });
+    expect(preSignUp.Properties.VpcConfig).toBeUndefined();
+    expect(preSignUp.Properties.Layers).toBeUndefined();
+    expect(Object.keys(variables).sort()).toEqual([
+      "COGNITO_PROVIDER_SIGNUP_POLICY",
+      "LOG_LEVEL",
+      "PRE_SIGN_UP_ENDPOINT_URL",
+      "PRE_SIGN_UP_SIGNING_KEY",
+    ]);
+    expect(variables.PRE_SIGN_UP_ENDPOINT_URL).toBe("https://api.aura-historia.com/internal/cognito/pre-sign-up");
+    expect(variables.PRE_SIGN_UP_SIGNING_KEY).toEqual(
+      credentialReference(credentialSecrets(stage).cognitoTriggerSigning, "value"),
+    );
     const providerPolicies = JSON.parse(variables.COGNITO_PROVIDER_SIGNUP_POLICY as string) as Array<Record<string, string>>;
     expect(providerPolicies).toEqual([
       {
@@ -197,34 +207,76 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       },
       { providerName: "Facebook", existingEmailAction: "REJECT" },
     ]);
-    expect(JSON.stringify(variables)).not.toMatch(/ClientSecret|cognito-identity-providers/);
+    expect(JSON.stringify(variables)).not.toMatch(/ClientSecret|cognito-identity-providers|POSTGRES/);
 
-    const policies = Object.values(template.findResources("AWS::IAM::Policy")) as Resource[];
-    const linkingPolicy = policies.find((policy) => JSON.stringify(policy).includes("cognito-idp:AdminLinkProviderForUser"));
-    expect(linkingPolicy).toBeDefined();
-    const statements = linkingPolicy!.Properties.PolicyDocument.Statement as Array<Record<string, unknown>>;
-    const linkingStatement = statements.find((statement) =>
-      JSON.stringify(statement.Action).includes("cognito-idp:AdminLinkProviderForUser"),
-    );
-    expect(linkingStatement).toBeDefined();
-    expect(linkingStatement!.Action).toEqual(["cognito-idp:ListUsers", "cognito-idp:AdminLinkProviderForUser"]);
-    expect(JSON.stringify(linkingStatement!.Resource)).toContain(":cognito-idp:");
-    expect(JSON.stringify(linkingStatement!.Resource)).toContain(":userpool/*");
-    expect(JSON.stringify(linkingStatement)).not.toContain("cognito-idp:*");
+    const statements = rolePolicyStatements(template, preSignUp);
+    expect(statements).toHaveLength(1);
+    expect(statements[0].Action).toEqual(["cognito-idp:ListUsers", "cognito-idp:AdminLinkProviderForUser"]);
+    expect(JSON.stringify(statements[0].Resource)).toContain(":cognito-idp:");
+    expect(JSON.stringify(statements[0].Resource)).toContain(":userpool/*");
   });
 
-  test("keeps post-confirmation local to PostgreSQL without provider or delivery permissions", () => {
-    const template = computeTemplate(stage);
-    const postConfirmation = resourceByFunctionName(template, `cognito-post-confirmation-${stage}`);
-    const environment = postConfirmation.Properties.Environment.Variables as Record<string, string>;
+  test("runs a post-confirmation forwarder outside any VPC with no AWS permissions of its own", () => {
+    const template = identityTemplate(stage);
+    const forwarder = resourceByFunctionName(template, `cognito-post-confirmation-forwarder-${stage}`);
+    expect(forwarder.Properties).toMatchObject({ Timeout: 5, MemorySize: 256, ReservedConcurrentExecutions: 5 });
+    expect(forwarder.Properties.VpcConfig).toBeUndefined();
+    expect(rolePolicyStatements(template, forwarder)).toEqual([]);
+  });
 
-    expect(JSON.stringify(environment)).not.toMatch(/loops|ses|sqs|step.?functions|consent.?queue/i);
-    const roleId = (postConfirmation.Properties.Role as { "Fn::GetAtt": [string, string] })["Fn::GetAtt"][0];
-    const policies = Object.values(template.findResources("AWS::IAM::Policy")) as Resource[];
-    const rolePolicies = policies.filter((policy) =>
-      (policy.Properties.Roles as Array<{ Ref: string }> | undefined)?.some((role) => role.Ref === roleId),
-    );
+  test("forwards to the host's internal endpoint through the API hostname with the version-pinned signing key", () => {
+    const template = identityTemplate(stage);
+    const forwarder = resourceByFunctionName(template, `cognito-post-confirmation-forwarder-${stage}`);
+    expect(forwarder.Properties.Environment.Variables).toEqual({
+      LOG_LEVEL: expect.any(String),
+      POST_CONFIRMATION_ENDPOINT_URL: "https://api.aura-historia.com/internal/cognito/post-confirmation",
+      POST_CONFIRMATION_SIGNING_KEY: credentialReference(credentialSecrets(stage).cognitoTriggerSigning, "value"),
+    });
+  });
 
-    expect(JSON.stringify(rolePolicies)).not.toMatch(/ses:|sqs:|states:/i);
+  test("pins each trigger's code and version to the zip the Deploy workflow published for one commit", () => {
+    const template = identityTemplate(stage);
+    template.hasParameter("CognitoTriggersRevision", { Type: "String", AllowedPattern: "^[0-9a-f]{40}$" });
+    for (const [binary, functionName] of [
+      ["cognito-pre-sign-up", `cognito-pre-sign-up-trigger-${stage}`],
+      ["cognito-post-confirmation-forwarder", `cognito-post-confirmation-forwarder-${stage}`],
+    ]) {
+      const fn = resourceByFunctionName(template, functionName);
+      expect(fn.Properties.Code).toEqual({
+        S3Bucket: "aura-historia-binary-artifacts-eu-central-1",
+        S3Key: { "Fn::Join": ["", [`${binary}-${stage}-`, { Ref: "CognitoTriggersRevision" }, ".zip"]] },
+      });
+      const functionId = resourceByType(template, "AWS::Lambda::Function").find(([, resource]) => resource === fn)![0];
+      const [[versionId, version]] = resourceByType(template, "AWS::Lambda::Version")
+        .filter(([, resource]) => resource.Properties.FunctionName.Ref === functionId);
+      expect(version.Properties.Description).toEqual({ Ref: "CognitoTriggersRevision" });
+      const [alias] = resourceByType(template, "AWS::Lambda::Alias")
+        .filter(([, resource]) => resource.Properties.FunctionName.Ref === functionId).map(([, resource]) => resource);
+      expect(alias.Properties).toMatchObject({ Name: "live", FunctionVersion: { "Fn::GetAtt": [versionId, "Version"] } });
+    }
+  });
+
+  test("keeps the deployed pool, client, domain and provider identities and the exports the retired compute stack imports", () => {
+    const template = identityTemplate(stage);
+    const [[poolId, pool]] = resourceByType(template, "AWS::Cognito::UserPool");
+    expect(poolId).toBe("IdentityPrimaryUserPool6ED02BC6");
+    expect(pool).toMatchObject({ DeletionPolicy: "Retain", UpdateReplacePolicy: "Retain" });
+    expect(pool.Properties.DeletionProtection).toBe("ACTIVE");
+    expect(pool.Properties.UserPoolName).toBe(`primary-userpool-${stage}`);
+    expect(Object.keys(template.toJSON().Outputs).filter((name) => name.startsWith("ExportsOutput")).sort()).toEqual([
+      "ExportsOutputFnGetAttIdentityPrimaryUserPool6ED02BC6Arn798782F0",
+      "ExportsOutputRefEmailConfigurationSet096C0FB57D524257",
+      "ExportsOutputRefIdentityPrimaryUserPool6ED02BC6F7007C1B",
+      "ExportsOutputRefIdentityPrimaryUserPoolPrimaryUserPoolClientPublic80694516DFB2D89A",
+      "ExportsOutputRefIdentityPrimaryUserPoolPrimaryUserPoolCustomDomainCB5E75CB38985DE6",
+    ]);
+    expect(template.toJSON().Conditions).toBeUndefined();
   });
 });
+
+function rolePolicyStatements(template: Template, fn: Resource): Array<Record<string, unknown>> {
+  const roleId = (fn.Properties.Role as { "Fn::GetAtt": [string, string] })["Fn::GetAtt"][0];
+  return (Object.values(template.findResources("AWS::IAM::Policy")) as Resource[])
+    .filter((policy) => (policy.Properties.Roles as Array<{ Ref: string }> | undefined)?.some((role) => role.Ref === roleId))
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement as Array<Record<string, unknown>>);
+}

@@ -453,10 +453,8 @@ mod tests {
     #[tokio::test]
     async fn should_keep_cors_headers_for_two_origins_on_the_same_cacheable_search()
     -> Result<(), Box<dyn std::error::Error>> {
-        let app = crate::transport::with_transport_middleware(
-            app(),
-            crate::transport::NATIVE_REQUEST_TIMEOUT,
-        );
+        let app =
+            crate::transport::with_transport_middleware(app(), crate::transport::REQUEST_TIMEOUT);
 
         // REST Gateway permits all browser origins; Axum also emits `*`.
         // The synthesized CloudFront Origin cache key still partitions responses

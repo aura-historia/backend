@@ -52,14 +52,12 @@ mod tests {
 
     #[test]
     fn normalizes_service_and_environment_topology() {
-        let topology = AwsEmulatorTopology::new(
-            &[" S3 ", "opensearch", "s3"],
-            &[(" FEATURE_FLAG ", " enabled ")],
-        );
+        let topology =
+            AwsEmulatorTopology::new(&[" S3 ", "sesv2", "s3"], &[(" FEATURE_FLAG ", " enabled ")]);
 
         assert_eq!(
             topology.services.into_iter().collect::<Vec<_>>(),
-            ["opensearch", "s3"]
+            ["s3", "sesv2"]
         );
         assert_eq!(
             topology.env.get("FEATURE_FLAG"),
@@ -69,8 +67,7 @@ mod tests {
 
     #[test]
     fn permits_a_subset_of_the_active_topology() {
-        let active =
-            AwsEmulatorTopology::new(&["s3", "opensearch"], &[("FEATURE_FLAG", "enabled")]);
+        let active = AwsEmulatorTopology::new(&["s3", "sesv2"], &[("FEATURE_FLAG", "enabled")]);
         let requested = AwsEmulatorTopology::new(&["s3"], &[("FEATURE_FLAG", "enabled")]);
 
         requested.assert_compatible_with(&active);
@@ -82,7 +79,7 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(|| {
-                AwsEmulatorTopology::new(&["opensearch"], &[]).assert_compatible_with(&active);
+                AwsEmulatorTopology::new(&["sesv2"], &[]).assert_compatible_with(&active);
             })
             .is_err()
         );

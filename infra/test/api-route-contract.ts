@@ -10,6 +10,9 @@ const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/partnerships/mod.rs",
 ] as const;
 
+/** Routes for AWS components outside the host; never part of the public OpenAPI contract. */
+const RUST_INTERNAL_ROUTE_FILES = ["../../src/aura-historia-api/src/internal/mod.rs"] as const;
+
 export function routeKey(method: string, routePath: string): string {
   const normalizedPath = routePath.replace(/\{([^}]+)}/g, (_match, parameter: string) => {
     if (parameter.startsWith("*")) return "{*}";
@@ -41,6 +44,12 @@ export function swaggerRouteKeys(): string[] {
 
 export function axumRouteKeys(): string[] {
   return RUST_ROUTE_FILES.flatMap((fileName) =>
+    parseAxumRouteKeys(fs.readFileSync(path.join(__dirname, fileName), "utf8")),
+  ).sort();
+}
+
+export function axumInternalRouteKeys(): string[] {
+  return RUST_INTERNAL_ROUTE_FILES.flatMap((fileName) =>
     parseAxumRouteKeys(fs.readFileSync(path.join(__dirname, fileName), "utf8")),
   ).sort();
 }

@@ -1,6 +1,7 @@
 use super::contract::{ManagedEnvironment, PostgresEndpoint, Profile};
 use super::docker::{docker, labels, published_port};
 use super::{Result, context, invalid};
+use crate::opensearch::{OPENSEARCH_CONTAINER_PORT, OPENSEARCH_ENVIRONMENT, OPENSEARCH_IMAGE};
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::{ConnectOptions, Connection};
 use std::path::Path;
@@ -11,7 +12,6 @@ pub(super) const POSTGRES_IMAGE: &str =
     "postgres:16-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67";
 pub(super) const FLOCI_IMAGE: &str =
     "floci/floci:2.3.0@sha256:e0b292df4dc9559b7b1bf4f51bdda4bb8e269276236438cd03cae661260ea8a9";
-pub(super) const OPENSEARCH_IMAGE: &str = "opensearchproject/opensearch:3.9.0@sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c";
 
 pub(super) async fn bootstrap(
     run: &str,
@@ -162,12 +162,15 @@ pub(super) async fn check_postgres(endpoint: &PostgresEndpoint) -> Result<()> {
     let mut connection = tokio::time::timeout(Duration::from_secs(5), options.connect())
         .await
         .map_err(|e| context("Postgres readiness timed out", e))??;
-    let (version,wal,ssl):(String,String,bool)=sqlx::query_as("SELECT current_setting('server_version_num'), current_setting('wal_level'), (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid())")
-        .fetch_one(&mut connection).await?;
+    let (version, ssl): (String, bool) = sqlx::query_as(
+        "SELECT current_setting('server_version_num'), (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid())",
+    )
+    .fetch_one(&mut connection)
+    .await?;
     connection.close().await?;
-    if version.parse::<u32>()? / 10000 != 16 || wal != "logical" || !ssl {
+    if version.parse::<u32>()? / 10000 != 16 || !ssl {
         return Err(invalid(
-            "test Postgres requires version 16, logical WAL and verified TLS",
+            "test Postgres requires version 16 and verified TLS",
         ));
     }
     Ok(())
@@ -179,10 +182,6 @@ async fn start_floci(run: &str, network: &str) -> Result<String> {
         "FLOCI_STORAGE_MODE=memory".into(),
         "--env".into(),
         "FLOCI_DEFAULT_REGION=eu-central-1".into(),
-        "--env".into(),
-        "FLOCI_SERVICES_OPENSEARCH_MOCK=false".into(),
-        "--env".into(),
-        format!("FLOCI_DOCKER_RESOURCE_NAMESPACE=aura-test-{run}"),
     ];
     let (name, port) = start(run, network, "floci", FLOCI_IMAGE, 4566, options, vec![]).await?;
     let deadline = Instant::now() + Duration::from_secs(90);
@@ -201,29 +200,19 @@ async fn start_floci(run: &str, network: &str) -> Result<String> {
 
 async fn start_opensearch(run: &str, network: &str) -> Result<String> {
     let volume = volume(run, "opensearch").await?;
-    let options = vec![
-        "--env".into(),
-        "discovery.type=single-node".into(),
-        "--env".into(),
-        "DISABLE_SECURITY_PLUGIN=true".into(),
-        "--env".into(),
-        "DISABLE_INSTALL_DEMO_CONFIG=true".into(),
-        "--env".into(),
-        "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m".into(),
-        // A shared runner disk above the 90% high watermark makes this single-node test
-        // cluster block index creation with 403 `index_create_block_exception`. Disk headroom
-        // is guarded separately (`ci/guard-disk.py`), so the watermarks only cause flakes here.
-        "--env".into(),
-        "cluster.routing.allocation.disk.threshold_enabled=false".into(),
+    let mut options = vec![
         "--mount".into(),
         format!("type=volume,src={volume},dst=/usr/share/opensearch/data"),
     ];
+    for (key, value) in OPENSEARCH_ENVIRONMENT {
+        options.extend(["--env".into(), format!("{key}={value}")]);
+    }
     let (_, port) = start(
         run,
         network,
         "opensearch",
         OPENSEARCH_IMAGE,
-        9200,
+        OPENSEARCH_CONTAINER_PORT,
         options,
         vec![],
     )
@@ -273,7 +262,11 @@ pub(super) async fn probe(config: &ManagedEnvironment) -> Result<()> {
             &[],
         )
         .await;
-        crate::get_sqs_client().await.list_queues().send().await?;
+        crate::get_ses_client()
+            .await
+            .list_email_identities()
+            .send()
+            .await?;
     }
     if config.opensearch_endpoint.is_some() {
         let client = crate::get_opensearch_client().await;

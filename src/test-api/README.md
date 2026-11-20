@@ -3,9 +3,10 @@
 ## Run locally
 
 Tests need Linux with PID descriptor support, a Docker daemon at
-`/var/run/docker.sock`, and the Docker CLI. Fixtures start real PostgreSQL,
-Floci and OpenSearch as needed, using fake credentials and local endpoints.
-No emulator account, license token or deployed service is required.
+`/var/run/docker.sock`, and the Docker CLI. Fixtures start real PostgreSQL and
+OpenSearch as needed, and Floci for the AWS clients the tests exercise
+(S3 and SES). They use fake credentials and local endpoints. No emulator account,
+license token or deployed service is required.
 
 Start with a consumer package:
 
@@ -22,8 +23,8 @@ cargo build --locked -p test-api --all-features --bin aura-test-env
   cargo nextest run --locked -p crawler --all-features --test-threads 4
 ```
 
-Profiles: `postgres` (PostgreSQL), `aws` (Floci), `opensearch` (Floci and
-OpenSearch), `api` (all three). Use the [CI driver](../../docs/ci.md) for complete
+Profiles: `postgres` (PostgreSQL), `aws` (Floci), `opensearch` (OpenSearch),
+`api` (PostgreSQL and OpenSearch), `all` (all three). Use the [CI driver](../../docs/ci.md) for complete
 lanes and the pristine migration phase. Run doctests separately with
 `cargo test --locked -p <package> --all-features --doc`.
 
@@ -39,10 +40,12 @@ cargo test --locked -p test-api --all-features --test postgres -- --ignored --te
 One supervisor owns the complete command's service lifecycle. It creates
 UUID-named, labelled containers, volumes and a network; ports bind only to
 `127.0.0.1`. Images are pinned in
-[`environment/services.rs`](src/environment/services.rs). PostgreSQL uses
-verified TLS and logical WAL. Managed OpenSearch installs the workspace mapping
-and hybrid pipeline before tests start. Its engine version and immutable image pin
-match production so mapping compatibility is checked against the serving engine.
+[`environment/services.rs`](src/environment/services.rs) and
+[`opensearch.rs`](src/opensearch.rs). PostgreSQL uses verified TLS. OpenSearch
+installs the workspace mapping and hybrid pipeline before tests start, as does the
+process-owned cluster of a plain Cargo run, which publishes only its HTTP port on
+`127.0.0.1`. Its engine version and immutable image pin match production so
+mapping compatibility is checked against the serving engine.
 
 Children attach to validated job configuration. Both
 `AURA_TEST_ENV_MANAGED=1` and absolute `AURA_TEST_ENV_CONFIG` must be present
@@ -94,7 +97,7 @@ test generation. Migration paths stay within the workspace. Register manually
 created pools with `register_postgres_pool()` so they close before database removal.
 
 Pass `product_listings_index()` to every OpenSearch adapter, write, read and refresh.
-Resolve context-owned SQS/S3/SES names before creation; register extra senders with
+Resolve context-owned S3/SES names before creation; register extra senders with
 `register_sender()`. Register manually created resources before creating them and
 enable all fixture features required for recovery.
 

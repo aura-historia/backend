@@ -85,14 +85,6 @@ async fn should_reject_every_removed_partner_tool_as_unknown_after_admission_wit
         let anonymous = server.call(None, name, json!({})).await;
         assert_eq!(StatusCode::OK, anonymous.status(), "{name}");
         assert_unknown_tool(name, &anonymous.json().await.unwrap());
-        let lambda = server
-            .lambda(
-                Some(&owner.token),
-                "tools/call",
-                json!({"name":name,"arguments":arguments}),
-            )
-            .await;
-        assert_unknown_tool(name, &lambda);
         let sdk = client
             .call_tool(
                 CallToolRequestParams::new(name.to_owned())

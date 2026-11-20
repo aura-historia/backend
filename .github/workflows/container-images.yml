@@ -4,38 +4,57 @@ on:
   workflow_call:
     inputs:
       source_sha:
-        description: Exact candidate SHA selected by the trusted release workflow
+        description: Exact commit to build, selected by the deploy workflow
         required: false
         type: string
+      export_image:
+        description: Hand the tested application image to the caller as the artifact image-<run>-<attempt>
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - ".dockerignore"
+      - "Dockerfile"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "src/**"
-      - "infra/assets/rds-ca-layer/**"
+      - "mjml/**"
+      - "migrations/**"
+      - "infra/sql/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
       - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/mjml-templates.yml"
+      - "host/**"
+      - "opensearch/prod/**"
+      - "ci/host-prod/**"
   push:
     branches: [develop]
     paths:
       - ".dockerignore"
+      - "Dockerfile"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "src/**"
-      - "infra/assets/rds-ca-layer/**"
+      - "mjml/**"
+      - "migrations/**"
+      - "infra/sql/**"
       - "ci/container-images.json"
       - "ci/container-images.cjs"
       - "ci/container-images*.test.cjs"
       - "ci/container-images/**"
       - ".github/workflows/container-images.yml"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/mjml-templates.yml"
+      - "host/**"
+      - "opensearch/prod/**"
+      - "ci/host-prod/**"
 
 permissions:
   contents: read
@@ -47,9 +66,10 @@ jobs:
     outputs:
       container_matrix: ${{ steps.catalog.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - name: Validate catalog and fixture logic
         run: |
           node ci/container-images.cjs validate
@@ -57,6 +77,25 @@ jobs:
       - name: Read container image catalog
         id: catalog
         run: node ci/container-images.cjs matrix >> "$GITHUB_OUTPUT"
+
+  host-scripts:
+    name: Lint and test host scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - name: Shellcheck
+        run: |
+          shellcheck --version
+          git ls-files -z -- 'host/*.sh' 'host/**/*.sh' 'ci/host-prod/*.sh' | xargs -0 shellcheck --severity=warning
+      - name: Migration plan tests
+        # A rollback may build a commit from before these tests existed.
+        run: |
+          if compgen -G 'ci/host-prod/test_*.py' >/dev/null; then
+            python3 -m unittest discover -s ci/host-prod
+          fi
 
   image:
     name: Build and test ${{ matrix.id }}
@@ -66,9 +105,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.catalog.outputs.container_matrix) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - name: Configure Docker Hub mirror
         shell: bash
         run: |
@@ -106,3 +146,26 @@ jobs:
             -t "$IMAGE" .
           test -x "ci/container-images/${IMAGE_ID}/smoke.sh"
           bash ci/container-images/${IMAGE_ID}/smoke.sh "$IMAGE"
+      - name: Smoke-test the prod Compose project with this image
+        if: matrix.id == 'aura-historia'
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
+          IMAGE_ID: ${{ matrix.id }}
+        run: bash ci/host-prod/smoke.sh "local/${IMAGE_ID}:${CANDIDATE_SHA}"
+      - name: Export the tested image
+        if: inputs.export_image && matrix.id == 'aura-historia'
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.source_sha || github.sha }}
+          IMAGE_ID: ${{ matrix.id }}
+        run: docker save "local/${IMAGE_ID}:${CANDIDATE_SHA}" | gzip -1 > image.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: inputs.export_image && matrix.id == 'aura-historia'
+        with:
+          name: image-${{ github.run_id }}
+          path: image.tar.gz
+          if-no-files-found: error
+          # A re-run of the producing job replaces it; artifacts outlive the run attempt.
+          overwrite: true
+          retention-days: 1

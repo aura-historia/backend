@@ -7,10 +7,10 @@ import {
   API_MAX_REQUEST_BODY_BYTES,
   API_URL_TARGET_EXEMPT_PATH_PATTERN,
   API_OVERSIZED_CONTENT_LENGTH_PATTERN,
-  API_ROUTE_CATALOG,
   API_SCOPED_URL_TARGET_RULES,
 } from "../src/constructs/api";
-import type { StageName } from "../src/config";
+import { STAGES, type StageName } from "../src/config";
+import { swaggerRouteKeys } from "./api-route-contract";
 
 type WebAclRule = {
   readonly Action?: { readonly Block?: { readonly CustomResponse?: { CustomResponseBodyKey: string; ResponseCode: number } } };
@@ -48,7 +48,7 @@ function rule(properties: WebAclProperties, name: string): WebAclRule {
 }
 
 describe("API CloudFront Web ACL", () => {
-  test.each(["dev", "prod"] as const)("%s keeps managed protections and counts only the reviewed managed rules", (stage) => {
+  test.each(STAGES)("%s keeps managed protections and counts only the reviewed managed rules", (stage) => {
     const properties = webAclProperties(stage);
 
     expect(properties.Rules.map((candidate) => candidate.Name)).toEqual([
@@ -76,7 +76,7 @@ describe("API CloudFront Web ACL", () => {
     expect(rule(properties, "AWS-AWSManagedRulesKnownBadInputsRuleSet").Statement.ManagedRuleGroupStatement?.RuleActionOverrides).toBeUndefined();
   });
 
-  test.each(["dev", "prod"] as const)("%s re-blocks counted URL-target rules outside the exempt paths", (stage) => {
+  test.each(STAGES)("%s re-blocks counted URL-target rules outside the exempt paths", (stage) => {
     const properties = webAclProperties(stage);
     const scoped = rule(properties, "API-UrlTargetOutsideOAuthRedirects");
 
@@ -116,17 +116,16 @@ describe("API CloudFront Web ACL", () => {
   test("URL-target exemption covers exactly the OAuth redirect-URI routes and content-notice submission", () => {
     const pattern = new RegExp(API_URL_TARGET_EXEMPT_PATH_PATTERN);
     const clientId = "oc_01m5avv95qeyj84c66cn827eyh";
-    const scopedRoutes = API_ROUTE_CATALOG
-      .filter((route) => pattern.test(route.path.replace(/\{[^}]+}/g, clientId)))
-      .map((route) => `${route.method} ${route.path}`);
+    const scopedRoutes = swaggerRouteKeys()
+      .filter((key) => pattern.test(key.slice(key.indexOf(" ") + 1).replaceAll("{}", clientId)));
 
     expect(scopedRoutes.sort()).toEqual([
-      "DELETE /v1/admin/oauth-clients/{client_id}",
+      "DELETE /v1/admin/oauth-clients/{}",
       "GET /v1/admin/oauth-clients",
-      "GET /v1/admin/oauth-clients/{client_id}",
+      "GET /v1/admin/oauth-clients/{}",
       "GET /v1/oauth/authorize",
       "GET /v1/oauth/metadata-document-clients",
-      "PATCH /v1/admin/oauth-clients/{client_id}",
+      "PATCH /v1/admin/oauth-clients/{}",
       "POST /v1/admin/oauth-clients",
       "POST /v1/content-notices",
       "POST /v1/oauth/token",
@@ -167,7 +166,7 @@ describe("API CloudFront Web ACL", () => {
     }
   });
 
-  test.each(["dev", "prod"] as const)("%s blocks declared bodies above the application limit with the API 413 error", (stage) => {
+  test.each(STAGES)("%s blocks declared bodies above the application limit with the API 413 error", (stage) => {
     const properties = webAclProperties(stage);
     const limit = rule(properties, "API-RequestBodyLimit");
 
@@ -181,6 +180,9 @@ describe("API CloudFront Web ACL", () => {
     const body = properties.CustomResponseBodies[customResponse?.CustomResponseBodyKey ?? ""];
     expect(body.ContentType).toBe("APPLICATION_JSON");
     expect(JSON.parse(body.Content)).toEqual({ status: 413, title: "Payload Too Large", error: "BAD_BODY_VALUE" });
+    // The limit is not scoped to paths: provider webhooks such as Shopify's are bounded by it too,
+    // so no route may admit a larger body than the edge does.
+    expect(JSON.stringify(limit.Statement)).not.toMatch(/UriPath|ScopeDownStatement|NotStatement/);
   });
 
   test("edge body limit equals the Axum whole-request limit", () => {

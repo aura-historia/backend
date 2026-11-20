@@ -1,8 +1,8 @@
 //! Crawler metrics as CloudWatch Embedded Metric Format (EMF) records.
 //!
 //! A record is one JSON object whose top-level `_aws` block tells CloudWatch Logs which
-//! keys of the object are metrics, so the crawler publishes metrics through the log export it
-//! already has, with no metrics client or extra permission. Records travel as `tracing`
+//! keys of the object are metrics, so whatever ships the crawler's log to CloudWatch publishes
+//! them, with no metrics client or extra permission. Records travel as `tracing`
 //! events of [`EMF_TARGET`]; the log formats wrap their JSON format in
 //! [`EmfPassthroughFormat`], which writes such an event as the bare record instead of nesting
 //! it in the event's `fields`.
@@ -52,7 +52,7 @@ macro_rules! crawler_metrics {
     ($($(#[$doc:meta])* $variant:ident => $unit:ident),+ $(,)?) => {
         /// The metrics the crawler publishes. Adding one is a cost decision, because CloudWatch
         /// bills each as a custom metric and the account's free tier covers ten, shared with the
-        /// ingestion Lambda's metric filters: keep the list short and never give one a dimension.
+        /// host's metrics: keep the list short and never give one a dimension.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub(crate) enum CrawlerMetric {
             $($(#[$doc])* $variant),+

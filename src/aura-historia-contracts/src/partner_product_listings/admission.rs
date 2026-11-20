@@ -219,10 +219,8 @@ fn outcome_failure(
                     false,
                     FailureKind::MessageSize,
                 ),
-                "SQS_RETRYABLE_FAILURE" => ("ENQUEUE_FAILED", true, FailureKind::Send),
-                "SQS_SENDER_FAILURE" | "SQS_NOT_SENT" => {
-                    ("ENQUEUE_FAILED", false, FailureKind::Internal)
-                }
+                "QUEUE_RETRYABLE_FAILURE" => ("ENQUEUE_FAILED", true, FailureKind::Send),
+                "QUEUE_REFUSED" => ("ENQUEUE_FAILED", false, FailureKind::Internal),
                 _ => (
                     "PRODUCT_LISTING_INGESTION_INTERNAL_ERROR",
                     false,

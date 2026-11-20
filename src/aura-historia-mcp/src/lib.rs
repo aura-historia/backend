@@ -6,7 +6,6 @@ mod bounded_json;
 mod config;
 mod error;
 mod http;
-pub mod lambda;
 mod metadata;
 mod protocol;
 pub mod public;
@@ -29,7 +28,7 @@ pub use protocol::SUPPORTED_PROTOCOL_VERSIONS;
 pub use registry::{
     AccessClass, Completed, OperationDefinition, OperationPolicy, Registry, RegistryError,
 };
-pub use runtime::{LambdaMcpRouter, McpDependencies, McpStartupError, mcp_router};
+pub use runtime::{McpDependencies, McpStartupError, mcp_router};
 
 pub mod product_listing_history;
 pub mod product_listings;

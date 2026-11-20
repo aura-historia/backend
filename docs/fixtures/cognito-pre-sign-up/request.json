@@ -1,0 +1,6 @@
+{
+  "email": "ada@example.test",
+  "emailVerified": true,
+  "issuer": "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool",
+  "existingEmailAction": "LINK_VERIFIED"
+}

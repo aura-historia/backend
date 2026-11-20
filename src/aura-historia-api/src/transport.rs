@@ -8,7 +8,7 @@ use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue, Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use product_listing_ingestion_sqs::with_publication_deadline;
+use product_listing_ingestion_queue::with_publication_deadline;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -28,18 +28,26 @@ const IDEMPOTENCY_KEY_HEADER: HeaderName = HeaderName::from_static("idempotency-
 const MAX_CORRELATION_ID_LENGTH: usize = 128;
 const MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
 pub(crate) const MAX_LOOPS_WEBHOOK_BODY_BYTES: usize = 64 * 1024;
+/// A Shopify `product_listing` delivery becomes one ingestion command, which the FIFO caps at
+/// 1 MiB, so a larger body could never be admitted. The CloudFront WAF rejects declared bodies
+/// above `MAX_REQUEST_BODY_BYTES` (`infra/test/api-web-acl.test.ts`), so this limit must not
+/// exceed it.
+pub(crate) const MAX_SHOPIFY_WEBHOOK_BODY_BYTES: usize = 1_048_576;
+const _: () = assert!(MAX_SHOPIFY_WEBHOOK_BODY_BYTES <= MAX_REQUEST_BODY_BYTES);
+pub(crate) const MAX_STRIPE_WEBHOOK_BODY_BYTES: usize = 256 * 1024;
 /// Leave time to map and serialize a bounded publisher outcome before the HTTP timeout.
 pub(crate) const PUBLICATION_REPORT_HEADROOM: Duration = Duration::from_millis(300);
-pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-pub(crate) const LAMBDA_REQUEST_TIMEOUT: Duration = Duration::from_secs(14);
+/// Every request ends within this budget, before CloudFront's 30-second origin read timeout, so a
+/// caller always receives the API's own answer, including a confirmed admission report.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 // An initial search page whose query embedding expires still runs its lexical search. Both
-// provider deadlines together must leave at least half of the shortest request budget for FX,
+// provider deadlines together must leave at least half of the request budget for FX,
 // enrichment and the response.
 const _: () = assert!(
     (embedding::SEARCH_QUERY_EMBEDDING_DEADLINE.as_millis()
         + aura_historia_runtime::PRODUCT_LISTING_OPENSEARCH_TIMEOUT.as_millis())
         * 2
-        <= LAMBDA_REQUEST_TIMEOUT.as_millis()
+        <= REQUEST_TIMEOUT.as_millis()
 );
 // A search-filter preview waits for the query embedding, one search and the classifier in
 // turn; together they must leave time for the PostgreSQL reads, presentation and response.
@@ -50,7 +58,7 @@ const _: () = assert!(
         + search_filter_service::use_cases::SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE
             .as_millis()
         + SEARCH_FILTER_PREVIEW_HEADROOM.as_millis()
-        <= LAMBDA_REQUEST_TIMEOUT.as_millis()
+        <= REQUEST_TIMEOUT.as_millis()
 );
 
 pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duration) -> Router {
@@ -71,6 +79,9 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
             header::COOKIE,
             HeaderName::from_static("x-api-key"),
             HeaderName::from_static("x-wc-webhook-signature"),
+            HeaderName::from_static("stripe-signature"),
+            HeaderName::from_static("x-aura-signature"),
+            crate::webhooks::post_shopify::HMAC_HEADER,
             LOOPS_WEBHOOK_ID_HEADER,
             LOOPS_WEBHOOK_TIMESTAMP_HEADER,
             LOOPS_WEBHOOK_SIGNATURE_HEADER,
@@ -142,13 +153,20 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
             .strip_prefix("/v1/webhooks/woocommerce/")
             .is_some_and(|source| !source.is_empty() && !source.contains('/'));
     let loops_webhook = request.method() == Method::POST && path == "/v1/webhooks/loops";
+    let shopify_webhook = request.method() == Method::POST && path == "/v1/webhooks/shopify";
+    let stripe_webhook = request.method() == Method::POST && path == "/v1/webhooks/stripe";
     // Public submission forms answer every oversized body like their own capped body.
     let public_submission = (request.method() == Method::PUT
         && path == "/v1/newsletter-subscriptions")
         || (request.method() == Method::POST && path == "/v1/newsletter-subscriptions/confirm")
         || (request.method() == Method::POST && path == "/v1/content-notices");
     let response = next.run(request).await;
-    if (async_ingestion || woocommerce_webhook || loops_webhook || public_submission)
+    if (async_ingestion
+        || woocommerce_webhook
+        || shopify_webhook
+        || loops_webhook
+        || stripe_webhook
+        || public_submission)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
         && response
             .headers()
@@ -165,6 +183,8 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
             )
             .with_detail("The webhook body exceeds the supported limit.")
             .into_response()
+        } else if stripe_webhook {
+            crate::webhooks::post_stripe::payload_too_large().into_response()
         } else {
             ApiError::new(
                 axum::http::StatusCode::PAYLOAD_TOO_LARGE,
@@ -240,7 +260,7 @@ mod tests {
     fn app() -> Router {
         with_transport_middleware(
             Router::new().route("/", get(|| async { "ok" })),
-            NATIVE_REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
         )
     }
 
@@ -297,7 +317,7 @@ mod tests {
                 .route("/400", get(|| async { StatusCode::BAD_REQUEST }))
                 .route("/500", get(|| async { StatusCode::INTERNAL_SERVER_ERROR }))
                 .route("/503", get(|| async { StatusCode::SERVICE_UNAVAILABLE })),
-            NATIVE_REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
         );
 
         for (path, expected_status) in [
@@ -325,7 +345,7 @@ mod tests {
     async fn should_preserve_approved_public_headers_and_merge_vary() {
         let app = with_transport_middleware(
             Router::new().route("/", get(approved_public_response)),
-            NATIVE_REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
         );
         let response = app
             .oneshot(
@@ -362,7 +382,7 @@ mod tests {
     async fn should_force_authorized_responses_private_even_if_public_was_approved() {
         let app = with_transport_middleware(
             Router::new().route("/", get(approved_public_response_ignoring_request_headers)),
-            NATIVE_REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
         );
         let response = app
             .oneshot(
@@ -384,7 +404,7 @@ mod tests {
     async fn should_force_non_200_responses_private_even_if_public_was_approved() {
         let app = with_transport_middleware(
             Router::new().route("/", get(approved_public_response_with_non_success_status)),
-            NATIVE_REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
         );
         let response = app
             .oneshot(Request::get("/").body(Body::empty()).unwrap())
@@ -432,9 +452,23 @@ mod tests {
     )]
     #[case(
         Method::POST,
+        "/v1/webhooks/shopify",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "BAD_BODY_VALUE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::POST,
         "/v1/webhooks/loops",
         StatusCode::PAYLOAD_TOO_LARGE,
         "LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE",
+        "private, no-store"
+    )]
+    #[case(
+        Method::POST,
+        "/v1/webhooks/stripe",
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE",
         "private, no-store"
     )]
     #[case(
@@ -502,7 +536,7 @@ mod tests {
                     |_: Bytes| async { StatusCode::NO_CONTENT },
                 ),
             ),
-            NATIVE_REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
         );
         let response = app
             .oneshot(

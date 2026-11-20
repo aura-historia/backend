@@ -74,7 +74,7 @@ They MUST NOT silently become authoritative for domain invariants.
 11. Write handlers define transaction scope through an abstract `UnitOfWork` and transaction-bound repository factories.
 12. Several PostgreSQL repositories MAY participate in the same abstract transaction.
 13. Cross-datasource writes do not share a transaction.
-14. CDC and projection invariants are summarized below; event routing and recovery belong to the dedicated event and worker documentation.
+14. Outbox, queue and projection invariants are summarized below; event routing and recovery belong to the dedicated event and worker documentation.
 15. Shared public wire DTOs and pure mappings belong to a transport-independent contract owner; transport-specific extraction, responses and errors belong to the corresponding adapter.
 16. Trusted caller identity is mapped into a service-owned `OperationContext`.
 17. Domain and service crates MUST NOT depend on infrastructure crates.
@@ -195,8 +195,8 @@ Transports that share application operations MUST reuse narrow, typed service-fa
 rather than another transport's state, router or controllers. The shared composition root owns
 pool/client configuration and concrete adapter construction; family selection MUST NOT load
 unrelated provider configuration. Extract each family when a transport needs it, preserving
-service-owned transactions and authorization. A warm execution environment composes pools and
-handles once and reuses them; a failed composition is retried by the next invocation.
+service-owned transactions and authorization. A long-running process composes pools and
+handles once at startup and reuses them; a failed composition stops startup.
 The [`aura-historia-runtime` composition seam](../src/aura-historia-runtime/README.md) documents
 its bounded ownership and incremental extraction rule.
 
@@ -412,7 +412,7 @@ For bounded-context enums, this workspace uses the policy that the canonical val
 
 ### 5.1.2 Object identifiers
 
-Aura object identities use concrete semantic newtypes backed by UUIDv7. Domain, REST, semantic worker, logs, and rebuildable search documents use strict prefixed TypeID text. PostgreSQL PK/FK columns remain native `uuid`; CDC reflects that storage form and maps it immediately into typed IDs. Internal persisted JSON uses an adapter-owned explicit UUID codec where documented and MUST NOT derive storage encoding from an ID's `Display` implementation. Bare UUID object-ID input and wrong prefixes are invalid. The complete registry, exclusions, and addition recipe live in [`object-ids.md`](object-ids.md).
+Aura object identities use concrete semantic newtypes backed by UUIDv7. Domain, REST, semantic worker, logs, and rebuildable search documents use strict prefixed TypeID text. PostgreSQL PK/FK columns remain native `uuid`; outbox snapshots reflect that storage form and maps it immediately into typed IDs. Internal persisted JSON uses an adapter-owned explicit UUID codec where documented and MUST NOT derive storage encoding from an ID's `Display` implementation. Bare UUID object-ID input and wrong prefixes are invalid. The complete registry, exclusions, and addition recipe live in [`object-ids.md`](object-ids.md).
 
 ### 5.2 Visibility rules
 
@@ -571,7 +571,7 @@ When a public PATCH endpoint is intentionally broad, the service owns a correspo
 
 The update handler MUST translate command fields into explicit aggregate methods such as `change_title`, `replace_address`, or `replace_contact`, and track `ChangeOutcome`. Generic update MUST NOT include state-machine transitions that deserve their own use case, such as publishing, archiving, or changing aggregate status.
 
-A broad update use case is one logical write. Domain methods SHOULD distinguish changes from no-ops without knowing storage versions. The handler MUST skip persistence when nothing changed and persist the complete authoritative state once when it did, enforcing optimistic concurrency. The storage version is internal persistence/CDC state and MUST NOT be returned from ordinary use cases.
+A broad update use case is one logical write. Domain methods SHOULD distinguish changes from no-ops without knowing storage versions. The handler MUST skip persistence when nothing changed and persist the complete authoritative state once when it did, enforcing optimistic concurrency. The storage version is internal persistence and outbox state and MUST NOT be returned from ordinary use cases.
 
 Administrative edit contracts MAY expose the authoritative storage version as an explicit optimistic precondition. These commands MUST compare the client's version before applying changes, retain repository compare-and-set protection, and return the committed version from the transaction result. A stale command MUST NOT be retried automatically against newer state. This exception does not make the version a mutable domain fact or a public projection revision.
 
@@ -1084,7 +1084,7 @@ Stable machine-readable identities for fieldless domain enums MUST use an explic
 
 ### 10.1 Transport mapping
 
-REST and MCP MUST reuse the same public DTO definitions, Serde behavior and pure view-to-DTO mappings when they expose the same business fields. The contract owner MAY depend on the domain values and service views needed for those pure conversions, but MUST NOT depend on HTTP, Lambda or MCP framework request/response machinery. Application, core and service crates MUST NOT depend on public wire contracts or transport adapters.
+REST and MCP MUST reuse the same public DTO definitions, Serde behavior and pure view-to-DTO mappings when they expose the same business fields. The contract owner MAY depend on the domain values and service views needed for those pure conversions, but MUST NOT depend on HTTP, worker or MCP framework request/response machinery. Application, core and service crates MUST NOT depend on public wire contracts or transport adapters.
 
 Extract a family when its operation is exposed through another adapter; migrate the existing REST imports in the same change. Do not declare a parallel DTO or maintain an OpenAPI-to-MCP translation pipeline. A wrapper MAY assemble existing path/query/body values or represent an actual HTTP-only outcome, while reusing shared nested DTOs. Reuse pagination only where the existing operation has a shared collection contract; an unpaginated operation MUST NOT acquire truncation through an adapter.
 
@@ -1122,23 +1122,25 @@ Dropping an uncommitted transaction is rollback, not commit. A write use case SH
 
 ### 11.2 Cross-system boundaries
 
-A PostgreSQL transaction cannot atomically include a search engine, queue, key-value store, or third-party API. Services compose abstract ports across these boundaries without claiming distributed atomicity. For durable external effects, use an explicit intent/event and idempotent delivery/receipts as appropriate; failures and ambiguous results require a recovery policy. CDC and projection propagation follow Section 12 and the owning event documentation.
+A PostgreSQL transaction cannot atomically include a search engine, queue, key-value store, or third-party API. Services compose abstract ports across these boundaries without claiming distributed atomicity. For durable external effects, use an explicit intent/event and idempotent delivery/receipts as appropriate; failures and ambiguous results require a recovery policy. Outbox and projection propagation follow Section 12 and the owning event documentation.
 
-## 12. CDC and projection architecture
+## 12. Outbox, queue and projection architecture
 
-CDC propagates committed authoritative changes to workers and rebuildable read projections. The intended shape is PostgreSQL commit -> CDC transport/router -> durable scoped jobs -> workers -> service use cases and projection adapters. This is an architectural target, not proof that a given stage has activated or verified delivery. [Event flow](events/flow.md) owns routes, event/job schemas and consumer behavior; the [worker runbook](durable-worker-runbook.md) owns activation, custody, replay and recovery; [infrastructure](infra.md) owns deployment declarations and gates. Subsection numbers for schema evolution and required tests retain their established link targets.
+Committed authoritative changes reach workers and rebuildable read projections through a trigger-fed outbox and a PostgreSQL job queue: PostgreSQL commit -> outbox snapshot captured in the writer's transaction -> dispatcher routes it into durable scoped jobs -> workers -> service use cases and projection adapters. This is the design contract, not proof that a given deployment delivers. [Event flow](events/flow.md) owns selected sources, routes, event/job schemas and consumer behavior; the [worker runbook](durable-worker-runbook.md) owns custody, replay and recovery; the [outbox](../src/delivery-outbox/README.md) and [queue](../src/platform-postgres-queue/README.md) own their mechanics. Subsection numbers for schema evolution and required tests retain their established link targets.
+
+**Deliberate deviation.** The outbox, the queue and their failure custody live in the authoritative PostgreSQL database, so capture, routing, enqueue and outbox deletion each commit atomically with what they depend on, and no separate transport can lose or partially publish a change. The cost is coupling: transport load, notifications and custody share the business database's capacity, connection budget, backups and failure domain, and a queue backlog grows business storage. Keep jobs compact, custody resolved and queue churn vacuumed; a projection, provider or other external store stays outside the transaction as [§11.2](#112-cross-system-boundaries) requires. Capture by row trigger sees only what the trigger selects (inserts of the selected sources), never later updates, deletes, or rows that existed before the trigger.
 
 ### 12.1 Storage ownership and write contract
 
-Every dataset MUST have one documented operational owner. PostgreSQL is authoritative business state unless a bounded context explicitly documents otherwise. Other stores MUST be classified as authoritative operational storage, rebuildable projection, external source, or cache; a hot read path does not make a projection authoritative. OpenSearch is a rebuildable, read-optimized, **eventually consistent** projection, not a write model or coordination store. A successful projection write or worker acknowledgment means the target accepted the write, or a target-side version fence proved the attempted write stale; it does **not** mean a subsequent search can already observe that state. The default projection path MUST NOT force refresh, wait for refresh, poll target visibility, or persist search-visible acknowledgments merely to manufacture read-after-write consistency. A bounded feature that genuinely requires a stronger read-after-write guarantee MUST document that contract explicitly and MUST NOT silently upgrade the global projection model. A transactional event journal MAY represent committed changes without being an event-sourced aggregate or a general outbox; its exact storage contract belongs in [storage](storage.md) and [event flow](events/flow.md).
+Every dataset MUST have one documented operational owner. PostgreSQL is authoritative business state unless a bounded context explicitly documents otherwise. Other stores MUST be classified as authoritative operational storage, rebuildable projection, external source, or cache; a hot read path does not make a projection authoritative. OpenSearch is a rebuildable, read-optimized, **eventually consistent** projection, not a write model or coordination store. A successful projection write or worker acknowledgment means the target accepted the write, or a target-side version fence proved the attempted write stale; it does **not** mean a subsequent search can already observe that state. The default projection path MUST NOT force refresh, wait for refresh, poll target visibility, or persist search-visible acknowledgments merely to manufacture read-after-write consistency. A bounded feature that genuinely requires a stronger read-after-write guarantee MUST document that contract explicitly and MUST NOT silently upgrade the global projection model. A transactional event journal MAY represent committed changes without being an event-sourced aggregate; the outbox carries only the snapshot of a selected insert that its route needs, never a general event log. Their exact storage contracts belong in [storage](storage.md) and [event flow](events/flow.md).
 
 Authoritative state and any required durable intent or event MUST commit in one local transaction. External projections and providers MUST NOT be updated inside that transaction. Domain invariants MUST NOT depend on projections being current, immediately query-visible, or atomic with PostgreSQL.
 
 ### 12.2 Routing, acknowledgment, and durable custody
 
-A router MAY fan out one committed change to multiple jobs. It MUST validate the entire route (source, version, operation, domain identity, destinations, and bounded payloads) before publishing any job for that change. Acknowledgment or checkpoint MUST mean that every required publication is confirmed; partial or uncertain publication remains retryable and can duplicate earlier sends. Invalid or unsupported input MUST fail closed rather than silently disappear. Transport identifiers are correlation, not business identity.
+A route MAY fan out one committed change to multiple jobs. The dispatcher MUST validate the entire route (source, version, domain identity, destinations, and bounded payloads) before enqueueing any job for that change, and MUST enqueue every job and remove the snapshot in one transaction, so publication is complete or absent, never partial. Invalid or unsupported input MUST fail closed into failure custody rather than silently disappear or block later changes. Job and outbox identifiers are correlation, not business identity.
 
-Delivery is **at least once within configured retention**, not exactly once or globally ordered. Workers acknowledge only confirmed complete outcomes or a confirmed transfer to failure custody; nonterminal claims, failed effects, and uncertain commits remain retryable. A deterministic business rejection of a valid command by current authoritative state is a complete outcome: an ordered consumer acknowledges it with a logged, alarmed diagnostic rather than retaining it, because retrying cannot succeed and would hold every successor in its ordering group. A job that can never succeed as delivered (an invalid job, an identity conflict, or invalid persisted state awaiting repair) is not a rejection: an ordered consumer leaves it for one redelivery, then moves it unchanged into its failure custody and acknowledges it only after the transfer is confirmed, so it keeps custody without holding its ordering group for the whole retry budget. Later jobs of that group then run against current state; one that depended on the parked job is rejected or fails on its own terms. A lost response or deletion can redeliver an already completed job. Failed router changes and worker jobs need distinguishable durable failure custody, and operator-controlled replay MUST preserve source identity and order where required. Queue names, batch sizes, retention windows, retry budgets, archive destinations, and live cutover evidence belong in the [event flow](events/flow.md), [runbook](durable-worker-runbook.md), and infrastructure configuration.
+Delivery is **at least once**, not exactly once or globally ordered; jobs never expire. Workers acknowledge only confirmed complete outcomes or a confirmed transfer to failure custody; nonterminal claims, failed effects, and uncertain commits remain retryable. A deterministic business rejection of a valid command by current authoritative state is a complete outcome: an ordered consumer acknowledges it with a logged, alarmed diagnostic rather than retaining it, because retrying cannot succeed and would hold every successor in its ordering group. A job that can never succeed as delivered (an invalid job, an identity conflict, or invalid persisted state awaiting repair) is not a rejection: an ordered consumer leaves it for one redelivery, then moves it unchanged into its failure custody and acknowledges it only after the transfer is confirmed, so it keeps custody without holding its ordering group for the whole retry budget. Later jobs of that group then run against current state; one that depended on the parked job is rejected or fails on its own terms. An expired lease or a lost acknowledgment can redeliver an already completed job. Undispatchable outbox snapshots and failed worker jobs have distinguishable durable failure custody that is never purged, and operator-controlled redrive MUST preserve source identity and order where required. Scope names, batch sizes, leases, retry budgets and concurrency belong in the [event flow](events/flow.md), the [runbook](durable-worker-runbook.md) and the scope catalogue.
 
 ### 12.3 Idempotency, ordering, and projections
 
@@ -1146,21 +1148,21 @@ Handlers MUST tolerate duplicates, concurrent delivery, replay, and older change
 
 For current-state invalidation, reread authoritative state and compare its revision with the triggering revision; do not record a stale trigger as processed current state. Historical consumers instead use their exact immutable fact. If correctness depends on current state at the final write, recheck under the authoritative transaction. These are different consumer designs and MUST NOT be conflated.
 
-A partial CDC payload MAY be used as an invalidation signal to build a complete projection from committed authoritative state. Joined or hydrated projections SHOULD reread authoritative state instead of merging unrelated partial changes. Projection mapping and document types stay in the target adapter. Deletion/withdrawal fences MUST survive delayed writes: when physical-delete version memory is finite, use a lasting, versioned tombstone or a fenced fresh-generation rebuild. Readers must exclude tombstones. Deploy compatible readers before tombstone writers and fence older physical-delete writers; see the [projection runbook](durable-worker-runbook.md#projection-fences-and-rebuild).
+A partial outbox snapshot MAY be used as an invalidation signal to build a complete projection from committed authoritative state. Joined or hydrated projections SHOULD reread authoritative state instead of merging unrelated partial changes. Projection mapping and document types stay in the target adapter. Deletion/withdrawal fences MUST survive delayed writes: when physical-delete version memory is finite, use a lasting, versioned tombstone or a fenced fresh-generation rebuild. Readers must exclude tombstones. Deploy compatible readers before tombstone writers and fence older physical-delete writers; see the [projection runbook](durable-worker-runbook.md#projection-fences-and-rebuild).
 
 ### 12.4 Replay and failure handling
 
-Each rebuildable projection MUST document its authoritative source, mapping, revision/fence strategy, rebuild/catch-up procedure, and activation checks. Rebuild into an isolated generation where practical, fence old writers, catch up committed changes, and verify identity, versions, and deletion visibility before switching readers. Missing authoritative history cannot be recreated from an expired queue or an existing projection.
+Each rebuildable projection MUST document its authoritative source, mapping, revision/fence strategy, rebuild/catch-up procedure, and activation checks. Rebuild into an isolated generation where practical, fence old writers, catch up committed changes, and verify identity, versions, and deletion visibility before switching readers. Missing authoritative history cannot be recreated from the queue or an existing projection.
 
 On failure, preserve custody, repair the cause, and use small approved replay/redrive with current authoritative-state checks; never purge merely to clear an alarm or log raw source records, credentials, provider payloads, or sensitive job content. Observe lag, backlog/oldest age, failure custody, handler outcomes, duplicates, and projection freshness. Declarations and local tests are not evidence of a live stage; activation and recovery require the owning runbook and approved operator evidence.
 
 ### 12.8 Schema evolution
 
-Evolve CDC storage and job contracts with expand-and-contract changes: introduce compatible storage and consumers/readers before enabling new producers or writers; preserve compatibility with retained jobs, replay sources, and rollback binaries before removing old fields. Review routing and projection handlers whenever a CDC source changes. Decoders MUST reject unsupported versions, malformed required fields, or invalid domain identities rather than acknowledge poison input; additive fields MAY be accepted only when the owning wire contract allows it. Event and job formats, selected sources, and receipt schemas belong in [event flow](events/flow.md) and [storage](storage.md), not this guide.
+Evolve outbox snapshot and job contracts with expand-and-contract changes: introduce compatible storage and consumers/readers before enabling new producers or writers; preserve compatibility with queued jobs, custody, and rollback binaries before removing old fields. A capture trigger and the dispatcher's codec for its source change together; review routing and projection handlers whenever a selected source changes. Decoders MUST reject unsupported versions, malformed required fields, or invalid domain identities rather than acknowledge poison input; additive fields MAY be accepted only when the owning wire contract allows it. Event and job formats, selected sources, and receipt schemas belong in [event flow](events/flow.md) and [storage](storage.md), not this guide.
 
 ### 12.11 Required tests
 
-CDC and projection tests SHOULD cover valid and invalid source changes, route prevalidation, partial publication and ambiguous acknowledgments, duplicate/concurrent/out-of-order delivery, stale-version fences, and complete-only job acknowledgment. Exercise recovery after lost responses or uncertain external effects, deletion fences, schema compatibility, replay, and a full projection rebuild. Use isolated real infrastructure where needed, but do not mistake local tests or declarations for live activation evidence; real-environment smoke requires separate approval and the owning runbook.
+Outbox, queue and projection tests SHOULD cover valid and invalid source changes, route prevalidation, all-or-nothing dispatch, lease expiry and ambiguous acknowledgments, duplicate/concurrent/out-of-order delivery, stale-version fences, and complete-only job acknowledgment. Exercise recovery after lost responses or uncertain external effects, deletion fences, schema compatibility, replay, and a full projection rebuild. Use isolated real infrastructure where needed, but do not mistake local tests or declarations for live activation evidence; real-environment smoke requires separate approval and the owning runbook.
 
 ## 13. Error boundaries
 
@@ -1357,7 +1359,7 @@ Examples include creation, publication, permission changes, destructive actions,
 
 Success events for authoritative mutations SHOULD be logged after the transaction commits. This avoids recording a successful action that was later rolled back.
 
-The level a runtime logs at is operational configuration, and production runs at `warn` to bound log cost ([CloudWatch log cost controls](infra.md#cloudwatch-log-cost-controls)). Success events are INFO, so in production they exist only while an operator raises the level; failure outcomes are WARN or ERROR and always exist. A fact that production must retain, such as consent evidence, is logged at a target that stays at INFO or is written as an audit record, never left to the configured level.
+The level a runtime logs at is operational configuration, and production runs at `warn` to bound log volume ([log levels](infra.md#log-levels)). Success events are INFO, so in production they exist only while an operator raises the level; failure outcomes are WARN or ERROR and always exist. A fact that production must retain, such as consent evidence, is logged at a target that stays at INFO or is written as an audit record, never left to the configured level.
 
 Expected validation or authorization failures SHOULD be recorded with an appropriate outcome and severity, without dumping request payloads or secrets.
 
@@ -1565,10 +1567,11 @@ Adapters that fetch untrusted or externally supplied URLs MUST enforce an SSRF p
 
 Secrets MUST NOT be embedded in domain/application types, logs, errors, or committed configuration files.
 
-Runtime credentials are deployment inputs: the platform resolves them from the secret store into
-process configuration, and a credential change takes a release. Runtime code MUST NOT read a
-secret store per request or invocation. Non-secret configuration stores MUST NOT hold credentials.
-The [runtime credentials contract](infra.md#runtime-credentials) owns the mechanism.
+Runtime credentials are deployment inputs: each process reads them once at startup from
+root-owned secret files, one credential per file, that the platform mounts or passes into it, and
+a credential change takes effect when the process restarts. Runtime code MUST NOT fetch a secret
+per request or job. Non-secret settings files MUST NOT hold credentials. The
+[runtime credentials contract](infra.md#runtime-credentials) owns the mechanism.
 
 External clients and pools SHOULD be constructed at the composition boundary and reused rather than created per request.
 
@@ -1580,7 +1583,7 @@ External clients and pools SHOULD be constructed at the composition boundary and
 
 Aggregate tables SHOULD contain a monotonically increasing version. Updates MUST compare the loaded version and advance it once for a changed write.
 
-No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC consumers; ordinary use cases SHOULD NOT return it.
+No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and outbox consumers; ordinary use cases SHOULD NOT return it.
 
 A reconciliation that changes aggregates must lock its owner first, then affected aggregate rows in a stable order. Each changed row increments its version, so a stale ordinary aggregate write fails rather than restoring old state.
 

@@ -471,37 +471,4 @@ mod tests {
             problem_code(response).await
         );
     }
-
-    #[tokio::test]
-    async fn accepts_http_api_v2_base64_body_with_its_original_signature() {
-        let use_case = RecordingUseCase::new(Ok(ApplyLoopsPreferenceEventOutcome::Duplicate));
-        let hashes = Arc::clone(&use_case.hashes);
-        let (body, delivery_id, timestamp, signature) = signed_fixture();
-        let expected_digest: [u8; 32] = Sha256::digest(&body).into();
-        let mut event: serde_json::Value =
-            serde_json::from_str(include_str!("../../tests/fixtures/http_api_v2_health.json"))
-                .expect("HTTP API v2 fixture");
-        event["routeKey"] = "POST /v1/webhooks/loops".into();
-        event["rawPath"] = "/v1/webhooks/loops".into();
-        event["requestContext"]["http"]["method"] = "POST".into();
-        event["requestContext"]["http"]["path"] = "/v1/webhooks/loops".into();
-        event["headers"] = serde_json::json!({
-            "host": "api.example.test",
-            "webhook-id": delivery_id,
-            "webhook-timestamp": timestamp,
-            "webhook-signature": signature,
-        });
-        event["body"] = base64::engine::general_purpose::STANDARD
-            .encode(&body)
-            .into();
-        event["isBase64Encoded"] = true.into();
-        let request = lambda_http::request::from_str(&event.to_string()).expect("Lambda request");
-
-        let response = crate::lambda::handle_http_api_v2_request(app_for(use_case), request)
-            .await
-            .expect("Lambda HTTP adapter response");
-
-        assert_eq!(StatusCode::NO_CONTENT, response.status());
-        assert_eq!(vec![expected_digest], hashes.lock().unwrap().clone());
-    }
 }

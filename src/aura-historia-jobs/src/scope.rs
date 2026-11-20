@@ -52,36 +52,6 @@ impl WorkerScope {
         }
     }
 
-    pub const fn router_queue_url_env(self) -> &'static str {
-        match self {
-            Self::SearchFilterMatchNotification => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_SEARCH_FILTER_MATCH_NOTIFICATION"
-            }
-            Self::WatchlistNotification => "AURA_HISTORIA_ROUTER_QUEUE_URL_WATCHLIST_NOTIFICATION",
-            Self::ProductListingContentAssessment => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_CONTENT_ASSESSMENT"
-            }
-            Self::ProductListingTranslation => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_TRANSLATION"
-            }
-            Self::ProductListingEmbedding => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_EMBEDDING"
-            }
-            Self::ProductListingOpenSearch => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_OPENSEARCH"
-            }
-            Self::ProductListingRawNormalization => {
-                "AURA_HISTORIA_ROUTER_QUEUE_URL_PRODUCT_LISTING_RAW_NORMALIZATION"
-            }
-            Self::NotificationDelivery => "AURA_HISTORIA_ROUTER_QUEUE_URL_NOTIFICATION_DELIVERY",
-            Self::MarketingConsentSync => "AURA_HISTORIA_ROUTER_QUEUE_URL_MARKETING_CONSENT_SYNC",
-            Self::GeoResolution => "AURA_HISTORIA_ROUTER_QUEUE_URL_GEO_RESOLUTION",
-            Self::ListingGeography => "AURA_HISTORIA_ROUTER_QUEUE_URL_LISTING_GEOGRAPHY",
-            Self::ListingShipping => "AURA_HISTORIA_ROUTER_QUEUE_URL_LISTING_SHIPPING",
-            Self::UserIdentityDeletion => "AURA_HISTORIA_ROUTER_QUEUE_URL_USER_IDENTITY_DELETION",
-        }
-    }
-
     pub const fn consumer_queue(self) -> WorkerQueue {
         match self {
             Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
@@ -174,10 +144,6 @@ mod tests {
         assert_eq!(
             WorkerQueueType::Fifo,
             WorkerScope::MarketingConsentSync.queue_type()
-        );
-        assert_eq!(
-            "AURA_HISTORIA_ROUTER_QUEUE_URL_MARKETING_CONSENT_SYNC",
-            WorkerScope::MarketingConsentSync.router_queue_url_env()
         );
         for scope in WorkerScope::ALL
             .into_iter()

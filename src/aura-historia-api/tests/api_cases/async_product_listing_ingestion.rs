@@ -7,7 +7,7 @@ use api_support::{
 use auction_postgres::SqlxAuctionReferenceValidatorFactory;
 use listing_source_core::ListingSourceId;
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_ingestion_sqs::codec;
+use product_listing_ingestion_queue::codec;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingCommandReceiptStoreFactory,
     SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,

@@ -20,7 +20,7 @@
 
 ## Overview
 
-Aura Historia Backend is a Rust-based serverless application on AWS. 
+Aura Historia Backend is a Rust application that runs on a self-hosted host, with identity, CDN and email on AWS.
 It provides the APIs, event-driven pipelines, and data services that power the Aura Historia antiques marketplace — from ProductListing discovery and ListingSource integrations to user management and real-time notifications.
 
 ## Development
@@ -29,7 +29,7 @@ It provides the APIs, event-driven pipelines, and data services that power the A
 # Check the workspace
 cargo check --locked --workspace
 
-# Build all Lambda functions and binaries
+# Build every binary (api, mcp, worker, ops and the Cognito trigger Lambdas)
 cargo build --locked --workspace
 
 # Use test credentials for local fixtures
@@ -53,9 +53,9 @@ Start with the [documentation map](docs/README.md) to find the owning architectu
 
 ## Deployment and operations
 
-See the [workflow and release runbook](docs/infra.md#deployment-inputs-and-approvals) for
-manually dispatched, reviewed releases of protected `develop` commits with PostgreSQL
-migration, FX-only initialization, first-time setup and rollback. OpenSearch remains
+Releases build in GitHub Actions and deploy to the self-hosted host after a reviewer approves
+them; the [host deploy runbook](host/prod/README.md#deploys) covers migrations and rollback, and
+the [infrastructure runbook](docs/infra.md) what stays on AWS. OpenSearch remains
 an [externally operated service](docs/opensearch-stage.md#release-and-schema-change-contract).
 
 ## License

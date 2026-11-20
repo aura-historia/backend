@@ -1,17 +1,16 @@
-use aura_historia_mcp::{LambdaMcpRouter, McpDependencies, TransportConfig, mcp_router};
+use aura_historia_mcp::{McpDependencies, TransportConfig, mcp_router};
 use aura_historia_runtime::{ProductListingConfig, Runtime};
-use platform_lambda_bootstrap::materialize_google_application_credentials_from_env;
 use platform_observability::{LoggingConfig, init_with_directives};
-use std::sync::Arc;
+use platform_process::{
+    Shutdown, config::load_file_backed_environment, install_bounded_panic_hook,
+};
 
 type MainError = application::error::BoxError;
 
 fn main() -> Result<(), MainError> {
-    let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
-    if is_lambda {
-        // Injected ADC must be prepared before worker threads can read the environment.
-        materialize_google_application_credentials_from_env()?;
-    }
+    // A handler can panic on provider or persisted data; never print the payload.
+    install_bounded_panic_hook("aura-historia-mcp");
+    load_file_backed_environment()?;
     // SDK trace events include protocol messages and must never enter operational logs.
     init_with_directives(LoggingConfig::from_env(), &["rmcp=off"]);
     let transport = TransportConfig::from_env()?;
@@ -20,39 +19,19 @@ fn main() -> Result<(), MainError> {
         .enable_all()
         .build()?
         .block_on(async move {
-            if is_lambda {
-                let app = Arc::new(LambdaMcpRouter::new(
-                    Runtime::from_env().await?,
-                    transport,
-                    listing_config,
-                ));
-                aura_historia_mcp::lambda::run(move || {
-                    let app = Arc::clone(&app);
-                    async move { app.current().await }
-                })
+            // Registered before startup, so a stop request during composition is not lost.
+            let shutdown = Shutdown::register()?;
+            let address = transport.bind_addr;
+            let runtime = Runtime::from_env().await?;
+            let dependencies = McpDependencies::from_env(&listing_config)?;
+            let app = mcp_router(transport, &runtime, dependencies)?;
+            let listener = tokio::net::TcpListener::bind(address).await?;
+            tracing::info!(bind_addr = %address, "aura-historia-mcp listening");
+            // Stops accepting connections, then drains in-flight requests.
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown.received())
                 .await?;
-            } else {
-                let address = transport.bind_addr;
-                let runtime = Runtime::from_env().await?;
-                let dependencies = McpDependencies::from_env(&listing_config)?;
-                let app = mcp_router(transport, &runtime, dependencies)?;
-                let listener = tokio::net::TcpListener::bind(address).await?;
-                axum::serve(listener, app)
-                    .with_graceful_shutdown(shutdown())
-                    .await?;
-            }
+            tracing::info!("aura-historia-mcp drained in-flight requests and stopped");
             Ok(())
         })
-}
-
-async fn shutdown() {
-    #[cfg(unix)]
-    {
-        let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate());
-        if let Ok(mut terminate) = terminate {
-            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
-            return;
-        }
-    }
-    let _ = tokio::signal::ctrl_c().await;
 }
