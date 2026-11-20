@@ -43,7 +43,7 @@ describe("Application stacks", () => {
   test("puts only the CloudFront alarms in the edge metrics region, deployable without a bootstrap", () => {
     const stacks = createStacks();
     expect(stacks.edgeMonitoring.region).toBe("us-east-1");
-    expect(stacks.edgeMonitoring.synthesizer).toBeInstanceOf(cdk.BootstraplessSynthesizer);
+    expect(stacks.edgeMonitoring.synthesizer).toBeInstanceOf(cdk.LegacyStackSynthesizer);
     for (const stack of [stacks.host, stacks.identity, stacks.api, stacks.monitoring]) {
       expect(cdk.Token.isUnresolved(stack.region)).toBe(true);
     }

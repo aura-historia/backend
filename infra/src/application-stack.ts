@@ -197,14 +197,15 @@ export class ApplicationMonitoringStack extends cdk.Stack {
 
 /**
  * The CloudFront 5xx alarms and their own email topic, in the only region CloudFront publishes
- * metrics to. Its template has no assets and deploys inline, so the region needs no CDK
- * bootstrap or staging bucket.
+ * metrics to. The region has no CDK bootstrap: the legacy synthesizer names no bootstrap roles
+ * (the bootstrapless one still does), so the CLI deploys with its own credentials, and the
+ * template has no assets and is small enough to pass inline.
  */
 export class ApplicationEdgeMonitoringStack extends cdk.Stack {
   readonly monitoring: EdgeMonitoring;
 
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
-    super(scope, id, { ...stackProps(props), synthesizer: new cdk.BootstraplessSynthesizer() });
+    super(scope, id, { ...stackProps(props), synthesizer: new cdk.LegacyStackSynthesizer() });
     this.templateOptions.description = "Aura Historia edge monitoring stack";
     this.monitoring = new EdgeMonitoring(this, "EdgeMonitoring", { config: stageConfig(props.stage) });
     new cdk.CfnOutput(this, "AlarmTopicArn", { value: this.monitoring.alarms.topic.topicArn });
