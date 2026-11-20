@@ -3,7 +3,7 @@
 The canonical MCP endpoint is `https://mcp.aura-historia.com/v1`. The
 `aura-historia-mcp` crate serves the `/v1` router as a long-running process. The
 [front-door contract](http-api-front-door.md#mcp-front-door) owns hosting, certificates,
-Origin/CORS and stage verification. The process composes one registry and authenticates each
+Origin/CORS and release verification. The process composes one registry and authenticates each
 request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
@@ -447,7 +447,7 @@ checks the complete one-page catalogue through native HTTP and official SDK clie
 against isolated PostgreSQL, and that every removed name is unlisted and uncallable without
 side effects.
 
-## Generic OAuth acceptance and stage smoke
+## Generic OAuth acceptance and release smoke
 
 Agent clients that support Client ID Metadata Documents, such as Claude, ChatGPT and VS Code,
 sign in without registration where the environment enables
@@ -481,19 +481,19 @@ keep the production outbound policy.
 
 That fixture constructs the advertised browser handoff and exercises backend approval with
 test first-party identity. It does not render or test the webapp. Local fixtures, compatibility
-tests and CDK synth establish local evidence only; stage/browser/released acceptance needs
-its own executed evidence.
+tests and CDK synth establish local evidence only; browser and released acceptance need
+their own executed evidence.
 
-After the approved stage release and DNS/TLS/front-door checks in the
-[hosting runbook](http-api-front-door.md#mcp-deployment-and-stage-verification), run the
+After an approved production release and the DNS/TLS/front-door checks in the
+[hosting runbook](http-api-front-door.md#mcp-deployment-and-release-verification), run the
 optional read-only command from the matching release checkout (Python 3 on Linux/macOS):
 
 ```sh
 python3 tools/mcp-smoke.py --release-commit <exact-deployed-40-character-sha> \
-  --output /tmp/mcp-stage-evidence.json
+  --output /tmp/mcp-release-evidence.json
 ```
 
-This command contacts only the canonical stage MCP/issuer origins, follows no redirects,
+This command contacts only the canonical production MCP/issuer origins, follows no redirects,
 performs at most 40 requests, caps each response at 2 MiB and stops within 90 seconds. It checks
 both resource-metadata paths, AS discovery, supported current/legacy revisions, the actual
 manifest union, a public operation, unknown-tool rejection of a removed partner operation,
@@ -505,9 +505,9 @@ checks JSON-RPC framing, manifest policy, matching tool representations and thei
 required members. The local Rust fixture validates selected complete outputs against the shared
 DTO schemas. A failed or omitted check is not a pass.
 
-For the delegated read check, complete generic consent for a dedicated stage user with
+For the delegated read check, complete generic consent for a dedicated smoke user with
 `users:read`, place the returned token in an owner-readable file outside the checkout,
-and add `--token-file /path/to/stage-token`. The optional request reads the user's account
+and add `--token-file /path/to/smoke-token`. The optional request reads the user's account
 but does not record its result. Revoke the dedicated connection afterwards through Aura's
 existing account token controls or `/v1/oauth/revoke`; do not include secrets in the evidence.
 The command performs no registration, approval, exchange, mutation, revocation or deployment.

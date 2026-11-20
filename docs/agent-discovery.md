@@ -220,7 +220,7 @@ Change the renderer and its tests together with this document. A change to the c
 endpoint also needs a [registry re-publish](#registry-listing). For the API host, also update
 [OpenAPI](swagger.yaml) and the [changelog](CHANGELOG.md). A new path also needs an exact
 Gateway route, its CloudFront behaviour and a row in the
-[stage verification table](http-api-front-door.md#mcp-deployment-and-stage-verification); a new
+[release verification table](http-api-front-door.md#mcp-deployment-and-release-verification); a new
 website document also needs its publication in the webapp. Editing a skill changes its digest;
 the index follows automatically. Keep skills and `auth.md` in line with the contracts they
 summarize, and link only to the environment's origins; tests reject a REST route or MCP tool
