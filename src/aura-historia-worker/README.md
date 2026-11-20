@@ -2,7 +2,8 @@
 
 `aura-historia-worker` (the image's `worker` entrypoint) runs the
 [delivery outbox](../delivery-outbox/README.md) dispatcher and one consumer per job scope on the
-[consumer runtime](../platform-worker/README.md). Each scope's module in [`src/scopes`](src/scopes)
+[consumer runtime](../platform-worker/README.md), and publishes the host's
+[health metrics](#health-metrics). Each scope's module in [`src/scopes`](src/scopes)
 decodes its jobs, invokes the service use case and maps every outcome to a queue disposition
 (complete, retry or park). Business logic stays in the service crates.
 
@@ -37,6 +38,9 @@ used to rebuild into an isolated index with `ops reproject-all --generation <g>`
 | `AURA_HISTORIA_WORKER_DISPATCH_BATCH_SIZE` | Outbox rows per dispatch transaction; default 100 |
 | `AURA_HISTORIA_WORKER_POLL_INTERVAL_MS` | Longest idle wait without a notification; default 5000 |
 | `AURA_HISTORIA_WORKER_SHUTDOWN_GRACE_SECONDS` | In-flight completion window on SIGTERM; default 25. The container's stop timeout must exceed it, or jobs are killed instead of released and return only after their lease |
+| `AURA_HISTORIA_WORKER_METRICS_NAMESPACE` | CloudWatch namespace of the [health metrics](#health-metrics); unset, none are published |
+| `AURA_HISTORIA_WORKER_METRICS_BACKUP_MARKER` | With a namespace: the file whose modification time is the last successful backup |
+| `AURA_HISTORIA_WORKER_METRICS_DISK_PATH` | With a namespace: a path on the filesystem whose free space is reported |
 
 Each scope also reads its providers' settings (for example
 `ANTHROPIC_API_KEY`, `VERTEX_AI_PROJECT_ID`, `LOOPS_API_KEY`, `OPENSEARCH_ENDPOINT_URL`, the
@@ -52,10 +56,31 @@ If a consumer, the dispatcher or the wake-up listener stops on its own, the work
 every other task and exits non-zero, so the container is restarted rather than running with a
 scope that no longer consumes.
 
+## Health metrics
+
+With a namespace configured, the worker publishes these once a minute in one `PutMetricData`
+call, without further dimensions; the host's alarms ([monitoring](../../docs/infra.md#monitoring))
+watch them from AWS, so they also fire when the host is gone. Nothing else is published: per-scope
+figures stay in `ops inspect`.
+
+| Metric | Unit | Value |
+| --- | --- | --- |
+| `Heartbeat` | Count | 1, every round |
+| `PostgresReachable` | None | 1 when the queue figures were read within 20 s, otherwise 0, every round |
+| `OldestJobAgeSeconds`, dimension `Class` = `normal` or `bulk` | Seconds | Age of the class's oldest waiting job (not under a lease, as in `ops inspect`), 0 without one. Bulk is translation, embedding and isolated projection generations; every other scope, including one no consumer knows, and the oldest undispatched outbox snapshot are normal |
+| `ParkedJobs` | Count | Jobs in failure custody across every scope, plus outbox snapshots in custody |
+| `FreeDiskPercent` | Percent | Space available to unprivileged writers on the disk path's filesystem |
+| `SecondsSinceLastBackup` | Seconds | Time since the backup marker was modified; absent while there is no marker |
+
+The queue figures are published only when PostgreSQL answered, and a figure that could not be
+read is left out, so the alarms see missing data rather than a made-up value. A failed round
+logs `worker.health_metrics.*` at WARN and the next round tries again. The host's IAM user may
+publish only to the configured namespace ([host access](../../docs/infra.md#host-access)).
+
 ## PostgreSQL pool
 
-The worker's fixed pool is one connection per concurrent job plus four for the wake-up listeners,
-the dispatcher and settlement: 76 with every scope at its default. Override it with `POSTGRES_MAX_CONNECTIONS` only together with the
+The worker's fixed pool is one connection per concurrent job plus five for the wake-up listeners,
+the dispatcher, settlement and the health metrics: 77 with every scope at its default. Override it with `POSTGRES_MAX_CONNECTIONS` only together with the
 concurrency.
 
 ## Tests

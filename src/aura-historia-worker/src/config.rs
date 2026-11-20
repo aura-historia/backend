@@ -4,7 +4,7 @@ use crate::scope::ConsumedScope;
 use platform_process::config::{self, ConfigError};
 use platform_worker::{ConsumerConfig, ConsumerConfigError};
 use platform_worker_queue_contract::job_queue::ProjectionGeneration;
-use std::{num::NonZeroU16, time::Duration};
+use std::{num::NonZeroU16, path::PathBuf, time::Duration};
 
 /// Comma-separated scope names this worker consumes, or `all` (the default).
 pub const SCOPES_ENV: &str = "AURA_HISTORIA_WORKER_SCOPES";
@@ -18,12 +18,19 @@ pub const SHUTDOWN_GRACE_SECONDS_ENV: &str = "AURA_HISTORIA_WORKER_SHUTDOWN_GRAC
 /// Prefix of a per-scope concurrency override, followed by the scope name in upper snake case,
 /// for example `AURA_HISTORIA_WORKER_CONCURRENCY_GEO_RESOLUTION`.
 pub const CONCURRENCY_ENV_PREFIX: &str = "AURA_HISTORIA_WORKER_CONCURRENCY_";
+/// The CloudWatch namespace of the host health metrics; unset, the worker publishes none.
+pub const METRICS_NAMESPACE_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_NAMESPACE";
+/// A file whose modification time is the last successful database backup.
+pub const METRICS_BACKUP_MARKER_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_BACKUP_MARKER";
+/// A path on the host filesystem whose free space the metrics report.
+pub const METRICS_DISK_PATH_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_DISK_PATH";
 
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(25);
 const DEFAULT_DISPATCH_BATCH_SIZE: u16 = 100;
-/// Connections beyond the jobs' own: the two wake-up listeners, the dispatcher and settlement.
-const POOL_HEADROOM: u32 = 4;
+/// Connections beyond the jobs' own: the two wake-up listeners, the dispatcher, settlement and
+/// the health metrics.
+const POOL_HEADROOM: u32 = 5;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerConfigError {
@@ -51,6 +58,31 @@ pub struct WorkerConfig {
     pub dispatch_batch_size: Option<NonZeroU16>,
     pub poll_interval: Duration,
     pub shutdown_grace: Duration,
+    /// Where the host health metrics go, or `None` when this process publishes none.
+    pub health_metrics: Option<HealthMetricsConfig>,
+}
+
+/// The host health metrics' destination and the host paths they read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HealthMetricsConfig {
+    pub namespace: String,
+    pub backup_marker: PathBuf,
+    pub disk_path: PathBuf,
+}
+
+impl HealthMetricsConfig {
+    /// Configured by its namespace; the paths are then required.
+    fn from_env() -> Result<Option<Self>, ConfigError> {
+        let namespace = config::optional(METRICS_NAMESPACE_ENV, String::new())?;
+        if namespace.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            namespace,
+            backup_marker: config::required(METRICS_BACKUP_MARKER_ENV)?.into(),
+            disk_path: config::required(METRICS_DISK_PATH_ENV)?.into(),
+        }))
+    }
 }
 
 impl WorkerConfig {
@@ -92,11 +124,12 @@ impl WorkerConfig {
             dispatch_batch_size,
             poll_interval,
             shutdown_grace,
+            health_metrics: HealthMetricsConfig::from_env()?,
         })
     }
 
     /// The fixed pool this process needs: one connection per concurrent job, as each Lambda
-    /// invocation had, plus the listeners, the dispatcher and settlement.
+    /// invocation had, plus the listeners, the dispatcher, settlement and the health metrics.
     pub fn pool_size(&self) -> u32 {
         self.scopes
             .iter()

@@ -77,7 +77,10 @@ with its attempt count, custody reason, last error class and timestamps. Error c
 bounded labels, never error text or payload content. Custody is never purged.
 
 - `inspect` reports a scope's waiting depth, leased count, age of the oldest waiting job and
-  custody count, reading only that scope's rows. It is the source the queue metrics publish.
+  custody count, reading only that scope's rows; `ops inspect` prints it for every scope.
+- `overview` reports the age of every scope's oldest waiting job and the custody count across
+  all scopes, including uncatalogued ones such as projection generations. The worker's
+  [health metrics](../aura-historia-worker/README.md#health-metrics) publish it.
 - `redrive` moves selected or all custody jobs of a scope back with their identity and order
   and a fresh retry budget. A redriven FIFO job runs before every later job of its group. A job
   whose ID or dedup key is already queued stays in custody and is reported as conflicting.

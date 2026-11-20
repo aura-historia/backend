@@ -156,3 +156,43 @@ async fn should_report_depth_leases_oldest_waiting_age_and_custody_per_scope() {
         "{age:?}"
     );
 }
+
+#[aura_integration_test(services = [DATABASE], isolated = true)]
+async fn should_overview_every_scopes_oldest_waiting_job_and_all_custody() {
+    let pool = get_postgres_client().await;
+    let busy = scope(
+        "overview-busy",
+        QueueOrdering::Standard,
+        LONG,
+        1,
+        Duration::ZERO,
+    );
+    let leased_only = standard("overview-leased");
+    let busy_queue = JobQueue::new(pool.clone(), busy.clone());
+    push(&pool, &busy, None, "custody").await;
+    exhaust(&busy_queue).await;
+    push(&pool, &busy, None, "waiting").await;
+    push(&pool, &leased_only, None, "leased").await;
+    let _leased = claim_one(&JobQueue::new(pool.clone(), leased_only.clone()))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let overview = platform_postgres_queue::overview(&pool).await.unwrap();
+
+    assert_eq!(1, overview.in_custody);
+    assert_eq!(
+        vec![busy.name().clone()],
+        overview
+            .oldest_waiting
+            .iter()
+            .map(|(scope, _)| scope.clone())
+            .collect::<Vec<_>>(),
+        "a scope whose only job is leased has no waiting job"
+    );
+    let age = overview.oldest_waiting[0].1;
+    assert!(
+        age >= Duration::from_millis(200) && age < Duration::from_secs(60),
+        "{age:?}"
+    );
+}
