@@ -307,54 +307,32 @@ mod tests {
         assert_eq!("subject-1", calls[0].1.identity.subject.as_str());
     }
 
+    /// The signature scheme's own cases are proven in `cognito-trigger-signing`; this proves the
+    /// route verifies with its purpose and refuses before the use case runs.
     #[tokio::test]
-    async fn should_refuse_a_replayed_request_whose_timestamp_has_expired() {
+    async fn should_refuse_any_request_that_fails_verification_without_registering() {
         let registration = Arc::new(FakeRegistration::default());
-        let expired = now() - TIMESTAMP_TOLERANCE_SECONDS - 60;
-
-        let (status, body) = send(
-            router(Arc::clone(&registration)),
-            signed(event("eu-central-1_pool"), KEY, expired),
+        let body = event("eu-central-1_pool");
+        let timestamp = now();
+        let mut pre_sign_up_signed = signed(body.clone(), KEY, timestamp);
+        let pre_sign_up_signature = sign(
+            &SigningKey::new(KEY).unwrap(),
+            SignaturePurpose::PreSignUp,
+            timestamp,
+            &body,
         )
-        .await;
-
-        assert_eq!(StatusCode::UNAUTHORIZED, status);
-        assert_eq!("POST_CONFIRMATION_UNAUTHORIZED", body["error"]);
-        assert!(registration.calls.lock().unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn should_refuse_a_timestamp_from_the_future() {
-        let registration = Arc::new(FakeRegistration::default());
-        let future = now() + TIMESTAMP_TOLERANCE_SECONDS + 60;
-
-        let (status, _) = send(
-            router(Arc::clone(&registration)),
-            signed(event("eu-central-1_pool"), KEY, future),
-        )
-        .await;
-
-        assert_eq!(StatusCode::UNAUTHORIZED, status);
-        assert!(registration.calls.lock().unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn should_refuse_a_bad_signature() {
-        let registration = Arc::new(FakeRegistration::default());
-        let mut tampered = signed(event("eu-central-1_pool"), KEY, now());
-        *tampered.body_mut() = Body::from(event("eu-central-1_other"));
+        .unwrap();
+        pre_sign_up_signed
+            .headers_mut()
+            .insert(SIGNATURE_HEADER, pre_sign_up_signature.parse().unwrap());
         let unsigned = Request::post(PATH)
             .header("content-type", "application/json")
-            .body(Body::from(event("eu-central-1_pool")))
+            .body(Body::from(body.clone()))
             .unwrap();
 
         for request in [
-            signed(
-                event("eu-central-1_pool"),
-                "a-different-signing-key-0123456789abc",
-                now(),
-            ),
-            tampered,
+            signed(body, KEY, now() - TIMESTAMP_TOLERANCE_SECONDS - 60),
+            pre_sign_up_signed,
             unsigned,
         ] {
             let (status, body) = send(router(Arc::clone(&registration)), request).await;

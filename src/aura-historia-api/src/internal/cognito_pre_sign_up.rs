@@ -416,50 +416,20 @@ mod tests {
         }
     }
 
+    /// The signature scheme's own cases are proven in `cognito-trigger-signing`; this proves the
+    /// route verifies with its purpose and refuses before the use case runs.
     #[tokio::test]
-    async fn should_refuse_a_replayed_or_future_timestamp() {
+    async fn should_refuse_any_request_that_fails_verification_without_resolving() {
         let resolver = FakeResolver::answering(Ok(FederatedAccountDecision::AllowNewAccount));
-
-        for timestamp in [
-            now() - TIMESTAMP_TOLERANCE_SECONDS - 60,
-            now() + TIMESTAMP_TOLERANCE_SECONDS + 60,
-        ] {
-            let (status, body) = send(
-                router(Arc::clone(&resolver)),
-                signed(request_body(ISSUER), timestamp),
-            )
-            .await;
-
-            assert_eq!(StatusCode::UNAUTHORIZED, status);
-            assert_eq!("PRE_SIGN_UP_UNAUTHORIZED", body["error"]);
-        }
-        assert!(resolver.commands().is_empty());
-    }
-
-    #[tokio::test]
-    async fn should_refuse_a_bad_signature_or_one_made_for_another_purpose() {
-        let resolver = FakeResolver::answering(Ok(FederatedAccountDecision::AllowNewAccount));
-        let mut tampered = signed(request_body(ISSUER), now());
-        *tampered.body_mut() = Body::from(
-            serde_json::to_vec(&json!({
-                "email": "eve@example.test",
-                "emailVerified": true,
-                "issuer": ISSUER,
-                "existingEmailAction": "LINK_VERIFIED"
-            }))
-            .unwrap(),
-        );
         let unsigned = Request::post(PATH)
             .header("content-type", "application/json")
             .body(Body::from(request_body(ISSUER)))
             .unwrap();
 
         for request in [
-            signed_for(
-                SignaturePurpose::PreSignUp,
+            signed(
                 request_body(ISSUER),
-                "a-different-signing-key-0123456789abc",
-                now(),
+                now() - TIMESTAMP_TOLERANCE_SECONDS - 60,
             ),
             signed_for(
                 SignaturePurpose::PostConfirmation,
@@ -467,7 +437,6 @@ mod tests {
                 KEY,
                 now(),
             ),
-            tampered,
             unsigned,
         ] {
             let (status, body) = send(router(Arc::clone(&resolver)), request).await;

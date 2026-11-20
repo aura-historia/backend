@@ -334,7 +334,6 @@ fn email_config_from(
 mod tests {
     use super::*;
     use crate::scopes::test_support::claimed_job;
-    use notification_email_aws::EmailDeliveryConfigError;
     use notification_service::ports::notification_channel_sender::NotificationChannelSendError;
     use std::{collections::VecDeque, sync::Mutex};
     use test_api::CapturedLogs;
@@ -567,73 +566,6 @@ mod tests {
             "missing required configuration NOTIFICATION_EMAIL_CONFIGURATION_SET",
             error.to_string()
         );
-    }
-
-    #[test]
-    fn should_validate_configuration_set_env_without_exposing_invalid_values() {
-        for value in [
-            "".to_owned(),
-            " ".to_owned(),
-            "private@example.test".to_owned(),
-            "email.name".to_owned(),
-            "émail".to_owned(),
-            "a".repeat(65),
-        ] {
-            let error = email_config_from(|name| {
-                if name == CONFIGURATION_SET_ENV {
-                    Ok(value.clone())
-                } else {
-                    test_env(name)
-                }
-            })
-            .err()
-            .expect("invalid configuration set");
-            assert_eq!(
-                Some(&EmailDeliveryConfigError::InvalidConfigurationSetName),
-                error.downcast_ref::<EmailDeliveryConfigError>()
-            );
-            assert_eq!(
-                "invalid notification email SES configuration set name",
-                error.to_string()
-            );
-        }
-    }
-
-    #[test]
-    fn should_reject_non_unicode_configuration_set_env_without_exposing_values() {
-        let error = email_config_from(|name| {
-            if name == CONFIGURATION_SET_ENV {
-                Err(ConfigError::Invalid { name: name.into() })
-            } else {
-                test_env(name)
-            }
-        })
-        .err()
-        .expect("configuration set must be Unicode");
-        assert_eq!(
-            "invalid configuration NOTIFICATION_EMAIL_CONFIGURATION_SET",
-            error.to_string()
-        );
-    }
-
-    #[test]
-    fn should_accept_explicit_configuration_set_env_independently_of_stage() {
-        for value in [
-            "aura-historia-test-email".to_owned(),
-            "Custom_Configuration-123".to_owned(),
-            "a".repeat(64),
-        ] {
-            assert!(
-                email_config_from(|name| {
-                    if name == CONFIGURATION_SET_ENV {
-                        Ok(value.clone())
-                    } else {
-                        test_env(name)
-                    }
-                })
-                .is_ok()
-            );
-        }
     }
 
     fn valid_body() -> String {

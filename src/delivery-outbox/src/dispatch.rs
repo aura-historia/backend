@@ -275,6 +275,13 @@ mod tests {
         );
         versioned.snapshot_version = 2;
         assert_eq!(Err("unsupported_snapshot_version"), plan(&versioned));
+        assert_eq!(
+            Err("invalid_source_row"),
+            plan(&row(
+                "listing_shipping_wakeups",
+                json!({"work_id": uuid(), "generation": 0})
+            ))
+        );
     }
 
     #[test]

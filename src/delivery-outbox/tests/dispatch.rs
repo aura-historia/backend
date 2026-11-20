@@ -92,54 +92,6 @@ async fn should_move_an_invalid_snapshot_of_each_source_to_custody_without_block
 }
 
 #[aura_integration_test(services = [DATABASE], isolated = true)]
-async fn should_take_values_that_routing_rejects_into_custody_with_their_class() {
-    let pool = get_postgres_client().await;
-    let not_an_object_id = uuid::Uuid::new_v4().to_string();
-    for (table, version, snapshot, class) in [
-        (
-            "notification_deliveries",
-            1,
-            json!({"notification_delivery_id": not_an_object_id}),
-            "invalid_identity",
-        ),
-        (
-            "notification_deliveries",
-            2,
-            json!({"notification_delivery_id": uuid::Uuid::now_v7().to_string()}),
-            "unsupported_snapshot_version",
-        ),
-        (
-            "users",
-            1,
-            json!({"user_id": not_an_object_id}),
-            "unsupported_source",
-        ),
-        (
-            "listing_shipping_wakeups",
-            1,
-            json!({"work_id": uuid::Uuid::now_v7().to_string(), "generation": 0}),
-            "invalid_source_row",
-        ),
-    ] {
-        sqlx::query(
-            "INSERT INTO delivery_outbox (source_table, snapshot_version, snapshot) VALUES ($1, $2, $3)",
-        )
-        .bind(table)
-        .bind(version)
-        .bind(&snapshot)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        dispatch(&pool).await;
-
-        let (_, _, kept, recorded) = custody(&pool).await.pop().unwrap();
-        assert_eq!((snapshot, class.to_owned()), (kept, recorded));
-    }
-    assert!(queued_jobs(&pool).await.is_empty());
-}
-
-#[aura_integration_test(services = [DATABASE], isolated = true)]
 async fn should_dispatch_every_source_again_with_the_same_effect_after_a_crash_before_commit() {
     let pool = get_postgres_client().await;
     detach_source_foreign_keys(&pool).await;
