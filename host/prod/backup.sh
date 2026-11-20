@@ -30,7 +30,7 @@ main() {
       ;;
     full | diff)
       pgbackrest --type="$1" backup
-      mkdir -p -m 0755 "${BACKUP_MARKER%/*}"
+      install -d -m 0755 "${BACKUP_MARKER%/*}"
       touch "${BACKUP_MARKER}"
       ;;
     info) pgbackrest info ;;
