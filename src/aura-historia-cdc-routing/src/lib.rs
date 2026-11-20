@@ -1362,13 +1362,6 @@ fn domain_job(
     }
 }
 
-pub fn row_for_operation(change: &CdcChange) -> Result<&Value, CdcRouteError> {
-    match change.operation {
-        Operation::Delete => change.old_record.as_ref().ok_or(CdcRouteError::MissingRow),
-        Operation::Insert | Operation::Update => required_row(change),
-    }
-}
-
 pub fn required_row(change: &CdcChange) -> Result<&Value, CdcRouteError> {
     change.record.as_ref().ok_or(CdcRouteError::MissingRow)
 }
@@ -1394,7 +1387,7 @@ fn integer_field(row: &Value, field: &str) -> Option<i64> {
     }
 }
 
-pub fn canonical_decimal_i64(value: &str) -> Option<i64> {
+fn canonical_decimal_i64(value: &str) -> Option<i64> {
     let digits = value.strip_prefix('-').unwrap_or(value);
     if digits.is_empty()
         || !digits.bytes().all(|byte| byte.is_ascii_digit())

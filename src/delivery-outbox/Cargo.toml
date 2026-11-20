@@ -19,9 +19,7 @@ tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 domain-primitives = { workspace = true }
-notification-core = { workspace = true }
 product-listing-postgres = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 user-core = { workspace = true }

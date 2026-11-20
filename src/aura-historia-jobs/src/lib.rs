@@ -1,4 +1,4 @@
-//! Transport-neutral compact job contract and versioned semantic SQS wire format.
+//! Transport-neutral compact job contract and its versioned semantic wire format.
 pub mod jobs;
 pub mod scope;
 pub mod wire;

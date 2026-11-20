@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 application = { workspace = true }
-aura-historia-jobs = { workspace = true }
 delivery-outbox = { workspace = true }
 fxrate-fxratesapi = { workspace = true }
 fxrate-postgres = { workspace = true }

@@ -68,7 +68,6 @@ product-listing-normalization = { workspace = true }
 search-filter-core = { workspace = true }
 serde = { workspace = true }
 serde-email = { workspace = true }
-serial_test = { workspace = true }
 test-api = { workspace = true, features = ["opensearch", "postgres", "ses"] }
 time = { workspace = true, features = ["macros"] }
 uuid = { workspace = true, features = ["v7"] }
