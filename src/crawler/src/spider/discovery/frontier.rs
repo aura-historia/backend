@@ -8,6 +8,7 @@
 use regex::{Regex, RegexSet};
 use spider::CaseInsensitiveString;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
 
@@ -15,6 +16,7 @@ use super::known_pages::{KnownPage, KnownPages};
 use super::page_base::link_base;
 use super::robots::CrawlRobots;
 use super::website_spider::{CrawlBudgetScale, CrawlPace};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 
 /// Most URLs one crawl hands Spider as seeds, and most it leaves for the next crawl. Spider keeps
@@ -72,6 +74,10 @@ pub struct CrawlRequest {
     pub pace: CrawlPace,
     pub budget: CrawlBudgetScale,
     pub seeds: CrawlSeeds,
+    /// The ListingSource's product URL pattern: the pages its sitemaps list that the pattern
+    /// takes are stored without a fetch, and the crawl does not fetch them
+    /// (`docs/crawler/networking.md#sitemaps`).
+    pub product_pattern: Option<ProductUrlPattern>,
 }
 
 impl CrawlRequest {
@@ -82,6 +88,7 @@ impl CrawlRequest {
             pace,
             budget: CrawlBudgetScale::STANDARD,
             seeds: CrawlSeeds::default(),
+            product_pattern: None,
         }
     }
 }
@@ -163,6 +170,8 @@ pub(super) struct FoundLinks {
     /// The pages Spider delivered. Spider counts a link visited once it starts
     /// the fetch, also when its crawl ended before the page arrived.
     delivered: Arc<Mutex<HashSet<CaseInsensitiveString>>>,
+    /// Set once the crawl turns to the sitemap seeds ([`Self::stop_recording`]).
+    recording_stopped: Arc<AtomicBool>,
 }
 
 impl FoundLinks {
@@ -172,6 +181,7 @@ impl FoundLinks {
             rules,
             links: Arc::default(),
             delivered: Arc::default(),
+            recording_stopped: Arc::default(),
         }
     }
 
@@ -195,16 +205,32 @@ impl FoundLinks {
         visited: impl Fn(&CaseInsensitiveString) -> bool,
     ) -> Vec<String> {
         let found = self.snapshot();
+        self.unvisited_among(seeds.iter().chain(found.iter()), visited)
+    }
+
+    /// The `candidates` whose page the crawl neither delivered nor `visited` counts, each once,
+    /// at most [`MAX_FRONTIER_URLS`].
+    pub(super) fn unvisited_among<'a>(
+        &self,
+        candidates: impl IntoIterator<Item = &'a String>,
+        visited: impl Fn(&CaseInsensitiveString) -> bool,
+    ) -> Vec<String> {
         let delivered = self
             .delivered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         unvisited(
-            seeds.iter().chain(found.iter()),
+            candidates,
             |link| delivered.contains(link) || visited(link),
             MAX_FRONTIER_URLS,
         )
+    }
+
+    /// Stops recording links: what the crawl finds from now on, while it visits the sitemap
+    /// seeds in its leftover time, is no frontier for the next crawl.
+    pub(super) fn stop_recording(&self) {
+        self.recording_stopped.store(true, Ordering::Relaxed);
     }
 
     /// The seeds and found links whose page the crawl neither delivered nor already knew, at
@@ -271,6 +297,9 @@ impl FoundLinks {
     }
 
     fn remember(&self, stored: impl IntoIterator<Item = String>) {
+        if self.recording_stopped.load(Ordering::Relaxed) {
+            return;
+        }
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
         for link in stored {
             if links.len() >= MAX_FOUND_LINKS {

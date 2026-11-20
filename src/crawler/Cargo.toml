@@ -37,6 +37,7 @@ encoding_rs = { workspace = true }
 # see `src/network/response_body.rs`.
 flate2 = { workspace = true }
 brotli = { workspace = true }
+quick-xml = { workspace = true }
 httpdate = { workspace = true }
 # Tells a connection the shop closed without an answer apart from other request
 # failures; see `src/network/policy.rs`.
