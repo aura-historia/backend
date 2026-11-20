@@ -74,7 +74,7 @@ pub(crate) async fn store_crawl_root(
 /// default subscriber. Use it from tests that assert on log fields.
 pub(crate) mod logged_events {
     use std::collections::BTreeMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, Once};
     use tracing::Level;
     use tracing_subscriber::layer::SubscriberExt;
 
@@ -94,13 +94,16 @@ pub(crate) mod logged_events {
     pub(crate) struct LoggedEvents(Arc<Mutex<Vec<LoggedEvent>>>);
 
     impl LoggedEvents {
-        /// Starts capturing; events are recorded until the guard drops.
+        /// Starts capturing the events logged on this thread until the guard drops. Events
+        /// logged on other threads are not recorded, so a capturing test drives the code under
+        /// test on a current-thread runtime, the `#[tokio::test]` default.
         pub(crate) fn capture() -> (Self, tracing::subscriber::DefaultGuard) {
+            keep_every_callsite_interested();
             let events = Self::default();
+            // Registering the new default rebuilds every cached callsite interest.
             let guard = tracing::subscriber::set_default(
                 tracing_subscriber::registry().with(events.clone()),
             );
-            tracing::callsite::rebuild_interest_cache();
             (events, guard)
         }
 
@@ -120,6 +123,23 @@ pub(crate) mod logged_events {
                 .filter(|logged| logged.field("event") == Some(event))
                 .collect()
         }
+    }
+
+    /// `tracing` caches each callsite's interest once for the whole process. While at most one
+    /// dispatcher was alive at the last subscriber registration, the thread that reaches a
+    /// callsite first decides that interest from its own default alone: a parallel test thread
+    /// without a subscriber caches "never", and a capture on another thread then misses the
+    /// callsite's events. A global subscriber that wants every event and records nothing is the
+    /// default of every thread without its own, so no cached interest is ever "never" and each
+    /// event asks its thread's default. Call it before installing a test's own subscriber; that
+    /// installation rebuilds the cached interests.
+    pub(crate) fn keep_every_callsite_interested() {
+        static INSTALLED: Once = Once::new();
+        INSTALLED.call_once(|| {
+            tracing::subscriber::set_global_default(tracing_subscriber::registry()).unwrap_or_else(
+                |error| panic!("crawler unit tests set no global subscriber: {error}"),
+            );
+        });
     }
 
     struct Fields(BTreeMap<String, String>);
@@ -276,5 +296,28 @@ pub(crate) mod local_tls {
         fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
             self.0.supported_schemes()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::logged_events::LoggedEvents;
+
+    fn log_probe() {
+        tracing::info!(event = "interest_probe");
+    }
+
+    /// Proves the fix when run alone: in a parallel run, other tests' subscribers usually hide
+    /// the race this reproduces.
+    #[test]
+    fn should_capture_a_callsite_that_a_thread_without_a_subscriber_reached_first() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        std::thread::spawn(log_probe)
+            .join()
+            .expect("the probe thread finishes");
+        log_probe();
+
+        assert_eq!(events.named("interest_probe").len(), 1);
     }
 }
