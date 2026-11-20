@@ -1,6 +1,6 @@
 ---
 name: aura-data-events
-description: "Audit aura-historia/backend PostgreSQL integrity, migrations, concurrency, CDC/SQS workers, replay receipts, projection fences and deletion/retention. Invoke manually for changed flows or an end-to-end failure review."
+description: "Audit aura-historia/backend PostgreSQL integrity, migrations, concurrency, outbox and job-queue workers, replay receipts, projection fences and deletion/retention. Invoke manually for changed flows or an end-to-end failure review."
 disable-model-invocation: true
 ---
 
@@ -33,12 +33,12 @@ Review these failure windows with explicit expected behavior:
 Check DB uniqueness/FK/check constraints, fallible codecs, null vs corruption semantics,
 transaction-bound factories, affected-row checks, compare-and-swap/lock order, deletion
 races, migrations on empty AND representative prior schemas, expand/contract compatibility,
-CDC selection and row-image assumptions. Never edit an already-applied migration or run
+outbox trigger coverage and row-image assumptions. Never edit an already-applied migration or run
 migrations against a shared database as cleanup.
 
-For SQS/Kinesis inspect batch response identifiers, missing IDs, complete setup failure,
-Standard vs FIFO processing, unfinished FIFO suffix retention, timeout headroom, checkpoints,
-poison-message custody, redrive and bounded drains. Transport message IDs are not business
+For the outbox and job queue inspect dispatch atomicity, unroutable rows, lease expiry
+versus handler deadlines, attempt accounting, FIFO group ordering behind a failed head, dedup
+keys, custody of exhausted jobs, replay and bounded drains. Queue job IDs are not business
 idempotency keys. Trace caller completion predicates, not only shared transport helpers.
 For provider execution inspect local claims/fencing and acceptance/finalization ambiguity.
 

@@ -10,9 +10,8 @@ listing text beyond the short labels, amounts and phrases that the rules match.
 
 I replayed the full production normalization diagnostic corpus: <N> cases from <S> sources,
 recorded <first> to <last>, <M> of them under the current v<V> heuristics. I exported it with the
-`normalization-heuristics` skill (read-only Fargate task, transfer over ECS Exec, SHA-256
-verified) and replayed it offline with `normalization-replay --input`. The temporary AWS
-resources were deleted afterwards.
+`normalization-heuristics` skill (a read-only transaction in the prod database container,
+streamed into a private local file) and replayed it offline with `normalization-replay --input`.
 
 ### <Field> (`<file>.rs`)
 - **<Rule>**: `<observed label>` → `<VALUE>` (<cases> cases, <dealer or "several dealers">).

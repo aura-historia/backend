@@ -18,8 +18,8 @@ If a required local reference is missing, report `blocked`; do not invent a repl
 
 ## Source review
 
-Trace deadline budgets across Lambda setup, DB acquisition/transactions and provider calls;
-check cancellation ambiguity, retries with bounded backoff, concurrency caps, queue visibility
+Trace deadline budgets across process startup, DB acquisition/transactions and provider calls;
+check cancellation ambiguity, retries with bounded backoff, concurrency caps, job leases
 and failure custody. Inspect resource bounds for pagination, fanout, full-table scans,
 N+1 hydration, large payloads, decompression, batch size and backpressure. Estimate worst-case
 calls/work from actual code; do not claim latency/cost savings without measurements.
@@ -30,7 +30,7 @@ queries and must not be run against production or on mutations by default. Prese
 historical valuation bases and projection/caching semantics while investigating performance.
 
 Check trace/error redaction, correlation propagation, metric cardinality, useful failure
-classification, retry/DLQ/lag signals, cleanup progress and evidence retention. Logging a
+classification, retry/custody/lag signals, cleanup progress and evidence retention. Logging a
 failure is not failure custody; successful invocation is not durable business completion.
 Avoid adding sensitive labels, raw payloads or unbounded user IDs to metrics.
 
@@ -39,15 +39,15 @@ changes; feature/target blind spots; non-blocking/skipped jobs; timeout/retry be
 reproducible tool versions, provenance and dependency/image update policy. Don't assume
 branch protection settings from repository files; inspect only with authorized connector access.
 
-Review migration-before-consumer order, CDK app/synth checks, artifact/version promotion,
+Review migration-before-consumer order, host deploy and CDK synth checks, artifact/version promotion,
 rollback compatibility, retained state, provider credentials/configuration ownership,
 initialization gates and run-to-completion scheduled tasks. Source code that defines an
-alarm, DLQ, schedule or CDC route does not prove it is active or staffed.
+alarm, custody, timer or outbox route does not prove it is active or staffed.
 
 ## Operator checklist — report, do not execute
 
 List evidence needed for backup/restore drills; deletion/erasure behavior; replay/rebuild
-safety; queue age/DLQ recovery; expired secrets/certificates; dependency and base-image
+safety; queue age/custody recovery; expired secrets/certificates; dependency and base-image
 support; alert delivery; stage isolation; provider webhook reconciliation; and rollback
 exercises. Assign unknowns a human owner and last-verified date only when actually known.
 Use privacy-minimized evidence and explicitly authorized read-only live checks in a separate
