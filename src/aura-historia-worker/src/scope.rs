@@ -17,6 +17,24 @@ pub enum ConsumedScope {
     ProjectionGeneration(ProjectionGeneration),
 }
 
+/// How long a scope's waiting jobs may age before they need attention. Bulk scopes absorb
+/// crawler bursts and rebuilds and tolerate hours of backlog; every other scope serves users or
+/// feeds one that does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BacklogClass {
+    Normal,
+    Bulk,
+}
+
+impl BacklogClass {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Bulk => "bulk",
+        }
+    }
+}
+
 /// What a consumer starts from unless configuration overrides it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScopeDefaults {
@@ -64,6 +82,16 @@ impl ConsumedScope {
             Self::ProjectionGeneration(generation) => {
                 ProjectionTarget::Generation(generation.clone()).job_scope()
             }
+        }
+    }
+
+    pub fn backlog_class(&self) -> BacklogClass {
+        match self {
+            Self::Worker(
+                WorkerScope::ProductListingTranslation | WorkerScope::ProductListingEmbedding,
+            )
+            | Self::ProjectionGeneration(_) => BacklogClass::Bulk,
+            Self::Worker(_) | Self::ProductListingIngestion => BacklogClass::Normal,
         }
     }
 
@@ -119,6 +147,21 @@ mod tests {
         ] {
             assert_eq!(None, ConsumedScope::parse(unknown), "{unknown}");
         }
+    }
+
+    #[test]
+    fn should_class_only_translation_embedding_and_rebuilds_as_bulk_backlog() {
+        let bulk: Vec<_> = ConsumedScope::all()
+            .into_iter()
+            .filter(|scope| scope.backlog_class() == BacklogClass::Bulk)
+            .map(|scope| scope.job_scope().name().as_str().to_owned())
+            .collect();
+        assert_eq!(vec!["product-translation", "product-embedding"], bulk);
+        assert_eq!(
+            BacklogClass::Bulk,
+            ConsumedScope::ProjectionGeneration(ProjectionGeneration::new("g7").unwrap())
+                .backlog_class()
+        );
     }
 
     #[test]

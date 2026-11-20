@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 auction-postgres = { workspace = true }
 aura-historia-jobs = { workspace = true }
 aws-config = { workspace = true }
+aws-sdk-cloudwatch = { workspace = true }
 aws-sdk-cognitoidentityprovider = { workspace = true }
 aws-sdk-geoplaces = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
@@ -19,12 +20,14 @@ fxrate-postgres = { workspace = true }
 geo-amazon-location = { workspace = true }
 geo-postgres = { workspace = true }
 geo-service = { workspace = true }
+libc = { workspace = true }
 large-language-model = { workspace = true }
 notification-core = { workspace = true }
 notification-email-aws = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
+platform-aws = { workspace = true }
 platform-observability = { workspace = true }
 platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }

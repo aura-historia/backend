@@ -4,11 +4,35 @@
 # through host/prod/compose.sh, as root. Operator notes: host/prod/README.md.
 name: aura-prod
 
-x-logging: &logging
-  driver: json-file
-  options:
-    max-size: 20m
-    max-file: "5"
+# Container logs go to CloudWatch Logs, one group per service, through Docker's awslogs driver
+# with the host user's key (host/prod/README.md#logs). Docker keeps a local copy for
+# `docker logs`. Non-blocking: while CloudWatch is unreachable, lines beyond the buffer are
+# dropped rather than stalling the service; stream names are the container names.
+x-log-options: &log-options
+  awslogs-region: eu-central-1
+  mode: non-blocking
+  max-buffer-size: 4m
+  tag: "{{.Name}}"
+
+x-logging:
+  postgres: &postgres-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/postgres}
+  api: &api-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/api}
+  mcp: &mcp-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/mcp}
+  worker: &worker-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/worker}
+  caddy: &caddy-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/caddy}
+  ops: &ops-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/ops}
 
 x-app: &app
   image: ${AURA_HISTORIA_IMAGE:?set the application image in /etc/aura-historia/prod/compose.env}
@@ -19,7 +43,8 @@ x-app: &app
   cap_drop: [ALL]
   # Covers the API's 25 s request budget and the worker's 25 s shutdown grace.
   stop_grace_period: 40s
-  logging: *logging
+  # Every service names its own group; this one catches a service that does not.
+  logging: *ops-logging
   # A missing host file fails the start instead of being created as a directory.
   volumes:
     - &opensearch-root-ca
@@ -28,7 +53,8 @@ x-app: &app
       target: /run/aura/opensearch-root-ca.pem
       read_only: true
       bind: {create_host_path: false}
-    - type: bind
+    - &google-credentials
+      type: bind
       source: /etc/aura-historia/prod/google-credentials.json
       target: /run/aura/google-credentials.json
       read_only: true
@@ -79,6 +105,7 @@ x-api: &api
   cgroup_parent: aura_serving.slice
   mem_limit: 1g
   memswap_limit: 1g
+  logging: *api-logging
   env_file:
     - &settings /etc/aura-historia/prod/settings.env
     - /etc/aura-historia/prod/secrets/aws.env
@@ -127,7 +154,7 @@ services:
     shm_size: 1g
     stop_grace_period: 120s
     security_opt: [no-new-privileges:true]
-    logging: *logging
+    logging: *postgres-logging
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - pgbackrest-spool:/var/spool/pgbackrest
@@ -154,6 +181,7 @@ services:
     cgroup_parent: aura_serving.slice
     mem_limit: 768m
     memswap_limit: 768m
+    logging: *mcp-logging
     env_file:
       - *settings
       - /etc/aura-historia/prod/secrets/aws.env
@@ -176,6 +204,7 @@ services:
     cgroup_parent: aura_pipeline.slice
     mem_limit: 2g
     memswap_limit: 2g
+    logging: *worker-logging
     env_file:
       - *settings
       - /etc/aura-historia/prod/secrets/aws.env
@@ -185,6 +214,21 @@ services:
       - /etc/aura-historia/prod/secrets/loops.env
     environment:
       <<: [*app-environment, *email-environment]
+      # Host health metrics (src/aura-historia-worker/README.md#health-metrics); the backup
+      # marker's directory is on the host's root filesystem, whose free space they report.
+      AURA_HISTORIA_WORKER_METRICS_NAMESPACE: AuraHistoria/Host
+      AURA_HISTORIA_WORKER_METRICS_BACKUP_MARKER: /run/aura/backup/last-success
+      AURA_HISTORIA_WORKER_METRICS_DISK_PATH: /run/aura/backup
+    volumes:
+      - *opensearch-root-ca
+      - *google-credentials
+      # A directory, so creating it when missing is harmless: the marker appears with the
+      # next backup.
+      - type: bind
+        source: /var/lib/aura-historia/prod/backup
+        target: /run/aura/backup
+        read_only: true
+        bind: {create_host_path: true}
     networks: [default, database, search]
 
   caddy:
@@ -201,7 +245,7 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
-    logging: *logging
+    logging: *caddy-logging
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -308,7 +352,7 @@ services:
     memswap_limit: 4g
     shm_size: 256m
     security_opt: [no-new-privileges:true]
-    logging: *logging
+    logging: *postgres-logging
     networks: [backup]
 
 volumes:

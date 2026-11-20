@@ -1,9 +1,11 @@
-//! The worker process: the outbox dispatcher and one job queue consumer per scope. The
+//! The worker process: the outbox dispatcher, one job queue consumer per scope and the host
+//! health metrics. The
 //! [README](../README.md) owns its configuration and operation.
 
 mod composition;
 pub mod config;
 pub mod dispatcher;
+pub mod health_metrics;
 pub mod scope;
 pub mod scopes;
 
@@ -73,6 +75,16 @@ pub async fn run(
         tasks.spawn(consumer.run(wakeup, shutdown.clone()));
     }
     tasks.spawn(wakeups.listen(pool.clone(), shutdown.clone()));
+    if let Some(metrics) = config.health_metrics.clone() {
+        tracing::info!(event = "worker.health_metrics.started");
+        let client = health_metrics::client().await;
+        tasks.spawn(health_metrics::run(
+            pool.clone(),
+            metrics,
+            client,
+            shutdown.clone(),
+        ));
+    }
     if let Some(batch_size) = config.dispatch_batch_size {
         tracing::info!(
             event = "worker.dispatcher.started",

@@ -7,8 +7,9 @@
 #             OpenSearch CPU reservation
 #   ssh       accept SSH keys only (refuses while a recent SSH user has no key)
 #   firewall  ufw: deny inbound except SSH and 443; the same for Docker-published ports
-#   prod      the prod Compose project's socket directory, external volumes and units; run
-#             from the stable checkout the units should use (host/prod/README.md)
+#   prod      the prod Compose project's socket and state directories, external volumes,
+#             units and Docker's log credentials; run from the stable checkout the units
+#             should use (host/prod/README.md)
 #   prod-timers  enable the prod ops, backup and secrets-copy timers once the stack runs
 #   deploy    the deploy user, which may only run the prod deploy, and the deploy script; reads
 #             the deploy key's public half from stdin (host/prod/README.md#deploys)
@@ -26,6 +27,7 @@ readonly RETIRED_SLICE=auraopensearch.slice
 readonly RESERVATION_UNITS=(init.scope system.slice user.slice machine.slice)
 readonly DOCKER_DAEMON_CONFIG=/etc/docker/daemon.json
 readonly DOCKER_DEFAULT_PARENT=user.slice
+readonly DOCKER_AWSLOGS_DROP_IN=/etc/systemd/system/docker.service.d/50-aura-prod-awslogs.conf
 readonly SSH_DROP_IN=/etc/ssh/sshd_config.d/10-aura-keys-only.conf
 readonly UFW_BLOCK_BEGIN='# BEGIN aura-historia docker ingress'
 readonly UFW_BLOCK_END='# END aura-historia docker ingress'
@@ -220,8 +222,25 @@ install_prod() {
   for unit in "${prod_dir}"/systemd/*; do
     sed "s|@PROD_DIR@|${prod_dir}|g" "${unit}" | install -m 0644 /dev/stdin "${SYSTEMD_DIR}/$(basename -- "${unit}")"
   done
+  docker_live_restore
+  if ! cmp -s "${prod_dir}/docker/awslogs.conf" "${DOCKER_AWSLOGS_DROP_IN}"; then
+    install -D -m 0644 "${prod_dir}/docker/awslogs.conf" "${DOCKER_AWSLOGS_DROP_IN}"
+    log "Docker's log driver gets the host key after 'systemctl restart docker'; containers keep running (host/prod/README.md#logs)"
+  fi
   systemctl daemon-reload
   log "prod units run ${prod_dir}; rerun 'prod' from another checkout to move them"
+}
+
+# Containers keep running while the daemon restarts, so a change to its credentials or settings
+# stops no service. Docker applies this setting on reload, without a restart.
+docker_live_restore() {
+  local current merged
+  current="$(cat "${DOCKER_DAEMON_CONFIG}" 2>/dev/null || echo '{}')"
+  [[ "$(jq -r '."live-restore" // false' <<<"${current}")" == true ]] && return 0
+  merged="$(jq '. + {"live-restore": true}' <<<"${current}")"
+  install -D -m 0644 /dev/stdin "${DOCKER_DAEMON_CONFIG}" <<<"${merged}"
+  systemctl reload docker
+  log "Docker keeps containers running across daemon restarts"
 }
 
 # Enabled only once the stack runs, so no job fails for want of a database, secret or key.

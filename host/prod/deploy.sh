@@ -288,8 +288,8 @@ require_running_image() {
 report_operator_changes() {
   local changed
   changed="$(checkout_git diff --name-only "$1" "$2" -- host/prod/postgres host/prod/caddy \
-    host/prod/systemd host/prod/tmpfiles host/prod/deploy.sh host/prod/migration_plan.py \
-    host/deploy host/install.sh 2>/dev/null || true)"
+    host/prod/systemd host/prod/tmpfiles host/prod/docker host/prod/deploy.sh \
+    host/prod/migration_plan.py host/deploy host/install.sh 2>/dev/null || true)"
   [[ -n ${changed} ]] || return 0
   log "changed since the last deploy, applied only by an operator (host/prod/README.md#deploys):"
   sed 's/^/    /' <<<"${changed}"

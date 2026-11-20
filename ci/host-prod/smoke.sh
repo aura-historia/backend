@@ -48,7 +48,7 @@ trap cleanup EXIT
 write_config() {
   local relative group
   declare -A generated=()
-  mkdir -p "${CONFIG}/secrets" "${WORK}/socket"
+  mkdir -p "${CONFIG}/secrets" "${WORK}/socket" "${WORK}/backup"
   chmod 0777 "${WORK}/socket"
   while read -r relative; do
     sed -E 's/^([A-Z0-9_]+)=$/\1=smoke-\1/' "${PROD_DIR}/templates/${relative}" >"${CONFIG}/${relative}"
@@ -75,11 +75,13 @@ EOF
     -keyout /dev/null -out "${CONFIG}/opensearch-root-ca.pem" 2>/dev/null
 }
 
-# The checked-in project under smoke names, without host placement, with a local CA instead
-# of the DNS challenge and HTTPS on a loopback port.
+# The checked-in project under smoke names, without host placement or CloudWatch logs, with a
+# local CA instead of the DNS challenge and HTTPS on a loopback port.
 write_compose() {
   sed -e "s|/etc/aura-historia/prod|${CONFIG}|g" \
       -e "s|/run/aura-historia/postgresql|${WORK}/socket|g" \
+      -e "s|/var/lib/aura-historia/prod/backup|${WORK}/backup|g" \
+      -e 's|driver: awslogs|driver: local|' -e '/options: {<<: \*log-options/d' \
       -e 's|name: aura-historia-prod-|name: aura-smoke-|' \
       -e 's|name: aura-prod-|name: aura-smoke-|' \
       -e 's|name: aura-opensearch-prod_search|name: aura-smoke-search|' \

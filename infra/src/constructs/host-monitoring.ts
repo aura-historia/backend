@@ -1,0 +1,179 @@
+import * as cdk from "aws-cdk-lib";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import { Construct } from "constructs";
+import { CONTAINER_LOG_SERVICES, ssmValue, type StageConfig } from "../config";
+
+/** The metric names the worker publishes (src/aura-historia-worker/src/health_metrics.rs). */
+export const HOST_METRICS = {
+  heartbeat: "Heartbeat",
+  postgresReachable: "PostgresReachable",
+  oldestJobAge: "OldestJobAgeSeconds",
+  parkedJobs: "ParkedJobs",
+  freeDisk: "FreeDiskPercent",
+  sinceLastBackup: "SecondsSinceLastBackup",
+} as const;
+
+export interface AlarmTopicProps {
+  readonly config: StageConfig;
+}
+
+/**
+ * The topic an alarm notifies, in its own region, with the operators' email subscription. Every
+ * alarm also notifies when it clears.
+ */
+export class AlarmTopic extends Construct {
+  readonly topic: sns.Topic;
+
+  constructor(scope: Construct, id: string, props: AlarmTopicProps) {
+    super(scope, id);
+    this.topic = new sns.Topic(this, "Topic", {
+      topicName: `aura-historia-${props.config.stage}-alarms`,
+      displayName: "Aura Historia alarms",
+    });
+    this.topic.addSubscription(new subscriptions.EmailSubscription(ssmValue(props.config.monitoring.alarmEmailParameterName)));
+  }
+
+  notify(alarm: cloudwatch.Alarm): cloudwatch.Alarm {
+    alarm.addAlarmAction(new actions.SnsAction(this.topic));
+    alarm.addOkAction(new actions.SnsAction(this.topic));
+    return alarm;
+  }
+}
+
+export interface HostMonitoringProps {
+  readonly config: StageConfig;
+}
+
+/**
+ * The host's container log groups and the alarms on the worker's health metrics. Every metric
+ * comes from the host, so a dead host shows as a missing heartbeat, which the heartbeat alarm
+ * treats as breaching.
+ */
+export class HostMonitoring extends Construct {
+  readonly alarms: AlarmTopic;
+  readonly logGroups: logs.LogGroup[];
+
+  constructor(scope: Construct, id: string, props: HostMonitoringProps) {
+    super(scope, id);
+    const { config } = props;
+    const monitoring = config.monitoring;
+    this.alarms = new AlarmTopic(this, "Alarms", { config });
+
+    // Operational logs only: deleting the stack may delete them.
+    this.logGroups = CONTAINER_LOG_SERVICES.map((service) => new logs.LogGroup(this, `${toPascalCase(service)}Logs`, {
+      logGroupName: `${config.host.containerLogGroupPrefix}${service}`,
+      retention: monitoring.containerLogRetentionDays as logs.RetentionDays,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    }));
+
+    const metric = (metricName: string, statistic: string, period: cdk.Duration, dimensionsMap?: Record<string, string>) =>
+      new cloudwatch.Metric({ namespace: config.host.metricNamespace, metricName, statistic, period, dimensionsMap });
+    const alarm = (name: string, description: string, alarmProps: Omit<cloudwatch.AlarmProps, "alarmName" | "alarmDescription">) =>
+      this.alarms.notify(new cloudwatch.Alarm(this, toPascalCase(name), {
+        alarmName: `aura-historia-${config.stage}-host-${name}`,
+        alarmDescription: description,
+        ...alarmProps,
+      }));
+    const minute = cdk.Duration.minutes(1);
+    const fiveMinutes = cdk.Duration.minutes(5);
+
+    alarm("heartbeat-missing", "The worker published no heartbeat for 5 minutes: the host, Docker or the worker is down, or the host cannot reach AWS.", {
+      metric: metric(HOST_METRICS.heartbeat, "SampleCount", minute),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 5,
+      datapointsToAlarm: 5,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+    alarm("postgres-unreachable", "The worker could not read the queues for 3 minutes: PostgreSQL is down or refuses the runtime role.", {
+      metric: metric(HOST_METRICS.postgresReachable, "Maximum", minute),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 3,
+      datapointsToAlarm: 3,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    for (const [backlogClass, threshold] of Object.entries(monitoring.backlogAgeThresholdSeconds)) {
+      alarm(`${backlogClass}-backlog-age`, `A ${backlogClass} job has waited at least ${threshold} s; check the worker and its dependencies with ops inspect.`, {
+        metric: metric(HOST_METRICS.oldestJobAge, "Maximum", fiveMinutes, { Class: backlogClass }),
+        threshold,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+    }
+    alarm("parked-jobs", "Jobs or outbox snapshots are in failure custody; see docs/durable-worker-runbook.md before any redrive.", {
+      metric: metric(HOST_METRICS.parkedJobs, "Maximum", fiveMinutes),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    alarm("low-free-disk", `The host filesystem has at most ${monitoring.minimumFreeDiskPercent}% free.`, {
+      metric: metric(HOST_METRICS.freeDisk, "Minimum", fiveMinutes),
+      threshold: monitoring.minimumFreeDiskPercent,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    // No marker means no recorded backup, which is as stale as an old one.
+    alarm("backup-stale", `The last successful database backup is at least ${monitoring.maximumBackupAgeSeconds} s old, or none is recorded.`, {
+      metric: metric(HOST_METRICS.sinceLastBackup, "Maximum", fiveMinutes),
+      threshold: monitoring.maximumBackupAgeSeconds,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+  }
+}
+
+export interface EdgeMonitoringProps {
+  readonly config: StageConfig;
+}
+
+/** The 5xx share of each public distribution, in the region CloudFront publishes its metrics to. */
+export class EdgeMonitoring extends Construct {
+  readonly alarms: AlarmTopic;
+
+  constructor(scope: Construct, id: string, props: EdgeMonitoringProps) {
+    super(scope, id);
+    const { config } = props;
+    const monitoring = config.monitoring;
+    this.alarms = new AlarmTopic(this, "Alarms", { config });
+
+    for (const [name, distributionId] of Object.entries(monitoring.cloudFrontDistributionIds)) {
+      const metric = (metricName: string, statistic: string) => new cloudwatch.Metric({
+        namespace: "AWS/CloudFront",
+        metricName,
+        statistic,
+        period: cdk.Duration.minutes(5),
+        dimensionsMap: { DistributionId: distributionId, Region: "Global" },
+      });
+      // A handful of requests makes one failure a large share; such periods do not count.
+      const rate = new cloudwatch.MathExpression({
+        expression: `IF(requests >= ${monitoring.cloudFrontMinimumRequests}, rate, 0)`,
+        usingMetrics: { requests: metric("Requests", "Sum"), rate: metric("5xxErrorRate", "Average") },
+        period: cdk.Duration.minutes(5),
+        label: `${name}. 5xx rate`,
+      });
+      this.alarms.notify(new cloudwatch.Alarm(this, `${toPascalCase(name)}5xxRate`, {
+        alarmName: `aura-historia-${config.stage}-${name}-cloudfront-5xx-rate`,
+        alarmDescription: `At least ${monitoring.cloudFront5xxRatePercent}% of ${name}. requests failed with 5xx for 10 minutes: the host, Caddy or the ${name} process.`,
+        metric: rate,
+        threshold: monitoring.cloudFront5xxRatePercent,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        evaluationPeriods: 2,
+        datapointsToAlarm: 2,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      }));
+    }
+  }
+}
+
+function toPascalCase(name: string): string {
+  return name.split("-").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join("");
+}

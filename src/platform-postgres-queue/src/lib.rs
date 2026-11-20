@@ -5,6 +5,7 @@ mod custody;
 mod enqueue;
 mod error;
 mod job;
+mod overview;
 mod queue;
 mod scope;
 mod wakeup;
@@ -16,6 +17,7 @@ pub use job::{
     ClaimedJob, DedupKey, ErrorClass, GroupKey, JobError, JobId, JobLease, MAX_PAYLOAD_BYTES,
     NewJob,
 };
+pub use overview::{QueueOverview, overview};
 pub use queue::{Disposition, JobQueue, ScopeStats, Settlement};
 pub use scope::{JobScope, QueueOrdering, ScopeError, ScopeName};
 pub use wakeup::{JobWakeups, Wakeup};

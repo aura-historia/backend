@@ -325,6 +325,7 @@ fn config(scopes: &[ConsumedScope]) -> WorkerConfig {
         dispatch_batch_size: Some(NonZeroU16::new(100).unwrap()),
         poll_interval: POLL,
         shutdown_grace: Duration::from_secs(5),
+        health_metrics: None,
     }
 }
 
