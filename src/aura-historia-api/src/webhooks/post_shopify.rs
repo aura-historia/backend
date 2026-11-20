@@ -1,6 +1,6 @@
 //! Shopify `product_listings/*` deliveries over HTTPS. The handler authenticates the exact body
-//! bytes, maps the delivery headers to the provenance the EventBridge `detail.metadata` used to
-//! carry, and answers `200` only after the ingestion command's admission is confirmed.
+//! bytes, maps the delivery headers to the observation's provenance, and answers `200` only after
+//! the ingestion command's admission is confirmed.
 use crate::auth::request_metadata;
 use crate::error::{
     ApiError, BAD_BODY_VALUE, BAD_HEADER_VALUE, PRODUCT_LISTING_INTERNAL_ERROR,
@@ -109,8 +109,9 @@ pub async fn post_shopify(
                 .into_response();
         }
     };
-    let Some(webhook_id) = delivery.webhook_id.clone() else {
-        return missing_header(WEBHOOK_ID_HEADER).into_response();
+    let provenance = match delivery.into_provenance() {
+        Ok(provenance) => provenance,
+        Err(error) => return error.into_response(),
     };
     let payload = match serde_json::from_slice(&body)
         .ok()
@@ -131,14 +132,9 @@ pub async fn post_shopify(
         correlation_id: metadata.correlation_id,
     };
     let deadline = tokio::time::Instant::now() + PROCESSING_BUDGET;
-    let admission = state.process.execute(
-        &context,
-        kind,
-        shop_domain,
-        payload,
-        delivery.into_provenance(),
-        &webhook_id,
-    );
+    let admission = state
+        .process
+        .execute(&context, kind, shop_domain, payload, provenance);
     match tokio::time::timeout_at(
         deadline,
         with_publication_deadline(deadline - PUBLICATION_REPORT_HEADROOM, admission),
@@ -181,16 +177,16 @@ impl ShopifyDeliveryHeaders {
         }
     }
 
-    /// The provenance the Lambda built from EventBridge `detail.metadata`; HTTPS deliveries have
-    /// no EventBridge envelope.
-    fn into_provenance(self) -> ShopifyEventProvenance {
-        ShopifyEventProvenance {
+    /// A forwarded delivery must name its webhook delivery, which keys its deduplication.
+    fn into_provenance(self) -> Result<ShopifyEventProvenance, ApiError> {
+        Ok(ShopifyEventProvenance {
             topic: self.topic,
             shopify_event_id: self.event_id,
-            webhook_id: self.webhook_id,
-            event_bridge_event_id: None,
+            webhook_id: self
+                .webhook_id
+                .ok_or_else(|| missing_header(WEBHOOK_ID_HEADER))?,
             triggered_at: self.triggered_at,
-        }
+        })
     }
 }
 
@@ -222,6 +218,14 @@ fn missing_header(name: &'static str) -> ApiError {
 
 fn processing_error(error: ShopifyProductListingProcessingError) -> ApiError {
     match error {
+        ShopifyProductListingProcessingError::InvalidTriggeredAt(_) => {
+            warn!(%error, "Shopify trigger time is unusable; rejecting the delivery");
+            ApiError::bad_request(BAD_HEADER_VALUE)
+                .with_header_field(TRIGGERED_AT_HEADER)
+                .with_detail(
+                    "Shopify trigger time must be RFC 3339 and within Shopify's retry horizon.",
+                )
+        }
         ShopifyProductListingProcessingError::InvalidPayload(_)
         | ShopifyProductListingProcessingError::InvalidProvenance(_)
         | ShopifyProductListingProcessingError::InvalidProviderReceipt(_) => {
@@ -250,34 +254,20 @@ mod tests {
     use axum::body::Body;
     use axum::http::Request;
     use base64::Engine;
-    use listing_source_core::ListingSourceId;
-    use listing_source_service::ports::{
-        ListingSourceReadError, ShopifySource, ShopifySourceReader,
-    };
     use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
     use product_listing_service::ports::shopify_product_decoder::ShopifyProductEventKind;
     use product_listing_service::ports::shopify_webhook_verifier::ShopifyWebhookVerifier;
+    use product_listing_service::use_cases::ProductListingIngestionSubmissionError;
     use product_listing_service::use_cases::commands::process_shopify_product_listing::{
-        ProcessShopifyProductListingHandler, ProcessShopifyProductListingUseCase,
+        ProcessShopifyProductListingUseCase, ShopifyTriggeredAtError,
     };
-    use product_listing_service::use_cases::{
-        ProductListingIngestionActor, ProductListingIngestionIntent,
-        ProductListingIngestionItemOutcome, ProductListingIngestionOperation,
-        ProductListingIngestionOutcome, ProductListingIngestionSubmission,
-        ProductListingIngestionSubmissionError, ProductListingIngestionSubmissionResult,
-        SubmitInternalProductListingIngestionUseCase, product_listing_ingestion_identity,
-    };
-    use product_listing_shopify::ShopifyProductPayloadDecoder;
     use product_listing_shopify::{ShopifyHmacWebhookVerifier, ShopifyWebhookSecrets};
-    use serde::Deserialize;
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
 
     const SECRET: &str = "shopify-client-secret";
     const PREVIOUS_SECRET: &str = "shopify-previous-client-secret";
-    const EVENTBRIDGE_DELIVERY: &str =
-        include_str!("../../tests/fixtures/shopify_eventbridge_product_listings_update.json");
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct Execution {
@@ -287,10 +277,8 @@ mod tests {
         payload: Value,
         topic: String,
         event_id: Option<String>,
-        webhook_id: Option<String>,
-        event_bridge_event_id: Option<String>,
+        webhook_id: String,
         triggered_at: Option<String>,
-        upstream_message_id: String,
     }
 
     type ProcessingFailure = fn() -> ShopifyProductListingProcessingError;
@@ -329,7 +317,6 @@ mod tests {
             shop_domain: Domain,
             payload: SourcePayload,
             provenance: ShopifyEventProvenance,
-            upstream_message_id: &str,
         ) -> Result<(), ShopifyProductListingProcessingError> {
             self.executions.lock().unwrap().push(Execution {
                 principal: context.principal.clone(),
@@ -339,9 +326,7 @@ mod tests {
                 topic: provenance.topic,
                 event_id: provenance.shopify_event_id,
                 webhook_id: provenance.webhook_id,
-                event_bridge_event_id: provenance.event_bridge_event_id,
                 triggered_at: provenance.triggered_at,
-                upstream_message_id: upstream_message_id.to_owned(),
             });
             match self.outcome {
                 Outcome::Admitted => Ok(()),
@@ -455,10 +440,8 @@ mod tests {
                 payload: serde_json::from_slice(&body()).unwrap(),
                 topic: "product_listings/update".to_owned(),
                 event_id: Some("event-1".to_owned()),
-                webhook_id: Some("webhook-1".to_owned()),
-                event_bridge_event_id: None,
+                webhook_id: "webhook-1".to_owned(),
                 triggered_at: Some("2026-10-27T10:00:00Z".to_owned()),
-                upstream_message_id: "webhook-1".to_owned(),
             }],
             processor.executions()
         );
@@ -617,7 +600,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_map_processing_outcomes_to_retryable_or_final_statuses() {
-        let cases: [(ProcessingFailure, StatusCode, &str); 4] = [
+        let cases: [(ProcessingFailure, StatusCode, &str); 5] = [
             (
                 || {
                     ShopifyProductListingProcessingError::InvalidPayload(
@@ -626,6 +609,15 @@ mod tests {
                 },
                 StatusCode::BAD_REQUEST,
                 "BAD_BODY_VALUE",
+            ),
+            (
+                || {
+                    ShopifyProductListingProcessingError::InvalidTriggeredAt(
+                        ShopifyTriggeredAtError::InFuture,
+                    )
+                },
+                StatusCode::BAD_REQUEST,
+                "BAD_HEADER_VALUE",
             ),
             (
                 || ShopifyProductListingProcessingError::ForwardUnconfirmed,
@@ -674,163 +666,5 @@ mod tests {
         assert_eq!(StatusCode::SERVICE_UNAVAILABLE, status);
         assert_eq!("PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE", response["error"]);
         assert_eq!(PROCESSING_BUDGET, started.elapsed());
-    }
-
-    #[derive(Deserialize)]
-    struct EventBridgeEvent {
-        id: String,
-        detail: EventBridgeDetail,
-    }
-
-    /// The `detail` shape the Shopify EventBridge partner source delivered to the removed Lambda.
-    #[derive(Deserialize)]
-    struct EventBridgeDetail {
-        payload: Value,
-        metadata: EventBridgeMetadata,
-    }
-
-    #[derive(Deserialize)]
-    struct EventBridgeMetadata {
-        #[serde(rename = "X-Shopify-Topic")]
-        topic: String,
-        #[serde(rename = "X-Shopify-Shop-Domain")]
-        shop_domain: String,
-        #[serde(rename = "X-Shopify-Event-Id")]
-        event_id: Option<String>,
-        #[serde(rename = "X-Shopify-Webhook-Id")]
-        webhook_id: Option<String>,
-        #[serde(rename = "X-Shopify-Triggered-At")]
-        triggered_at: Option<String>,
-        #[serde(rename = "X-Shopify-API-Version")]
-        api_version: String,
-    }
-
-    struct FixtureSource(ListingSourceId);
-
-    #[async_trait::async_trait]
-    impl ShopifySourceReader for FixtureSource {
-        async fn find_by_domain(
-            &self,
-            domain: &Domain,
-        ) -> Result<Option<ShopifySource>, ListingSourceReadError> {
-            Ok(Some(ShopifySource {
-                listing_source_id: self.0,
-                domain: domain.clone(),
-                currency: Some(money::Currency::Usd),
-                language: Some(localization::Language::De),
-            }))
-        }
-    }
-
-    /// Records each submission and confirms its admission, as the FIFO publisher would.
-    #[derive(Clone, Default)]
-    struct CapturingIntake(Arc<Mutex<Vec<ProductListingIngestionSubmission>>>);
-
-    #[async_trait::async_trait]
-    impl SubmitInternalProductListingIngestionUseCase for CapturingIntake {
-        async fn execute(
-            &self,
-            context: &OperationContext,
-            submission: ProductListingIngestionSubmission,
-        ) -> Result<ProductListingIngestionSubmissionResult, ProductListingIngestionSubmissionError>
-        {
-            assert_eq!(Principal::System, context.principal);
-            let key = submission
-                .idempotency_key
-                .clone()
-                .expect("Shopify delivery key");
-            let (submission_id, command_id) = product_listing_ingestion_identity(
-                &ProductListingIngestionActor::System,
-                submission.listing_source_id,
-                &key,
-                ProductListingIngestionOperation::CaptureRaw,
-                0,
-            );
-            self.0.lock().unwrap().push(submission);
-            Ok(ProductListingIngestionSubmissionResult {
-                submission_id,
-                idempotency_key: key,
-                original_input_count: 1,
-                items: vec![ProductListingIngestionItemOutcome {
-                    index: 0,
-                    command_id,
-                    outcome: ProductListingIngestionOutcome::Accepted,
-                }],
-            })
-        }
-    }
-
-    /// One delivery, once as the EventBridge `detail` the Lambda received and once as the HTTPS
-    /// request Shopify sends, must produce the same ingestion command: identity, receipt, source
-    /// record, input and ordering time. Only the EventBridge envelope ID, which an HTTPS
-    /// delivery does not have, differs in the retained provenance.
-    #[tokio::test]
-    async fn should_submit_the_same_command_as_the_eventbridge_delivery() {
-        let event: EventBridgeEvent = serde_json::from_str(EVENTBRIDGE_DELIVERY).unwrap();
-        let listing_source_id = ListingSourceId::new();
-        let processor = |intake: CapturingIntake| {
-            ProcessShopifyProductListingHandler::new(
-                FixtureSource(listing_source_id),
-                intake,
-                ShopifyProductPayloadDecoder,
-            )
-        };
-
-        let eventbridge = CapturingIntake::default();
-        let metadata = &event.detail.metadata;
-        let provenance = ShopifyEventProvenance {
-            topic: metadata.topic.clone(),
-            shopify_event_id: metadata.event_id.clone(),
-            webhook_id: metadata.webhook_id.clone(),
-            event_bridge_event_id: Some(event.id.clone()),
-            triggered_at: metadata.triggered_at.clone(),
-        };
-        processor(eventbridge.clone())
-            .execute(
-                &OperationContext {
-                    principal: Principal::System,
-                    correlation_id: application::operation_context::CorrelationId::new("lambda"),
-                    request_id: application::operation_context::RequestId::new("lambda"),
-                },
-                product_listing_event_kind(&metadata.topic).unwrap(),
-                Domain::try_from(metadata.shop_domain.as_str()).unwrap(),
-                SourcePayload::new(event.detail.payload.clone()).unwrap(),
-                provenance,
-                "sqs-message-id",
-            )
-            .await
-            .unwrap();
-
-        let https = CapturingIntake::default();
-        let body = serde_json::to_vec(&event.detail.payload).unwrap();
-        let headers = vec![
-            ("X-Shopify-Topic", metadata.topic.clone()),
-            ("X-Shopify-Shop-Domain", metadata.shop_domain.clone()),
-            ("X-Shopify-Webhook-Id", metadata.webhook_id.clone().unwrap()),
-            ("X-Shopify-Event-Id", metadata.event_id.clone().unwrap()),
-            (
-                "X-Shopify-Triggered-At",
-                metadata.triggered_at.clone().unwrap(),
-            ),
-            ("X-Shopify-API-Version", metadata.api_version.clone()),
-        ];
-        let (status, _) = send(
-            router(secrets(), Arc::new(processor(https.clone()))),
-            signed_request(headers, body),
-        )
-        .await;
-        assert_eq!(StatusCode::OK, status);
-
-        let mut expected = eventbridge.0.lock().unwrap().clone();
-        let ProductListingIngestionIntent::CaptureRaw(command) = &mut expected[0].items[0].intent
-        else {
-            panic!("Shopify must submit a raw capture");
-        };
-        let mut provenance = command.provenance.value().clone();
-        assert_eq!(json!(event.id), provenance["eventBridgeEventId"]);
-        provenance["eventBridgeEventId"] = Value::Null;
-        command.provenance =
-            product_listing_normalization::RawProductListingProvenance::new(provenance).unwrap();
-        assert_eq!(expected, *https.0.lock().unwrap());
     }
 }

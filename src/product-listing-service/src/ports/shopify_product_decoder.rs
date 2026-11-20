@@ -1,7 +1,6 @@
 use application::error::BoxError;
 use listing_source_service::ports::ShopifySource;
 use product_listing_normalization::{ProductListingNormalizationInput, SourcePayload};
-use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShopifyProductEventKind {
@@ -20,7 +19,6 @@ pub enum ShopifyListingAction {
 pub struct ShopifyRawObservation {
     pub source_record_key: String,
     pub input: ProductListingNormalizationInput,
-    pub source_occurred_at: Option<OffsetDateTime>,
 }
 
 pub trait ShopifyProductDecoder: Send + Sync {
