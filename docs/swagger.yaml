@@ -3435,7 +3435,8 @@ paths:
         search visibility. `X-Shopify-Triggered-At` orders observations of one product by provider source
         time, and `X-Shopify-Webhook-Id` identifies the delivery: Shopify's retries of one delivery
         deduplicate into one command and one provider receipt. Only the body is signed, so a trigger time
-        more than five minutes in the future or more than six hours old is rejected.
+        more than five minutes in the future or more than six hours old is rejected for a shop with a
+        Shopify ListingSource.
 
         `400` means the delivery is malformed or its product cannot be mapped; `5xx` means admission is
         uncertain and Shopify should retry, which it does for about four hours. After that, re-importing the

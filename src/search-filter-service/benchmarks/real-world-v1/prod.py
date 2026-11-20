@@ -78,7 +78,8 @@ def private_workspace(path):
 
 def deployment(manifest):
     # The rendered configuration carries secret values; read only the named settings.
-    result = as_root(COMPOSE, "config", "--format", "json")
+    # Naming the service renders it although its `ops` profile is inactive.
+    result = as_root(COMPOSE, "config", "--format", "json", "ops")
     if result.returncode:
         raise RuntimeError(f"Compose configuration could not be read (exit {result.returncode})")
     ops = json.loads(result.stdout)["services"]["ops"]
@@ -193,7 +194,7 @@ def run_matcher(workspace, state):
     state["matcher_stopped"] = True
     save_state(workspace, state)
     events = []
-    for line in (result.stdout + result.stderr).splitlines():
+    for line in result.stdout.splitlines():
         try:
             events.append(json.loads(line))
         except json.JSONDecodeError:
@@ -202,9 +203,11 @@ def run_matcher(workspace, state):
 
 
 def stop_matcher(state):
-    result = as_root("docker", "stop", "--time", "60", state["container"], timeout=120)
-    if result.returncode and "No such container" not in result.stderr:
-        raise RuntimeError(f"Matcher container could not be stopped (exit {result.returncode})")
+    # A timed-out client never reaches `--rm`, so stop and remove the container here.
+    for command in (("stop", "--time", "60"), ("rm", "--force")):
+        result = as_root("docker", *command, state["container"], timeout=120)
+        if result.returncode and "No such container" not in result.stderr:
+            raise RuntimeError(f"Matcher container could not be removed (exit {result.returncode})")
     state["matcher_stopped"] = True
 
 

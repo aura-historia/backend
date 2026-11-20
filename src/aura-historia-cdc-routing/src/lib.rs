@@ -1868,9 +1868,7 @@ mod tests {
             json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "short"}),
             json!({"intent_id": "01890a5d-ac96-774b-bf1d-d5586c639f75", "recipient_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
         ] {
-            assert!(
-                route_change(&change("marketing_email_consent_sync_intents", record,)).is_err()
-            );
+            assert!(route_change(&change("marketing_email_consent_sync_intents", record)).is_err());
         }
     }
 

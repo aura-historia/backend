@@ -53,7 +53,9 @@ the prod host, from the checkout of the deployed release, with root access for
 write the temporary images. It needs an admin bearer file and a state directory, both
 outside the repository, and an empty active catalogue. It reads the matcher settings from
 the rendered Compose configuration and refuses a classifier model other than the
-manifest's. It runs one bounded matcher exactly like the scheduled job,
+manifest's `classifier_model`. The corpus is pinned to `clef-flash`, its recorded baseline's
+model, while prod runs `clef`: re-pin the manifest, with its neuron conversion, before
+measuring the deployed model. It runs one bounded matcher exactly like the scheduled job,
 `compose.sh run --rm --no-deps -T ops periodic-match`, with a short projection lag and run
 budget, and reads its decision events from the run's output. Do not start it while the
 scheduled matching run is active. A failed run is cleaned up with `run.py cleanup` and the

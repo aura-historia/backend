@@ -118,8 +118,8 @@ of product `updated_at`, using the existing provider ordering and deletion-barri
 above. The HMAC covers only the body, so the header is unauthenticated: a value more than
 five minutes ahead of the host clock or older than six hours (Shopify's four-hour retry
 horizon plus margin for a delayed first attempt) is rejected with `400`, so a replayed
-`remove` body cannot set a far-future deletion barrier. The required `X-Shopify-Webhook-Id` keys the provider receipt and the command
-identity, so Shopify's retries of one delivery deduplicate. Separate subscriptions deliver
+`remove` body cannot set a far-future deletion barrier. The required `X-Shopify-Webhook-Id`
+keys the provider receipt and the command identity, so Shopify's retries of one delivery deduplicate. Separate subscriptions deliver
 one event under different webhook IDs; equal listing state then collapses during capture.
 The retained raw provenance keeps `eventBridgeEventId`, which is `null` for HTTPS deliveries.
 

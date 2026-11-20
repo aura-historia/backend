@@ -131,14 +131,6 @@ where
         payload: SourcePayload,
         provenance: ShopifyEventProvenance,
     ) -> Result<(), ShopifyProductListingProcessingError> {
-        let source_occurred_at =
-            source_occurred_at(provenance.triggered_at.as_deref(), self.clock.now_utc())
-                .map_err(ShopifyProductListingProcessingError::InvalidTriggeredAt)?;
-        let delivery_id = shopify_delivery_identity(&provenance.webhook_id).map_err(|error| {
-            ShopifyProductListingProcessingError::InvalidProviderReceipt(
-                ShopifyProviderReceiptError::DeliveryId(error),
-            )
-        })?;
         let Some(source) = self
             .sources
             .find_by_domain(&source_domain)
@@ -154,6 +146,14 @@ where
         else {
             return Ok(());
         };
+        let source_occurred_at =
+            source_occurred_at(provenance.triggered_at.as_deref(), self.clock.now_utc())
+                .map_err(ShopifyProductListingProcessingError::InvalidTriggeredAt)?;
+        let delivery_id = shopify_delivery_identity(&provenance.webhook_id).map_err(|error| {
+            ShopifyProductListingProcessingError::InvalidProviderReceipt(
+                ShopifyProviderReceiptError::DeliveryId(error),
+            )
+        })?;
         let provider_receipt = shopify_provider_receipt(
             provenance.topic.as_str(),
             &delivery_id,
