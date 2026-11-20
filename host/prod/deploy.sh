@@ -291,7 +291,7 @@ require_running_image() {
 # The deploy restarts only the application services; these files take an operator's step.
 report_operator_changes() {
   local changed
-  changed="$(checkout_git diff --name-only "$1" "$2" -- host/prod/postgres host/prod/caddy \
+  changed="$(checkout_git diff --name-only "$1" "$2" -- host/prod/postgres host/prod/caddy host/prod/crawler-logs \
     host/prod/compose.yaml host/prod/templates host/prod/systemd host/prod/tmpfiles \
     host/prod/docker host/prod/deploy.sh host/prod/migration_plan.py host/deploy host/install.sh \
     host/systemd host/firewall host/ssh opensearch/prod 2>/dev/null || true)"

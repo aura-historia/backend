@@ -1,5 +1,6 @@
 # The prod runtime on the host: PostgreSQL, two API replicas, MCP, the worker, Caddy and the
-# one-shot ops commands, from images built from this repository. OpenSearch keeps its own
+# one-shot ops commands, from images built from this repository, and Fluent Bit shipping the
+# host crawler's journal. OpenSearch keeps its own
 # project (opensearch/prod/compose.yaml) and is reached on its network. Run every command
 # through host/prod/compose.sh, as root. Operator notes: host/prod/README.md.
 name: aura-prod
@@ -33,6 +34,10 @@ x-logging:
   ops: &ops-logging
     driver: awslogs
     options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/ops}
+  # The shipper's own output goes next to the crawler log it ships.
+  crawler: &crawler-logging
+    driver: awslogs
+    options: {<<: *log-options, awslogs-group: /aura-historia/prod/host/crawler}
 
 x-app: &app
   image: ${AURA_HISTORIA_IMAGE:?set the application image in /etc/aura-historia/prod/compose.env}
@@ -262,6 +267,32 @@ services:
       - 443:443/udp
     networks: [default]
 
+  # Ships the journal of the host's crawler units, which run outside this project, to the
+  # crawler's log group (host/prod/README.md#crawler-logs).
+  crawler-logs:
+    image: fluent/fluent-bit:5.1.5@sha256:25435e66b8da34975a615979e1297163f93690011d4d1900b6fa542e84ffb35f
+    restart: unless-stopped
+    command: [/fluent-bit/bin/fluent-bit, -c, /fluent-bit/etc/crawler-logs.yaml]
+    env_file:
+      - /etc/aura-historia/prod/secrets/aws.env
+    cgroup_parent: aura_pipeline.slice
+    mem_limit: 128m
+    memswap_limit: 128m
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    # Root without capabilities: it reads the root-owned journal files and nothing else.
+    cap_drop: [ALL]
+    logging: *crawler-logging
+    volumes:
+      - ./crawler-logs/fluent-bit.yaml:/fluent-bit/etc/crawler-logs.yaml:ro
+      - type: bind
+        source: /var/log/journal
+        target: /var/log/journal
+        read_only: true
+        bind: {create_host_path: false}
+      - crawler-logs-state:/fluent-bit/state
+    networks: [crawler-logs]
+
   # One-shot commands: `compose.sh run --rm ops <command>`. Host timers run the scheduled ones.
   ops:
     <<: *app
@@ -371,6 +402,9 @@ volumes:
   caddy-data:
     name: aura-historia-prod-caddy-data
     external: true
+  # The journal cursor and undelivered lines; losing it only skips to the journal's end.
+  crawler-logs-state:
+    name: aura-historia-prod-crawler-logs-state
 
 networks:
   default:
@@ -381,6 +415,9 @@ networks:
     internal: true
   backup:
     name: aura-prod-backup
+  # The log shipper's route to CloudWatch; it reaches no other service.
+  crawler-logs:
+    name: aura-prod-crawler-logs
   search:
     name: aura-opensearch-prod_search
     external: true

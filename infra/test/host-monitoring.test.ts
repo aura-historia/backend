@@ -4,11 +4,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { CONTAINER_LOG_SERVICES, stageConfig } from "../src/config";
-import { HOST_METRICS, INGESTION_REJECTED_METRIC } from "../src/constructs/host-monitoring";
+import { CRAWLER_METRICS, HOST_METRICS, INGESTION_REJECTED_METRIC } from "../src/constructs/host-monitoring";
 
 type Resource = { readonly Properties: Record<string, any>; readonly DeletionPolicy?: string };
 
 const config = stageConfig("prod");
+const containerLogGroups = CONTAINER_LOG_SERVICES.map((service) => `/aura-historia/prod/host/${service}`);
+const crawler = config.monitoring.crawler;
 const stacks = createApplicationStacks(new cdk.App({ analyticsReporting: false }), {
   stage: "prod",
   env: { account: "123456789012", region: "eu-central-1" },
@@ -26,6 +28,15 @@ function alarm(template: Template, name: string): Resource {
   return found[0];
 }
 
+function alarmsIn(template: Template, namespace: string): Resource[] {
+  return resources(template, "AWS::CloudWatch::Alarm").filter((resource) => {
+    const metrics = resource.Properties.Metrics
+      ? (resource.Properties.Metrics as any[]).filter((query) => query.MetricStat).map((query) => query.MetricStat.Metric)
+      : [resource.Properties];
+    return metrics.every((watched) => watched.Namespace === namespace);
+  });
+}
+
 function topicId(template: Template): string {
   const ids = Object.keys(template.findResources("AWS::SNS::Topic"));
   expect(ids).toHaveLength(1);
@@ -33,34 +44,69 @@ function topicId(template: Template): string {
 }
 
 describe("monitoring stacks", () => {
-  test("give each Compose service a 30-day log group under the prefix the host user may write", () => {
+  test("give each Compose service a 30-day and the crawler a 7-day log group, under the prefix the host user may write", () => {
     const groups = resources(monitoring, "AWS::Logs::LogGroup");
     expect(groups.map((group) => group.Properties.LogGroupName).sort())
-      .toEqual(CONTAINER_LOG_SERVICES.map((service) => `/aura-historia/prod/host/${service}`).sort());
+      .toEqual([...containerLogGroups, "/aura-historia/prod/host/crawler"].sort());
     for (const group of groups) {
       expect(group.Properties.LogGroupName.startsWith(config.host.containerLogGroupPrefix)).toBe(true);
-      expect(group.Properties.RetentionInDays).toBe(30);
+      expect(group.Properties.RetentionInDays).toBe(group.Properties.LogGroupName === crawler.logGroupName ? 7 : 30);
     }
   });
 
-  test("names every Compose log group exactly once", () => {
+  test("names every Compose log group exactly once, the crawler's for its log shipper", () => {
     const compose = readFileSync(join(__dirname, "../../host/prod/compose.yaml"), "utf8");
     const named = [...compose.matchAll(/awslogs-group: (\S+)\}/g)].map((match) => match[1]).sort();
-    expect(named).toEqual(CONTAINER_LOG_SERVICES.map((service) => `/aura-historia/prod/host/${service}`).sort());
+    expect(named).toEqual([...containerLogGroups, crawler.logGroupName].sort());
+  });
+
+  test("ship the journal of the crawler's units to the crawler's group as unchanged lines CloudWatch reads metrics from", () => {
+    const shipper = readFileSync(join(__dirname, "../../host/prod/crawler-logs/fluent-bit.yaml"), "utf8");
+    expect(shipper).toContain(`log_group_name: ${crawler.logGroupName}\n`);
+    expect(shipper).toContain("auto_create_group: off\n");
+    expect(shipper).toContain("log_key: MESSAGE\n");
+    expect(shipper).toContain("log_format: json/emf\n");
+    const shipped = [...shipper.matchAll(/- _SYSTEMD_UNIT=(\S+)\.service$/gm)].map((match) => match[1]).sort();
+    expect(shipped).toEqual(["crawler-server", "review-agent-runner"]);
+    for (const unit of shipped) {
+      expect(readFileSync(join(__dirname, `../../src/crawler/scripts/linux/${unit}.service`), "utf8")).toContain("[Service]");
+    }
   });
 
   test("watch the metric names the worker publishes", () => {
     const worker = readFileSync(join(__dirname, "../../src/aura-historia-worker/src/health_metrics.rs"), "utf8");
     for (const name of Object.values(HOST_METRICS)) expect(worker).toContain(`: &str = "${name}";`);
-    for (const resource of resources(monitoring, "AWS::CloudWatch::Alarm")) {
+    const hostAlarms = alarmsIn(monitoring, config.host.metricNamespace);
+    expect(hostAlarms).toHaveLength(11);
+    for (const resource of hostAlarms) {
+      expect(resource.Properties.AlarmName.startsWith("aura-historia-prod-host-")).toBe(true);
       const metrics = resource.Properties.Metrics
         ? (resource.Properties.Metrics as any[]).filter((query) => query.MetricStat).map((query) => query.MetricStat.Metric)
         : [resource.Properties];
       for (const watched of metrics) {
-        expect(watched.Namespace).toBe(config.host.metricNamespace);
         expect([...Object.values(HOST_METRICS), INGESTION_REJECTED_METRIC]).toContain(watched.MetricName);
       }
     }
+  });
+
+  test("alarm on the crawler metrics its metric records publish, as the crawler runbook requires", () => {
+    const records = readFileSync(join(__dirname, "../../src/crawler/src/metrics.rs"), "utf8");
+    expect(records).toContain(`METRICS_NAMESPACE: &str = "${crawler.metricNamespace}";`);
+    for (const name of Object.values(CRAWLER_METRICS)) expect(records).toMatch(new RegExp(`^\\s+${name} => \\w+,$`, "m"));
+    expect(alarmsIn(monitoring, crawler.metricNamespace)).toHaveLength(3);
+    // A pass records its duration and capture count even when it finds no work, so silence is a stall.
+    expect(alarm(monitoring, "aura-historia-prod-crawler-scraper-pass-stalled").Properties).toMatchObject({
+      MetricName: "ScraperPassDuration", Statistic: "Maximum", Period: 900, Threshold: 900000,
+      ComparisonOperator: "GreaterThanThreshold", EvaluationPeriods: 1, TreatMissingData: "breaching",
+    });
+    expect(alarm(monitoring, "aura-historia-prod-crawler-no-captures").Properties).toMatchObject({
+      MetricName: "ScrapesSucceeded", Statistic: "Sum", Period: 86400, Threshold: 0,
+      ComparisonOperator: "LessThanOrEqualToThreshold", EvaluationPeriods: 1, TreatMissingData: "breaching",
+    });
+    expect(alarm(monitoring, "aura-historia-prod-crawler-spider-runs-failing").Properties).toMatchObject({
+      MetricName: "CrawlRunsFailed", Statistic: "Sum", Period: 3600, Threshold: crawler.spiderRunFailuresPerHour,
+      ComparisonOperator: "GreaterThanThreshold", EvaluationPeriods: 1, TreatMissingData: "notBreaching",
+    });
   });
 
   test("alarm on each scheduled ops job its timer runs, counted from the job's success marker", () => {
@@ -172,7 +218,7 @@ describe("monitoring stacks", () => {
       const paths = stack.node.findAll().map((construct) => construct.node.path);
       expect(paths.filter((path) => path.includes("resolve"))).toEqual([]);
     }
-    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(11);
+    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(14);
     expect(resources(edge, "AWS::CloudWatch::Alarm")).toHaveLength(2);
   });
 });

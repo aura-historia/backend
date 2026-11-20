@@ -1,7 +1,7 @@
 # Prod Compose project
 
 [`compose.yaml`](compose.yaml) runs the prod runtime on the host as one Compose project,
-`aura-prod`, from images built from this repository:
+`aura-prod`, from images built from this repository and Fluent Bit's:
 
 | Service | Tier | Role |
 | --- | --- | --- |
@@ -10,6 +10,7 @@
 | `mcp` | serving | MCP server |
 | `caddy` | serving | The only public listener, 443 ([image](caddy/Dockerfile), [config](caddy/Caddyfile)) |
 | `worker` | pipeline | Outbox dispatcher and queue consumers |
+| `crawler-logs` | pipeline | Ships the host crawler's journal to CloudWatch ([crawler logs](#crawler-logs)) |
 | `ops`, `migrate`, `bootstrap`, `restore-check` | pipeline | One-shot commands, never started by `up` |
 
 OpenSearch keeps its own project ([compose](../../opensearch/prod/compose.yaml)) and volumes;
@@ -25,6 +26,7 @@ Every command goes through [`compose.sh`](compose.sh) as root, from the stable c
 - `database` is internal: PostgreSQL and the application containers, no route out.
 - `backup` is PostgreSQL's only route out, for pgBackRest's S3 traffic.
 - `default` gives the application containers and Caddy their egress, and Caddy its upstreams.
+- `crawler-logs` is the crawler log shipper's egress; it reaches no other service.
 - `search` is the OpenSearch project's network. The application processes connect to
   `https://opensearch:9200` and trust the node's private CA (`OPENSEARCH_CA_CERT_FILE`).
 
@@ -126,6 +128,24 @@ every container running. After installing it, or after changing `aws.env`,
 `sudo systemctl restart docker`; check that new events arrive in the groups before deleting an
 old key.
 
+### Crawler logs
+
+The crawler runs outside Compose and logs JSON lines to the journal. The `crawler-logs` service
+runs [Fluent Bit](crawler-logs/fluent-bit.yaml): it reads the journal of `crawler-server` and
+`review-agent-runner` through a read-only mount and sends each line unchanged to
+`/aura-historia/prod/host/crawler`, kept 7 days, one stream per unit. It ships what the crawler
+logs at its own `LOG_LEVEL`; the crawler's metric records ignore that level and arrive with the
+header that tells CloudWatch to turn them into `AuraHistoria/Crawler` metrics
+([metrics and alarms](../../docs/crawler/operations.md#metrics-and-alarms)). Its own output goes
+to the same group, in a stream named after its container. It signs with the host user's key
+from `aws.env`, and the monitoring stack creates the group; the shipper never creates one.
+
+Its journal cursor and the lines not yet delivered are in the `crawler-logs-state` volume, so a
+restart resumes where it stopped. While CloudWatch is unreachable it keeps retrying, holding up
+to 512 MB of lines on disk and dropping the oldest beyond that. Without a cursor, as on its first
+start, it begins at the journal's end. A change to its configuration takes
+`compose.sh up -d --force-recreate crawler-logs`.
+
 ## Monitoring
 
 The worker publishes the host's health metrics once a minute
@@ -146,7 +166,8 @@ which tests the notification path only, and confirm the email arrives, then the 
 | backup stale | Clears with `backup.sh diff`; before the first backup it is in alarm already |
 | parked jobs | Fires when custody grows and clears 5 minutes later; `ops inspect` shows what is kept |
 | scheduled job stale | `systemctl start aura-prod-ops@<job>` touches its marker and clears it; before the worker mounts the markers every job alarm fires |
-| PostgreSQL unreachable, backlog age, ingestion rejected, low free disk, CloudFront 5xx | `aws cloudwatch set-alarm-state --alarm-name <name> --state-value ALARM --state-reason test` (the 5xx alarms in `us-east-1`); the next evaluation resets it |
+| crawler scraper pass stalled, no captures | Fire while the crawler is stopped, and clear once its passes record again; a stopped `crawler-logs` fires them too |
+| PostgreSQL unreachable, backlog age, ingestion rejected, low free disk, crawler spider runs failing, CloudFront 5xx | `aws cloudwatch set-alarm-state --alarm-name <name> --state-value ALARM --state-reason test` (the 5xx alarms in `us-east-1`); the next evaluation resets it |
 
 ## First start
 
@@ -216,12 +237,13 @@ and it needs a reviewed manual procedure.
 **Changes a deploy does not apply.** It restarts only `api-a`, `api-b`, the worker and `mcp`.
 Its output ends with the changed files that need an operator: `postgres/` and `caddy/` take
 `compose.sh build <service>` and `compose.sh up -d --force-recreate <service>` (a changed
-bind-mounted file alone does not recreate the container); the units, tmpfiles and `docker/`
+bind-mounted file alone does not recreate the container), and `crawler-logs/` the same without
+the build; the units, tmpfiles and `docker/`
 `install.sh prod`; the deploy script, the planner and [`host/deploy/`](../deploy)
 `install.sh deploy`, after the deploy that brings them; `host/systemd`, `host/firewall` and
 `host/ssh` the matching `install.sh` command; `opensearch/prod` the
 [OpenSearch runbook](../../docs/opensearch-stage.md). A change to `compose.yaml` that touches
-`postgres` or `caddy` takes `compose.sh up -d <service>`; a new template key or file takes
+`postgres`, `caddy` or `crawler-logs`, or adds a service, takes `compose.sh up -d <service>`; a new template key or file takes
 `secrets.sh init` and its value before the deploy.
 
 ### Deploy access

@@ -1,0 +1,42 @@
+# Ships the crawler units' journal to CloudWatch Logs (host/prod/README.md#crawler-logs). The
+# crawler writes one JSON line per event at its own LOG_LEVEL, and its metric records are
+# Embedded Metric Format lines, which CloudWatch turns into AuraHistoria/Crawler metrics
+# (docs/crawler/operations.md#metrics-and-alarms). Each line is sent unchanged, one stream per unit.
+service:
+  flush: 5
+  log_level: warn
+  # Lines read but not yet delivered survive a restart; the journal cursor is in the same volume.
+  storage.path: /fluent-bit/state/buffer
+  storage.sync: normal
+
+pipeline:
+  inputs:
+    - name: systemd
+      tag: crawler
+      path: /var/log/journal
+      db: /fluent-bit/state/journal.db
+      db.sync: normal
+      # Without a saved cursor, start at the end rather than replay the journal's history.
+      read_from_tail: on
+      systemd_filter:
+        - _SYSTEMD_UNIT=crawler-server.service
+        - _SYSTEMD_UNIT=review-agent-runner.service
+      systemd_filter_type: or
+      storage.type: filesystem
+
+  outputs:
+    - name: cloudwatch_logs
+      match: crawler
+      region: eu-central-1
+      # Created by the monitoring stack with the crawler's retention; the host user may only
+      # write to it.
+      log_group_name: /aura-historia/prod/host/crawler
+      auto_create_group: off
+      log_stream_template: $_SYSTEMD_UNIT
+      log_stream_name: crawler
+      # The line itself, not the journal record around it, so CloudWatch reads metric records.
+      log_key: MESSAGE
+      log_format: json/emf
+      # While CloudWatch is unreachable, lines wait on disk up to this size, oldest dropped first.
+      retry_limit: no_limits
+      storage.total_limit_size: 512M

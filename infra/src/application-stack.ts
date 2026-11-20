@@ -8,7 +8,7 @@ import { ApiCloudFront } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { CognitoTriggers } from "./constructs/cognito-triggers";
 import { HostAccess } from "./constructs/host-access";
-import { EdgeMonitoring, HostMonitoring } from "./constructs/host-monitoring";
+import { CrawlerMonitoring, EdgeMonitoring, HostMonitoring } from "./constructs/host-monitoring";
 import { McpCloudFront } from "./constructs/mcp";
 import { TriggerArtifactPublisher } from "./constructs/trigger-artifact-publisher";
 
@@ -183,14 +183,17 @@ export class ApplicationApiStack extends cdk.Stack {
   }
 }
 
-/** The host's container log groups, the host health alarms and their email topic. */
+/** The host's container and crawler log groups, their alarms and the alarms' email topic. */
 export class ApplicationMonitoringStack extends cdk.Stack {
   readonly monitoring: HostMonitoring;
+  readonly crawler: CrawlerMonitoring;
 
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, stackProps(props));
     this.templateOptions.description = "Aura Historia host monitoring stack";
-    this.monitoring = new HostMonitoring(this, "HostMonitoring", { config: stageConfig(props.stage) });
+    const config = stageConfig(props.stage);
+    this.monitoring = new HostMonitoring(this, "HostMonitoring", { config });
+    this.crawler = new CrawlerMonitoring(this, "CrawlerMonitoring", { config, alarms: this.monitoring.alarms });
     new cdk.CfnOutput(this, "AlarmTopicArn", { value: this.monitoring.alarms.topic.topicArn });
   }
 }

@@ -227,7 +227,9 @@ The alarms watch the host from AWS, so they fire when the host itself is gone. T
 publishes the host's [health metrics](../src/aura-historia-worker/README.md#health-metrics) to
 `AuraHistoria/Host` once a minute, and a metric filter counts rejected ingestion commands in the
 worker's log; Docker ships each service's [logs](../host/prod/README.md#logs)
-to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. Thresholds are in
+to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. The crawler's metric
+records become `AuraHistoria/Crawler` metrics when its journal reaches
+`/aura-historia/prod/host/crawler` ([crawler logs](../host/prod/README.md#crawler-logs)). Thresholds are in
 [`config.ts`](../infra/src/config.ts):
 
 | Alarm | Fires when |
@@ -240,6 +242,7 @@ to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. Thres
 | `…-host-low-free-disk` | The host filesystem has at most 20% free, above OpenSearch's low watermark |
 | `…-host-backend-cleanup-stale`, `…-host-fx-refresh-stale`, `…-host-periodic-match-stale` | The [scheduled job](../host/prod/README.md#scheduled-jobs) has not succeeded for 2.5 hours (cleanup), 13 hours (FX refresh) or 27 hours (matching): a missed FX refresh or matching run, or two missed cleanups; a missing figure counts as stale |
 | `…-host-backup-stale` | The last successful backup is at least 26 hours old; no recorded backup counts as stale |
+| `…-crawler-scraper-pass-stalled`, `…-crawler-no-captures`, `…-crawler-spider-runs-failing` | The crawler stalls, captures nothing for a day, or fails unusually many spider runs ([crawler alarms](crawler/operations.md#metrics-and-alarms)); the first two fire while the crawler is stopped |
 | `…-api-cloudfront-5xx-rate`, `…-mcp-cloudfront-5xx-rate` | At least 5% of a distribution's requests failed with 5xx in two consecutive 5-minute periods of at least 10 requests |
 
 Every alarm emails its topic when it fires and when it clears. Each stack's topic subscribes the
@@ -340,8 +343,8 @@ Container logs go to CloudWatch Logs, one group per service, and Docker keeps a 
 
 The Cognito triggers log in Lambda's JSON format with system level `WARN` and filter themselves at
 `warn` ([trigger logging](../infra/src/constructs/lambda-logging.ts)); their groups keep seven
-days. The two consent-evidence groups never expire. The crawler's logs stay in the host's
-journal ([#3079](https://github.com/aura-historia/backend/issues/3079)).
+days. The two consent-evidence groups never expire. The host ships the crawler's journal to
+its own group, kept seven days, at the crawler's `LOG_LEVEL` ([crawler logs](../host/prod/README.md#crawler-logs)).
 
 ## Scheduled work
 
