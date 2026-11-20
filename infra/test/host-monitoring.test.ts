@@ -119,6 +119,11 @@ describe("monitoring stacks", () => {
         TopicArn: { Ref: topic },
       });
     }
+    // CloudFormation resolves dynamic references anywhere, including construct paths in metadata.
+    for (const stack of [stacks.monitoring, stacks.edgeMonitoring]) {
+      const paths = stack.node.findAll().map((construct) => construct.node.path);
+      expect(paths.filter((path) => path.includes("resolve"))).toEqual([]);
+    }
     expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(7);
     expect(resources(edge, "AWS::CloudWatch::Alarm")).toHaveLength(2);
   });

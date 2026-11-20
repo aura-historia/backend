@@ -3,7 +3,6 @@ import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as sns from "aws-cdk-lib/aws-sns";
-import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from "constructs";
 import { CONTAINER_LOG_SERVICES, ssmValue, type StageConfig } from "../config";
 
@@ -34,7 +33,13 @@ export class AlarmTopic extends Construct {
       topicName: `aura-historia-${props.config.stage}-alarms`,
       displayName: "Aura Historia alarms",
     });
-    this.topic.addSubscription(new subscriptions.EmailSubscription(ssmValue(props.config.monitoring.alarmEmailParameterName)));
+    // A fixed ID: addSubscription names the construct after the endpoint, and CloudFormation
+    // would try to resolve the dynamic reference in its path metadata too.
+    new sns.Subscription(this, "EmailSubscription", {
+      topic: this.topic,
+      protocol: sns.SubscriptionProtocol.EMAIL,
+      endpoint: ssmValue(props.config.monitoring.alarmEmailParameterName),
+    });
   }
 
   notify(alarm: cloudwatch.Alarm): cloudwatch.Alarm {
