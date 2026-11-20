@@ -199,6 +199,10 @@ impl LargeLanguageModel for AnthropicClaude {
             .collect()
             .await
     }
+
+    fn logged_model(&self) -> LlmModel {
+        log_model(self.config.model.as_str())
+    }
 }
 
 #[derive(Serialize)]
@@ -397,15 +401,8 @@ impl MessagesResponse {
     }
 
     fn into_output<Output: DeserializeOwned>(self) -> Result<Output, LargeLanguageModelError> {
-        if self.stop_reason == "max_tokens" {
-            return Err(invalid_response_error(
-                StructuredResponseError::TruncatedMaxTokens,
-            ));
-        }
-        if self.stop_reason != "end_turn" {
-            return Err(invalid_response_error(
-                StructuredResponseError::MissingContent,
-            ));
+        if let Some(failure) = stop_reason_failure(&self.stop_reason) {
+            return Err(invalid_response_error(failure));
         }
         let text = self
             .content
@@ -431,6 +428,17 @@ impl MessagesResponse {
                 source,
             })
         })
+    }
+}
+
+/// Only `end_turn` carries a complete answer. A refusal keeps its own kind so callers can tell it
+/// from an empty reply; every other stop reason has no usable content.
+fn stop_reason_failure(stop_reason: &str) -> Option<StructuredResponseError> {
+    match stop_reason {
+        "end_turn" => None,
+        "max_tokens" => Some(StructuredResponseError::TruncatedMaxTokens),
+        "refusal" => Some(StructuredResponseError::Refusal),
+        _ => Some(StructuredResponseError::MissingContent),
     }
 }
 
@@ -919,11 +927,12 @@ mod tests {
             let error = response.into_output::<Output>().unwrap_err();
             assert_eq!(
                 error.structured_response_failure_kind(),
-                Some(if reason == "max_tokens" {
-                    StructuredResponseFailureKind::MaxTokens
-                } else {
-                    StructuredResponseFailureKind::MissingContent
-                })
+                Some(match reason {
+                    "max_tokens" => StructuredResponseFailureKind::MaxTokens,
+                    "refusal" => StructuredResponseFailureKind::Refusal,
+                    _ => StructuredResponseFailureKind::MissingContent,
+                }),
+                "stop reason {reason}"
             );
         }
         for content in [

@@ -6755,6 +6755,7 @@ dependencies = [
  "product-listing-service",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -16,7 +16,7 @@ use image_fetcher::{FetchedImage, ImageFetcher};
 use llm_logging::log_llm_image_omission;
 pub use llm_logging::{
     GeminiServiceTier, LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider,
-    log_llm_invocation, log_llm_invocation_failure,
+    log_llm_invocation, log_llm_invocation_failure, log_llm_refusal_fallback,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -128,6 +128,8 @@ pub enum StructuredResponseFailureKind {
     MissingRequiredField,
     MaxTokens,
     MissingContent,
+    /// The provider declined to answer. It repeats for the same request and model.
+    Refusal,
 }
 
 impl StructuredResponseFailureKind {
@@ -138,6 +140,7 @@ impl StructuredResponseFailureKind {
             Self::MissingRequiredField => "missing_required_field",
             Self::MaxTokens => "max_tokens",
             Self::MissingContent => "missing_content",
+            Self::Refusal => "refusal",
         }
     }
 }
@@ -212,6 +215,16 @@ impl LargeLanguageModelError {
         }
     }
 
+    /// A provider's refusal to answer, as an adapter reports it and as test doubles return it.
+    pub fn refusal() -> Self {
+        invalid_response_error(StructuredResponseError::Refusal)
+    }
+
+    /// Whether the provider declined to answer, as opposed to answering unusably.
+    pub fn is_refusal(&self) -> bool {
+        self.structured_response_failure_kind() == Some(StructuredResponseFailureKind::Refusal)
+    }
+
     /// Return the bounded feedback code for a provider response that could not be
     /// converted into the requested structured output.
     pub fn response_feedback_code(&self) -> Option<&'static str> {
@@ -277,6 +290,8 @@ enum StructuredResponseError {
     TruncatedMaxTokens,
     #[error("response contains no usable content")]
     MissingContent,
+    #[error("provider refused to generate a response")]
+    Refusal,
 }
 
 impl StructuredResponseError {
@@ -291,6 +306,7 @@ impl StructuredResponseError {
             }
             Self::TruncatedMaxTokens => StructuredResponseFailureKind::MaxTokens,
             Self::MissingContent => StructuredResponseFailureKind::MissingContent,
+            Self::Refusal => StructuredResponseFailureKind::Refusal,
         }
     }
 
@@ -303,6 +319,7 @@ impl StructuredResponseError {
             Self::TargetDeserialization { .. } => "response_schema_deserialization_failed",
             Self::TruncatedMaxTokens => "response_truncated_max_tokens",
             Self::MissingContent => "response_missing_content",
+            Self::Refusal => "response_refused",
         }
     }
 
@@ -346,6 +363,11 @@ pub trait LargeLanguageModel: Send + Sync {
             .buffered(options.max_concurrent_requests.get())
             .collect()
             .await
+    }
+
+    /// The bounded model label this client reports in LLM logs.
+    fn logged_model(&self) -> LlmModel {
+        LlmModel::Configured
     }
 }
 
@@ -406,6 +428,10 @@ impl LargeLanguageModel for VertexAiGemini {
             .buffered(options.max_concurrent_requests.get())
             .collect()
             .await
+    }
+
+    fn logged_model(&self) -> LlmModel {
+        log_model(self.config.model())
     }
 }
 
@@ -1406,6 +1432,37 @@ fn target_deserialization_error_kind(error: &serde_json::Error) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_classify_only_a_refusal_as_refusal() {
+        let refusal = LargeLanguageModelError::refusal();
+        assert!(refusal.is_refusal());
+        assert_eq!(
+            Some(StructuredResponseFailureKind::Refusal),
+            refusal.structured_response_failure_kind()
+        );
+        assert_eq!(Some("response_refused"), refusal.response_feedback_code());
+
+        let json_syntax = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let target_deserialization =
+            serde_path_to_error::deserialize::<_, bool>(serde_json::json!("yes")).unwrap_err();
+        for other in [
+            StructuredResponseError::JsonSyntax {
+                source: json_syntax,
+            },
+            StructuredResponseError::TargetDeserialization {
+                json_path: ".".to_owned(),
+                error_kind: "invalid_type",
+                missing_field: None,
+                source: target_deserialization,
+            },
+            StructuredResponseError::TruncatedMaxTokens,
+            StructuredResponseError::MissingContent,
+        ] {
+            let kind = other.failure_kind();
+            assert!(!invalid_response_error(other).is_refusal(), "{kind}");
+        }
+    }
 
     #[test]
     fn should_build_regional_and_global_vertex_endpoints_for_configured_model() {

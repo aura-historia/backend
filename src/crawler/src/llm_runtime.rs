@@ -309,7 +309,8 @@ where
                         StructuredResponseFailureKind::InvalidJson
                         | StructuredResponseFailureKind::TargetDeserialization
                         | StructuredResponseFailureKind::MissingRequiredField
-                        | StructuredResponseFailureKind::MissingContent,
+                        | StructuredResponseFailureKind::MissingContent
+                        | StructuredResponseFailureKind::Refusal,
                     )
                     | None
                         if is_correctable_response_error(&error) =>

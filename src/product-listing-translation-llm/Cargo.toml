@@ -13,3 +13,6 @@ product-listing-core = { workspace = true }
 product-listing-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
