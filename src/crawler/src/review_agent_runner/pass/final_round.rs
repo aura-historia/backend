@@ -7,6 +7,7 @@
 //! runner).
 
 use super::{Pass, Step};
+use crate::review::agent_decisions::FINAL_ROUND_REPAIR_PASSES;
 use crate::review::model::{
     FinalRoundStatus, HandoverCategory, HandoverCause, HandoverReason, MAX_SOURCE_LABEL_NOTE_CHARS,
     SourceLabel,
@@ -17,7 +18,7 @@ use crate::review_agent_runner::queue::{
     waits_for_human,
 };
 use crate::review_agent_runner::reports::{
-    AgentReport, AuthorAction, AuthorReport, ReviewerReport,
+    AgentReport, AuthorAction, AuthorReport, ReviewerReport, TrailVerdict,
 };
 use crate::review_mcp::{AgentRole, ConsoleError};
 use serde::Deserialize;
@@ -52,10 +53,12 @@ enum Exchange {
     Park(Park),
     /// The final-round reviewer approved or rejected the review.
     Decided(FinalRoundOutcome),
-    /// The final-round reviewer ran and decided nothing, with both sides' last reports.
+    /// The final-round reviewer ran and decided nothing, with both sides' last reports and
+    /// whether its trail verdict was a needs-repair verdict.
     Undecided {
         author: Option<Box<AuthorReport>>,
         reviewer: Option<Box<ReviewerReport>>,
+        repair_requested: bool,
     },
 }
 
@@ -112,8 +115,10 @@ impl Pass<'_> {
 
     /// Works the final round on `review`: starts it when it is due, runs the final-round author
     /// and, when it leaves a candidate, the final-round reviewer, and parks the source when the
-    /// round ends without an approval or a rejection. A round a usage limit, a pause or the
-    /// runner's stop interrupts stays open, and the next run goes on with it.
+    /// round ends without an approval or a rejection. When the reviewer asks for a repair and the
+    /// console keeps the round open for a [repair pass](FINAL_ROUND_REPAIR_PASSES), the author
+    /// repairs the candidate and the reviewer judges it once more before any park. A round a usage
+    /// limit, a pause or the runner's stop interrupts stays open, and the next run goes on with it.
     pub(super) async fn work_final_round(&self, review: QueuedReview) {
         if review.final_round == FinalRoundStatus::Due && !self.start_final_round(&review).await {
             self.cool_down(&review);
@@ -124,7 +129,8 @@ impl Pass<'_> {
             return;
         }
         self.with(|shared| shared.summary.final_rounds += 1);
-        match self.final_round_exchange(&review).await {
+        let exchange = self.final_round_exchange(&review).await;
+        match self.repair_passes(&review, exchange).await {
             Exchange::Interrupted => {
                 self.finish_final_round(&review, FinalRoundOutcome::Open, None)
             }
@@ -138,7 +144,9 @@ impl Pass<'_> {
                 });
                 self.finish_final_round(&review, outcome, None);
             }
-            Exchange::Undecided { author, reviewer } => {
+            Exchange::Undecided {
+                author, reviewer, ..
+            } => {
                 let park = unresolved(
                     "The final round ended without an approval.",
                     author.as_deref(),
@@ -197,8 +205,49 @@ impl Pass<'_> {
             None => Exchange::Undecided {
                 author: author.map(Box::new),
                 reviewer: reviewer.map(Box::new),
+                repair_requested: processed.trail_verdict == Some(TrailVerdict::RepairRequested),
             },
         }
+    }
+
+    /// Runs the round's repair passes after `exchange`: while its reviewer asked for a repair and
+    /// the console keeps the round open, one more exchange, at most
+    /// [`FINAL_ROUND_REPAIR_PASSES`]. The console bounds the passes across runs; this bounds them
+    /// within one run too. Answers how the last exchange ended.
+    async fn repair_passes(&self, review: &QueuedReview, mut exchange: Exchange) -> Exchange {
+        for _ in 0..FINAL_ROUND_REPAIR_PASSES {
+            let repair_requested = matches!(
+                exchange,
+                Exchange::Undecided {
+                    repair_requested: true,
+                    ..
+                }
+            );
+            if !repair_requested || !self.final_round_still_open(review).await {
+                break;
+            }
+            self.with(|shared| shared.summary.final_round_repair_passes += 1);
+            info!(
+                event = "crawler.review_agent.final_round_repair_pass",
+                review_id = %review.review_id,
+                listing_source_id = %review.listing_source_id,
+                listing_source_name = review.listing_source_name.as_deref(),
+                artifact_type = %review.artifact_type,
+                "The final-round reviewer asked for a repair; the final-round author repairs the candidate once more"
+            );
+            exchange = self.final_round_exchange(review).await;
+        }
+        exchange
+    }
+
+    /// Whether the final round on `review` is still open on the console after a needs-repair
+    /// verdict in it, so its author has a repair pass left. A review the runner cannot read counts
+    /// as ended, so the round parks instead of running more processes.
+    async fn final_round_still_open(&self, review: &QueuedReview) -> bool {
+        matches!(
+            waits_for_human(self.console, review.review_id).await,
+            Ok(false)
+        )
     }
 
     /// Starts the final round on the console; `false`, logged, when the console does not take it,
@@ -627,10 +676,7 @@ fn final_round_runs_in(events: &[TrailEvent]) -> bool {
 }
 
 /// The outcome a decision the trail records gives the final round; `None` for no decision.
-fn decided_outcome(
-    verdict: crate::review_agent_runner::reports::TrailVerdict,
-) -> Option<FinalRoundOutcome> {
-    use crate::review_agent_runner::reports::TrailVerdict;
+fn decided_outcome(verdict: TrailVerdict) -> Option<FinalRoundOutcome> {
     match verdict {
         TrailVerdict::Approved => Some(FinalRoundOutcome::Approved),
         TrailVerdict::Rejected => Some(FinalRoundOutcome::Rejected),

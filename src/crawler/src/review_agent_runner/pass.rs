@@ -83,6 +83,9 @@ pub struct PassSummary {
     pub final_rounds: usize,
     /// Of them, those the final-round reviewer approved.
     pub final_rounds_approved: usize,
+    /// Repair passes the final-round author got after the final-round reviewer asked for a
+    /// repair.
+    pub final_round_repair_passes: usize,
     /// Sources this pass parked after a final round that did not approve.
     pub parked: usize,
     /// Reviews whose final round was due but that the daily cap on final rounds held back.

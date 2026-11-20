@@ -4464,9 +4464,10 @@ Origin: http://127.0.0.1:7878/x
         }
 
         /// A review at the repair cap gets one final round, which only the author agent starts:
-        /// the review is the agents' again until a needs-repair verdict ends the round, it is never
-        /// due twice in the round window, and once it ended the author parks the review's source
-        /// with a label that expires instead of leaving the review for a human.
+        /// the review is the agents' again, the first needs-repair verdict in it leaves the author
+        /// one repair pass and the second ends the round, it is never due twice in the round window,
+        /// and once it ended the author parks the review's source with a label that expires instead
+        /// of leaving the review for a human.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_give_a_review_at_the_cap_one_final_round_and_let_the_author_park_its_source()
          {
@@ -4549,6 +4550,31 @@ Origin: http://127.0.0.1:7878/x
             let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
             let (status, edited) = send_as(&server, AUTHOR_TOKEN, &schema_field, &edit).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+
+            let (status, _) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+            let (_, repairing) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                "GET /api/pending-reviews?human_required=false",
+                "",
+            )
+            .await;
+            assert_eq!(
+                queued(&repairing)["final_round"],
+                "OPEN",
+                "the first needs-repair verdict of the final round leaves the author a repair pass"
+            );
+            let (_, detail) = send_as(&server, TOKEN, &review, "").await;
+            let repair = json!({
+                "expected_candidate_version": detail["review"]["candidate_version"].clone(),
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1.product-title", "type": "text"},
+            })
+            .to_string();
+            let (status, repaired) = send_as(&server, AUTHOR_TOKEN, &schema_field, &repair).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {repaired}");
 
             let (status, _) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status}");

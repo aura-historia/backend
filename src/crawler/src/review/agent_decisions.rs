@@ -142,11 +142,19 @@ impl AgentRounds {
     }
 }
 
+/// How many times the agents' final round on a review lets the author agent repair the candidate
+/// after a needs-repair verdict in it, so a fix the final-round reviewer names is applied and judged
+/// before the review's source is parked: the round ends at the needs-repair verdict that follows
+/// them, or at a hand-over (`final_round_of_review` in the review repository compares its count
+/// with this value).
+pub const FINAL_ROUND_REPAIR_PASSES: u32 = 1;
+
 /// The agents' final round on a review, counted like its rounds since a human last changed or
 /// judged it and within the round window: once a review would wait for a human, the author agent
-/// may start it once, and the review is the agents' again until a needs-repair verdict or a
-/// hand-over ends it. A review whose final round ended waits for a human until its source is
-/// parked; the round counts as one extra round on top of the cap.
+/// may start it once, and the review is the agents' again until a hand-over or a needs-repair
+/// verdict beyond its [repair passes](FINAL_ROUND_REPAIR_PASSES) ends it. A review whose final round
+/// ended waits for a human until its source is parked; the round counts as one extra round on top
+/// of the cap.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FinalRound {
     #[default]
@@ -230,8 +238,8 @@ impl AgentDecisionPolicy {
     /// reached the [repair-round cap](Self::repair_rounds_cap) or an agent handed it over.
     ///
     /// Once the agents' [final round](FinalRound) started, the cap and the hand-over before it no
-    /// longer count: the review waits for a human only once a needs-repair verdict or a hand-over
-    /// ended that round.
+    /// longer count: the review waits for a human only once a hand-over, or a needs-repair verdict
+    /// beyond the round's [repair passes](FINAL_ROUND_REPAIR_PASSES), ended that round.
     pub fn waits_for_human(&self, status: &str, rounds: AgentRounds) -> bool {
         status == STATUS_PENDING_REVIEW
             && self

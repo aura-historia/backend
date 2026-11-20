@@ -95,8 +95,10 @@ macro_rules! final_round_started_at {
 
 /// Where the agents' final round on the review aliased `r` stands, as the code of
 /// [`FinalRound::from_code`](crate::review::agent_decisions::FinalRound::from_code): `0` not started,
-/// `1` open, `2` ended by an agent's needs-repair verdict or hand-over after it started. Binds `$1`,
-/// `$3` and `$4` as [`agent_rounds_of_review`].
+/// `1` open, `2` ended by an agent's hand-over after it started, or by the agents' needs-repair
+/// verdict after the round's
+/// [repair passes](crate::review::agent_decisions::FINAL_ROUND_REPAIR_PASSES), the `1` the count
+/// is compared with. Binds `$1`, `$3` and `$4` as [`agent_rounds_of_review`].
 macro_rules! final_round_of_review {
     () => {
         concat!(
@@ -105,10 +107,13 @@ macro_rules! final_round_of_review {
             " IS NULL THEN 0 \
                WHEN EXISTS (SELECT 1 FROM crawler_review_events f \
                     WHERE f.review_id = r.review_id AND f.actor = ANY($1) \
-                      AND f.action IN ('REPAIR_REQUESTED', 'HANDED_TO_HUMAN') \
-                      AND f.created > ",
+                      AND f.action = 'HANDED_TO_HUMAN' AND f.created > ",
             $crate::review::repository::final_round_started_at!(),
-            ") THEN 2 ELSE 1 END)"
+            ") OR (SELECT COUNT(*) FROM crawler_review_events f \
+                    WHERE f.review_id = r.review_id AND f.actor = ANY($1) \
+                      AND f.action = 'REPAIR_REQUESTED' AND f.created > ",
+            $crate::review::repository::final_round_started_at!(),
+            ") > 1 THEN 2 ELSE 1 END)"
         )
     };
 }

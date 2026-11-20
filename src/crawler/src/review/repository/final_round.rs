@@ -2,7 +2,10 @@
 //! needs-repair rounds reached the cap or a review was handed over, the author agent starts one
 //! more round with the strongest model before the review's ListingSource is parked. Starting it
 //! appends a `FINAL_ROUND_STARTED` event, from which the review is the agents' again until a
-//! needs-repair verdict or a hand-over ends the round ([`FinalRound`]). Approvals in it pass the
+//! hand-over, or a needs-repair verdict beyond the round's repair passes
+//! ([`FINAL_ROUND_REPAIR_PASSES`](crate::review::agent_decisions::FINAL_ROUND_REPAIR_PASSES)),
+//! ends the round ([`FinalRound`]): after the first needs-repair verdict in it the author repairs
+//! the candidate once more and the reviewer judges it again. Approvals in it pass the
 //! unchanged approval guard and four-eyes rule. A review gets it at most once within the round
 //! window since a human last acted on it, and starting it counts towards the agents' hourly
 //! decision cap. The contract is in `docs/crawler/operations.md` (review agents).

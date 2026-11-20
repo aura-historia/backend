@@ -367,6 +367,7 @@ fn log_pass_finished(
                 guard_blocked = summary.guard_blocked,
                 final_rounds = summary.final_rounds,
                 final_rounds_approved = summary.final_rounds_approved,
+                final_round_repair_passes = summary.final_round_repair_passes,
                 final_rounds_held_back = summary.final_rounds_held_back,
                 parked = summary.parked,
                 reviewers_held_back = summary.reviewers_held_back,
@@ -947,9 +948,14 @@ mod tests {
             return (500, "{\"error\":\"failed\"}".to_owned());
         }
         let mut review = review.clone();
-        if claude_dir.join("human").join(&id).exists()
-            && !claude_dir.join("final_open").join(&id).exists()
-        {
+        let final_open = claude_dir.join("final_open").join(&id).exists();
+        // As the console counts them: the round's second needs-repair verdict ends it.
+        let final_repairs = std::fs::read_to_string(claude_dir.join("decided.log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| *line == format!("{id} REPAIR_REQUESTED"))
+            .count();
+        if claude_dir.join("human").join(&id).exists() && (!final_open || final_repairs > 1) {
             review.agent_rounds = 3;
             review.human_required = true;
         }
@@ -1082,13 +1088,17 @@ if [ -f "$dir/hand_over/$review-$role" ]; then
   target="$(cat "$dir/hand_over/$review-$role")"
   touch "$dir/human/${target:-$review}"
 fi
+calls="$(( $(cat "$dir/call_counts/$review-$role" 2>/dev/null || echo 0) + 1 ))"
+echo "$calls" > "$dir/call_counts/$review-$role"
 if [ "$role" = reviewer ]; then
-  decision="$dir/decisions/$review"
+  decision="$dir/decisions/$review.$calls"
+  [ -f "$decision" ] || decision="$dir/decisions/$review"
   [ -f "$decision" ] || decision="$dir/decisions/reviewer"
   if [ -s "$decision" ]; then echo "$review $(cat "$decision")" >> "$dir/decided.log"; fi
 fi
 sleep 0.2
-envelope="$dir/envelopes/$review-$role.json"
+envelope="$dir/envelopes/$review-$role.$calls.json"
+[ -f "$envelope" ] || envelope="$dir/envelopes/$review-$role.json"
 [ -f "$envelope" ] || envelope="$dir/envelopes/$role.json"
 sed "s/__REVIEW_ID__/$review/g" "$envelope"
 if [ -f "$dir/hang/$review-$role" ]; then
@@ -1127,6 +1137,7 @@ echo "end $role $review" >> "$dir/order.log"
                 "final_ended",
                 "park_refused",
                 "labelled",
+                "call_counts",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -1147,7 +1158,8 @@ echo "end $role $review" >> "$dir/order.log"
                 .unwrap_or_default();
         }
 
-        /// Answers `envelope` to the role, or to `<review id>-<role>`.
+        /// Answers `envelope` to the role, to `<review id>-<role>`, or to the `<n>`th process of
+        /// that review and role as `<review id>-<role>.<n>`.
         fn answer(&self, name: &str, envelope: Value) {
             self.stream(name, &[envelope]);
         }
@@ -1307,8 +1319,8 @@ echo "end $role $review" >> "$dir/order.log"
             std::fs::write(self.directory.path().join("die").join(name), "").unwrap_or_default();
         }
 
-        /// Has the reviewer of the review `name`, or every reviewer for `reviewer`, take `action`;
-        /// an empty action takes none.
+        /// Has the reviewer of the review `name`, its `<n>`th reviewer for `<review id>.<n>`, or
+        /// every reviewer for `reviewer`, take `action`; an empty action takes none.
         fn decide(&self, name: &str, action: &str) {
             std::fs::write(self.directory.path().join("decisions").join(name), action)
                 .unwrap_or_default();
@@ -2051,9 +2063,10 @@ echo "end $role $review" >> "$dir/order.log"
         );
     }
 
-    /// A final round that does not approve leaves no review waiting for a human: the runner parks
-    /// the source with `AGENTS_UNRESOLVED` and a note naming both sides' last positions, and records
-    /// the park for the digest.
+    /// A final round that does not approve leaves no review waiting for a human: when the
+    /// final-round reviewer still asks for a repair after the author's repair pass, the runner
+    /// parks the source with `AGENTS_UNRESOLVED` and a note naming both sides' last positions, and
+    /// records the park for the digest.
     #[tokio::test]
     async fn should_park_the_source_when_the_final_round_does_not_approve() {
         let stuck = review("PENDING_REVIEW", true);
@@ -2069,8 +2082,14 @@ echo "end $role $review" >> "$dir/order.log"
         let run = summary(&run_with(&fixture.settings(&[], &[])).await);
 
         assert_eq!(
-            (run.final_rounds, run.final_rounds_approved, run.parked),
-            (1, 0, 1)
+            (
+                run.final_rounds,
+                run.final_round_repair_passes,
+                run.final_rounds_approved,
+                run.parked,
+                run.processes
+            ),
+            (1, 1, 0, 1, 4)
         );
         let parked = std::fs::read_to_string(fixture.claude.directory.path().join("parked.log"))
             .unwrap_or_default();
@@ -2099,6 +2118,84 @@ echo "end $role $review" >> "$dir/order.log"
                 ..
             } if label == "AGENTS_UNRESOLVED"
         ));
+    }
+
+    /// A final-round reviewer that asks for a repair leaves the final-round author one repair
+    /// pass: the author repairs the candidate with the reviewer's notes on the trail, and the
+    /// reviewer judges it again, here approving it, so the source is not parked.
+    #[tokio::test]
+    async fn should_let_the_final_author_repair_once_when_the_final_reviewer_asks_for_a_repair() {
+        let stuck = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![stuck.clone()]).await;
+        fixture.claude.mark("human", stuck.review_id);
+        fixture.claude.mark("final_due", stuck.review_id);
+        fixture.claude.answer(
+            &format!("{}-reviewer.1", stuck.review_id),
+            reviewer_envelope("NEEDS_REPAIR", "ACCEPTED", 0.25),
+        );
+        fixture
+            .claude
+            .decide(&format!("{}.1", stuck.review_id), "REPAIR_REQUESTED");
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (
+                run.final_rounds,
+                run.final_round_repair_passes,
+                run.final_rounds_approved,
+                run.parked,
+                run.processes
+            ),
+            (1, 1, 1, 0, 4)
+        );
+        let exchange = [
+            format!("start author {}", stuck.review_id),
+            format!("end author {}", stuck.review_id),
+            format!("start reviewer {}", stuck.review_id),
+            format!("end reviewer {}", stuck.review_id),
+        ];
+        let mut expected = vec![format!("final-round {}", stuck.review_id)];
+        expected.extend(exchange.iter().cloned());
+        expected.extend(exchange.iter().cloned());
+        assert_eq!(fixture.claude.order(), expected);
+        assert!(
+            !fixture.claude.directory.path().join("parked.log").exists(),
+            "an approved final round parks nothing"
+        );
+    }
+
+    /// The console bounds the repair passes: a final round whose needs-repair verdict ends it,
+    /// because it follows the round's repair pass from an earlier run, gets no further pass, and
+    /// the runner parks the source.
+    #[tokio::test]
+    async fn should_park_without_a_repair_pass_when_the_console_ended_the_round() {
+        let stuck = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![stuck.clone()]).await;
+        fixture.claude.mark("human", stuck.review_id);
+        fixture.claude.mark("final_open", stuck.review_id);
+        std::fs::write(
+            fixture.claude.directory.path().join("decided.log"),
+            format!("{} REPAIR_REQUESTED\n", stuck.review_id),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        fixture.claude.answer(
+            "reviewer",
+            reviewer_envelope("NEEDS_REPAIR", "ACCEPTED", 0.25),
+        );
+        fixture.claude.decide("reviewer", "REPAIR_REQUESTED");
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (
+                run.final_rounds,
+                run.final_round_repair_passes,
+                run.parked,
+                run.processes
+            ),
+            (1, 0, 1, 2)
+        );
     }
 
     /// A review whose final round ended without a park, here because the park the console was
@@ -2193,7 +2290,7 @@ echo "end $role $review" >> "$dir/order.log"
 
         let run = summary(&run_with(&fixture.settings(&[], &[])).await);
 
-        assert_eq!((run.final_rounds, run.parked, run.processes), (1, 0, 2));
+        assert_eq!((run.final_rounds, run.parked, run.processes), (1, 0, 4));
         let handovers = fixture.claude.handovers();
         assert_eq!(handovers.len(), 1, "{handovers:?}");
         assert!(
