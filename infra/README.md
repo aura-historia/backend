@@ -2,7 +2,8 @@
 
 AWS CDK app for what stays on AWS while the application runs on the self-hosted host:
 CloudFront and its Web ACLs, Cognito with its triggers, the SES configuration set, the
-backup bucket and the host's IAM user. It declares `prod` in `eu-central-1` only.
+backup bucket, the host's IAM user and the CloudWatch log groups and alarms that watch the
+host. It declares `prod` only, in `eu-central-1` except the CloudFront alarms in `us-east-1`.
 
 For stack ownership, the origin lock and deployment order, start with the
 [infrastructure runbook](../docs/infra.md#remaining-aws-resources). Source and synth
@@ -23,8 +24,8 @@ These commands do not deploy.
 
 ## Editing infrastructure assets
 
-`bin/app.ts` selects the stage; `src/application-stack.ts` composes the `host`, `identity`
-and `api` stacks; `src/config.ts` and `src/constructs/` own their configuration. Tests live
+`bin/app.ts` selects the stage; `src/application-stack.ts` composes the `host`, `identity`,
+`api`, `monitoring` and `edge-monitoring` stacks; `src/config.ts` and `src/constructs/` own their configuration. Tests live
 in `test/`.
 
 Cognito verification HTML is generated from `mjml/cognito/verification/en.mjml`.

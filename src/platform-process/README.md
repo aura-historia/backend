@@ -28,7 +28,7 @@ statement (5 s), lock (1 s) and idle-in-transaction (10 s) timeouts, wait up
 to 5 s for a pooled connection and connect lazily. Each process has a fixed pool, so the sum over
 all processes must stay below the server's `max_connections` with headroom for operators,
 migrations and the crawler. The defaults are: `api` and `mcp` 10 each, `worker` one connection per
-concurrent job plus four (see the [worker](../aura-historia-worker/README.md#postgresql-pool)), and
+concurrent job plus five (see the [worker](../aura-historia-worker/README.md#postgresql-pool)), and
 `ops` 2 (periodic matching 1).
 
 ## Shutdown and panics

@@ -200,7 +200,7 @@ services:
   worker:
     <<: *app
     command: [worker]
-    # Pipeline tier; the worker and ops jobs share 3 GiB of the host memory plan.
+    # Pipeline tier: the worker's 2 GiB plus 768 MiB for each ops job (host/README.md#memory-plan).
     cgroup_parent: aura_pipeline.slice
     mem_limit: 2g
     memswap_limit: 2g

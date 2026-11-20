@@ -99,7 +99,8 @@ while PostgreSQL keeps the rows. Restarting the dispatcher drains them in outbox
 A snapshot in `delivery_outbox_failures` could not be decoded, routed or encoded. Its
 `error_class` names the step: `unsupported_source` and `unsupported_snapshot_version` mean a
 capture trigger and the dispatcher's codec disagree, `invalid_snapshot` and
-`invalid_source_row` a shape the source contract does not allow, `invalid_identity` an ID or
+`invalid_source_row` a shape the source contract does not allow, `invalid_job` a routed job its
+wire format or the queue's group and dedup keys refuse, `invalid_identity` an ID or
 key that fails its type, and `unsupported_event`, `unsupported_event_version` and
 `invalid_event_payload` a ProductListing event the route does not accept. Read the row's
 source and IDs, not its whole snapshot, into evidence.

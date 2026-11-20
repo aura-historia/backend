@@ -74,8 +74,8 @@ explicit origin allowlist.
 - CloudFront redirects viewers to HTTPS and uses the HTTPS-only host origin, **not the
   public CloudFront-facing DNS record**. AllViewer forwards `Host`, so the host proxy serves
   the public hostname's certificate and routes by it. Every origin request carries the
-  secret `X-Origin-Verify` header, and the host accepts only CloudFront's origin-facing
-  ranges; see the [origin lock](infra.md#cloudfront-origin-lock).
+  secret `X-Origin-Verify` header, without which the host refuses the request; see the
+  [origin lock](infra.md#cloudfront-origin-lock).
 - Retain CloudFront-scoped AWS IP reputation, common-rule-set and known-bad-input
   rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
   WAF rate rule. The application owns request-rate limits, which shape requests, not
@@ -236,7 +236,7 @@ pin these boundaries to the transport budgets.
 
 ### MCP deployment and stage verification
 
-Deploy CDK changes as described in [deploying the reduced app](infra.md#deploying-the-reduced-app).
+Deploy CDK changes as described in [deploying the CDK stacks](infra.md#deploying-the-cdk-stacks).
 Before first traffic, verify domain ownership, then provision an issued
 ACM certificate covering the exact host in `us-east-1` (CloudFront viewer). Supply its ARN
 through the external SSM String parameter `/certificates/prod/mcp-cloudfront-certificate-arn`
@@ -312,7 +312,7 @@ period. Historical changelog entries retain their original paths.
 
 ## Front-door changes and rollback
 
-Follow [deploying the reduced app](infra.md#deploying-the-reduced-app), then:
+Follow [deploying the CDK stacks](infra.md#deploying-the-cdk-stacks), then:
 
 1. Inventory domain claims, externally owned DNS, current consumers and the previous
    endpoint/rollback target. Resolve conflicts with their owners.

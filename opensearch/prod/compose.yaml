@@ -1,6 +1,6 @@
 name: aura-opensearch-prod
-# The public site, until the cutover retires it, is served by the prod project's Caddy
-# (host/prod/compose.yaml), which also reaches the node on the `search` network.
+# Reachable only on the `search` network, which the prod project's application containers join
+# (host/prod/compose.yaml); no port is public.
 
 x-opensearch-image: &opensearch-image opensearchproject/opensearch:3.9.0@sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c
 x-logging: &logging

@@ -5,7 +5,7 @@ import type { StageName } from "./config";
 /**
  * Template metadata naming the secret each credential version parameter pins. The operator passes
  * each listed parameter that secret's AWSCURRENT version when deploying the stack, so changing a
- * credential is an explicit parameter change (docs/infra.md#runtime-credentials).
+ * credential is an explicit parameter change (docs/infra.md#edge-credentials).
  */
 export const CREDENTIAL_VERSIONS_METADATA = "AuraHistoria::CredentialVersions";
 // Secrets Manager generates UUID version IDs; a custom client request token would not fit.
@@ -76,7 +76,7 @@ function versionParameter(stack: cdk.Stack, credential: CredentialSecret): cdk.C
   const parameter = new cdk.CfnParameter(stack, id, {
     type: "String",
     allowedPattern: SECRET_VERSION_ID_PATTERN,
-    description: `Secrets Manager version of ${credential.secretName}; bound at release`,
+    description: `Secrets Manager version of ${credential.secretName}; bound at deployment`,
   });
   const metadata = stack.templateOptions.metadata ?? {};
   stack.templateOptions.metadata = {

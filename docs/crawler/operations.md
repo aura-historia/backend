@@ -10,7 +10,7 @@ The `server` binary needs:
 |---|---|
 | `LOCAL_DB_URL` | Required connection URL of the crawler-local Postgres database. The operator creates the database; `server` only migrates it. Unset or blank fails startup; see [single-server deployment](#single-server-deployment). |
 | `AURA_API_BASE_URL`, `CRAWLER_API_TOKEN` | Base URL of the Aura Historia API (`https`; `http` only for a loopback host) and a bearer token that may read admin ListingSources (`GET /v1/admin/listing-sources`, scope `listing-sources:read` for a delegated token). The token is never logged. Unset or invalid values fail startup. |
-| `PRODUCT_LISTING_INGESTION_DATABASE_URL` | Required business PostgreSQL URL for the role `aura_crawler_ingestion`, over the host's internal network. The role may only execute the [ingestion enqueue function](../product-listing.md#asynchronous-ingestion-submission) and holds no table privilege; the URL is never logged. Unset or malformed fails startup; an unreachable database leaves submissions retryable. |
+| `PRODUCT_LISTING_INGESTION_DATABASE_URL` | Required business PostgreSQL URL for the role `aura_crawler_ingestion`, over the prod database's host-shared socket ([crawler access](../../host/prod/README.md#crawler)). The role may only execute the [ingestion enqueue function](../product-listing.md#asynchronous-ingestion-submission) and holds no table privilege; the URL is never logged. Unset or malformed fails startup; an unreachable database leaves submissions retryable. |
 | `SPIDER_MAX_SIZE_BYTES` | Required spider page-body ceiling; use a value from 1 MiB through 8 MiB. |
 | `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` | Vertex AI configuration; not read with `CRAWLER_AUTHORING_MODE` `manual` or `agent`. |
 | Application Default Credentials | Vertex AI authentication; `GOOGLE_APPLICATION_CREDENTIALS` is one local option. |
@@ -363,7 +363,7 @@ For launch, keep the loopback bind, set a random token, and tunnel: `ssh -L 7878
 
 ### Logging
 
-Logs are JSON on stdout, stored by the journal (`journalctl -u crawler-server`); the host's log shipping, not the crawler, forwards them to CloudWatch. `LOG_LEVEL` sets the base filter level (default `info`) in [`server.rs`](../../src/crawler/src/bin/server.rs); `RUST_LOG` is not read.
+Logs are JSON on stdout, stored by the journal (`journalctl -u crawler-server`). Nothing ships them to CloudWatch yet ([#3079](https://github.com/aura-historia/backend/issues/3079)). `LOG_LEVEL` sets the base filter level (default `info`) in [`server.rs`](../../src/crawler/src/bin/server.rs); `RUST_LOG` is not read.
 
 #### Outcome events
 
@@ -491,7 +491,7 @@ To restore, stop `crawler-server`, restore the dump (`pg_restore --clean --if-ex
 
 ## Metrics and alarms
 
-The crawler publishes metrics as CloudWatch [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html) records in its JSON log: each record is one log line whose top-level `_aws` block names the metrics, so CloudWatch turns them into metrics once the host's log shipping delivers the log, without a metrics client or extra permission. Without log shipping the records stay on stdout. Metric records ignore `LOG_LEVEL`, so a quiet log level cannot read as a metric gap.
+The crawler publishes metrics as CloudWatch [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html) records in its JSON log: each record is one log line whose top-level `_aws` block names the metrics, so CloudWatch turns them into metrics once the log reaches CloudWatch Logs, without a metrics client or extra permission. Until the journal is shipped ([#3079](https://github.com/aura-historia/backend/issues/3079)) the records stay in the journal and no crawler metric exists. Metric records ignore `LOG_LEVEL`, so a quiet log level cannot read as a metric gap.
 
 All metrics use the namespace `AuraHistoria/Crawler` and are crawler-wide: **none has a dimension**. CloudWatch bills every metric, and every distinct dimension value of a metric, as one custom metric, so a ListingSource, domain, URL or failure-kind dimension multiplies the bill by the number of its values. Each scheduler pass aggregates in process and publishes one record when it ends, also a pass that finds no work. Adding a metric or a dimension is a cost decision: the free tier covers ten custom metrics for the account, shared with the host's other workloads, so the crawler keeps to the metrics below. Per-source detail is in the log's [outcome events](#outcome-events), never in a metric.
 

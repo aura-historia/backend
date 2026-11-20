@@ -1,5 +1,5 @@
 [Unit]
-Description=Aura Historia pipeline tier: worker, ops jobs and log shipping
+Description=Aura Historia pipeline tier: worker and ops jobs
 Documentation=https://github.com/aura-historia/backend/blob/develop/host/README.md
 
 [Slice]

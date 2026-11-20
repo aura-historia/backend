@@ -156,17 +156,15 @@ rewriting historical listing assertions. Missing authority produces absence. See
 [effective geography contract](../geography.md#effective-listing-geography-2003) and
 [recovery runbook](../durable-worker-runbook.md#listing-geography-recovery).
 
+<a id="cdc-routing"></a>
+
 ## Outbox routing
 
-An `AFTER INSERT` row trigger on each selected source appends a versioned JSONB snapshot of
-exactly the columns its route reads to `delivery_outbox`, in the writer's transaction. The
-dispatcher claims snapshots in outbox order, decodes each with its source's strict codec,
-routes it and validates and encodes every resulting job before enqueueing any. It enqueues the
-jobs and deletes the snapshots in one transaction, so publication is never partial; a crash
-before commit leaves the batch to be dispatched again with the same effect. Unknown sources,
-unsupported snapshot versions, missing or extra columns, wrongly typed columns and invalid
-values move the snapshot unchanged into `delivery_outbox_failures` in the same transaction,
-labelled with a bounded error class; they are never skipped and never block later snapshots.
+An `AFTER INSERT` row trigger on each selected source captures a versioned snapshot of exactly
+the columns its route reads, in the writer's transaction. The dispatcher routes each snapshot
+and enqueues all of its jobs atomically, and moves a snapshot it cannot decode, route or encode
+into failure custody without blocking later ones; the
+[delivery outbox](../../src/delivery-outbox/README.md) owns capture, dispatch and custody.
 Updates and deletes of selected sources, and every other table, capture nothing.
 
 ProductListing event snapshots carry the JSONB `payload` as an object; routing validates the
@@ -203,11 +201,10 @@ operational receipts do not implicitly trigger these routes. In particular, a Us
 is not a subscription job.
 
 Consent capture is deliberately minimized to `intent_id` and `recipient_key`. Email,
-profile, proof, source keys, leases and provider data never enter the outbox. One dispatch
-transaction runs at a time and enqueues in outbox order; consent writers serialize per
-recipient before inserting an intent, so each recipient's intents reach its FIFO group in
-commit order. A snapshot redriven from custody runs after that recipient's intents that were
-already dispatched; the consent worker rereads its intent, so it cannot override a newer one.
+profile, proof, source keys, leases and provider data never enter the outbox. Each recipient's
+intents reach its FIFO group in commit order ([ordering](../../src/delivery-outbox/README.md#ordering)).
+A snapshot redriven from custody runs after that recipient's intents that were already
+dispatched; the consent worker rereads its intent, so it cannot override a newer one.
 
 Geographic resolution capture selects only the immutable resolution ID/generation wake-up
 table, with integer generations. Extra columns fail closed.
@@ -581,12 +578,11 @@ explicit and the entire provider read has a bounded deadline. Customer metadata 
 establish an unbound user's association but cannot replace another customer or contradict
 an existing user's association.
 
-The reconciliation and billing API share the `STRIPE_API_KEY` stage credential: restricted
-permissions must preserve customer creation and Checkout/billing-portal session creation,
-plus customer and subscription reads. The endpoint signing secret is the
-`webhookSigningSecret` field of the same Stripe stage credential
-(`STRIPE_WEBHOOK_SIGNING_SECRET`) and is never logged. The API refuses to start without a
-valid `whsec_` secret, so the field must exist before a release that requires it. The key,
+The reconciliation and billing API share `STRIPE_API_KEY` from the host's `stripe.env`
+([secrets](../host/prod/README.md#secrets)): restricted permissions must preserve customer
+creation and Checkout/billing-portal session creation, plus customer and subscription reads.
+The endpoint signing secret, `STRIPE_WEBHOOK_SIGNING_SECRET` in the same file, is never
+logged. The API refuses to start without a valid `whsec_` secret. The key,
 product/price identifiers and webhook endpoint must use the same Stripe account and
 test/live environment. No transaction stays open across Stripe I/O; a failed application
 rolls back its receipt and revision together with business changes.

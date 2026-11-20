@@ -13,7 +13,7 @@ physical AWS resources at each change.
 Application releases build in GitHub Actions and deploy to the host; the
 [host deploy runbook](../host/prod/README.md#deploys) owns that path, its approval and its
 rollback. The CDK app is never part of a release: an operator deploys its stacks with
-`cdk deploy` as described in [deploying the reduced app](#deploying-the-reduced-app).
+`cdk deploy` as described in [deploying the CDK stacks](#deploying-the-cdk-stacks).
 
 ## Host
 
@@ -31,9 +31,9 @@ One host runs the whole application next to OpenSearch and the crawler:
 | Outbox, job queue, custody and redrive | [Worker runbook](durable-worker-runbook.md) |
 | Container logs, health metrics and alarms | [Monitoring](#monitoring), [logs](../host/prod/README.md#logs) and [alarm tests](../host/prod/README.md#monitoring) |
 
-The API, MCP and the Cognito triggers' internal endpoints are reachable only through CloudFront
-([origin lock](#cloudfront-origin-lock)); PostgreSQL and OpenSearch never leave the host's
-networks.
+The API, MCP and the Cognito triggers' internal endpoints answer only requests that carry
+CloudFront's origin secret ([origin lock](#cloudfront-origin-lock)); PostgreSQL and OpenSearch
+never leave the host's networks.
 
 ## Runtime credentials
 
@@ -168,8 +168,9 @@ host, read from the SSM `String` parameter `/origin/prod/host-domain-name`. Do n
 name. CloudFront forwards the viewer `Host` (AllViewer), so the host's proxy serves and routes
 by the public hostnames and holds their certificates; the origin name only locates the host.
 CloudFront adds the `X-Origin-Verify` header to every origin request, overwriting any viewer
-value. The host accepts a request only with that header and only on port 443 from CloudFront's
-origin-facing IP ranges, refreshed daily. Cache policies, response headers, selective caching
+value. The host's proxy accepts a request only with that header; port 443 does not yet
+restrict sources to CloudFront's origin-facing IP ranges
+([#3077](https://github.com/aura-historia/backend/issues/3077)). Cache policies, response headers, selective caching
 and Web ACLs are unchanged by the origin; see the [HTTP front door](http-api-front-door.md).
 
 CloudFormation reads the origin name and the secret only when it updates a distribution. After
@@ -252,32 +253,19 @@ Deploy `monitoring` before the host ships logs to its groups. `edge-monitoring` 
 and names no bootstrap roles, so `cdk deploy application-prod-edge-monitoring` deploys its
 template inline to `us-east-1` with the CLI's credentials; that region has no CDK bootstrap.
 
-### Deploying the reduced app
+### Deploying the CDK stacks
 
-The reduced `identity` and `api` stacks reach prod only at the cutover, after the host serves
-the application; `host` may deploy earlier. Keep the retained stack names. Deploy each stack
-with `cdk deploy` from `infra/`, passing its parameters: `identity` takes the
+Deploy each stack with `cdk deploy` from `infra/`, passing its parameters: `identity` takes the
 `CognitoIdentityProvidersCredentialVersion`, the `PostConfirmationSigningCredentialVersion` and
 `CognitoTriggersRevision`, a commit the [Deploy workflow](../host/prod/README.md#deploys)
 deployed, which published both triggers' zips; `api` takes `OriginVerifyCredentialVersion`.
-Before the first reduced deployment:
+Cognito invokes the triggers for every sign-up and confirmation, so a trigger that cannot
+start fails them all: name only a revision whose host already serves both internal endpoints.
+Review each change set; `identity` updates run under its
+[stack policy](#production-deletion-protection).
 
-- Both trigger artifacts must be built from code that runs without the database: a
-  pre-sign-up trigger that asks the host's endpoint and a configured post-confirmation
-  forwarder. Cognito invokes them for every sign-up and confirmation, so a trigger that cannot
-  start fails them all; the host must serve both internal endpoints before `identity` deploys.
-- `identity` keeps the exports the retired `compute` stack imports, so `compute` may stay until
-  teardown. Remove those exports only after `compute` is deleted.
-- The retired `observability` stack imports an ID of the retired `api` resources. Delete
-  `observability` before deploying `api`.
-- Deploying `api` switches both distributions to the host origin and deletes the retired
-  regional APIs in one update. Until writes land on the host, roll back by redeploying the
-  previous `api` template.
-- The trigger move replaces the two Cognito invoke permissions in `identity`; review the
-  change set and allow exactly those replacements in the stack-policy override.
-
-Deleting a stack from the app does not delete it from AWS; retired stacks are torn down
-separately once nothing depends on them.
+Deleting a stack from the app does not delete it from AWS; a retired stack is torn down
+separately once nothing depends on it.
 
 ## Release compatibility
 
@@ -351,8 +339,8 @@ Container logs go to CloudWatch Logs, one group per service, and Docker keeps a 
 
 The Cognito triggers log in Lambda's JSON format with system level `WARN` and filter themselves at
 `warn` ([trigger logging](../infra/src/constructs/lambda-logging.ts)); their groups keep seven
-days. The two consent-evidence groups never expire. The crawler's log group lives outside
-CloudFormation and keeps seven days.
+days. The two consent-evidence groups never expire. The crawler's logs stay in the host's
+journal ([#3079](https://github.com/aura-historia/backend/issues/3079)).
 
 ## Scheduled work
 

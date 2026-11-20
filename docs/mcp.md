@@ -310,7 +310,7 @@ array is a completed result. The envelope represents REST's bodyless pending out
 Auction scheduled sorting requires `timeRole`; a schedule range requires both bounds. Catalogue
 pricing retains the use case's current/sale-observation FX selection. Source search and slug
 detail share a non-queuing budget of four active reads with a 500 ms source-read timeout, also
-bounded by the invocation deadline.
+bounded by the request deadline.
 
 History deliberately preserves the full REST array and the existing webapp timeline contract.
 Every event retains its original order, including distinct events sharing a timestamp, discovery
@@ -534,7 +534,7 @@ With the pinned SDK, the local public fixtures preserve these complete responses
 The request deadline is 25 seconds at most, including body admission and the authentication
 gate. Exhausted budgets receive HTTP `408`; work gets a cancellation token and an absolute
 deadline through `InvocationContext`. Client disconnects cancel active work. Separate
-legacy cancellation notifications do not locate work in another invocation.
+legacy cancellation notifications do not locate work in another request.
 Application wrappers must propagate the supplied deadline/token to external
 work and must not detach unbounded tasks.
 

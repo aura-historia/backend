@@ -3,7 +3,7 @@ run-name: Deploy ${{ inputs.ref }} to prod
 # Builds the image for one commit, publishes it to GHCR and deploys it to the prod host over SSH
 # (host/prod/README.md#deploys); deploying an earlier commit is the rollback. It also publishes
 # the commit's Cognito trigger zips, which an operator's `cdk deploy` of the identity stack
-# selects by commit (docs/infra.md#deploying-the-reduced-app). The `prod` environment's
+# selects by commit (docs/infra.md#deploying-the-cdk-stacks). The `prod` environment's
 # reviewers approve every deploy; its branch policy limits which branches may run this
 # workflow, and DEPLOY_BRANCHES which commits it deploys.
 on:

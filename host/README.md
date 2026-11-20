@@ -17,7 +17,7 @@ cgroup driver. The prod Compose project, its secrets, scheduled jobs and backups
 | Slice | Members | CPU / IO weight | Memory |
 |---|---|---|---|
 | `aura_serving.slice` | PostgreSQL, OpenSearch, API, MCP, Caddy | 1000 | `MemoryLow=28G`, covering the members' reservations |
-| `aura_pipeline.slice` | worker, `ops` jobs, log shipping | 200 | per-container limits |
+| `aura_pipeline.slice` | worker, `ops` jobs | 200 | per-container limits |
 | `system.slice` | sshd, Docker, journald and other host services | 100 (default) | unlimited |
 | `aura_batch.slice` | crawler units, crawler database, crawler review agents | 50 | `MemoryMax=6G` |
 | `user.slice` | interactive sessions, builds, agent sessions | 20 | `MemoryMax=10G` |
@@ -40,7 +40,7 @@ are what is enforced.
 
 ## Memory plan
 
-The starting plan for 64 GB; tune it from observed usage after go-live.
+The plan for 64 GB; tune it from observed usage.
 
 | Service | Tier | Container setting |
 |---|---|---|
@@ -71,21 +71,17 @@ the parent slice's `MemoryLow` covers it: raise both together.
 From a checkout of a reviewed ref:
 
 1. `sudo host/install.sh cgroups` installs and starts the tier slices, caps
-   `user.slice`, adds the crawler units' drop-ins, sets Docker's default parent to
-   `user.slice` and removes the former OpenSearch CPU reservation.
-2. In one short search outage, update OpenSearch's stable checkout to this ref, run
-   `sudo systemctl restart docker` so the default parent applies, then recreate the
-   containers in their tiers, keeping their external volumes: OpenSearch from that
-   checkout with `docker compose -f opensearch/prod/compose.yaml up -d`,
-   and the crawler database with `CRAWLER_POSTGRES_CGROUP_PARENT=aura_batch.slice`
-   set before `db-up`. Restart the crawler units when convenient.
-3. Rerun `sudo host/install.sh cgroups`. It retires the old OpenSearch slice once
-   that slice is empty.
-4. `sudo host/stress-test.sh` fills `aura_batch.slice` and `user.slice` past their
+   `user.slice`, adds the crawler units' drop-ins and sets Docker's default parent to
+   `user.slice`; `sudo systemctl restart docker` applies the default parent.
+2. Start the containers in their tiers, keeping their external volumes: OpenSearch from its
+   stable checkout with `docker compose -f opensearch/prod/compose.yaml up -d`, and the
+   crawler database with `CRAWLER_POSTGRES_CGROUP_PARENT=aura_batch.slice` set before
+   `db-up`. Restart the crawler units after either.
+3. `sudo host/stress-test.sh` fills `aura_batch.slice` and `user.slice` past their
    caps and fails if a serving container was OOM-killed or restarted.
-5. `sudo host/install.sh ssh` once every SSH user logs in with a key, then
+4. `sudo host/install.sh ssh` once every SSH user logs in with a key, then
    `sudo host/install.sh firewall`.
-6. The [prod project's first start](prod/README.md#first-start), which ends with the deploy
+5. The [prod project's first start](prod/README.md#first-start), which ends with the deploy
    user (`sudo host/install.sh deploy < deploy.pub`).
 
 `sudo host/install.sh check` prints the effective CPU masks, slice properties,
@@ -108,11 +104,9 @@ listeners without changing anything.
 - **Only Caddy publishes a public port (443).** PostgreSQL, OpenSearch and every other
   service bind to loopback or a Compose network. The [prod project's](prod/README.md#caddy)
   Caddy obtains its certificates through the DNS challenge, so port 80 stays closed and
-  restricting 443 to CloudFront does not affect renewal; until the cutover it also serves the
-  public OpenSearch site that the AWS runtime uses.
+  restricting 443 to CloudFront does not affect renewal.
 
 ## Disks
 
-Before go-live, record the wear of both NVMe drives on the tracking issue. With
-`nvme-cli` installed, run `sudo nvme smart-log /dev/nvme0n1` and `/dev/nvme1n1` (`percentage_used`,
+To check the wear of both NVMe drives, with `nvme-cli` installed, run `sudo nvme smart-log /dev/nvme0n1` and `/dev/nvme1n1` (`percentage_used`,
 `media_errors`, `critical_warning`), and `cat /proc/mdstat` for the RAID state.

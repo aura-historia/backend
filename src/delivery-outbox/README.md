@@ -57,8 +57,9 @@ selected or all custody rows back under their original outbox ID.
 `reproject_all` enqueues one projector job per existing listing, active or withdrawn, in keyset
 pages by listing ID, each page in its own transaction. Each job names the listing's current
 event, so the projector writes only current state and turns withdrawn listings into their
-versioned tombstones. Jobs are deduplicated by event against jobs not yet claimed, so a rerun
-skips listings whose earlier job is still waiting and enqueues every other listing again; the
+versioned tombstones. Jobs are deduplicated by event against reprojection jobs not yet
+claimed (routed jobs carry no dedup key), so a rerun skips listings whose earlier job is still
+waiting and enqueues every other listing again; the
 projector completes those that are already current as stale. `ProjectionTarget::Live` enqueues
 into the live projector scope. `ProjectionTarget::Generation` enqueues into that generation's
 own scope, which the worker runtime consumes with a projector that writes only the generation's

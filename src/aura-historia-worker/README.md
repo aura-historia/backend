@@ -9,7 +9,7 @@ decodes its jobs, invokes the service use case and maps every outcome to a queue
 
 ## Scopes
 
-Every [CDC worker scope](../aura-historia-jobs/src/scope.rs) and the ProductListing ingestion
+Every [routed worker scope](../aura-historia-jobs/src/scope.rs) and the ProductListing ingestion
 command FIFO have a consumer. Each unit of concurrency processes one job at a time within the
 job timeout:
 

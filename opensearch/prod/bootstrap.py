@@ -21,7 +21,7 @@ PRIVATE = ROOT / ".private"
 OPERATOR = PRIVATE / "operator"
 NODE = PRIVATE / "node"
 COMPOSE = ["docker", "compose", "--file", str(ROOT / "compose.yaml")]
-VOLUMES = ["aura-historia-opensearch-prod-" + name for name in ["data", "certificates", "gateway"]]
+VOLUMES = ["aura-historia-opensearch-prod-" + name for name in ["data", "certificates"]]
 LOCAL = "https://localhost:19201"
 
 
@@ -166,7 +166,7 @@ def initialize(credentials):
     mapping = json.loads((ROOT.parent / "mappings/product_listings.json").read_text())
     mapping["settings"].update(number_of_shards=1, number_of_replicas=0)
     require(request("/product-listings", "PUT", mapping))
-    # This non-business probe runs before the gateway is started and adds no mapping fields.
+    # This non-business probe runs before any application connects and adds no mapping fields.
     require(request("/product-listings/_doc/__bootstrap_probe__", "PUT", {}, credentials["product-projector"]), 201)
     require(request("/product-listings/_doc/__bootstrap_probe__", "DELETE"))
     require(request("/product-listings/_refresh", "POST"))

@@ -13,7 +13,7 @@
 | `ops`, `migrate`, `bootstrap`, `restore-check` | pipeline | One-shot commands, never started by `up` |
 
 OpenSearch keeps its own project ([compose](../../opensearch/prod/compose.yaml)) and volumes;
-the application containers and Caddy join its `search` network, so it must be running first.
+the application containers join its `search` network, so it must be running first.
 The crawler stack stays in its own project in the batch tier. Tiers, memory limits and the
 firewall are in the [host guide](../README.md).
 
@@ -58,8 +58,7 @@ file. Fill in the rest, then `sudo host/prod/secrets.sh check` must pass. Source
 - `cognito-trigger.env`: the [trigger signing key](../../docs/infra.md#host-access).
 - `opensearch-*.env` and `opensearch-root-ca.pem`: the OpenSearch stable checkout's
   `.private/` directory.
-- The provider keys and `settings.env`: the providers' consoles, or, until the AWS teardown, the
-  secrets and SSM parameters under `/aura-historia/prod/` and `/<provider>/prod/`.
+- The provider keys and `settings.env`: the providers' consoles.
 
 Changing a file takes effect when the services that list it are recreated
 (`compose.sh up -d <service>`).
@@ -75,8 +74,7 @@ running `init` again on a host that had data.
 The database is `aura`. [`pg_hba.conf`](postgres/pg_hba.conf) lets the superuser in only as
 the container's own `postgres` user (`compose.sh exec -u postgres postgres psql -d aura`);
 every other role uses its password. On first initialization the image creates
-`aura_admin`, a non-superuser with `CREATEROLE` that owns the database, as the RDS master user
-was. `bootstrap` connects as it and creates the roles:
+`aura_admin`, a non-superuser with `CREATEROLE` that owns the database. `bootstrap` connects as it and creates the roles:
 
 - `aura_runtime`: `api`, `mcp`, `worker` and the `ops` jobs; applications never connect as
   superuser.
@@ -93,7 +91,9 @@ The settings and connection budget are in [`postgresql.conf`](postgres/postgresq
 The crawler runs on the host, outside Compose. PostgreSQL also listens on a socket in
 `/run/aura-historia/postgresql`, which only the database container can write and only the
 `crawler` group can enter. Peer authentication maps uid 999, the image's `postgres` user, to the
-superuser on this socket too, so no host process may run as uid 999. Set in
+superuser on this socket too, so no host process with access to this directory may run as uid 999.
+On this host uid 999 is the crawler database container's user, which does not mount it
+([#3078](https://github.com/aura-historia/backend/issues/3078)). Set in
 `/etc/crawler/crawler.env`, with the password from `postgres-bootstrap.env`:
 
 ```
@@ -168,10 +168,6 @@ and the `monitoring` stack deployed:
    `sudo host/install.sh prod-timers`.
 9. Set up [deploy access](#deploy-access); from then on every release is a deploy.
 
-The first time Caddy starts, the old OpenSearch gateway's certificates can be carried over so
-the `opensearch.` site has no gap: stop the gateway, copy the volume
-`aura-historia-opensearch-prod-gateway` into `aura-historia-prod-caddy-data`, start `caddy`.
-
 ## Deploys
 
 The [Deploy workflow](../../.github/workflows/deploy.yml) deploys a commit on `develop`, named by
@@ -182,7 +178,7 @@ branch, tag or SHA:
    `ghcr.io/aura-historia/aura-historia:<commit>`. A commit already published reuses its image.
    The package is public, so the host pulls without a credential.
 2. It builds the Cognito trigger zips, which it publishes for the
-   [identity stack](../../docs/infra.md#deploying-the-reduced-app) once approved.
+   [identity stack](../../docs/infra.md#deploying-the-cdk-stacks) once approved.
 3. A reviewer of the `prod` environment approves the deploy.
 4. It connects as the `deploy` user, whose only command is the installed deploy script,
    [`deploy.sh`](deploy.sh). The script runs the deploy as the transient unit

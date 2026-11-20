@@ -6,8 +6,8 @@ import { credentialSecrets, credentialValue } from "../credentials";
 /**
  * The HTTPS-only custom origin on the host. CloudFront forwards the viewer `Host` through the
  * AllViewer policy, so the host serves the public hostname's certificate and routes by it; the
- * origin DNS name only locates the host. The secret header and CloudFront's origin-facing IP
- * ranges are the two locks the host enforces before it accepts a request.
+ * origin DNS name only locates the host. The host refuses a request without the secret header
+ * (docs/infra.md#cloudfront-origin-lock).
  */
 export function hostOrigin(scope: Construct, config: StageConfig, id: string): cloudfront.CfnDistribution.OriginProperty {
   return {
