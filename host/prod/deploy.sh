@@ -126,6 +126,10 @@ run() {
   trap restore_checkout_on_failure EXIT
   restore_commit=${previous}
   check_out "${commit}"
+  # A commit that needs a new secret file or key fails here, before it migrates or restarts
+  # anything. The check names files and keys, never values.
+  "${CHECKOUT}/host/prod/secrets.sh" check ||
+    fail "the host configuration lacks what ${commit} needs; 'secrets.sh check' names it (host/prod/README.md#secrets)"
   # Compose reads the image from the environment before compose.env, so the one-shot commands
   # below run the new image while the long-running services keep the old one.
   export AURA_HISTORIA_IMAGE=${image} AURA_HISTORIA_REVISION=${commit}
@@ -288,8 +292,9 @@ require_running_image() {
 report_operator_changes() {
   local changed
   changed="$(checkout_git diff --name-only "$1" "$2" -- host/prod/postgres host/prod/caddy \
-    host/prod/systemd host/prod/tmpfiles host/prod/docker host/prod/deploy.sh \
-    host/prod/migration_plan.py host/deploy host/install.sh 2>/dev/null || true)"
+    host/prod/compose.yaml host/prod/templates host/prod/systemd host/prod/tmpfiles \
+    host/prod/docker host/prod/deploy.sh host/prod/migration_plan.py host/deploy host/install.sh \
+    host/systemd host/firewall host/ssh opensearch/prod 2>/dev/null || true)"
   [[ -n ${changed} ]] || return 0
   log "changed since the last deploy, applied only by an operator (host/prod/README.md#deploys):"
   sed 's/^/    /' <<<"${changed}"

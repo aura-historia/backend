@@ -39,7 +39,7 @@ jobs:
       sha: ${{ steps.commit.outputs.sha }}
       image: ${{ steps.image.outputs.image }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
@@ -94,7 +94,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: image-${{ github.run_id }}-${{ github.run_attempt }}
+          name: image-${{ github.run_id }}
       - name: Push the tested image
         id: push
         env:
@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
@@ -125,7 +125,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           shared-key: cognito-triggers
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.14.1
       - name: Build the trigger zips
@@ -145,9 +145,11 @@ jobs:
           for binary in "${binaries[@]}"; do cp "target/lambda/${binary}/bootstrap.zip" "triggers/${binary}.zip"; done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: cognito-triggers-${{ github.run_id }}-${{ github.run_attempt }}
+          name: cognito-triggers-${{ github.run_id }}
           path: triggers/
           if-no-files-found: error
+          # A re-run of the producing job replaces it; artifacts outlive the run attempt.
+          overwrite: true
           retention-days: 7
 
   deploy:
@@ -167,9 +169,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: cognito-triggers-${{ github.run_id }}-${{ github.run_attempt }}
+          name: cognito-triggers-${{ github.run_id }}
           path: triggers
-      - uses: aws-actions/configure-aws-credentials@v6.3.0
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.PROD_TRIGGER_PUBLISHER_ROLE_ARN }}
           aws-region: eu-central-1

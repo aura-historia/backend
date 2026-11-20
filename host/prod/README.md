@@ -190,7 +190,8 @@ branch, tag or SHA:
    drops, and a second deploy is refused while it runs. The deploy:
    - refuses a commit that is not on a deploy branch and an image built from another commit,
      before the checkout changes;
-   - checks the commit out in the stable checkout;
+   - checks the commit out in the stable checkout and refuses it when the host configuration
+     lacks a file or key its [templates](templates) require (`secrets.sh check`);
    - plans the migrations the database lacks from its ledger and the commit's migrations
      ([`migration_plan.py`](migration_plan.py)) and applies them as the migrator, which checks
      the plan against the migrations in the image. If anything up to here fails, no service
@@ -221,8 +222,11 @@ Its output ends with the changed files that need an operator: `postgres/` and `c
 `compose.sh build <service>` and `compose.sh up -d --force-recreate <service>` (a changed
 bind-mounted file alone does not recreate the container); the units, tmpfiles and `docker/`
 `install.sh prod`; the deploy script, the planner and [`host/deploy/`](../deploy)
-`install.sh deploy`, after the deploy that brings them. A change to `compose.yaml` that touches
-`postgres` or `caddy` takes `compose.sh up -d <service>`.
+`install.sh deploy`, after the deploy that brings them; `host/systemd`, `host/firewall` and
+`host/ssh` the matching `install.sh` command; `opensearch/prod` the
+[OpenSearch runbook](../../docs/opensearch-stage.md). A change to `compose.yaml` that touches
+`postgres` or `caddy` takes `compose.sh up -d <service>`; a new template key or file takes
+`secrets.sh init` and its value before the deploy.
 
 ### Deploy access
 
