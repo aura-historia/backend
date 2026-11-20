@@ -2,7 +2,7 @@
 
 use crate::{OpsError, command::OUTBOX, command::Selection};
 use platform_postgres_queue::{JobQueue, JobScope};
-use platform_worker_queue_contract::job_queue::all_job_scopes;
+use platform_worker_queue_contract::job_queue::{ServedScope, all_job_scopes};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -100,22 +100,8 @@ pub(crate) async fn redrive(
 
 /// A catalogued scope, or a projection generation scope such as `product-listing-opensearch-g7`.
 fn find_scope(name: &str) -> Result<JobScope, OpsError> {
-    if let Some(scope) = all_job_scopes()
-        .into_iter()
-        .find(|scope| scope.name().as_str() == name)
-    {
-        return Ok(scope);
-    }
-    let live = platform_worker_queue_contract::job_queue::ProjectionTarget::Live.job_scope();
-    name.strip_prefix(live.name().as_str())
-        .and_then(|suffix| suffix.strip_prefix('-'))
-        .and_then(|generation| {
-            platform_worker_queue_contract::job_queue::ProjectionGeneration::new(generation).ok()
-        })
-        .map(|generation| {
-            platform_worker_queue_contract::job_queue::ProjectionTarget::Generation(generation)
-                .job_scope()
-        })
+    ServedScope::parse(name)
+        .map(|scope| scope.job_scope())
         .ok_or_else(|| OpsError::Usage(format!("unknown scope {name}")))
 }
 
@@ -124,24 +110,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_find_catalogued_and_generation_scopes_only() {
-        assert_eq!(
-            "geo-resolution",
-            find_scope("geo-resolution").unwrap().name().as_str()
-        );
-        assert_eq!(
-            "product-listing-opensearch-g7",
-            find_scope("product-listing-opensearch-g7")
-                .unwrap()
-                .name()
-                .as_str()
-        );
-        for unknown in [
-            "unknown",
-            "product-listing-opensearch-",
-            "geo-resolution-g7",
-        ] {
-            assert!(find_scope(unknown).is_err(), "{unknown}");
-        }
+    fn should_refuse_an_unknown_scope_as_a_usage_error() {
+        assert!(matches!(
+            find_scope("unknown"),
+            Err(OpsError::Usage(message)) if message == "unknown scope unknown"
+        ));
     }
 }

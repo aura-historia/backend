@@ -104,6 +104,47 @@ impl ProjectionGeneration {
 #[error("projection generation must be 1 to 16 lower-case ASCII letters or digits")]
 pub struct InvalidProjectionGeneration;
 
+/// A scope the job queue serves, named by its queue name: a catalogued scope or an isolated
+/// projection generation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ServedScope {
+    Worker(WorkerScope),
+    ProductListingIngestion,
+    ProjectionGeneration(ProjectionGeneration),
+}
+
+impl ServedScope {
+    /// Parses a scope by its queue name, such as `geo-resolution` or
+    /// `product-listing-opensearch-g7` for a projection generation.
+    pub fn parse(name: &str) -> Option<Self> {
+        if name == PRODUCT_LISTING_INGESTION_SCOPE {
+            return Some(Self::ProductListingIngestion);
+        }
+        if let Some(scope) = WorkerScope::ALL
+            .into_iter()
+            .find(|scope| scope.as_str() == name)
+        {
+            return Some(Self::Worker(scope));
+        }
+        let generation = name
+            .strip_prefix(WorkerScope::ProductListingOpenSearch.as_str())?
+            .strip_prefix('-')?;
+        ProjectionGeneration::new(generation)
+            .ok()
+            .map(Self::ProjectionGeneration)
+    }
+
+    pub fn job_scope(&self) -> JobScope {
+        match self {
+            Self::Worker(scope) => worker_job_scope(*scope),
+            Self::ProductListingIngestion => product_listing_ingestion_job_scope(),
+            Self::ProjectionGeneration(generation) => {
+                ProjectionTarget::Generation(generation.clone()).job_scope()
+            }
+        }
+    }
+}
+
 /// Every scope the job queue serves.
 pub fn all_job_scopes() -> Vec<JobScope> {
     WorkerScope::ALL
@@ -210,6 +251,37 @@ mod tests {
                 ProjectionGeneration::new(generation),
                 "{generation}"
             );
+        }
+    }
+
+    #[test]
+    fn should_parse_every_catalogued_scope_and_generation_by_its_queue_name() {
+        for scope in all_job_scopes() {
+            let name = scope.name().as_str();
+            assert_eq!(
+                Some(scope.clone()),
+                ServedScope::parse(name).map(|parsed| parsed.job_scope()),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            Some(ServedScope::ProjectionGeneration(
+                ProjectionGeneration::new("g7").unwrap()
+            )),
+            ServedScope::parse("product-listing-opensearch-g7")
+        );
+    }
+
+    #[test]
+    fn should_refuse_unknown_scope_names() {
+        for unknown in [
+            "",
+            "unknown",
+            "product-listing-opensearch-",
+            "product-listing-opensearch-G7",
+            "geo-resolution-g7",
+        ] {
+            assert_eq!(None, ServedScope::parse(unknown), "{unknown}");
         }
     }
 
