@@ -20,7 +20,7 @@ use aura_historia_worker::{
         },
         product_listing_opensearch::{ProductListingOpenSearchJobs, compose_projection_use_case},
         product_translation::{
-            ProductTranslationJobs, compose_product_translation_use_case_with_model,
+            ProductTranslationJobs, compose_product_translation_use_case_with_models,
         },
         watchlist_notification,
     },
@@ -278,7 +278,11 @@ async fn handlers(pool: &PgPool) -> Vec<(ConsumedScope, Arc<dyn JobHandler>)> {
         (
             ConsumedScope::Worker(WorkerScope::ProductListingTranslation),
             Arc::new(ProductTranslationJobs::new(
-                compose_product_translation_use_case_with_model(pool.clone(), Translator),
+                compose_product_translation_use_case_with_models(
+                    pool.clone(),
+                    Translator,
+                    Translator,
+                ),
             )),
         ),
         (

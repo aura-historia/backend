@@ -2811,10 +2811,10 @@ echo "end $role $review" >> "$dir/order.log"
             .unwrap_or_else(|error| panic!("{error}"))
         };
 
+        crate::test_support::logged_events::keep_every_callsite_interested();
         tracing::subscriber::with_default(
             tracing_subscriber::registry().with(logged.clone()),
             || {
-                tracing::callsite::rebuild_interest_cache();
                 for _ in 0..3 {
                     log_login(&announced, &settings, &login, &AgentLimits::default());
                 }

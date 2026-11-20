@@ -3,7 +3,7 @@ use aura_historia_jobs::{
     encode,
 };
 use aura_historia_worker::scopes::product_translation::{
-    ProductTranslationJobs, compose_product_translation_use_case_with_model,
+    ProductTranslationJobs, compose_product_translation_use_case_with_models,
 };
 use domain_primitives::event_id::EventId;
 use large_language_model::{
@@ -68,14 +68,30 @@ impl LargeLanguageModel for Model {
     }
 }
 
+/// The primary never refuses here, so its refusal fallback must stay unused.
+struct NoRefusal;
+
+#[async_trait::async_trait]
+impl LargeLanguageModel for NoRefusal {
+    async fn generate<Output>(
+        &self,
+        _: StructuredGenerationRequest,
+    ) -> Result<Output, LargeLanguageModelError>
+    where
+        Output: serde::de::DeserializeOwned + Send,
+    {
+        panic!("only a refusal reaches the translation fallback");
+    }
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn provider_retry_commits_once_duplicate_is_noop_and_missing_source_is_retained() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let handler = Arc::new(ProductTranslationJobs::new(compose_product_translation_use_case_with_model(pool.clone(), Model {
+        let handler = Arc::new(ProductTranslationJobs::new(compose_product_translation_use_case_with_models(pool.clone(), Model {
             calls: calls.clone(), fail_first: true, pause: None,
-        })));
+        }, NoRefusal)));
         let missing = (ProductListingId::new(), EventId::new());
         assert_eq!(Disposition::Retry(error_class("missing_source")), handler.handle(&job(&job_body(missing.0, missing.1)?)).await);
         assert_eq!(0, calls.load(Ordering::SeqCst));
@@ -121,9 +137,9 @@ async fn source_change_while_provider_is_in_flight_is_rejected_by_guarded_commit
         let (product, source) = seed_discovery(&pool).await?;
         let calls = Arc::new(AtomicUsize::new(0));
         let (pause, mut reached) = mpsc::channel(1);
-        let handler = Arc::new(ProductTranslationJobs::new(compose_product_translation_use_case_with_model(pool.clone(), Model {
+        let handler = Arc::new(ProductTranslationJobs::new(compose_product_translation_use_case_with_models(pool.clone(), Model {
             calls: calls.clone(), fail_first: false, pause: Some(pause),
-        })));
+        }, NoRefusal)));
         let body = job_body(product, source)?;
         let in_flight = test_api::spawn_owned({
             let handler = handler.clone();

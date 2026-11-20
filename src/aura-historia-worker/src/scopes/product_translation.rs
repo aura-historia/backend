@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use large_language_model::{
     AnthropicClaude, AnthropicConfig, ClaudeHaiku55Thinking, ClaudeModel,
-    ClaudeReducedThinkingEffort, LargeLanguageModel, LargeLanguageModelError,
+    ClaudeReducedThinkingEffort, ClaudeSonnet55Thinking, LargeLanguageModel,
+    LargeLanguageModelError,
 };
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_queue::Disposition;
@@ -38,6 +39,12 @@ const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
 const TRANSLATION_MODEL: ClaudeModel = ClaudeModel::Haiku55(ClaudeHaiku55Thinking::Disabled(
     ClaudeReducedThinkingEffort::Low,
 ));
+// Haiku's safety classifier refuses some old scientific titles (pathogens, aerosols) that Sonnet
+// translates (#3076). Only such a refusal reaches Sonnet. Without tools, `BetweenTools` answers
+// without thinking first, the closest Sonnet 5.5 gets to thinking disabled.
+const REFUSAL_FALLBACK_MODEL: ClaudeModel = ClaudeModel::Sonnet55(
+    ClaudeSonnet55Thinking::BetweenTools(ClaudeReducedThinkingEffort::Low),
+);
 
 /// Builds the PostgreSQL-backed, first-committed-completion translation use case.
 ///
@@ -46,20 +53,23 @@ const TRANSLATION_MODEL: ClaudeModel = ClaudeModel::Haiku55(ClaudeHaiku55Thinkin
 pub fn compose_product_translation_use_case(
     pool: PgPool,
     translator: AnthropicClaude,
+    refusal_fallback: AnthropicClaude,
 ) -> Arc<dyn TranslateProductListingEventUseCase> {
-    compose_product_translation_use_case_with_model(pool, translator)
+    compose_product_translation_use_case_with_models(pool, translator, refusal_fallback)
 }
 
-pub fn compose_product_translation_use_case_with_model<L>(
+pub fn compose_product_translation_use_case_with_models<P, F>(
     pool: PgPool,
-    model: L,
+    model: P,
+    refusal_fallback: F,
 ) -> Arc<dyn TranslateProductListingEventUseCase>
 where
-    L: LargeLanguageModel + 'static,
+    P: LargeLanguageModel + 'static,
+    F: LargeLanguageModel + 'static,
 {
     Arc::new(TranslateProductListingEventHandler::new(
         SqlxProductListingTranslationSourceReader::new(pool.clone()),
-        LargeLanguageModelProductListingTitleTranslator::new(model),
+        LargeLanguageModelProductListingTitleTranslator::new(model, refusal_fallback),
         SqlxUnitOfWork::new(pool),
         SqlxProductListingTranslationWriterFactory::new(),
     ))
@@ -245,10 +255,16 @@ impl JobHandler for ProductTranslationJobs {
 pub async fn compose(pool: &PgPool) -> Result<Arc<dyn JobHandler>, CompositionError> {
     let api_key = required(ANTHROPIC_API_KEY_ENV).map_err(|e| CompositionError::new(SCOPE, e))?;
     // The client error is replaced, never chained, so no part of the key can reach a log.
-    let model = AnthropicClaude::new(AnthropicConfig::new(TRANSLATION_MODEL), &api_key)
-        .map_err(|_| CompositionError::new(SCOPE, "failed to configure the Anthropic client"))?;
+    let client = |model| {
+        AnthropicClaude::new(AnthropicConfig::new(model), &api_key)
+            .map_err(|_| CompositionError::new(SCOPE, "failed to configure the Anthropic client"))
+    };
     Ok(Arc::new(ProductTranslationJobs::new(
-        compose_product_translation_use_case(pool.clone(), model),
+        compose_product_translation_use_case(
+            pool.clone(),
+            client(TRANSLATION_MODEL)?,
+            client(REFUSAL_FALLBACK_MODEL)?,
+        ),
     )))
 }
 

@@ -35,18 +35,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    let url_for_set_presence = url.clone();
-    cand_svc
-        .expect_set_disposition()
-        .never()
-        .withf(
-            move |received_listing_source_id, received_url, received_state, _| {
-                *received_listing_source_id == id
-                    && received_url == &url_for_set_presence
-                    && *received_state == CrawlerDisposition::Active
-            },
-        )
-        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    cand_svc.expect_retire_as_duplicate().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

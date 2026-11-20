@@ -16,6 +16,7 @@ use crate::CrawlerReviewId;
 use crate::network::policy::{DomainFailureKind, is_page_error_status};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::share_stored_removed_page_schemas;
+use crate::scraper::duplicate_retirement::DuplicateRetirement;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -497,11 +498,13 @@ pub trait ScraperCandidateService: Send + Sync {
         schema_fingerprint: &str,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    async fn set_disposition(
+    /// Retires a live product URL as `DUPLICATE`, recording the URL it duplicates, the evidence
+    /// and the time, so the retirement can be found and undone.
+    async fn retire_as_duplicate(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
-        disposition: CrawlerDisposition,
+        retirement: &DuplicateRetirement,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     async fn set_class(
@@ -1688,11 +1691,11 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         })
     }
 
-    async fn set_disposition(
+    async fn retire_as_duplicate(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
-        disposition: CrawlerDisposition,
+        retirement: &DuplicateRetirement,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
@@ -1700,6 +1703,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         let result = sqlx::query(
             "UPDATE listing_source_urls
              SET crawler_disposition = $3,
+                 duplicate_of_url = $5,
+                 duplicate_evidence = $6,
+                 duplicate_retired_at = NOW(),
                  next_retry_at = NULL,
                  updated = NOW()
              WHERE listing_source_id = $1
@@ -1710,8 +1716,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         )
         .bind(listing_source_id_uuid)
         .bind(url_str)
-        .bind(disposition.as_str())
+        .bind(CrawlerDisposition::Duplicate.as_str())
         .bind(expected_last_captured_raw_input_sha256)
+        .bind(retirement.duplicate_of.as_str())
+        .bind(retirement.evidence.as_str())
         .execute(&self.pool)
         .await?;
 

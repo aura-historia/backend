@@ -23,6 +23,9 @@ pub struct CrawlRunState {
     /// The page spelling of each page the crawl stored as a product URL: a page the pattern
     /// matches unless storage keeps it `other`, such as a page an operator rejected.
     pub stored_product_pages: HashSet<url::Url>,
+    /// The page spelling of each product page the shop's sitemaps listed, which the crawl
+    /// stores without fetching it (`docs/crawler/networking.md#sitemaps`).
+    pub sitemap_product_pages: HashSet<url::Url>,
     pub pattern: ProductListingPattern,
     pub classification_done: bool,
     pub pattern_loaded_from_store: bool,
@@ -103,6 +106,7 @@ impl CrawlRunState {
             challenged_pages: 0,
             pattern_matched_pages: HashSet::new(),
             stored_product_pages: HashSet::new(),
+            sitemap_product_pages: HashSet::new(),
             pattern,
             classification_done,
             pattern_loaded_from_store,
@@ -119,6 +123,36 @@ impl CrawlRunState {
     /// How many product URLs the crawl stored, each page once.
     pub fn products_found(&self) -> usize {
         self.stored_product_pages.len()
+    }
+
+    /// Counts a page the crawl fetched and adds it to the inference sample while the sample
+    /// holds fewer than `max_sample_urls`.
+    pub fn record_fetched_page(&mut self, page: &CrawledPage, max_sample_urls: usize) {
+        self.total_crawled += 1;
+        self.query_url_pages += usize::from(page.url.as_url().query().is_some());
+        self.challenged_pages += usize::from(page.bot_challenge);
+        self.shop_platform = self.shop_platform.or(page.identity.platform);
+
+        if self.inference_sample.len() < max_sample_urls {
+            let url = page.url.to_string();
+            if !self.inference_sample.contains(&url) {
+                self.inference_sample.push(url);
+            }
+        }
+    }
+
+    /// Counts a product page a sitemap listed. It was not fetched, so it is neither a crawled
+    /// page nor part of the inference sample.
+    pub fn record_sitemap_product(&mut self, page: &CrawledPage) {
+        self.sitemap_product_pages.insert(page.url.page_spelling());
+    }
+
+    /// How many product URLs the crawl stored from pages it fetched that its sitemaps did not
+    /// list, each page once: what the crawl found outside the sitemaps.
+    pub fn products_outside_sitemaps(&self) -> usize {
+        self.stored_product_pages
+            .difference(&self.sitemap_product_pages)
+            .count()
     }
 
     /// Whether the product pattern matched any page the crawl stored: what decides whether a
@@ -197,6 +231,30 @@ mod tests {
 
         assert_eq!(without_pattern.sample_match_ratio(), None);
         assert_eq!(without_sample.sample_match_ratio(), None);
+    }
+
+    fn page(path: &str) -> CrawledPage {
+        CrawledPage::new(CrawledUrl::new(
+            url::Url::parse(&format!("https://antique.example{path}")).unwrap(),
+        ))
+    }
+
+    #[test]
+    fn should_count_the_stored_products_the_sitemaps_did_not_list() {
+        let mut state = state_with_pattern(Some("/products/"));
+        state.record_sitemap_product(&CrawledPage::listed_in_sitemap(page("/products/1/").url));
+        state.record_fetched_page(&page("/products/2"), 10);
+        state.stored_product_pages = ["/products/1", "/products/2", "/products/3"]
+            .into_iter()
+            .map(|path| page(path).url.page_spelling())
+            .collect();
+
+        assert_eq!(state.products_outside_sitemaps(), 2);
+        assert_eq!(state.total_crawled, 1);
+        assert_eq!(
+            state.inference_sample,
+            ["https://antique.example/products/2"]
+        );
     }
 
     #[test]

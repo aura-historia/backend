@@ -213,18 +213,7 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    let url_for_state = url.clone();
-    cand_svc
-        .expect_set_disposition()
-        .never()
-        .withf(
-            move |received_listing_source_id, received_url, received_state, _| {
-                *received_listing_source_id == id
-                    && received_url == &url_for_state
-                    && *received_state == CrawlerDisposition::Active
-            },
-        )
-        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    cand_svc.expect_retire_as_duplicate().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -391,7 +380,7 @@ async fn should_reject_low_confidence_fresh_classification(
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    cand_svc.expect_set_disposition().never();
+    cand_svc.expect_retire_as_duplicate().never();
     cand_svc.expect_set_class().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -476,7 +465,7 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    cand_svc.expect_set_disposition().never();
+    cand_svc.expect_retire_as_duplicate().never();
     cand_svc.expect_set_class().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
