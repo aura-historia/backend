@@ -114,6 +114,7 @@ export interface MonitoringConfig {
    * its timer runs (host/prod/systemd).
    */
   readonly maximumJobAgeSeconds: Readonly<Record<string, number>>;
+  readonly crawler: CrawlerMonitoringConfig;
   /**
    * The `api` stack's distributions. CloudFormation cannot reference them from the edge region,
    * so their IDs are pinned here; replacing a distribution must update them.
@@ -122,6 +123,22 @@ export interface MonitoringConfig {
   /** The 5xx share of a 5-minute period that alarms, once the period has enough requests. */
   readonly cloudFront5xxRatePercent: number;
   readonly cloudFrontMinimumRequests: number;
+}
+
+/**
+ * The host crawler's log group and alarms. The crawler-logs shipper writes its journal to the
+ * group, and CloudWatch turns the log's metric records into the metrics; the contract is in
+ * docs/crawler/operations.md#metrics-and-alarms.
+ */
+export interface CrawlerMonitoringConfig {
+  /** Under the container log prefix, so the host user's grant covers it. */
+  readonly logGroupName: string;
+  readonly logRetentionDays: number;
+  readonly metricNamespace: string;
+  /** The longest scraper pass in a 15-minute period before it alarms. */
+  readonly maximumScraperPassMilliseconds: number;
+  /** Failed spider runs in an hour above which it alarms; above the failures history shows as normal. */
+  readonly spiderRunFailuresPerHour: number;
 }
 
 export interface StageConfig {
@@ -187,6 +204,15 @@ export function stageConfig(stage: StageName): StageConfig {
         "backend-cleanup": 150 * 60,
         "fx-refresh": 13 * 60 * 60,
         "periodic-match": 27 * 60 * 60,
+      },
+      crawler: {
+        logGroupName: `/aura-historia/${stage}/host/crawler`,
+        logRetentionDays: 7,
+        metricNamespace: "AuraHistoria/Crawler",
+        maximumScraperPassMilliseconds: 15 * 60 * 1000,
+        // Each evening of 13 to 15 November 2026 had one hour of 79 to 163 failed runs; every
+        // other hour had at most 54.
+        spiderRunFailuresPerHour: 200,
       },
       cloudFrontDistributionIds: { api: "EP6DVM7VDGBW3", mcp: "ESDMRH0023HN6" },
       cloudFront5xxRatePercent: 5,

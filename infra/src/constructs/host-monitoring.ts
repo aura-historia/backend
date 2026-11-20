@@ -23,6 +23,13 @@ export const HOST_METRICS = {
  */
 export const INGESTION_REJECTED_METRIC = "IngestionRejectedCommands";
 
+/** The crawler metrics the alarms watch, from its metric records (src/crawler/src/metrics.rs). */
+export const CRAWLER_METRICS = {
+  scraperPassDuration: "ScraperPassDuration",
+  scrapesSucceeded: "ScrapesSucceeded",
+  crawlRunsFailed: "CrawlRunsFailed",
+} as const;
+
 export interface AlarmTopicProps {
   readonly config: StageConfig;
 }
@@ -173,6 +180,63 @@ export class HostMonitoring extends Construct {
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+  }
+}
+
+export interface CrawlerMonitoringProps {
+  readonly config: StageConfig;
+  readonly alarms: AlarmTopic;
+}
+
+/**
+ * The host crawler's log group and the alarms docs/crawler/operations.md#metrics-and-alarms
+ * requires. Every pass records its metrics, so silence from a crawler that should run breaches.
+ */
+export class CrawlerMonitoring extends Construct {
+  readonly logGroup: logs.LogGroup;
+
+  constructor(scope: Construct, id: string, props: CrawlerMonitoringProps) {
+    super(scope, id);
+    const { config, alarms } = props;
+    const crawler = config.monitoring.crawler;
+
+    // Operational logs only: deleting the stack may delete them.
+    this.logGroup = new logs.LogGroup(this, "Logs", {
+      logGroupName: crawler.logGroupName,
+      retention: crawler.logRetentionDays as logs.RetentionDays,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const metric = (metricName: string, statistic: string, period: cdk.Duration) =>
+      new cloudwatch.Metric({ namespace: crawler.metricNamespace, metricName, statistic, period });
+    const alarm = (name: string, description: string, alarmProps: Omit<cloudwatch.AlarmProps, "alarmName" | "alarmDescription">) =>
+      alarms.notify(new cloudwatch.Alarm(this, toPascalCase(name), {
+        alarmName: `aura-historia-${config.stage}-crawler-${name}`,
+        alarmDescription: description,
+        ...alarmProps,
+      }));
+
+    alarm("scraper-pass-stalled", `A scraper pass took more than ${crawler.maximumScraperPassMilliseconds} ms, or none finished in 15 minutes: the crawler, its log shipper or its database stalled.`, {
+      metric: metric(CRAWLER_METRICS.scraperPassDuration, "Maximum", cdk.Duration.minutes(15)),
+      threshold: crawler.maximumScraperPassMilliseconds,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+    alarm("no-captures", "No scraped URL produced a capture in 24 hours; see crawler.scraper.pass_completed in the crawler log.", {
+      metric: metric(CRAWLER_METRICS.scrapesSucceeded, "Sum", cdk.Duration.days(1)),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+    alarm("spider-runs-failing", `More than ${crawler.spiderRunFailuresPerHour} spider runs failed in an hour; crawler.spider.crawl_failed in the crawler log names the sources.`, {
+      metric: metric(CRAWLER_METRICS.crawlRunsFailed, "Sum", cdk.Duration.hours(1)),
+      threshold: crawler.spiderRunFailuresPerHour,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
   }
 }
