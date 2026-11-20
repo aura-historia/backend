@@ -96,15 +96,16 @@ listeners without changing anything.
   succeeds; Hetzner's rescue system is the fallback.
 - **The `deploy` user** can only run the prod deploy; GitHub Actions logs in as it
   ([deploy access](prod/README.md#deploy-access)).
-- **ufw denies inbound** except SSH and 443 (TCP and UDP). Docker-published ports
+- **ufw denies inbound** except SSH and 443 (TCP and UDP). 443 accepts every
+  source; Caddy refuses requests without CloudFront's
+  [origin secret](../docs/infra.md#cloudfront-origin-lock). Docker-published ports
   bypass ufw's input rules, so a `DOCKER-USER` block applies the same rule to new
   connections that reach containers through the external interface. The step
   refuses while ufw holds an older rule it did not create, because enabling ufw
   would activate it unreviewed.
 - **Only Caddy publishes a public port (443).** PostgreSQL, OpenSearch and every other
   service bind to loopback or a Compose network. The [prod project's](prod/README.md#caddy)
-  Caddy obtains its certificates through the DNS challenge, so port 80 stays closed and
-  restricting 443 to CloudFront does not affect renewal.
+  Caddy obtains its certificates through the DNS challenge, so port 80 stays closed.
 
 ## Disks
 
