@@ -1,8 +1,8 @@
 use application::error::{box_error, static_error};
 use indexmap::IndexMap;
-use large_language_model::LlmOperation;
 use large_language_model::{
-    GenerationOptions, LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
+    GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
+    StructuredGenerationRequest, log_llm_refusal_fallback,
 };
 use localization::Language;
 use product_listing_core::title::Title;
@@ -20,14 +20,46 @@ const TRANSLATION_MAX_OUTPUT_TOKENS: u16 = 2048;
 
 const TRANSLATION_SYSTEM_INSTRUCTION: &str = "Translate antique product titles faithfully. Preserve proper nouns, periods, dimensions, and material names.";
 
-pub struct LargeLanguageModelProductListingTitleTranslator<L> {
-    large_language_model: L,
+/// Translates titles with `primary`. A refusal repeats for the same request and model, so only a
+/// refusal is retried, once, on `refusal_fallback`. Every other failure is reported as the
+/// primary returned it: the fallback is not a general retry path.
+pub struct LargeLanguageModelProductListingTitleTranslator<P, F> {
+    primary: P,
+    refusal_fallback: F,
 }
 
-impl<L> LargeLanguageModelProductListingTitleTranslator<L> {
-    pub fn new(large_language_model: L) -> Self {
+impl<P, F> LargeLanguageModelProductListingTitleTranslator<P, F> {
+    pub fn new(primary: P, refusal_fallback: F) -> Self {
         Self {
-            large_language_model,
+            primary,
+            refusal_fallback,
+        }
+    }
+}
+
+impl<P, F> LargeLanguageModelProductListingTitleTranslator<P, F>
+where
+    P: LargeLanguageModel,
+    F: LargeLanguageModel,
+{
+    async fn generate(
+        &self,
+        request: StructuredGenerationRequest,
+    ) -> Result<TranslationResponse, LargeLanguageModelError> {
+        match self.primary.generate(request.clone()).await {
+            // The fallback's own failure decides the job's retry; the primary's refusal is
+            // already logged as its `LLM_INVOCATION` failure.
+            Err(error) if error.is_refusal() => {
+                let operation = request.operation;
+                let result = self.refusal_fallback.generate(request).await;
+                log_llm_refusal_fallback(
+                    operation,
+                    self.refusal_fallback.logged_model(),
+                    result.as_ref().err(),
+                );
+                result
+            }
+            result => result,
         }
     }
 }
@@ -38,9 +70,10 @@ struct TranslationResponse {
 }
 
 #[async_trait::async_trait]
-impl<L> ProductListingTitleTranslator for LargeLanguageModelProductListingTitleTranslator<L>
+impl<P, F> ProductListingTitleTranslator for LargeLanguageModelProductListingTitleTranslator<P, F>
 where
-    L: LargeLanguageModel,
+    P: LargeLanguageModel,
+    F: LargeLanguageModel,
 {
     async fn translate(
         &self,
@@ -48,8 +81,7 @@ where
         source_language: Language,
         target_languages: &[Language],
     ) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
-        let response: TranslationResponse = self
-            .large_language_model
+        let response = self
             .generate(translation_request(
                 title,
                 source_language,
@@ -149,6 +181,150 @@ fn map_translation_error(error: LargeLanguageModelError) -> ProductListingTitleT
 #[cfg(test)]
 mod tests {
     use super::*;
+    use large_language_model::{LargeLanguageModelRetryAdvice, LargeLanguageModelRetryKind};
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
+
+    /// Answers each call with the next scripted result and records the requests it received.
+    #[derive(Clone, Default)]
+    struct ScriptedModel {
+        results: Arc<Mutex<VecDeque<Result<serde_json::Value, LargeLanguageModelError>>>>,
+        requests: Arc<Mutex<Vec<StructuredGenerationRequest>>>,
+    }
+
+    impl ScriptedModel {
+        fn answering(
+            results: impl IntoIterator<Item = Result<serde_json::Value, LargeLanguageModelError>>,
+        ) -> Self {
+            Self {
+                results: Arc::new(Mutex::new(results.into_iter().collect())),
+                requests: Arc::default(),
+            }
+        }
+
+        fn prompts(&self) -> Vec<String> {
+            self.requests
+                .lock()
+                .expect("requests lock")
+                .iter()
+                .map(|request| request.prompt.clone())
+                .collect()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for ScriptedModel {
+        async fn generate<Output>(
+            &self,
+            request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            self.requests.lock().expect("requests lock").push(request);
+            let result = self
+                .results
+                .lock()
+                .expect("results lock")
+                .pop_front()
+                .expect("unexpected model call");
+            result.map(|value| serde_json::from_value(value).expect("scripted output"))
+        }
+    }
+
+    fn english_titles() -> serde_json::Value {
+        serde_json::json!({"titles": {"en": "Yersinia pestis protocols"}})
+    }
+
+    async fn translate(
+        primary: &ScriptedModel,
+        refusal_fallback: &ScriptedModel,
+    ) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
+        LargeLanguageModelProductListingTitleTranslator::new(
+            primary.clone(),
+            refusal_fallback.clone(),
+        )
+        .translate(
+            &Title::from("Yersinia Pestis Protokolle"),
+            Language::De,
+            &[Language::En],
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn should_retry_the_same_request_on_the_fallback_when_the_primary_refuses() {
+        let primary = ScriptedModel::answering([Err(LargeLanguageModelError::refusal())]);
+        let fallback = ScriptedModel::answering([Ok(english_titles())]);
+
+        let translated = translate(&primary, &fallback).await.expect("translated");
+
+        assert_eq!(
+            Some("Yersinia pestis protocols"),
+            translated.get(&Language::En).map(AsRef::as_ref)
+        );
+        assert_eq!(primary.prompts(), fallback.prompts());
+    }
+
+    #[tokio::test]
+    async fn should_fail_without_another_attempt_when_the_fallback_refuses_too() {
+        let primary = ScriptedModel::answering([Err(LargeLanguageModelError::refusal())]);
+        let fallback = ScriptedModel::answering([Err(LargeLanguageModelError::refusal())]);
+
+        let error = translate(&primary, &fallback).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProductListingTitleTranslationError::InvalidResponse { .. }
+        ));
+        assert_eq!(1, fallback.prompts().len());
+    }
+
+    #[tokio::test]
+    async fn should_never_reach_the_fallback_when_the_primary_fails_otherwise() {
+        let source = || static_error("primary failure");
+        let retryable = |kind| LargeLanguageModelError::Retryable {
+            advice: LargeLanguageModelRetryAdvice {
+                kind,
+                retry_after: None,
+            },
+            source: source(),
+        };
+        let failures = [
+            LargeLanguageModelError::Timeout { source: source() },
+            retryable(LargeLanguageModelRetryKind::RateLimited),
+            retryable(LargeLanguageModelRetryKind::ServiceUnavailable),
+            retryable(LargeLanguageModelRetryKind::Transient),
+            LargeLanguageModelError::Authentication { source: source() },
+            LargeLanguageModelError::InvalidRequest { source: source() },
+            LargeLanguageModelError::Permanent { source: source() },
+            LargeLanguageModelError::InvalidResponse { source: source() },
+        ];
+        for failure in failures {
+            let kind = failure.kind();
+            let primary = ScriptedModel::answering([Err(failure)]);
+            let fallback = ScriptedModel::default();
+
+            assert!(translate(&primary, &fallback).await.is_err(), "{kind}");
+            assert!(fallback.prompts().is_empty(), "{kind} reached the fallback");
+        }
+    }
+
+    #[tokio::test]
+    async fn should_never_reach_the_fallback_when_the_primary_answers_unusably() {
+        let primary = ScriptedModel::answering([Ok(serde_json::json!({"titles": {"en": " "}}))]);
+        let fallback = ScriptedModel::default();
+
+        let error = translate(&primary, &fallback).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProductListingTitleTranslationError::InvalidResponse { .. }
+        ));
+        assert!(fallback.prompts().is_empty());
+    }
 
     #[test]
     fn should_create_schema_for_each_requested_target_language() {

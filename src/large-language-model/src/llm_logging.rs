@@ -1,3 +1,4 @@
+use crate::LargeLanguageModelError;
 use image_fetcher::ImageFetchDiagnostics;
 use std::time::Duration;
 
@@ -167,6 +168,41 @@ pub fn log_llm_invocation_failure(
     );
 }
 
+/// A request the primary model refused, retried once on `fallback_model`. `failure` is the
+/// fallback's own error; the primary's refusal is already logged as an `LLM_INVOCATION` failure.
+pub fn log_llm_refusal_fallback(
+    operation: LlmOperation,
+    fallback_model: LlmModel,
+    failure: Option<&LargeLanguageModelError>,
+) {
+    let outcome = refusal_fallback_outcome(failure);
+    match failure {
+        None => tracing::info!(
+            eventType = "LLM_REFUSAL_FALLBACK",
+            llmOperation = %operation,
+            llmModel = %fallback_model,
+            llmOutcome = outcome,
+            "LLM refusal answered by the fallback model."
+        ),
+        Some(error) => tracing::warn!(
+            eventType = "LLM_REFUSAL_FALLBACK",
+            llmOperation = %operation,
+            llmModel = %fallback_model,
+            llmOutcome = outcome,
+            llmErrorCategory = error.diagnostic_category(),
+            "LLM refusal fallback failed."
+        ),
+    }
+}
+
+fn refusal_fallback_outcome(failure: Option<&LargeLanguageModelError>) -> &'static str {
+    match failure {
+        None => "COMPLETED",
+        Some(error) if error.is_refusal() => "REFUSED",
+        Some(_) => "FAILED",
+    }
+}
+
 /// A request image left out because it could not be fetched, with the image fetcher's bounded
 /// diagnostics.
 pub(crate) fn log_llm_image_omission(
@@ -287,5 +323,23 @@ mod tests {
             crate::StructuredResponseFailureKind::MaxTokens.as_str(),
             "max_tokens"
         );
+        assert_eq!(
+            crate::StructuredResponseFailureKind::Refusal.as_str(),
+            "refusal"
+        );
+    }
+
+    #[test]
+    fn should_tell_a_repeated_refusal_from_other_fallback_failures() {
+        let refusal = LargeLanguageModelError::refusal();
+        let empty = crate::invalid_response_error(crate::StructuredResponseError::MissingContent);
+        let timeout = LargeLanguageModelError::Timeout {
+            source: application::error::static_error("timed out"),
+        };
+
+        assert_eq!("COMPLETED", refusal_fallback_outcome(None));
+        assert_eq!("REFUSED", refusal_fallback_outcome(Some(&refusal)));
+        assert_eq!("FAILED", refusal_fallback_outcome(Some(&empty)));
+        assert_eq!("FAILED", refusal_fallback_outcome(Some(&timeout)));
     }
 }
