@@ -57,27 +57,33 @@ where
             ))
             .await
             .map_err(map_translation_error)?;
-        let mut translated = IndexMap::new();
-        for language in target_languages {
-            let Some(value) = response.titles.get(language.as_str()) else {
-                return Err(ProductListingTitleTranslationError::InvalidResponse {
-                    source: static_error(
-                        "product title translation response omitted a target language",
-                    ),
-                });
-            };
-            let title = Title::from(value.as_str());
-            if title.as_ref().is_empty() {
-                return Err(ProductListingTitleTranslationError::InvalidResponse {
-                    source: static_error(
-                        "product title translation response contains an empty title",
-                    ),
-                });
-            }
-            translated.insert(*language, title);
-        }
-        Ok(translated)
+        translated_titles(response, target_languages)
     }
+}
+
+/// Fails closed unless the response holds a non-empty title for every requested target.
+fn translated_titles(
+    response: TranslationResponse,
+    target_languages: &[Language],
+) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
+    let mut translated = IndexMap::new();
+    for language in target_languages {
+        let Some(value) = response.titles.get(language.as_str()) else {
+            return Err(ProductListingTitleTranslationError::InvalidResponse {
+                source: static_error(
+                    "product title translation response omitted a target language",
+                ),
+            });
+        };
+        let title = Title::from(value.as_str());
+        if title.as_ref().is_empty() {
+            return Err(ProductListingTitleTranslationError::InvalidResponse {
+                source: static_error("product title translation response contains an empty title"),
+            });
+        }
+        translated.insert(*language, title);
+    }
+    Ok(translated)
 }
 
 fn translation_request(
