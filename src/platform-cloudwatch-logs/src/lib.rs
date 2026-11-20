@@ -244,9 +244,13 @@ pub struct ShipperConfig {
 
 /// Delivers the received records until [`Shipper::close`].
 pub struct Shipper {
-    stop: oneshot::Sender<()>,
+    /// The deadline of the final delivery.
+    stop: oneshot::Sender<tokio::time::Instant>,
     task: tokio::task::JoinHandle<()>,
 }
+
+/// Time after the close deadline for spilling what could not be delivered.
+const SPILL_MARGIN: Duration = Duration::from_secs(1);
 
 impl Shipper {
     /// Creates this process's stream in every group, so a wrong group name, a missing grant or
@@ -267,10 +271,14 @@ impl Shipper {
         Ok(Self { stop, task })
     }
 
-    /// Delivers what is queued, then stops. Gives up after `timeout`.
+    /// Delivers what is queued within `timeout`, spills what it could not deliver to stderr,
+    /// then stops.
     pub async fn close(self, timeout: Duration) {
-        let _ = self.stop.send(());
-        if tokio::time::timeout(timeout, self.task).await.is_err() {
+        let _ = self.stop.send(tokio::time::Instant::now() + timeout);
+        if tokio::time::timeout(timeout + SPILL_MARGIN, self.task)
+            .await
+            .is_err()
+        {
             tracing::warn!(
                 event = "cloudwatch_logs.close_timed_out",
                 "Dedicated CloudWatch log records were not delivered before shutdown"
@@ -304,7 +312,7 @@ async fn ship(
     sink: impl LogEventSink,
     mut receiver: RecordReceiver,
     config: ShipperConfig,
-    mut stopped: oneshot::Receiver<()>,
+    mut stopped: oneshot::Receiver<tokio::time::Instant>,
 ) {
     let mut destinations = config
         .log_groups
@@ -313,6 +321,7 @@ async fn ship(
         .collect::<Vec<_>>();
     let mut interval = tokio::time::interval(config.flush_interval);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut deadline = None;
     loop {
         tokio::select! {
             record = receiver.records.recv() => {
@@ -325,15 +334,47 @@ async fn ship(
                     deliver(&sink, &config.stream, destination).await;
                 }
             }
-            _ = &mut stopped => break,
+            stop = &mut stopped => {
+                deadline = stop.ok();
+                break;
+            }
         }
     }
     while let Ok(record) = receiver.records.try_recv() {
         accept(&mut destinations, config.route, record);
     }
     report_dropped(&receiver);
-    for destination in &mut destinations {
-        deliver(&sink, &config.stream, destination).await;
+    finish(&sink, &config.stream, &mut destinations, deadline).await;
+}
+
+/// Delivers what is still pending before `deadline`, then spills whatever could not be
+/// delivered, so a shutdown during a CloudWatch outage keeps every record in the container log.
+/// A delivery cut off by the deadline may have arrived as well; a duplicate beats a loss.
+async fn finish(
+    sink: &impl LogEventSink,
+    stream: &str,
+    destinations: &mut [Destination],
+    deadline: Option<tokio::time::Instant>,
+) {
+    for destination in destinations {
+        match deadline {
+            Some(deadline) => {
+                let _ = tokio::time::timeout_at(deadline, deliver(sink, stream, destination)).await;
+            }
+            None => deliver(sink, stream, destination).await,
+        }
+        if !destination.pending.is_empty() {
+            tracing::error!(
+                event = "cloudwatch_logs.records_spilled",
+                log_group = %destination.group,
+                spilled = destination.pending.len(),
+                reason = "shutdown",
+                "Spilled dedicated CloudWatch log records to stderr at shutdown"
+            );
+            for record in destination.pending.drain(..) {
+                spill(&record);
+            }
+        }
     }
 }
 
@@ -466,6 +507,7 @@ mod tests {
         puts: Mutex<Vec<(String, String, Vec<LogRecord>)>>,
         failures_left: Mutex<u32>,
         refuse_streams: bool,
+        hang: bool,
     }
 
     #[async_trait::async_trait]
@@ -487,6 +529,9 @@ mod tests {
             stream: &str,
             records: &[LogRecord],
         ) -> Result<(), BoxError> {
+            if self.hang {
+                std::future::pending::<()>().await;
+            }
             let mut failures_left = self.failures_left.lock().unwrap();
             if *failures_left > 0 {
                 *failures_left -= 1;
@@ -685,6 +730,60 @@ mod tests {
             vec![serde_json::json!({ "later": true })],
             sink.messages("/first")
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_spill_what_a_failing_or_hanging_sink_did_not_take_at_shutdown() {
+        for sink in [
+            FakeSink {
+                failures_left: Mutex::new(u32::MAX),
+                ..FakeSink::default()
+            },
+            FakeSink {
+                hang: true,
+                ..FakeSink::default()
+            },
+        ] {
+            let sink = Arc::new(sink);
+            let mut destinations = vec![Destination::new("/first".to_owned())];
+            destinations[0]
+                .pending
+                .push(record(serde_json::json!({}), 1));
+
+            finish(
+                &sink,
+                "stream",
+                &mut destinations,
+                Some(tokio::time::Instant::now() + Duration::from_secs(5)),
+            )
+            .await;
+
+            assert!(destinations[0].pending.is_empty(), "spilled to stderr");
+            assert!(sink.messages("/first").is_empty());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_close_within_its_timeout_while_the_sink_hangs() {
+        let (records, receiver) = channel(TARGET, 16);
+        let sink = Arc::new(FakeSink {
+            hang: true,
+            ..FakeSink::default()
+        });
+        let shipper = Shipper::start(Arc::clone(&sink), receiver, config())
+            .await
+            .unwrap();
+        records
+            .writer
+            .sender
+            .send(record(serde_json::json!({}), 1))
+            .await
+            .unwrap();
+        let started = tokio::time::Instant::now();
+
+        shipper.close(Duration::from_secs(5)).await;
+
+        assert!(started.elapsed() <= Duration::from_secs(5) + SPILL_MARGIN);
     }
 
     #[test]

@@ -79,6 +79,8 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
             header::COOKIE,
             HeaderName::from_static("x-api-key"),
             HeaderName::from_static("x-wc-webhook-signature"),
+            HeaderName::from_static("stripe-signature"),
+            HeaderName::from_static("x-aura-signature"),
             crate::webhooks::post_shopify::HMAC_HEADER,
             LOOPS_WEBHOOK_ID_HEADER,
             LOOPS_WEBHOOK_TIMESTAMP_HEADER,

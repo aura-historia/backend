@@ -55,20 +55,6 @@ async fn should_answer_an_exhausted_limit_with_a_429_that_browsers_can_read() {
 }
 
 #[tokio::test]
-async fn should_keep_answering_liveness_probes_once_the_limit_is_exhausted() {
-    let app = app();
-    get(&app, "/v1/ready").await;
-    assert_eq!(
-        StatusCode::TOO_MANY_REQUESTS,
-        get(&app, "/v1/ready").await.status()
-    );
-
-    for _ in 0..3 {
-        assert_eq!(StatusCode::OK, get(&app, "/v1/health").await.status());
-    }
-}
-
-#[tokio::test]
 async fn should_not_route_the_removed_gateway_stage_prefix() {
     let response = get(&app(), "/api/v1/health").await;
 

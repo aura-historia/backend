@@ -89,7 +89,10 @@ explicit origin allowlist.
   two API replicas together admit twice the defaults; change them together with the replica
   count. An exhausted limit returns `429 REQUEST_RATE_LIMITED` with `Retry-After: 1` before
   authentication, with the usual CORS and request headers. Only the liveness probe
-  `/v1/health` is exempt; `/v1/ready` queries PostgreSQL and OpenSearch, so it stays limited.
+  `/v1/health` and the signed Cognito trigger routes under `/internal/cognito/` are exempt:
+  Cognito cannot retry a trigger, so a flood must not fail sign-ups, and each trigger request
+  is authenticated by its signature before it reaches the database. `/v1/ready` queries
+  PostgreSQL and OpenSearch, so it stays limited.
 - Contract-valid loopback redirect URIs can match the common rule set's EC2 metadata
   SSRF body/query rules (`localhost`, such as the Shopify CLI `--use-localhost` callback
   `https://localhost:3458/oauth/callback`, or a native agent's `http://localhost:…/callback`)

@@ -5,7 +5,7 @@
 //! the email nor the decision is logged. The trigger fails the sign-up on any non-2xx answer.
 use crate::error::{
     ApiError, PRE_SIGN_UP_INTERNAL_ERROR, PRE_SIGN_UP_INVALID_REQUEST,
-    PRE_SIGN_UP_PAYLOAD_TOO_LARGE, PRE_SIGN_UP_TEMPORARILY_UNAVAILABLE, PRE_SIGN_UP_UNAUTHORIZED,
+    PRE_SIGN_UP_TEMPORARILY_UNAVAILABLE, PRE_SIGN_UP_UNAUTHORIZED,
 };
 use crate::internal::single_header;
 use crate::state::CognitoPreSignUpState;
@@ -120,14 +120,6 @@ pub async fn post_cognito_pre_sign_up(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if body.len() > MAX_BODY_BYTES {
-        return ApiError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "Payload Too Large",
-            PRE_SIGN_UP_PAYLOAD_TOO_LARGE,
-        )
-        .into_response();
-    }
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     if let Err(error) = state.verifier.verify(
         SignaturePurpose::PreSignUp,
@@ -210,11 +202,21 @@ fn parse_command(
 }
 
 fn verification_error(error: SignatureError) -> ApiError {
-    tracing::warn!(
-        event = "cognito_pre_sign_up.unauthorized",
-        reason = %error,
-        "Cognito pre-sign-up request failed authentication"
-    );
+    // The route is public: an unauthenticated request is routine and logged only at debug,
+    // while a local signing failure is ours to fix. The trigger logs every refusal itself.
+    if matches!(error, SignatureError::CryptographicFailure) {
+        tracing::warn!(
+            event = "cognito_pre_sign_up.unauthorized",
+            reason = %error,
+            "Cognito pre-sign-up request failed authentication"
+        );
+    } else {
+        tracing::debug!(
+            event = "cognito_pre_sign_up.unauthorized",
+            reason = %error,
+            "Cognito pre-sign-up request failed authentication"
+        );
+    }
     match error {
         SignatureError::CryptographicFailure => {
             ApiError::internal_server_error(PRE_SIGN_UP_INTERNAL_ERROR)

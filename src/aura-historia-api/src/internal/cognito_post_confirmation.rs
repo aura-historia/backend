@@ -5,8 +5,8 @@
 use crate::auth::request_metadata;
 use crate::error::{
     ApiError, POST_CONFIRMATION_CONFLICT, POST_CONFIRMATION_INTERNAL_ERROR,
-    POST_CONFIRMATION_INVALID_EVENT, POST_CONFIRMATION_PAYLOAD_TOO_LARGE,
-    POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE, POST_CONFIRMATION_UNAUTHORIZED,
+    POST_CONFIRMATION_INVALID_EVENT, POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE,
+    POST_CONFIRMATION_UNAUTHORIZED,
 };
 use crate::internal::single_header;
 use crate::state::CognitoPostConfirmationState;
@@ -34,14 +34,6 @@ pub async fn post_cognito_post_confirmation(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if body.len() > MAX_BODY_BYTES {
-        return ApiError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "Payload Too Large",
-            POST_CONFIRMATION_PAYLOAD_TOO_LARGE,
-        )
-        .into_response();
-    }
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     if let Err(error) = state.verifier.verify(
         SignaturePurpose::PostConfirmation,
@@ -116,11 +108,21 @@ pub async fn post_cognito_post_confirmation(
 }
 
 fn verification_error(error: SignatureError) -> ApiError {
-    tracing::warn!(
-        event = "cognito_post_confirmation.unauthorized",
-        reason = %error,
-        "Cognito post-confirmation request failed authentication"
-    );
+    // The route is public: an unauthenticated request is routine and logged only at debug,
+    // while a local signing failure is ours to fix. The trigger logs every refusal itself.
+    if matches!(error, SignatureError::CryptographicFailure) {
+        tracing::warn!(
+            event = "cognito_post_confirmation.unauthorized",
+            reason = %error,
+            "Cognito post-confirmation request failed authentication"
+        );
+    } else {
+        tracing::debug!(
+            event = "cognito_post_confirmation.unauthorized",
+            reason = %error,
+            "Cognito post-confirmation request failed authentication"
+        );
+    }
     match error {
         SignatureError::CryptographicFailure => {
             ApiError::internal_server_error(POST_CONFIRMATION_INTERNAL_ERROR)

@@ -6,13 +6,20 @@
 	# no HTTP listener is needed and port 80 stays closed.
 	acme_dns cloudflare {env.CLOUDFLARE_DNS_API_TOKEN}
 	auto_https disable_redirects
-	# Error logs record the request headers; keep the origin secret and viewer credentials out.
+	# Error logs record the request headers; keep the origin secret, viewer credentials and
+	# webhook and trigger signatures out: a logged signature replays its request.
 	log default {
 		output stderr
 		format filter {
 			request>headers>X-Origin-Verify delete
 			request>headers>Authorization delete
 			request>headers>Cookie delete
+			request>headers>X-Api-Key delete
+			request>headers>Stripe-Signature delete
+			request>headers>X-Shopify-Hmac-Sha256 delete
+			request>headers>X-Wc-Webhook-Signature delete
+			request>headers>Webhook-Signature delete
+			request>headers>X-Aura-Signature delete
 		}
 	}
 	servers {
