@@ -89,7 +89,7 @@ async fn should_redrive_selected_rows_and_report_those_not_in_custody() {
 #[aura_integration_test(services = [DATABASE], isolated = true)]
 async fn should_report_pending_age_and_custody() {
     let pool = get_postgres_client().await;
-    let empty = inspect(&pool).await.unwrap();
+    let empty = inspect(&mut pool.acquire().await.unwrap()).await.unwrap();
     assert_eq!(
         (0, None, 0),
         (empty.pending, empty.oldest_pending_age, empty.custody)
@@ -108,7 +108,7 @@ async fn should_report_pending_age_and_custody() {
     )
     .await;
 
-    let stats = inspect(&pool).await.unwrap();
+    let stats = inspect(&mut pool.acquire().await.unwrap()).await.unwrap();
     assert_eq!((1, 1), (stats.pending, stats.custody));
     assert!(stats.oldest_pending_age.unwrap() >= Duration::from_secs(90));
     assert!(queued_jobs(&pool).await.is_empty());

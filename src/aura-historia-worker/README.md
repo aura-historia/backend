@@ -66,14 +66,16 @@ figures stay in `ops inspect`.
 | Metric | Unit | Value |
 | --- | --- | --- |
 | `Heartbeat` | Count | 1, every round |
-| `PostgresReachable` | None | 1 when the queue figures were read within 20 s, otherwise 0, every round |
+| `PostgresReachable` | None | 1 when PostgreSQL answered a trivial query within 5 s, otherwise 0, every round |
 | `OldestJobAgeSeconds`, dimension `Class` = `normal` or `bulk` | Seconds | Age of the class's oldest waiting job (not under a lease, as in `ops inspect`), 0 without one. Bulk is translation, embedding and isolated projection generations; every other scope, including one no consumer knows, and the oldest undispatched outbox snapshot are normal |
 | `ParkedJobs` | Count | Jobs in failure custody across every scope, plus outbox snapshots in custody |
 | `FreeDiskPercent` | Percent | Space available to unprivileged writers on the disk path's filesystem |
 | `SecondsSinceLastBackup` | Seconds | Time since the backup marker was modified; absent while there is no marker |
+| `SecondsSinceLastSuccess`, dimension `Job` | Seconds | Time since each file in the job marker directory was modified; the host's scheduled `ops` jobs touch `<job>` after each success |
 
-The queue figures are published only when PostgreSQL answered, and a figure that could not be
-read is left out, so the alarms see missing data rather than a made-up value. A failed round
+The queue figures are read in one transaction with a 15 s statement bound of their own, because
+they scan the job table, and are published only when they were read within 20 s; a figure that
+could not be read is left out, so the alarms see missing data rather than a made-up value. A failed round
 logs `worker.health_metrics.*` at WARN and the next round tries again. The host's IAM user may
 publish only to the configured namespace ([host access](../../docs/infra.md#host-access)).
 

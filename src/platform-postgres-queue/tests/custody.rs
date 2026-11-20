@@ -178,7 +178,9 @@ async fn should_overview_every_scopes_oldest_waiting_job_and_all_custody() {
         .unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let overview = platform_postgres_queue::overview(&pool).await.unwrap();
+    let overview = platform_postgres_queue::overview(&mut pool.acquire().await.unwrap())
+        .await
+        .unwrap();
 
     assert_eq!(1, overview.in_custody);
     assert_eq!(

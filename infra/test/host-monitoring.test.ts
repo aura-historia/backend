@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { CONTAINER_LOG_SERVICES, stageConfig } from "../src/config";
@@ -53,9 +53,44 @@ describe("monitoring stacks", () => {
     const worker = readFileSync(join(__dirname, "../../src/aura-historia-worker/src/health_metrics.rs"), "utf8");
     for (const name of Object.values(HOST_METRICS)) expect(worker).toContain(`: &str = "${name}";`);
     for (const resource of resources(monitoring, "AWS::CloudWatch::Alarm")) {
-      expect(resource.Properties.Namespace).toBe(config.host.metricNamespace);
-      expect([...Object.values(HOST_METRICS), INGESTION_REJECTED_METRIC]).toContain(resource.Properties.MetricName);
+      const metrics = resource.Properties.Metrics
+        ? (resource.Properties.Metrics as any[]).filter((query) => query.MetricStat).map((query) => query.MetricStat.Metric)
+        : [resource.Properties];
+      for (const watched of metrics) {
+        expect(watched.Namespace).toBe(config.host.metricNamespace);
+        expect([...Object.values(HOST_METRICS), INGESTION_REJECTED_METRIC]).toContain(watched.MetricName);
+      }
     }
+  });
+
+  test("alarm on each scheduled ops job its timer runs, counted from the job's success marker", () => {
+    const systemd = join(__dirname, "../../host/prod/systemd");
+    const timed = readdirSync(systemd)
+      .filter((name) => name.endsWith(".timer"))
+      .map((name) => readFileSync(join(systemd, name), "utf8").match(/^Unit=aura-prod-ops@(.+)\.service$/m)?.[1])
+      .filter((job): job is string => job !== undefined)
+      .sort();
+    expect(Object.keys(config.monitoring.maximumJobAgeSeconds).sort()).toEqual(timed);
+    const unit = readFileSync(join(systemd, "aura-prod-ops@.service"), "utf8");
+    expect(unit).toContain("ExecStartPost=/usr/bin/touch /var/lib/aura-historia/prod/jobs/%i");
+    for (const job of timed) {
+      expect(alarm(monitoring, `aura-historia-prod-host-${job}-stale`).Properties).toMatchObject({
+        MetricName: "SecondsSinceLastSuccess",
+        Dimensions: [{ Name: "Job", Value: job }],
+        Threshold: config.monitoring.maximumJobAgeSeconds[job],
+        TreatMissingData: "breaching",
+      });
+    }
+  });
+
+  test("alarm when more jobs enter custody, not while custody is merely held", () => {
+    const parked = alarm(monitoring, "aura-historia-prod-host-parked-jobs").Properties;
+    expect(parked).toMatchObject({ Threshold: 1, ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching" });
+    const queries = parked.Metrics as any[];
+    expect(queries.find((query) => query.ReturnData !== false).Expression).toBe("DIFF(parked)");
+    expect(queries.find((query) => query.MetricStat).MetricStat).toMatchObject({
+      Metric: { MetricName: "ParkedJobs" }, Stat: "Maximum", Period: 300,
+    });
   });
 
   test("count rejected ingestion commands from the line the worker prints for each", () => {
@@ -96,7 +131,6 @@ describe("monitoring stacks", () => {
         ComparisonOperator: "GreaterThanOrEqualToThreshold",
       });
     }
-    expect(alarm(monitoring, "aura-historia-prod-host-parked-jobs").Properties).toMatchObject({ Threshold: 1 });
     expect(alarm(monitoring, "aura-historia-prod-host-low-free-disk").Properties)
       .toMatchObject({ Statistic: "Minimum", Threshold: 20, ComparisonOperator: "LessThanOrEqualToThreshold" });
   });
@@ -138,7 +172,7 @@ describe("monitoring stacks", () => {
       const paths = stack.node.findAll().map((construct) => construct.node.path);
       expect(paths.filter((path) => path.includes("resolve"))).toEqual([]);
     }
-    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(8);
+    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(11);
     expect(resources(edge, "AWS::CloudWatch::Alarm")).toHaveLength(2);
   });
 });

@@ -219,6 +219,7 @@ services:
       AURA_HISTORIA_WORKER_METRICS_NAMESPACE: AuraHistoria/Host
       AURA_HISTORIA_WORKER_METRICS_BACKUP_MARKER: /run/aura/backup/last-success
       AURA_HISTORIA_WORKER_METRICS_DISK_PATH: /run/aura/backup
+      AURA_HISTORIA_WORKER_METRICS_JOB_MARKERS: /run/aura/jobs
     volumes:
       - *opensearch-root-ca
       - *google-credentials
@@ -227,6 +228,12 @@ services:
       - type: bind
         source: /var/lib/aura-historia/prod/backup
         target: /run/aura/backup
+        read_only: true
+        bind: {create_host_path: true}
+      # The scheduled ops jobs' success markers, one file per job.
+      - type: bind
+        source: /var/lib/aura-historia/prod/jobs
+        target: /run/aura/jobs
         read_only: true
         bind: {create_host_path: true}
     networks: [default, database, search]

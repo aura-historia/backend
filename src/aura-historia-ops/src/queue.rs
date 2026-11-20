@@ -6,11 +6,29 @@ use platform_worker_queue_contract::job_queue::all_job_scopes;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
-/// Depth, leases, oldest waiting age and custody of every catalogued scope, and the outbox's
-/// pending and custody counts: the figures the queue metrics publish.
+/// Depth, leases, oldest waiting age and custody of every catalogued scope and of every other
+/// scope that holds jobs or custody, such as a projection generation, and the outbox's pending
+/// and custody counts: the figures behind the host's queue metrics, which count every scope.
 pub(crate) async fn inspect(pool: &PgPool) -> Result<Value, OpsError> {
+    let present: Vec<String> = sqlx::query_scalar(
+        "SELECT scope FROM job_queue_jobs UNION SELECT scope FROM job_queue_failures ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|error| OpsError::failed("inspect", error))?;
+    let mut job_scopes = all_job_scopes();
+    let mut unknown = Vec::new();
+    for name in present {
+        if job_scopes.iter().any(|scope| scope.name().as_str() == name) {
+            continue;
+        }
+        match find_scope(&name) {
+            Ok(scope) => job_scopes.push(scope),
+            Err(_) => unknown.push(name),
+        }
+    }
     let mut scopes = serde_json::Map::new();
-    for scope in all_job_scopes() {
+    for scope in job_scopes {
         let name = scope.name().as_str().to_owned();
         let stats = JobQueue::new(pool.clone(), scope)
             .inspect()
@@ -26,11 +44,17 @@ pub(crate) async fn inspect(pool: &PgPool) -> Result<Value, OpsError> {
             }),
         );
     }
-    let outbox = delivery_outbox::inspect(pool)
+    let mut connection = pool
+        .acquire()
+        .await
+        .map_err(|error| OpsError::failed("inspect", error))?;
+    let outbox = delivery_outbox::inspect(&mut connection)
         .await
         .map_err(|error| OpsError::failed("inspect", error))?;
     Ok(json!({
         "scopes": scopes,
+        // Scopes with jobs or custody that no catalogue or generation names; inspect them in SQL.
+        "unknownScopes": unknown,
         "outbox": {
             "pending": outbox.pending,
             "oldestPendingAgeSeconds": outbox.oldest_pending_age.map(|age| age.as_secs()),

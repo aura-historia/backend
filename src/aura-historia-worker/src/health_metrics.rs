@@ -32,22 +32,36 @@ pub const OLDEST_JOB_AGE: &str = "OldestJobAgeSeconds";
 pub const PARKED_JOBS: &str = "ParkedJobs";
 pub const FREE_DISK: &str = "FreeDiskPercent";
 pub const SINCE_LAST_BACKUP: &str = "SecondsSinceLastBackup";
+pub const SINCE_LAST_JOB_SUCCESS: &str = "SecondsSinceLastSuccess";
 /// The dimension that splits [`OLDEST_JOB_AGE`] by [`BacklogClass`].
 pub const CLASS_DIMENSION: &str = "Class";
+/// The dimension that names the scheduled job of [`SINCE_LAST_JOB_SUCCESS`].
+pub const JOB_DIMENSION: &str = "Job";
+/// Job markers beyond this many are ignored, so a stray directory cannot flood the metrics.
+const MAX_JOB_MARKERS: usize = 16;
 
 const INTERVAL: Duration = Duration::from_secs(60);
-/// Bounds the database reads, so a hanging database delays no heartbeat.
+/// Bounds the reachability probe.
+const REACHABILITY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Bounds the queue figures, so a hanging database delays no heartbeat. The figures scan the job
+/// table, which a large backlog makes slower than the pool's statement bound allows; their own
+/// statement bound stays inside this.
 const DATABASE_TIMEOUT: Duration = Duration::from_secs(20);
+const FIGURES_STATEMENT_TIMEOUT: &str = "15s";
 
 /// What one round publishes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HealthSnapshot {
-    /// The queue figures, or `None` when PostgreSQL did not answer in time.
+    /// Whether PostgreSQL answered a trivial query in time.
+    pub postgres_reachable: bool,
+    /// The queue figures, or `None` when they could not be read in time.
     pub queues: Option<QueueHealth>,
     /// Free space of the host filesystem, or `None` when it could not be read.
     pub free_disk_percent: Option<f64>,
     /// Time since the last successful backup, or `None` while no backup is recorded.
     pub since_last_backup: Option<Duration>,
+    /// Time since each scheduled job's last success, by job name.
+    pub since_last_job_success: Vec<(String, Duration)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,16 +135,29 @@ pub async fn run(
 }
 
 async fn collect(pool: &PgPool, config: &HealthMetricsConfig) -> HealthSnapshot {
-    let queues = match tokio::time::timeout(DATABASE_TIMEOUT, queue_health(pool)).await {
-        Ok(Ok(health)) => Some(health),
-        Ok(Err(_)) | Err(_) => {
-            tracing::warn!(
-                event = "worker.health_metrics.postgres_unreachable",
-                dependency = "postgres",
-                "The queue figures could not be read; publishing PostgreSQL as unreachable"
-            );
-            None
+    let postgres_reachable = matches!(
+        tokio::time::timeout(REACHABILITY_TIMEOUT, sqlx::query("SELECT 1").execute(pool)).await,
+        Ok(Ok(_))
+    );
+    let queues = if postgres_reachable {
+        match tokio::time::timeout(DATABASE_TIMEOUT, queue_health(pool)).await {
+            Ok(Ok(health)) => Some(health),
+            Ok(Err(_)) | Err(_) => {
+                tracing::warn!(
+                    event = "worker.health_metrics.queue_figures_unreadable",
+                    dependency = "postgres",
+                    "The queue figures could not be read in time; leaving them out"
+                );
+                None
+            }
         }
+    } else {
+        tracing::warn!(
+            event = "worker.health_metrics.postgres_unreachable",
+            dependency = "postgres",
+            "PostgreSQL did not answer; publishing it as unreachable"
+        );
+        None
     };
     let free_disk_percent = free_disk_percent(&config.disk_path)
         .inspect_err(|error| {
@@ -151,16 +178,33 @@ async fn collect(pool: &PgPool, config: &HealthMetricsConfig) -> HealthSnapshot 
             }
         })
         .ok();
+    let since_last_job_success = since_last_job_success(&config.job_markers, SystemTime::now())
+        .unwrap_or_else(|error| {
+            tracing::warn!(
+                event = "worker.health_metrics.job_markers_unreadable",
+                error_category = ?error.kind(),
+            );
+            Vec::new()
+        });
     HealthSnapshot {
+        postgres_reachable,
         queues,
         free_disk_percent,
         since_last_backup,
+        since_last_job_success,
     }
 }
 
+/// Both reads in one read-only transaction, under a statement bound of their own.
 async fn queue_health(pool: &PgPool) -> Result<QueueHealth, BoxError> {
-    let queue = platform_postgres_queue::overview(pool).await?;
-    let outbox = delivery_outbox::inspect(pool).await?;
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+        .bind(FIGURES_STATEMENT_TIMEOUT)
+        .execute(&mut *transaction)
+        .await?;
+    let queue = platform_postgres_queue::overview(&mut transaction).await?;
+    let outbox = delivery_outbox::inspect(&mut transaction).await?;
+    transaction.rollback().await?;
     Ok(QueueHealth::from_figures(&queue, &outbox))
 }
 
@@ -186,6 +230,36 @@ fn since_last_backup(marker: &Path, now: SystemTime) -> std::io::Result<Duration
     Ok(now.duration_since(succeeded_at).unwrap_or_default())
 }
 
+/// The host's scheduled jobs touch `<directory>/<job>` after each success. Entries that are not
+/// files with a plain job name are skipped.
+fn since_last_job_success(
+    directory: &Path,
+    now: SystemTime,
+) -> std::io::Result<Vec<(String, Duration)>> {
+    let mut jobs = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let plain = !name.is_empty()
+            && name.len() <= 64
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        let metadata = entry.metadata()?;
+        if plain && metadata.is_file() {
+            jobs.push((
+                name,
+                now.duration_since(metadata.modified()?).unwrap_or_default(),
+            ));
+        }
+    }
+    jobs.sort();
+    jobs.truncate(MAX_JOB_MARKERS);
+    Ok(jobs)
+}
+
 /// The heartbeat and PostgreSQL's reachability are always published; every other figure only
 /// when it was read.
 pub fn metric_data(snapshot: &HealthSnapshot, at: SystemTime) -> Vec<MetricDatum> {
@@ -197,7 +271,11 @@ pub fn metric_data(snapshot: &HealthSnapshot, at: SystemTime) -> Vec<MetricDatum
             .unit(unit)
             .timestamp(at)
     };
-    let reachable = if snapshot.queues.is_some() { 1.0 } else { 0.0 };
+    let reachable = if snapshot.postgres_reachable {
+        1.0
+    } else {
+        0.0
+    };
     let mut data = vec![
         datum(HEARTBEAT, 1.0, StandardUnit::Count).build(),
         datum(POSTGRES_REACHABLE, reachable, StandardUnit::None).build(),
@@ -225,6 +303,17 @@ pub fn metric_data(snapshot: &HealthSnapshot, at: SystemTime) -> Vec<MetricDatum
     }
     if let Some(age) = snapshot.since_last_backup {
         data.push(datum(SINCE_LAST_BACKUP, age.as_secs_f64(), StandardUnit::Seconds).build());
+    }
+    for (job, age) in &snapshot.since_last_job_success {
+        data.push(
+            datum(
+                SINCE_LAST_JOB_SUCCESS,
+                age.as_secs_f64(),
+                StandardUnit::Seconds,
+            )
+            .dimensions(Dimension::builder().name(JOB_DIMENSION).value(job).build())
+            .build(),
+        );
     }
     data
 }
@@ -335,6 +424,7 @@ mod tests {
     #[test]
     fn should_publish_every_figure_of_a_healthy_round() {
         let snapshot = HealthSnapshot {
+            postgres_reachable: true,
             queues: Some(QueueHealth {
                 oldest_normal: Duration::from_secs(5),
                 oldest_bulk: Duration::ZERO,
@@ -342,6 +432,7 @@ mod tests {
             }),
             free_disk_percent: Some(59.5),
             since_last_backup: Some(Duration::from_secs(3600)),
+            since_last_job_success: vec![("fx-refresh".to_owned(), Duration::from_secs(60))],
         };
 
         let data = metric_data(&snapshot, SystemTime::UNIX_EPOCH);
@@ -355,25 +446,44 @@ mod tests {
                 "ParkedJobs",
                 "FreeDiskPercent",
                 "SecondsSinceLastBackup",
+                "SecondsSinceLastSuccess[fx-refresh]",
             ],
             names(&data)
         );
         let values: Vec<_> = data.iter().filter_map(MetricDatum::value).collect();
-        assert_eq!(vec![1.0, 1.0, 5.0, 0.0, 2.0, 59.5, 3600.0], values);
+        assert_eq!(vec![1.0, 1.0, 5.0, 0.0, 2.0, 59.5, 3600.0, 60.0], values);
     }
 
     #[test]
     fn should_keep_the_heartbeat_and_report_postgres_unreachable_when_nothing_was_read() {
         let snapshot = HealthSnapshot {
+            postgres_reachable: false,
             queues: None,
             free_disk_percent: None,
             since_last_backup: None,
+            since_last_job_success: Vec::new(),
         };
 
         let data = metric_data(&snapshot, SystemTime::UNIX_EPOCH);
 
         assert_eq!(vec!["Heartbeat", "PostgresReachable"], names(&data));
         assert_eq!(Some(0.0), data[1].value());
+    }
+
+    #[test]
+    fn should_report_postgres_reachable_when_only_the_queue_figures_timed_out() {
+        let snapshot = HealthSnapshot {
+            postgres_reachable: true,
+            queues: None,
+            free_disk_percent: None,
+            since_last_backup: None,
+            since_last_job_success: Vec::new(),
+        };
+
+        let data = metric_data(&snapshot, SystemTime::UNIX_EPOCH);
+
+        assert_eq!(vec!["Heartbeat", "PostgresReachable"], names(&data));
+        assert_eq!(Some(1.0), data[1].value());
     }
 
     #[test]
@@ -401,5 +511,32 @@ mod tests {
         let percent = free_disk_percent(&directory).unwrap();
         assert!((0.0..=100.0).contains(&percent), "{percent}");
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn should_measure_each_jobs_age_from_its_marker_and_skip_other_entries() {
+        let directory = std::env::temp_dir().join(format!(
+            "health-metrics-jobs-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(directory.join("periodic-match.d")).unwrap();
+        for name in ["fx-refresh", "backend-cleanup", "Not A Job"] {
+            std::fs::write(directory.join(name), b"").unwrap();
+        }
+        let written = std::fs::metadata(directory.join("fx-refresh"))
+            .unwrap()
+            .modified()
+            .unwrap();
+
+        let jobs = since_last_job_success(&directory, written + minutes(30)).unwrap();
+
+        assert_eq!(
+            vec!["backend-cleanup", "fx-refresh"],
+            jobs.iter().map(|(job, _)| job.as_str()).collect::<Vec<_>>()
+        );
+        assert_eq!(minutes(30), jobs[1].1);
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(since_last_job_success(&directory, SystemTime::now()).is_err());
     }
 }

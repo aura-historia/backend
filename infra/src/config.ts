@@ -110,6 +110,11 @@ export interface MonitoringConfig {
   readonly minimumFreeDiskPercent: number;
   readonly maximumBackupAgeSeconds: number;
   /**
+   * Each scheduled ops job's longest time since its last success before it alarms, by the job
+   * its timer runs (host/prod/systemd).
+   */
+  readonly maximumJobAgeSeconds: Readonly<Record<string, number>>;
+  /**
    * The `api` stack's distributions. CloudFormation cannot reference them from the edge region,
    * so their IDs are pinned here; replacing a distribution must update them.
    */
@@ -176,6 +181,13 @@ export function stageConfig(stage: StageName): StageConfig {
       minimumFreeDiskPercent: 20,
       // A daily backup plus two hours' slack.
       maximumBackupAgeSeconds: 26 * 60 * 60,
+      // One missed run of the twice-daily FX refresh or the daily matching (which stops itself
+      // after two hours) alarms; the hourly cleanup alarms after two.
+      maximumJobAgeSeconds: {
+        "backend-cleanup": 150 * 60,
+        "fx-refresh": 13 * 60 * 60,
+        "periodic-match": 27 * 60 * 60,
+      },
       cloudFrontDistributionIds: { api: "EP6DVM7VDGBW3", mcp: "ESDMRH0023HN6" },
       cloudFront5xxRatePercent: 5,
       cloudFrontMinimumRequests: 10,

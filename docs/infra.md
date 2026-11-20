@@ -231,11 +231,12 @@ to `/aura-historia/prod/host/<service>`, kept 30 days at the `warn` level. Thres
 | Alarm | Fires when |
 | --- | --- |
 | `…-host-heartbeat-missing` | No heartbeat for 5 minutes; missing data breaches, so a dead host, Docker or worker, or a host cut off from AWS, fires it |
-| `…-host-postgres-unreachable` | The worker could not read the queues for 3 minutes |
+| `…-host-postgres-unreachable` | PostgreSQL did not answer the worker for 3 minutes |
 | `…-host-normal-backlog-age`, `…-host-bulk-backlog-age` | The oldest waiting job of the class is at least 15 minutes, or 12 hours for bulk, old |
-| `…-host-parked-jobs` | Anything is in failure custody; see the [worker runbook](durable-worker-runbook.md) |
+| `…-host-parked-jobs` | More jobs or outbox snapshots entered failure custody in the last 5 minutes; it clears 5 minutes later, while custody is kept until an operator acts (see the [worker runbook](durable-worker-runbook.md)) |
 | `…-host-ingestion-rejected` | ProductListing ingestion rejected a command in the last 5 minutes. A rejection is acknowledged without effect, so neither custody nor the backlog shows it; the worker log names its command and error code |
 | `…-host-low-free-disk` | The host filesystem has at most 20% free, above OpenSearch's low watermark |
+| `…-host-backend-cleanup-stale`, `…-host-fx-refresh-stale`, `…-host-periodic-match-stale` | The [scheduled job](../host/prod/README.md#scheduled-jobs) has not succeeded for 2.5 hours (cleanup), 13 hours (FX refresh) or 27 hours (matching): a missed FX refresh or matching run, or two missed cleanups; a missing figure counts as stale |
 | `…-host-backup-stale` | The last successful backup is at least 26 hours old; no recorded backup counts as stale |
 | `…-api-cloudfront-5xx-rate`, `…-mcp-cloudfront-5xx-rate` | At least 5% of a distribution's requests failed with 5xx in two consecutive 5-minute periods of at least 10 requests |
 

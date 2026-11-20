@@ -24,6 +24,8 @@ pub const METRICS_NAMESPACE_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_NAMESPACE"
 pub const METRICS_BACKUP_MARKER_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_BACKUP_MARKER";
 /// A path on the host filesystem whose free space the metrics report.
 pub const METRICS_DISK_PATH_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_DISK_PATH";
+/// The directory whose files the host's scheduled jobs touch after each success, one per job.
+pub const METRICS_JOB_MARKERS_ENV: &str = "AURA_HISTORIA_WORKER_METRICS_JOB_MARKERS";
 
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(25);
@@ -38,6 +40,8 @@ pub enum WorkerConfigError {
     Config(#[from] ConfigError),
     #[error("unknown worker scope in {SCOPES_ENV}")]
     UnknownScope,
+    #[error("{SCOPES_ENV} and {PROJECTION_GENERATIONS_ENV} select no scope")]
+    NoScope,
     #[error("invalid projection generation in {PROJECTION_GENERATIONS_ENV}")]
     InvalidGeneration,
     #[error("invalid consumer configuration")]
@@ -68,6 +72,7 @@ pub struct HealthMetricsConfig {
     pub namespace: String,
     pub backup_marker: PathBuf,
     pub disk_path: PathBuf,
+    pub job_markers: PathBuf,
 }
 
 impl HealthMetricsConfig {
@@ -81,6 +86,7 @@ impl HealthMetricsConfig {
             namespace,
             backup_marker: config::required(METRICS_BACKUP_MARKER_ENV)?.into(),
             disk_path: config::required(METRICS_DISK_PATH_ENV)?.into(),
+            job_markers: config::required(METRICS_JOB_MARKERS_ENV)?.into(),
         }))
     }
 }
@@ -140,7 +146,18 @@ impl WorkerConfig {
 }
 
 fn selected_scopes() -> Result<Vec<ConsumedScope>, WorkerConfigError> {
-    let selected = config::optional(SCOPES_ENV, "all".to_owned())?;
+    parse_scopes(
+        &config::optional(SCOPES_ENV, "all".to_owned())?,
+        &config::optional(PROJECTION_GENERATIONS_ENV, String::new())?,
+    )
+}
+
+/// The scopes `selected` (`all` or a comma-separated list) and the projection `generations` name,
+/// each once.
+fn parse_scopes(
+    selected: &str,
+    generations: &str,
+) -> Result<Vec<ConsumedScope>, WorkerConfigError> {
     let mut scopes = if selected.trim() == "all" {
         ConsumedScope::all()
     } else {
@@ -151,7 +168,6 @@ fn selected_scopes() -> Result<Vec<ConsumedScope>, WorkerConfigError> {
             .map(|name| ConsumedScope::parse(name).ok_or(WorkerConfigError::UnknownScope))
             .collect::<Result<Vec<_>, _>>()?
     };
-    let generations = config::optional(PROJECTION_GENERATIONS_ENV, String::new())?;
     for generation in generations
         .split(',')
         .map(str::trim)
@@ -167,8 +183,11 @@ fn selected_scopes() -> Result<Vec<ConsumedScope>, WorkerConfigError> {
             unique.push(scope);
         }
     }
-    let scopes = unique;
-    Ok(scopes)
+    // A blank selection would start a worker that consumes nothing while jobs wait.
+    if unique.is_empty() {
+        return Err(WorkerConfigError::NoScope);
+    }
+    Ok(unique)
 }
 
 fn concurrency_env(scope: &ConsumedScope) -> String {
@@ -197,6 +216,32 @@ mod tests {
         assert_eq!(
             "AURA_HISTORIA_WORKER_CONCURRENCY_PRODUCT_LISTING_INGESTION",
             concurrency_env(&ConsumedScope::ProductListingIngestion)
+        );
+    }
+
+    #[test]
+    fn should_refuse_a_selection_without_any_scope() {
+        for (selected, generations) in [("", ""), (" , ", ""), ("", " ")] {
+            assert!(
+                matches!(
+                    parse_scopes(selected, generations),
+                    Err(WorkerConfigError::NoScope)
+                ),
+                "{selected:?} / {generations:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_consume_each_selected_scope_and_generation_once() {
+        let scopes = parse_scopes("geo-resolution, geo-resolution", "g2").unwrap();
+
+        assert_eq!(2, scopes.len());
+        assert_eq!(ConsumedScope::Worker(WorkerScope::GeoResolution), scopes[0]);
+        assert!(matches!(scopes[1], ConsumedScope::ProjectionGeneration(_)));
+        assert_eq!(
+            ConsumedScope::all().len(),
+            parse_scopes("all", "").unwrap().len()
         );
     }
 }

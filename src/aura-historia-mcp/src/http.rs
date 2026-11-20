@@ -10,7 +10,6 @@ use response::{finalize_response, protocol_error, public_document};
 use crate::{
     AdmissionGate, AdmissionRequest, ConfigError, InvocationContext, Registry, TransportConfig,
     config::normalized_origin,
-    metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
     server_card::{SERVER_CARD_MEDIA_TYPE, SERVER_CARD_PATH, server_card},
     server_info::server_info,
@@ -206,14 +205,8 @@ fn verification_document(
 
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {
     let now = Instant::now();
-    let invocation = request.extensions().get::<InvocationDeadline>();
-    let deadline = invocation.map_or(now + state.config.request_timeout, |budget| {
-        budget.deadline.min(now + state.config.request_timeout)
-    });
-    let request_id = invocation.map_or_else(
-        || uuid::Uuid::new_v4().to_string(),
-        |budget| budget.request_id.clone(),
-    );
+    let deadline = now + state.config.request_timeout;
+    let request_id = uuid::Uuid::new_v4().to_string();
     let cancellation = CancellationToken::new();
     let _cancel_on_drop = cancellation.clone().drop_guard();
     let response = if deadline <= now {

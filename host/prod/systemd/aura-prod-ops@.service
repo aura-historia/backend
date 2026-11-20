@@ -9,5 +9,8 @@ After=docker.service
 Type=oneshot
 # --no-deps: a scheduled job never starts or restarts the stack.
 ExecStart=@PROD_DIR@/compose.sh run --rm --no-deps -T ops %i
+# Only after a successful run: the worker publishes each marker's age, which the job's alarm
+# watches (host/prod/README.md#monitoring).
+ExecStartPost=/usr/bin/touch /var/lib/aura-historia/prod/jobs/%i
 # Periodic matching stops itself after two hours.
 TimeoutStartSec=2h15min

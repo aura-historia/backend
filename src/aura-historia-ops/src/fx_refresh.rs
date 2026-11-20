@@ -12,18 +12,27 @@ use fxrate_service::{
 use platform_postgres::SqlxUnitOfWork;
 use platform_process::{Dependency, FailureDiagnostic, UNCLASSIFIED_FAILURE, config};
 use serde_json::{Value, json};
+use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 const COMMAND: &str = "fx-refresh";
 const FXRATES_API_TOKEN_ENV: &str = "FXRATES_API_TOKEN";
+/// The provider call's bound; the scheduled Lambda this replaced stopped after 10 s.
+const PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) async fn run() -> Result<Value, OpsError> {
     let token =
         config::required(FXRATES_API_TOKEN_ENV).map_err(|error| OpsError::Config(error.into()))?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(PROVIDER_CONNECT_TIMEOUT)
+        .timeout(PROVIDER_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| OpsError::failed(COMMAND, error))?;
     let snapshots = CaptureFxRateSnapshotHandler::new(
-        FxRatesApiQuoteProvider::new(reqwest::Client::new(), token),
+        FxRatesApiQuoteProvider::new(client, token),
         SqlxUnitOfWork::new(crate::pool().await?),
         SqlxFxRateSnapshotRepositoryFactory::new(),
     );

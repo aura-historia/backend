@@ -131,10 +131,11 @@ old key.
 The worker publishes the host's health metrics once a minute
 ([contract](../../src/aura-historia-worker/README.md#health-metrics)); the `monitoring` and
 `edge-monitoring` stacks hold the alarms that email the operators
-([alarms](../../docs/infra.md#monitoring)). The worker reads two host paths through a
-read-only mount of `/var/lib/aura-historia/prod/backup`: `backup.sh` touches `last-success` there
-after each successful full or differential backup, and the free space reported is that of the
-host's root filesystem, which holds Docker, PostgreSQL and OpenSearch.
+([alarms](../../docs/infra.md#monitoring)). The worker reads host paths through two read-only
+mounts. In `/var/lib/aura-historia/prod/backup`, `backup.sh` touches `last-success` after each
+successful full or differential backup, and the free space reported is that of the host's root
+filesystem, which holds Docker, PostgreSQL and OpenSearch. In `/var/lib/aura-historia/prod/jobs`,
+each [scheduled job](#scheduled-jobs) touches its marker after a success.
 
 To test an alarm, cause its condition where that is harmless, or else set its state by hand,
 which tests the notification path only, and confirm the email arrives, then the OK email:
@@ -143,7 +144,8 @@ which tests the notification path only, and confirm the email arrives, then the 
 | --- | --- |
 | heartbeat missing | `compose.sh stop worker` for six minutes, then `compose.sh up -d worker`; jobs wait meanwhile |
 | backup stale | Clears with `backup.sh diff`; before the first backup it is in alarm already |
-| parked jobs | In alarm while anything is in custody (`ops inspect`) |
+| parked jobs | Fires when custody grows and clears 5 minutes later; `ops inspect` shows what is kept |
+| scheduled job stale | `systemctl start aura-prod-ops@<job>` touches its marker and clears it; before the worker mounts the markers every job alarm fires |
 | PostgreSQL unreachable, backlog age, ingestion rejected, low free disk, CloudFront 5xx | `aws cloudwatch set-alarm-state --alarm-name <name> --state-value ALARM --state-reason test` (the 5xx alarms in `us-east-1`); the next evaluation resets it |
 
 ## First start
@@ -255,7 +257,11 @@ going when the next is due is not started twice.
 | `aura-prod-secrets-copy` | encrypted copy of `/etc/aura-historia/prod`, 04:00 |
 
 `systemctl list-timers 'aura-prod-*'` shows the next and last runs; failed runs show in
-`systemctl --failed 'aura-prod-*'` and `journalctl -u 'aura-prod-*'`.
+`systemctl --failed 'aura-prod-*'` and `journalctl -u 'aura-prod-*'`. After each success an
+`ops` job touches `/var/lib/aura-historia/prod/jobs/<job>`; the worker publishes the markers'
+ages and each job alarms once it misses a run ([alarms](../../docs/infra.md#monitoring)).
+`install.sh prod-timers` creates a missing marker, so a newly scheduled job has its full
+interval to succeed.
 
 ## Backups
 

@@ -34,6 +34,9 @@ readonly UFW_BLOCK_END='# END aura-historia docker ingress'
 readonly PROD_VOLUMES=(aura-historia-prod-postgres-data aura-historia-prod-caddy-data)
 readonly PROD_TIMERS=(aura-prod-backend-cleanup.timer aura-prod-fx-refresh.timer aura-prod-periodic-match.timer
   aura-prod-backup-full.timer aura-prod-backup-diff.timer aura-prod-secrets-copy.timer)
+# The ops jobs those timers run; each touches its marker after a success.
+readonly PROD_OPS_JOBS=(backend-cleanup fx-refresh periodic-match)
+readonly PROD_JOB_MARKERS=/var/lib/aura-historia/prod/jobs
 readonly DEPLOY_USER=deploy
 readonly DEPLOY_HOME=/var/lib/aura-historia/deploy
 readonly DEPLOY_KEYS=/etc/aura-historia/deploy/authorized_keys
@@ -249,6 +252,12 @@ enable_prod_timers() {
     fail "start the prod stack first (host/prod/README.md#first-start)"
   [[ -s /etc/aura-historia/prod/backup-recipient.asc ]] ||
     fail "install the operators' OpenPGP public key as /etc/aura-historia/prod/backup-recipient.asc first"
+  # A job's alarm counts from its marker, so a newly scheduled job has its full interval to
+  # succeed once; an existing marker keeps its last success.
+  local job
+  for job in "${PROD_OPS_JOBS[@]}"; do
+    [[ -e ${PROD_JOB_MARKERS}/${job} ]] || touch "${PROD_JOB_MARKERS}/${job}"
+  done
   systemctl enable --now "${PROD_TIMERS[@]}"
   log "prod timers enabled"
 }

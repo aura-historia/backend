@@ -14,6 +14,7 @@ export const HOST_METRICS = {
   parkedJobs: "ParkedJobs",
   freeDisk: "FreeDiskPercent",
   sinceLastBackup: "SecondsSinceLastBackup",
+  sinceLastJobSuccess: "SecondsSinceLastSuccess",
 } as const;
 
 /**
@@ -100,7 +101,7 @@ export class HostMonitoring extends Construct {
       datapointsToAlarm: 5,
       treatMissingData: cloudwatch.TreatMissingData.BREACHING,
     });
-    alarm("postgres-unreachable", "The worker could not read the queues for 3 minutes: PostgreSQL is down or refuses the runtime role.", {
+    alarm("postgres-unreachable", "PostgreSQL did not answer the worker for 3 minutes: it is down or refuses the runtime role.", {
       metric: metric(HOST_METRICS.postgresReachable, "Maximum", minute),
       threshold: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
@@ -117,8 +118,15 @@ export class HostMonitoring extends Construct {
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       });
     }
-    alarm("parked-jobs", "Jobs or outbox snapshots are in failure custody; see docs/durable-worker-runbook.md before any redrive.", {
-      metric: metric(HOST_METRICS.parkedJobs, "Maximum", fiveMinutes),
+    // Custody is kept until an operator acts, so a level alarm would stay in alarm and stay
+    // silent about every later arrival; this one fires on each increase and clears after it.
+    alarm("parked-jobs", "More jobs or outbox snapshots entered failure custody; see docs/durable-worker-runbook.md before any redrive.", {
+      metric: new cloudwatch.MathExpression({
+        expression: "DIFF(parked)",
+        usingMetrics: { parked: metric(HOST_METRICS.parkedJobs, "Maximum", fiveMinutes) },
+        period: fiveMinutes,
+        label: "Newly parked",
+      }),
       threshold: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       evaluationPeriods: 1,
@@ -147,6 +155,17 @@ export class HostMonitoring extends Construct {
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    // install.sh creates each marker when it schedules the job, so a missing figure means the
+    // worker cannot see the markers, which is as stale as an old one.
+    for (const [job, threshold] of Object.entries(monitoring.maximumJobAgeSeconds)) {
+      alarm(`${job}-stale`, `The scheduled ops job ${job} has not succeeded for at least ${threshold} s; see systemctl --failed and journalctl -u aura-prod-ops@${job}.`, {
+        metric: metric(HOST_METRICS.sinceLastJobSuccess, "Maximum", fiveMinutes, { Job: job }),
+        threshold,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      });
+    }
     // No marker means no recorded backup, which is as stale as an old one.
     alarm("backup-stale", `The last successful database backup is at least ${monitoring.maximumBackupAgeSeconds} s old, or none is recorded.`, {
       metric: metric(HOST_METRICS.sinceLastBackup, "Maximum", fiveMinutes),

@@ -15,7 +15,7 @@ pub struct OutboxStats {
     pub custody: u64,
 }
 
-pub async fn inspect(pool: &PgPool) -> Result<OutboxStats, OutboxError> {
+pub async fn inspect(connection: &mut sqlx::PgConnection) -> Result<OutboxStats, OutboxError> {
     let (pending, oldest_seconds, custody): (i64, Option<f64>, i64) = sqlx::query_as(
         "SELECT \
              (SELECT count(*) FROM delivery_outbox), \
@@ -23,7 +23,7 @@ pub async fn inspect(pool: &PgPool) -> Result<OutboxStats, OutboxError> {
                 FROM delivery_outbox ORDER BY outbox_id LIMIT 1), \
              (SELECT count(*) FROM delivery_outbox_failures)",
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?;
     Ok(OutboxStats {
         pending: u64::try_from(pending).unwrap_or_default(),

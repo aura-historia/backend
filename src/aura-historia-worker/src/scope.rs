@@ -8,7 +8,7 @@ use platform_worker_queue_contract::job_queue::{
 };
 use std::time::Duration;
 
-/// A scope with a consumer in this worker: every CDC worker scope, the ProductListing ingestion
+/// A scope with a consumer in this worker: every routed worker scope, the ProductListing ingestion
 /// command FIFO, and an optional isolated projection generation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConsumedScope {
