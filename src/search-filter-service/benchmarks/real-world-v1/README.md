@@ -45,6 +45,20 @@ images and can filter cases by intent or result. Text-only cases show a local
 photograph for human review, but that photograph is not submitted to the matcher.
 To regenerate a scored review, pass `review --report /path/to/report.json`.
 
+## Live run
+
+`run.py live --allow-production` measures the deployed matcher. Run it as an operator on
+the prod host, from the checkout of the deployed release, with root access for
+`host/prod/compose.sh` (directly or through passwordless `sudo`) and an AWS CLI that can
+write the temporary images. It needs an admin bearer file and a state directory, both
+outside the repository, and an empty active catalogue. It reads the matcher settings from
+the rendered Compose configuration and refuses a classifier model other than the
+manifest's. It runs one bounded matcher exactly like the scheduled job,
+`compose.sh run --rm --no-deps -T ops periodic-match`, with a short projection lag and run
+budget, and reads its decision events from the run's output. Do not start it while the
+scheduled matching run is active. A failed run is cleaned up with `run.py cleanup` and the
+same state directory.
+
 ## Reading results
 
 The report keeps persisted matches, scores and requested/sent image counts per

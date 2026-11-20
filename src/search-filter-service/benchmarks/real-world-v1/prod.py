@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -13,6 +14,13 @@ from corpus import ROOT, estimate, local_path, measurement_summary, render_revie
 REGION = "eu-central-1"
 BUCKET = "aura-historia-binary-artifacts-eu-central-1"
 API_URL = "https://api.aura-historia.com"
+# The host's prod Compose wrapper in this checkout, which must be the deployed release's.
+COMPOSE = ROOT.parents[3] / "host" / "prod" / "compose.sh"
+MATCHER_TIMEOUT_SECONDS = 780
+MATCHER_OVERRIDES = {"PERIODIC_MATCH_PROJECTION_LAG_SECONDS": "0",
+                     "PERIODIC_MATCH_MAX_RUN_SECONDS": "600",
+                     "PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY": "2",
+                     "PERIODIC_MATCH_MAX_ATTEMPTS": "1"}
 
 
 class Api:
@@ -48,6 +56,14 @@ def aws(*args):
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
+def as_root(*command, timeout=None):
+    """Runs a host command as root, as compose.sh requires; never echoes its output."""
+    command = [str(part) for part in command]
+    if os.geteuid() != 0:
+        command = ["sudo", "-n", *command]
+    return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+
+
 def save_state(path, state):
     write_json(path / "state.json", state)
 
@@ -60,19 +76,19 @@ def private_workspace(path):
     return path
 
 
-def deployment():
-    schedule = aws("scheduler", "get-schedule", "--name", "search-filter-periodic-match-prod",
-                   "--group-name", "aura-historia-periodic-matcher-prod")
-    arn = schedule["Target"]["EcsParameters"]["TaskDefinitionArn"]
-    definition = aws("ecs", "describe-task-definition", "--task-definition", arn)["taskDefinition"]
-    container = definition["containerDefinitions"][0]
-    env = {x["name"]: x["value"] for x in container["environment"]}
-    assert env["CLASSIFIER_MODEL"] == "clef-flash"
+def deployment(manifest):
+    # The rendered configuration carries secret values; read only the named settings.
+    result = as_root(COMPOSE, "config", "--format", "json")
+    if result.returncode:
+        raise RuntimeError(f"Compose configuration could not be read (exit {result.returncode})")
+    ops = json.loads(result.stdout)["services"]["ops"]
+    env = ops["environment"]
+    if env["CLASSIFIER_MODEL"] != manifest["classifier_model"]:
+        raise RuntimeError("Deployed classifier model differs from the corpus's pinned model")
     assert env["PERIODIC_MATCH_BATCH_CANDIDATES"] == "1"
     assert env["SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS"] == "5000"
-    return schedule, {"task_definition": arn, "image": container["image"],
-                      "revision": env["AURA_HISTORIA_SOURCE_REVISION"],
-                      "model": env["CLASSIFIER_MODEL"], "threshold": 0.5}
+    return {"image": ops["image"], "revision": env["COMMIT_SHA"],
+            "model": env["CLASSIFIER_MODEL"], "threshold": 0.5}
 
 
 def create_source(api, workspace, state):
@@ -163,61 +179,33 @@ def await_projection(api, workspace, state):
     raise RuntimeError("Canonical/search freshness did not converge within four minutes")
 
 
-def start_task(schedule, workspace, state):
-    ecs = schedule["Target"]["EcsParameters"]
-    network = ecs["NetworkConfiguration"]["awsvpcConfiguration"]
-    overrides = {"PERIODIC_MATCH_PROJECTION_LAG_SECONDS": "0",
-                 "PERIODIC_MATCH_MAX_RUN_SECONDS": "600",
-                 "PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY": "2",
-                 "PERIODIC_MATCH_MAX_ATTEMPTS": "1"}
-    request = {"cluster": schedule["Target"]["Arn"], "taskDefinition": ecs["TaskDefinitionArn"],
-               "launchType": "FARGATE", "platformVersion": ecs["PlatformVersion"], "count": 1,
-               "startedBy": "real-world-matcher-corpus",
-               "networkConfiguration": {"awsvpcConfiguration": {
-                   k[0].lower() + k[1:]: v for k, v in network.items()}},
-               "overrides": {"containerOverrides": [{"name": "periodic-matcher",
-                   "environment": [{"name": k, "value": v} for k, v in overrides.items()]}]}}
-    write_json(workspace / "task-request.json", request)
-    result = aws("ecs", "run-task", "--cli-input-json", "file://" + str(workspace / "task-request.json"))
-    assert not result["failures"], "ECS rejected the bounded matcher invocation"
-    state["task_arn"] = result["tasks"][0]["taskArn"]
-    state["cluster"] = request["cluster"]
-    state["overrides"] = overrides
+def run_matcher(workspace, state):
+    """Runs one bounded matcher on the host, as the scheduled job does, and returns its events."""
+    state["container"] = "aura-prod-matcher-corpus-" + state["stamp"]
+    state["overrides"] = MATCHER_OVERRIDES
     save_state(workspace, state)
+    overrides = [arg for k, v in MATCHER_OVERRIDES.items() for arg in ("-e", f"{k}={v}")]
+    try:
+        result = as_root(COMPOSE, "run", "--rm", "--no-deps", "-T", "--name", state["container"],
+                         *overrides, "ops", "periodic-match", timeout=MATCHER_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Matcher did not stop within the bounded observation period") from None
+    state["matcher_stopped"] = True
+    save_state(workspace, state)
+    events = []
+    for line in (result.stdout + result.stderr).splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    return {"exit_code": result.returncode}, events
 
 
-def await_task(workspace, state):
-    deadline = time.monotonic() + 780
-    while time.monotonic() < deadline:
-        task = aws("ecs", "describe-tasks", "--cluster", state["cluster"],
-                   "--tasks", state["task_arn"])["tasks"][0]
-        if task["lastStatus"] == "STOPPED":
-            state["task_stopped"] = True
-            save_state(workspace, state)
-            return {"status": task["lastStatus"], "exit_code": task["containers"][0].get("exitCode"),
-                    "image_digest": task["containers"][0].get("imageDigest")}
-        time.sleep(10)
-    raise RuntimeError("Matcher did not stop within the bounded observation period")
-
-
-def read_events(state):
-    stream = "periodic-matcher/periodic-matcher/" + state["task_arn"].rsplit("/", 1)[1]
-    events, token = [], None
-    for _ in range(30):
-        args = ["logs", "get-log-events", "--log-group-name", "/aura-historia/prod/periodic-matcher",
-                "--log-stream-name", stream, "--start-from-head"]
-        if token:
-            args.extend(["--next-token", token])
-        result = aws(*args)
-        for event in result["events"]:
-            try:
-                events.append(json.loads(event["message"]))
-            except json.JSONDecodeError:
-                pass
-        if result["nextForwardToken"] == token:
-            break
-        token = result["nextForwardToken"]
-    return events
+def stop_matcher(state):
+    result = as_root("docker", "stop", "--time", "60", state["container"], timeout=120)
+    if result.returncode and "No such container" not in result.stderr:
+        raise RuntimeError(f"Matcher container could not be stopped (exit {result.returncode})")
+    state["matcher_stopped"] = True
 
 
 def find_listing_id(value):
@@ -231,8 +219,7 @@ def find_listing_id(value):
     return None
 
 
-def collect_report(api, manifest, state, deployed, task):
-    events = read_events(state)
+def collect_report(api, manifest, state, deployed, task, events):
     fields = [e.get("fields", {}) for e in events]
     decisions = {f["correlationId"].split(":")[3]: f for f in fields
                  if f.get("eventType") == "SAVED_SEARCH_MATCH_DECISION"}
@@ -264,7 +251,7 @@ def collect_report(api, manifest, state, deployed, task):
             "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "fixture_source_id": state["source_id"],
             "human_reviewed": False, "scope": manifest["scope"], "deployment": deployed,
-            "task": {**task, "arn": state["task_arn"], "overrides": state["overrides"]},
+            "task": {**task, "container": state["container"], "overrides": state["overrides"]},
             "summary": summaries[-1] if summaries else None, "cases": rows,
             **measurement_summary(manifest, rows),
             "usage": {"provider_calls": len(costs), "input_tokens": tokens,
@@ -283,10 +270,8 @@ def cleanup(api, workspace, state):
             errors.append(label)
             return None
 
-    if state.get("task_arn") and not state.get("task_stopped"):
-        attempt("stop matcher", lambda: aws("ecs", "stop-task", "--cluster", state["cluster"],
-                                           "--task", state["task_arn"], "--reason", "Corpus cleanup"))
-        attempt("await stopped matcher", lambda: await_task(workspace, state))
+    if state.get("container") and not state.get("matcher_stopped"):
+        attempt("stop matcher", lambda: stop_matcher(state))
     for fid in state["filters"].values():
         attempt("delete filter " + fid, lambda fid=fid: api.call(
             "DELETE", "/v1/me/search-filters/" + fid, expected=(204, 404)))
@@ -327,7 +312,7 @@ def cleanup(api, workspace, state):
 def live(manifest, caller_token, state_dir, output):
     budget = estimate(manifest)
     assert budget["estimated_neuron_bound"] <= manifest["max_estimated_neurons"]
-    schedule, deployed = deployment()
+    deployed = deployment(manifest)
     workspace = private_workspace(state_dir)
     api = Api(caller_token)
     account = api.call("GET", "/v1/me/account")
@@ -336,7 +321,8 @@ def live(manifest, caller_token, state_dir, output):
     if catalogue["items"]:
         raise RuntimeError("This fixture driver requires an empty active catalogue to bound production exposure")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
-    state = {"name": "EPHEMERAL real-world matcher " + stamp, "user_id": account["userId"],
+    state = {"name": "EPHEMERAL real-world matcher " + stamp, "stamp": stamp.lower(),
+             "user_id": account["userId"],
              "original_tier": account["tier"], "prefix": "verification/matcher-corpus/" + stamp,
              "objects": [], "filters": {}}
     save_state(workspace, state)
@@ -350,10 +336,9 @@ def live(manifest, caller_token, state_dir, output):
         create_filters(api, manifest, workspace, state)
         print("Waiting for canonical/search freshness convergence", flush=True)
         await_projection(api, workspace, state)
-        start_task(schedule, workspace, state)
-        print("Running deployed matcher: " + state["task_arn"], flush=True)
-        task = await_task(workspace, state)
-        report = collect_report(api, manifest, state, deployed, task)
+        print("Running deployed matcher on the host", flush=True)
+        task, events = run_matcher(workspace, state)
+        report = collect_report(api, manifest, state, deployed, task, events)
         write_json(output, report)
         if task["exit_code"] != 0:
             raise RuntimeError("Matcher exited incompletely; unresolved cases are retained in the report")
