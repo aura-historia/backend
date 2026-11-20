@@ -23,35 +23,38 @@ pub struct ManagedEnvironment {
     pub(crate) directory: Option<PathBuf>,
 }
 
+/// The services one supervisor starts. Floci emulates only the AWS clients that remain (S3 and
+/// SES), so only profiles whose tests use those clients start it.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum Profile {
+    /// PostgreSQL.
     Postgres,
+    /// Floci.
     Aws,
+    /// OpenSearch.
     Opensearch,
+    /// PostgreSQL and OpenSearch.
     Api,
+    /// PostgreSQL, OpenSearch and Floci.
+    All,
 }
 
 impl Profile {
     pub(crate) fn postgres(self) -> bool {
-        matches!(self, Self::Postgres | Self::Api)
+        matches!(self, Self::Postgres | Self::Api | Self::All)
     }
     pub(crate) fn aws(self) -> bool {
-        !matches!(self, Self::Postgres)
+        matches!(self, Self::Aws | Self::All)
     }
     pub(crate) fn opensearch(self) -> bool {
-        matches!(self, Self::Opensearch | Self::Api)
+        matches!(self, Self::Opensearch | Self::Api | Self::All)
     }
     pub(crate) fn services(self) -> Vec<String> {
         if !self.aws() {
             return vec![];
         }
-        let mut services = vec!["eventbridge", "s3", "sesv2", "sqs"];
-        if self.opensearch() {
-            services.push("opensearch");
-        }
-        services.sort_unstable();
-        services.into_iter().map(str::to_owned).collect()
+        ["s3", "sesv2"].map(str::to_owned).to_vec()
     }
 }
 
@@ -244,13 +247,13 @@ mod tests {
     fn aws() -> serde_json::Value {
         serde_json::json!({"schema_version":1,"run_id":"0123456789abcdef0123456789abcdef",
             "profile":"AWS","slots":4,"postgres":null,"aws_endpoint":"http://127.0.0.1:4567",
-            "opensearch_endpoint":null,"aws_services":["eventbridge","s3","sesv2","sqs"]})
+            "opensearch_endpoint":null,"aws_services":["s3","sesv2"]})
     }
     #[test]
     fn should_validate_versioned_topology_without_inheriting_implicit_services() {
         let value = ManagedEnvironment::from_json(&serde_json::to_vec(&aws()).unwrap()).unwrap();
         assert_eq!(4, value.slots());
-        value.assert_aws_topology(&["sqs"], &[]);
+        value.assert_aws_topology(&["sesv2"], &[]);
         assert!(
             std::panic::catch_unwind(|| value.assert_aws_topology(&["opensearch"], &[])).is_err()
         );

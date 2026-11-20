@@ -1,0 +1,10 @@
+[Unit]
+Description=Aura Historia pipeline tier: worker and ops jobs
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/README.md
+
+[Slice]
+CPUWeight=200
+IOWeight=200
+
+[Install]
+WantedBy=multi-user.target

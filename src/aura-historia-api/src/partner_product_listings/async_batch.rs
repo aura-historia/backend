@@ -282,7 +282,7 @@ mod tests {
             (
                 Outcome::Rejected {
                     reason: ProductListingIngestionRejectionReason::Publisher {
-                        code: "SQS_SENDER_FAILURE".into(),
+                        code: "QUEUE_REFUSED".into(),
                     },
                     retryable: false,
                 },
@@ -293,7 +293,7 @@ mod tests {
             (
                 Outcome::Rejected {
                     reason: ProductListingIngestionRejectionReason::Publisher {
-                        code: "SQS_RETRYABLE_FAILURE".into(),
+                        code: "QUEUE_RETRYABLE_FAILURE".into(),
                     },
                     retryable: true,
                 },

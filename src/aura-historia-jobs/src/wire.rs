@@ -1,4 +1,4 @@
-//! Versioned SQS boundary. Additive unknown envelope/payload fields are deliberately ignored.
+//! Versioned job payload boundary. Additive unknown envelope/payload fields are deliberately ignored.
 //! Required fields, discriminators, IDs and keys remain strict; CDC event payloads are separate.
 use crate::{
     WorkerQueueType, WorkerScope,

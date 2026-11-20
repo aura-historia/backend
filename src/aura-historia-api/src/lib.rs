@@ -9,7 +9,6 @@ pub(crate) mod content_notices;
 pub mod error;
 mod geographic_search;
 pub(crate) mod keyset_cursor;
-pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
 pub mod notifications;
@@ -23,6 +22,10 @@ pub(crate) mod patch_value;
 mod product_listing_management;
 pub mod product_listings;
 pub(crate) mod public_overview;
+mod rate_limit;
+pub use platform_process::{InvalidRateLimit, RateLimit};
+pub mod consent_evidence;
+pub mod internal;
 mod readiness;
 pub mod search_filters;
 pub mod shipping;
@@ -44,11 +47,12 @@ use crate::auth::{
 use crate::readiness::RuntimeReadiness;
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
-    ContentNoticesState, ListingSourcesState, LoopsWebhooksState, NewsletterState,
-    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
-    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
-    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, UsersState,
-    WatchlistState, WebhooksState,
+    CognitoPostConfirmationState, CognitoPreSignUpState, ContentNoticesState, ListingSourcesState,
+    LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState, PartiesState,
+    PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
+    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, PublicOverviewState,
+    SearchFiltersState, ShopifyWebhooksState, StripeWebhooksState, UsersState, WatchlistState,
+    WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -82,7 +86,10 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use billing_stripe::{StripeBillingClient, StripeBillingConfig};
+use billing_stripe::{
+    StripeBillingClient, StripeBillingConfig, StripeSubscriptionReader,
+    StripeSubscriptionWebhookVerifier,
+};
 use content_notice_postgres::{
     SqlxContentNoticeRepositoryFactory, SqlxContentNoticeSubmissionHistoryFactory,
     SqlxContentNoticeTargetReaderFactory,
@@ -119,11 +126,15 @@ use oauth_service::use_cases::{
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
+use product_listing_service::use_cases::commands::process_shopify_product_listing::ProcessShopifyProductListingHandler;
 use product_listing_service::use_cases::{
     commands::admin_product_listings::AdminProductListingMutationHandler,
     queries::admin_product_listings::{
         GetAdminProductListingHandler, SearchAdminProductListingsHandler,
     },
+};
+use product_listing_shopify::{
+    ShopifyHmacWebhookVerifier, ShopifyProductPayloadDecoder, ShopifyWebhookSecrets,
 };
 use woocommerce_service::WoocommerceWebhookIntake;
 
@@ -183,6 +194,7 @@ use product_listing_service::use_cases::{
     AuthorizeProductListingRawCaptureHandler, ProductListingSearchReadExecutionPolicy,
 };
 
+use cognito_trigger_signing::signature::{SignatureVerifier, SigningKey};
 use geo_amazon_location::{AmazonLocationAddressSuggester, AmazonLocationConfig};
 use geo_postgres::SqlxSuggestionUsageRepositoryFactory;
 use geo_service::suggestions::SuggestAddressesHandler;
@@ -200,14 +212,14 @@ use user_loops::{
 use user_postgres::{
     SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxAccessTokenRepositoryFactory, SqlxAdminAccessTokenListReaderFactory,
-    SqlxCognitoUserIdentityReader, SqlxLoopsWebhookReceiptRepository,
+    SqlxCognitoUserIdentityReader, SqlxFederatedAccountReader, SqlxLoopsWebhookReceiptRepository,
     SqlxMarketingConsentIntentRepository, SqlxNewsletterConfirmationChallengesRepository,
-    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
-    SqlxUserAuthenticationReader, SqlxUserCognitoIdentityRegistryFactory,
-    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
+    SqlxNewsletterProfileReader, SqlxStripeSubscriptionEventStoreFactory,
+    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserAuthenticationReader,
+    SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory,
+    SqlxUserTierEntitlementsFactory,
 };
 use user_service::ports::NewsletterWebhookMailingListId;
-use user_service::use_cases::ApplyLoopsPreferenceEventHandler;
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
@@ -224,6 +236,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::list_admin_access_tokens::ListAdminAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
+use user_service::use_cases::{ApplyLoopsPreferenceEventHandler, ApplyStripeSubscriptionHandler};
 use user_service::use_cases::{
     AuthenticateAccessTokenHandler, AuthenticateUserHandler, ConfirmNewsletterSubscriptionHandler,
     RequestNewsletterSubscriptionHandler, ResolveCognitoUserHandler, RevokeUserSessionsHandler,
@@ -231,6 +244,12 @@ use user_service::use_cases::{
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
+pub const API_RATE_LIMIT_PER_SECOND_ENV: &str = "AURA_HISTORIA_API_RATE_LIMIT_PER_SECOND";
+pub const API_RATE_LIMIT_BURST_ENV: &str = "AURA_HISTORIA_API_RATE_LIMIT_BURST";
+pub const ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND_ENV: &str =
+    "AURA_HISTORIA_API_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND";
+pub const ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST_ENV: &str =
+    "AURA_HISTORIA_API_ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
 pub const COGNITO_USER_POOL_ID_ENV: &str = "AURA_HISTORIA_COGNITO_USER_POOL_ID";
@@ -242,10 +261,17 @@ pub const STRIPE_PRO_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_PRO_MONTHLY_PRICE_ID";
 pub const STRIPE_PRO_YEARLY_PRICE_ID_ENV: &str = "STRIPE_PRO_YEARLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_MONTHLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PRICE_ID";
+pub const STRIPE_PRO_PRODUCT_ID_ENV: &str = "STRIPE_PRO_PRODUCT_ID";
+pub const STRIPE_ULTIMATE_PRODUCT_ID_ENV: &str = "STRIPE_ULTIMATE_PRODUCT_ID";
+pub const STRIPE_WEBHOOK_SIGNING_SECRET_ENV: &str = "STRIPE_WEBHOOK_SIGNING_SECRET";
 pub const LOOPS_API_KEY_ENV: &str = "LOOPS_API_KEY";
 pub const LOOPS_NEWSLETTER_LIST_ID_ENV: &str = "LOOPS_NEWSLETTER_LIST_ID";
 pub const LOOPS_API_BASE_URL_ENV: &str = "LOOPS_API_BASE_URL";
 pub const LOOPS_WEBHOOK_SIGNING_SECRET_ENV: &str = "LOOPS_WEBHOOK_SIGNING_SECRET";
+pub const COGNITO_TRIGGER_SIGNING_KEY_ENV: &str = "COGNITO_TRIGGER_SIGNING_KEY";
+pub const COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV: &str = "COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY";
+pub const SHOPIFY_APP_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_CLIENT_SECRET";
+pub const SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV: &str = "SHOPIFY_APP_PREVIOUS_CLIENT_SECRET";
 pub const NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV: &str =
     "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN";
 pub const NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV: &str = "NEWSLETTER_CONFIRMATION_EMAIL_FROM";
@@ -253,7 +279,7 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO";
 pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
-pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const MAIL_TEMPLATE_DIR_ENV: &str = "MAIL_TEMPLATE_DIR";
 pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV: &str =
     "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED";
@@ -267,8 +293,6 @@ const MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS: u64 = 24 * 60 * 60;
 const MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS: u64 = 365 * 24 * 60 * 60;
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
-pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
-pub const PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 pub const PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV: &str =
     "PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT";
 pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
@@ -276,13 +300,29 @@ pub const PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS_ENV: &str =
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT: u64 = 4;
 const DEFAULT_PUBLIC_LISTING_SOURCE_READ_REQUEST_TIMEOUT_MS: u64 = 500;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
+// Each API process enforces its own limits. The defaults split API Gateway's production stage
+// throttle (2,000 requests per second, burst 5,000) and its address-suggestion route throttle
+// (25 per second, burst 50) between the two API replicas.
+const DEFAULT_API_RATE_LIMIT_PER_SECOND: f64 = 1_000.0;
+const DEFAULT_API_RATE_LIMIT_BURST: f64 = 2_500.0;
+const DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND: f64 = 12.5;
+const DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST: f64 = 25.0;
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_LOOPS_API_BASE_URL: &str = "https://app.loops.so/api";
 
+/// The Stripe products whose entitled subscriptions grant each paid tier.
+#[derive(Clone, PartialEq, Eq)]
+struct StripeSubscriptionProducts {
+    pro: String,
+    ultimate: String,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
+    rate_limit: RateLimit,
+    address_suggestions_rate_limit: RateLimit,
     cognito_jwt: CognitoJwtConfig,
     oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
     oauth_metadata_document_client_policy: MetadataDocumentClientPolicy,
@@ -292,9 +332,13 @@ pub struct ApiConfig {
     saved_search_previews: SavedSearchPreviewConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
+    stripe_subscription_products: StripeSubscriptionProducts,
+    stripe_webhook_signing_secret: String,
     loops: LoopsNewsletterConfig,
     newsletter_confirmation_email: NewsletterConfirmationEmailConfig,
     loops_webhook_signing_secret: String,
+    shopify_webhook_secrets: ShopifyWebhookSecrets,
+    cognito_trigger_signature: SignatureVerifier,
     public_listing_source_read_max_in_flight: usize,
     public_listing_source_read_request_timeout: Duration,
 }
@@ -349,6 +393,14 @@ impl ApiConfig {
             ultimate_monthly: required_config(&mut get, STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV)?,
             ultimate_yearly: required_config(&mut get, STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV)?,
         };
+        let stripe_subscription_products = StripeSubscriptionProducts {
+            pro: required_config(&mut get, STRIPE_PRO_PRODUCT_ID_ENV)?,
+            ultimate: required_config(&mut get, STRIPE_ULTIMATE_PRODUCT_ID_ENV)?,
+        };
+        let stripe_webhook_signing_secret =
+            required_config(&mut get, STRIPE_WEBHOOK_SIGNING_SECRET_ENV)?;
+        StripeSubscriptionWebhookVerifier::new(&stripe_webhook_signing_secret)
+            .map_err(|_| ApiConfigError::InvalidStripeWebhookSigningSecret)?;
 
         let product_listings = ProductListingConfig::from_getter(&mut get)?;
         let saved_search_previews = SavedSearchPreviewConfig::from_getter(&mut get)
@@ -375,7 +427,7 @@ impl ApiConfig {
         )
         .map_err(ApiConfigError::LoopsConfig)?;
         let newsletter_confirmation_email = NewsletterConfirmationEmailConfig::new(
-            required_config(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+            required_config(&mut get, MAIL_TEMPLATE_DIR_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV)?,
             required_config(&mut get, NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO_ENV)?,
             required_config(
@@ -383,7 +435,6 @@ impl ApiConfig {
                 NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV,
             )?,
             required_config(&mut get, STAGE_ENV)?,
-            required_config(&mut get, MAIL_TEMPLATE_PREFIX_ENV)?,
             &required_config(&mut get, NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV)?,
         )
         .map_err(ApiConfigError::NewsletterConfirmationEmailConfig)?;
@@ -393,9 +444,27 @@ impl ApiConfig {
             &loops_webhook_signing_secret,
         )
         .map_err(|_| ApiConfigError::InvalidLoopsWebhookSigningSecret)?;
+        let shopify_webhook_secrets = shopify_webhook_secrets(&mut get)?;
+        let cognito_trigger_signature = cognito_trigger_signature(&mut get)?;
+        let rate_limit = rate_limit_config(
+            &mut get,
+            API_RATE_LIMIT_PER_SECOND_ENV,
+            DEFAULT_API_RATE_LIMIT_PER_SECOND,
+            API_RATE_LIMIT_BURST_ENV,
+            DEFAULT_API_RATE_LIMIT_BURST,
+        )?;
+        let address_suggestions_rate_limit = rate_limit_config(
+            &mut get,
+            ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND_ENV,
+            DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_PER_SECOND,
+            ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST_ENV,
+            DEFAULT_ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST,
+        )?;
 
         Ok(Self {
             bind_addr,
+            rate_limit,
+            address_suggestions_rate_limit,
             cognito_jwt: CognitoJwtConfig::new(issuer, app_client_ids),
             oauth_resource_policy,
             oauth_metadata_document_client_policy,
@@ -405,9 +474,13 @@ impl ApiConfig {
             saved_search_previews,
             stripe_billing,
             billing_prices,
+            stripe_subscription_products,
+            stripe_webhook_signing_secret,
             loops,
             newsletter_confirmation_email,
             loops_webhook_signing_secret,
+            shopify_webhook_secrets,
+            cognito_trigger_signature,
             public_listing_source_read_max_in_flight,
             public_listing_source_read_request_timeout,
         })
@@ -458,6 +531,14 @@ impl ApiConfig {
         &self.billing_prices
     }
 
+    fn stripe_subscription_products(&self) -> &StripeSubscriptionProducts {
+        &self.stripe_subscription_products
+    }
+
+    fn stripe_webhook_signing_secret(&self) -> &str {
+        &self.stripe_webhook_signing_secret
+    }
+
     fn loops(&self) -> &LoopsNewsletterConfig {
         &self.loops
     }
@@ -468,6 +549,10 @@ impl ApiConfig {
 
     fn loops_webhook_signing_secret(&self) -> &str {
         &self.loops_webhook_signing_secret
+    }
+
+    fn shopify_webhook_secrets(&self) -> &ShopifyWebhookSecrets {
+        &self.shopify_webhook_secrets
     }
 
     /// Shared, non-queuing public ListingSource read budget for this API process.
@@ -625,6 +710,8 @@ pub enum ApiConfigError {
     },
     #[error("missing required configuration {name}")]
     MissingRequiredConfig { name: &'static str },
+    #[error("invalid rate limit configuration {name}")]
+    InvalidRateLimit { name: &'static str },
     #[error("invalid URL configuration {name}")]
     InvalidUrlConfig {
         name: &'static str,
@@ -656,13 +743,100 @@ pub enum ApiConfigError {
     ),
     #[error("invalid Loops webhook signing-secret configuration")]
     InvalidLoopsWebhookSigningSecret,
+    #[error("invalid Shopify app client-secret configuration")]
+    InvalidShopifyAppClientSecret,
+    #[error("{name} must hold at least 32 bytes")]
+    WeakCognitoTriggerSigningKey { name: &'static str },
+    #[error("invalid Stripe webhook signing-secret configuration")]
+    InvalidStripeWebhookSigningSecret,
+}
+
+/// The current client secret is required; the previous one is accepted next to it only while
+/// the app's secret rotates.
+fn shopify_webhook_secrets<F>(get: &mut F) -> Result<ShopifyWebhookSecrets, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let current = required_config(get, SHOPIFY_APP_CLIENT_SECRET_ENV)?;
+    ShopifyWebhookSecrets::new(current, get(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV))
+        .map_err(|_| ApiConfigError::InvalidShopifyAppClientSecret)
+}
+
+/// The Cognito triggers' current signing key is required; the previous one is accepted next to it
+/// only while the key rotates.
+fn cognito_trigger_signature<F>(get: &mut F) -> Result<SignatureVerifier, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let key = |name: &'static str, value: String| {
+        SigningKey::new(value).map_err(|_| ApiConfigError::WeakCognitoTriggerSigningKey { name })
+    };
+    let current = key(
+        COGNITO_TRIGGER_SIGNING_KEY_ENV,
+        required_config(get, COGNITO_TRIGGER_SIGNING_KEY_ENV)?,
+    )?;
+    let previous = get(COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV)
+        .map(|value| key(COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV, value))
+        .transpose()?;
+    Ok(SignatureVerifier::new(current, previous))
+}
+
+fn rate_limit_config<F>(
+    get: &mut F,
+    rate_name: &'static str,
+    default_rate: f64,
+    burst_name: &'static str,
+    default_burst: f64,
+) -> Result<RateLimit, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let mut number = |name: &'static str, default: f64| match get(name) {
+        Some(value) => value
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| ApiConfigError::InvalidRateLimit { name }),
+        None => Ok(default),
+    };
+    let rate = number(rate_name, default_rate)?;
+    let burst = number(burst_name, default_burst)?;
+    RateLimit::new(rate, burst).map_err(|_| ApiConfigError::InvalidRateLimit { name: rate_name })
 }
 
 pub fn app(state: AppState) -> Router {
-    app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT)
+    app_with_request_timeout(state, crate::transport::REQUEST_TIMEOUT)
 }
 
-fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
+/// The router whose requests end within `request_timeout`; the server uses
+/// [`transport::REQUEST_TIMEOUT`]. Asynchronous admission publishes until shortly before it.
+pub fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Router {
+    compose_app(state, request_timeout, None)
+}
+
+/// The server's router: [`app_with_request_timeout`] with the process's request-rate limits
+/// enforced inside the transport middleware, so a `429` carries CORS, request and correlation
+/// headers and its trace span like any other response.
+pub fn app_with_rate_limits(
+    state: AppState,
+    request_timeout: Duration,
+    rate_limit: RateLimit,
+    address_suggestions_rate_limit: RateLimit,
+) -> Router {
+    compose_app(
+        state,
+        request_timeout,
+        Some(rate_limit::RateLimits::new(
+            rate_limit,
+            address_suggestions_rate_limit,
+        )),
+    )
+}
+
+fn compose_app(
+    state: AppState,
+    request_timeout: Duration,
+    rate_limits: Option<rate_limit::RateLimits>,
+) -> Router {
     let health_routes = Router::new()
         .route("/v1/health", get(readiness::health))
         .route("/v1/ready", get(readiness::ready))
@@ -707,6 +881,21 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(webhooks) = state.shopify_webhooks {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/v1/webhooks/shopify",
+                    post(webhooks::post_shopify::post_shopify).layer(
+                        tower_http::limit::RequestBodyLimitLayer::new(
+                            crate::transport::MAX_SHOPIFY_WEBHOOK_BODY_BYTES,
+                        ),
+                    ),
+                )
+                .with_state(webhooks),
+        );
+    }
+
     if let Some(webhooks) = state.loops_webhooks {
         routes = routes.merge(
             Router::new()
@@ -715,6 +904,29 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     post(webhooks::post_loops::post_loops).layer(
                         tower_http::limit::RequestBodyLimitLayer::new(
                             crate::transport::MAX_LOOPS_WEBHOOK_BODY_BYTES,
+                        ),
+                    ),
+                )
+                .with_state(webhooks),
+        );
+    }
+
+    if let Some(post_confirmation) = state.cognito_post_confirmation {
+        routes = routes.merge(internal::post_confirmation_routes(post_confirmation));
+    }
+
+    if let Some(pre_sign_up) = state.cognito_pre_sign_up {
+        routes = routes.merge(internal::pre_sign_up_routes(pre_sign_up));
+    }
+
+    if let Some(webhooks) = state.stripe_webhooks {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/v1/webhooks/stripe",
+                    post(webhooks::post_stripe::post_stripe).layer(
+                        tower_http::limit::RequestBodyLimitLayer::new(
+                            crate::transport::MAX_STRIPE_WEBHOOK_BODY_BYTES,
                         ),
                     ),
                 )
@@ -1198,6 +1410,12 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     if let Some(discovery) = state.agent_discovery {
         routes = routes.merge(agent_discovery_routes(discovery));
     }
+    if let Some(limits) = rate_limits {
+        routes = routes.layer(axum::middleware::from_fn_with_state(
+            limits,
+            rate_limit::enforce,
+        ));
+    }
 
     with_transport_middleware(routes, request_timeout)
 }
@@ -1281,25 +1499,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     app_state_from_config(&config).await
 }
 
-pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
-    let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
-    let runtime = Runtime::from_env().await?;
-    lambda_app_from_config_and_runtime(&config, &runtime).await
-}
-
-/// Composes the complete Lambda router once for a warm execution environment.
-pub async fn lambda_app_from_config_and_runtime(
-    config: &ApiConfig,
-    runtime: &Runtime,
-) -> Result<Router, ApiStateError> {
-    log_product_listing_search_cache_config(config);
-    let state = app_state_from_config_and_runtime(config, runtime).await?;
-    Ok(app_with_request_timeout(
-        state,
-        crate::transport::LAMBDA_REQUEST_TIMEOUT,
-    ))
-}
-
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
     let runtime = Runtime::from_env().await?;
     app_state_from_config_and_runtime(config, &runtime).await
@@ -1327,10 +1526,7 @@ async fn app_state_from_config_and_runtime(
     let public_listing_sources = runtime.public_listing_sources();
     let aws_client_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let ingestion_dependencies =
-        aura_historia_runtime::ProductListingIngestionDependencies::from_sqs(
-            aws_sdk_sqs::Client::new(&aws_client_config),
-            ingestion_queue_url_from_env()?,
-        );
+        aura_historia_runtime::ProductListingIngestionDependencies::from_postgres(pool.clone());
     let cognito_session_revoker = CognitoUserSessionRevoker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&aws_client_config),
         config.cognito_user_pool_id(),
@@ -1424,6 +1620,26 @@ async fn app_state_from_config_and_runtime(
     let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
         .map_err(ApiStateError::StripeBilling)?;
     let billing_prices = config.billing_prices().clone();
+    let stripe_webhooks = StripeWebhooksState::new(
+        Arc::new(
+            StripeSubscriptionWebhookVerifier::new(config.stripe_webhook_signing_secret())
+                .map_err(|_| {
+                    ApiStateError::Config(ApiConfigError::InvalidStripeWebhookSigningSecret)
+                })?,
+        ),
+        Arc::new(ApplyStripeSubscriptionHandler::new(
+            unit_of_work.clone(),
+            SqlxUserRepositoryFactory::new(),
+            SqlxUserTierEntitlementsFactory::new(),
+            SqlxStripeSubscriptionEventStoreFactory,
+            StripeSubscriptionReader::new(
+                config.stripe_billing().api_key.clone(),
+                config.stripe_subscription_products().pro.clone(),
+                config.stripe_subscription_products().ultimate.clone(),
+            )
+            .map_err(ApiStateError::StripeSubscriptionReader)?,
+        )),
+    );
     let admin_get_user = AdminGetUserHandler::new(
         unit_of_work.clone(),
         SqlxUserAccountReaderFactory::new(),
@@ -1492,10 +1708,10 @@ async fn app_state_from_config_and_runtime(
     );
     let newsletter_challenges = SqlxNewsletterConfirmationChallengesRepository::new();
     let newsletter_email_sender = SesNewsletterConfirmationEmailSender::new(
-        aws_sdk_s3::Client::new(&aws_client_config),
         aws_sdk_sesv2::Client::new(&aws_client_config),
         config.newsletter_confirmation_email().clone(),
-    );
+    )
+    .map_err(ApiStateError::NewsletterConfirmationTemplates)?;
     let request_newsletter_subscription = RequestNewsletterSubscriptionHandler::new(
         unit_of_work.clone(),
         newsletter_challenges,
@@ -1646,6 +1862,11 @@ async fn app_state_from_config_and_runtime(
         SqlxListingSourceReaders::new(pool.clone()),
         Arc::clone(&submit_product_listing_ingestion),
         authorize_woocommerce_product,
+    );
+    let process_shopify_product = ProcessShopifyProductListingHandler::new(
+        SqlxListingSourceReaders::new(pool.clone()),
+        Arc::clone(&partner_ingestion.submit_internal),
+        ShopifyProductPayloadDecoder,
     );
     let access_token_use_case =
         AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));
@@ -2044,6 +2265,11 @@ async fn app_state_from_config_and_runtime(
     )
     .with_dissolve(Arc::new(dissolve_partnership));
 
+    let resolve_federated_account = Arc::new(
+        user_service::use_cases::ResolveFederatedAccountHandler::new(
+            SqlxFederatedAccountReader::new(pool.clone()),
+        ),
+    );
     let readiness = Arc::new(RuntimeReadiness::new(pool, opensearch_client.clone()));
 
     let address_suggestions_state = state::AddressSuggestionsState {
@@ -2129,11 +2355,33 @@ async fn app_state_from_config_and_runtime(
             Arc::new(intake_woocommerce_product),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
+        .with_shopify_webhooks(ShopifyWebhooksState::new(
+            Arc::new(ShopifyHmacWebhookVerifier::new(
+                config.shopify_webhook_secrets().clone(),
+            )),
+            Arc::new(process_shopify_product),
+        ))
+        .with_cognito_post_confirmation(CognitoPostConfirmationState::new(
+            config.cognito_trigger_signature.clone(),
+            config.cognito_jwt().issuer.clone(),
+            Arc::new(user_service::use_cases::RegisterCognitoUserHandler::new(
+                unit_of_work.clone(),
+                SqlxUserRepositoryFactory::new(),
+                SqlxUserCognitoIdentityRegistryFactory::new(),
+                SqlxMarketingConsentIntentRepository::new(),
+            )),
+        ))
+        .with_cognito_pre_sign_up(CognitoPreSignUpState::new(
+            config.cognito_trigger_signature.clone(),
+            config.cognito_jwt().issuer.clone(),
+            resolve_federated_account,
+        ))
         .with_loops_webhooks(LoopsWebhooksState::new(
             config.loops_webhook_signing_secret().to_owned(),
             Arc::new(LoopsNewsletterWebhookVerifier),
             Arc::new(apply_loops_preference_event),
         ))
+        .with_stripe_webhooks(stripe_webhooks)
         .with_oauth(oauth_state)
         .with_agent_discovery(agent_discovery::AgentDiscoveryState::new(
             config.oauth_resource_policy(),
@@ -2147,31 +2395,6 @@ async fn app_state_from_config_and_runtime(
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_readiness(readiness))
-}
-
-fn ingestion_queue_url_from_env() -> Result<String, ApiStateError> {
-    let url = std::env::var(PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV).map_err(|_| {
-        ApiStateError::MissingEnv {
-            name: PRODUCT_LISTING_INGESTION_QUEUE_URL_ENV,
-        }
-    })?;
-    if !valid_ingestion_queue_url(&url) {
-        return Err(ApiStateError::InvalidIngestionQueueUrl);
-    }
-    Ok(url)
-}
-
-fn valid_ingestion_queue_url(value: &str) -> bool {
-    url::Url::parse(value).is_ok_and(|url| {
-        matches!(url.scheme(), "http" | "https")
-            && url.host_str().is_some()
-            && url.query().is_none()
-            && url.fragment().is_none()
-            && url
-                .path_segments()
-                .and_then(|mut segments| segments.next_back())
-                .is_some_and(|name| !name.is_empty() && name.ends_with(".fifo"))
-    })
 }
 
 fn compose_authenticator<P, R, A, U>(
@@ -2202,14 +2425,16 @@ where
 pub enum ApiStateError {
     #[error("failed to initialize Stripe billing client")]
     StripeBilling(#[source] billing_stripe::StripeBillingClientInitError),
+    #[error("failed to initialize Stripe subscription reader")]
+    StripeSubscriptionReader(
+        #[source] user_service::ports::stripe_subscription_sync::StripeSubscriptionSyncError,
+    ),
     #[error(transparent)]
     Runtime(#[from] aura_historia_runtime::RuntimeError),
     #[error(transparent)]
     Config(#[from] ApiConfigError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
-    #[error("PRODUCT_LISTING_INGESTION_QUEUE_URL must be an HTTP(S) FIFO queue URL")]
-    InvalidIngestionQueueUrl,
     #[error(transparent)]
     ListingProviders(#[from] aura_historia_runtime::ProductListingProviderError),
     #[error(transparent)]
@@ -2224,6 +2449,8 @@ pub enum ApiStateError {
     LoopsWebhookListConfiguration,
     #[error("failed to configure address suggestions")]
     AddressSuggestions(#[source] application::error::BoxError),
+    #[error("failed to load the newsletter confirmation email templates")]
+    NewsletterConfirmationTemplates(#[source] user_email_aws::NewsletterConfirmationTemplateError),
 }
 
 fn log_product_listing_search_cache_config(config: &ApiConfig) {
@@ -2243,6 +2470,8 @@ fn log_product_listing_search_cache_config(config: &ApiConfig) {
     );
 }
 
+/// Serves until `shutdown` resolves, then stops accepting connections and drains in-flight
+/// requests, each of which ends within [`transport::REQUEST_TIMEOUT`].
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>
 where
     S: Future<Output = ()> + Send + 'static,
@@ -2254,12 +2483,13 @@ where
     let listener = TcpListener::bind(config.bind_addr())
         .await
         .map_err(ApiRunError::Bind)?;
-    serve(
-        app_with_request_timeout(state, crate::transport::NATIVE_REQUEST_TIMEOUT),
-        listener,
-        shutdown,
-    )
-    .await
+    let app = app_with_rate_limits(
+        state,
+        crate::transport::REQUEST_TIMEOUT,
+        config.rate_limit,
+        config.address_suggestions_rate_limit,
+    );
+    serve(app, listener, shutdown).await
 }
 
 pub async fn serve<S>(app: Router, listener: TcpListener, shutdown: S) -> Result<(), ApiRunError>
@@ -2271,7 +2501,9 @@ where
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
         .await
-        .map_err(ApiRunError::Serve)
+        .map_err(ApiRunError::Serve)?;
+    info!("aura-historia-api drained in-flight requests and stopped");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2315,6 +2547,12 @@ mod tests {
                 STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
                 "ultimate-yearly".to_owned(),
             ),
+            (STRIPE_PRO_PRODUCT_ID_ENV, "prod_pro".to_owned()),
+            (STRIPE_ULTIMATE_PRODUCT_ID_ENV, "prod_ultimate".to_owned()),
+            (
+                STRIPE_WEBHOOK_SIGNING_SECRET_ENV,
+                "whsec_test_stripe_webhook".to_owned(),
+            ),
             (LOOPS_API_KEY_ENV, "test-loops-key".to_owned()),
             (
                 LOOPS_NEWSLETTER_LIST_ID_ENV,
@@ -2325,8 +2563,16 @@ mod tests {
                 "whsec_dGVzdC1sb29wcy13ZWJob29r".to_owned(),
             ),
             (
-                S3_BUCKET_NAME_TEMPLATES_ENV,
-                "test-mail-templates".to_owned(),
+                SHOPIFY_APP_CLIENT_SECRET_ENV,
+                "test-shopify-client-secret".to_owned(),
+            ),
+            (
+                COGNITO_TRIGGER_SIGNING_KEY_ENV,
+                "test-cognito-trigger-signing-key-0123".to_owned(),
+            ),
+            (
+                MAIL_TEMPLATE_DIR_ENV,
+                "/usr/share/aura-historia/mail-templates".to_owned(),
             ),
             (
                 NEWSLETTER_CONFIRMATION_EMAIL_FROM_ENV,
@@ -2346,7 +2592,6 @@ mod tests {
             ),
             (STAGE_ENV, "ephemeral".to_owned()),
             (COMMIT_SHA_ENV, "test-commit".to_owned()),
-            (MAIL_TEMPLATE_PREFIX_ENV, "mail/test-commit/".to_owned()),
             (
                 NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN_ENV,
                 "http://127.0.0.1:3000".to_owned(),
@@ -2567,16 +2812,39 @@ mod tests {
             let config = ApiConfig::from_getter(|name| values.get(name).cloned())
                 .unwrap_or_else(|error| panic!("valid API config rejected: {error}"));
             let expected = NewsletterConfirmationEmailConfig::new(
-                "test-mail-templates",
+                "/usr/share/aura-historia/mail-templates",
                 "Aura Historia <newsletter@example.test>",
                 "contact@example.test",
                 value,
                 "ephemeral",
-                "mail/test-commit/",
                 "http://127.0.0.1:3000",
             )
             .unwrap_or_else(|_| panic!("valid newsletter email config rejected"));
             assert!(config.newsletter_confirmation_email == expected);
+        }
+    }
+
+    #[test]
+    fn should_default_rate_limits_to_each_replicas_share_and_reject_invalid_ones() {
+        let config =
+            ApiConfig::from_getter(|name| valid_api_config_values().get(name).cloned()).unwrap();
+        assert_eq!(RateLimit::new(1_000.0, 2_500.0).unwrap(), config.rate_limit);
+        assert_eq!(
+            RateLimit::new(12.5, 25.0).unwrap(),
+            config.address_suggestions_rate_limit
+        );
+
+        for (name, value) in [
+            (API_RATE_LIMIT_PER_SECOND_ENV, "fast"),
+            (API_RATE_LIMIT_PER_SECOND_ENV, "0"),
+            (ADDRESS_SUGGESTIONS_RATE_LIMIT_BURST_ENV, "0.5"),
+        ] {
+            let mut values = valid_api_config_values();
+            values.insert(name, value.to_owned());
+            assert!(matches!(
+                ApiConfig::from_getter(|name| values.get(name).cloned()),
+                Err(ApiConfigError::InvalidRateLimit { .. })
+            ));
         }
     }
 
@@ -2657,6 +2925,110 @@ mod tests {
     }
 
     #[test]
+    fn should_require_shopify_client_secret_and_accept_previous_during_rotation() {
+        let config = |set: &[(&'static str, &str)], unset: &[&'static str]| {
+            let mut all = valid_api_config_values();
+            for name in unset {
+                all.remove(name);
+            }
+            for (name, value) in set {
+                all.insert(name, (*value).to_owned());
+            }
+            ApiConfig::from_getter(|name| all.get(name).cloned())
+        };
+        let secrets = |current: &str, previous: Option<&str>| {
+            ShopifyWebhookSecrets::new(current.to_owned(), previous.map(str::to_owned)).unwrap()
+        };
+
+        assert!(matches!(
+            config(&[(SHOPIFY_APP_CLIENT_SECRET_ENV, "current")], &[]),
+            Ok(config) if *config.shopify_webhook_secrets() == secrets("current", None)
+        ));
+        assert!(matches!(
+            config(
+                &[
+                    (SHOPIFY_APP_CLIENT_SECRET_ENV, "current"),
+                    (SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous"),
+                ],
+                &[],
+            ),
+            Ok(config) if *config.shopify_webhook_secrets() == secrets("current", Some("previous"))
+        ));
+        for (set, unset) in [
+            (vec![], vec![SHOPIFY_APP_CLIENT_SECRET_ENV]),
+            (
+                vec![(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, "previous")],
+                vec![SHOPIFY_APP_CLIENT_SECRET_ENV],
+            ),
+            (vec![(SHOPIFY_APP_CLIENT_SECRET_ENV, " ")], vec![]),
+        ] {
+            assert!(matches!(
+                config(&set, &unset),
+                Err(ApiConfigError::MissingRequiredConfig {
+                    name: SHOPIFY_APP_CLIENT_SECRET_ENV
+                })
+            ));
+        }
+        assert!(matches!(
+            config(&[(SHOPIFY_APP_PREVIOUS_CLIENT_SECRET_ENV, " ")], &[]),
+            Err(ApiConfigError::InvalidShopifyAppClientSecret)
+        ));
+    }
+
+    #[test]
+    fn should_require_a_strong_cognito_trigger_signing_key_without_revealing_it() {
+        let mut missing = valid_api_config_values();
+        missing.remove(COGNITO_TRIGGER_SIGNING_KEY_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| missing.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: COGNITO_TRIGGER_SIGNING_KEY_ENV
+            })
+        ));
+
+        let sentinel = "short-key-sentinel";
+        for name in [
+            COGNITO_TRIGGER_SIGNING_KEY_ENV,
+            COGNITO_TRIGGER_PREVIOUS_SIGNING_KEY_ENV,
+        ] {
+            let mut weak = valid_api_config_values();
+            weak.insert(name, sentinel.to_owned());
+            let Err(error) = ApiConfig::from_getter(|name| weak.get(name).cloned()) else {
+                panic!("weak post-confirmation signing key unexpectedly accepted");
+            };
+            assert!(matches!(
+                error,
+                ApiConfigError::WeakCognitoTriggerSigningKey { name: rejected } if rejected == name
+            ));
+            assert!(!format!("{error} {error:?}").contains(sentinel));
+        }
+    }
+
+    #[test]
+    fn should_require_a_stripe_webhook_signing_secret_without_revealing_it() {
+        let mut missing = valid_api_config_values();
+        missing.remove(STRIPE_WEBHOOK_SIGNING_SECRET_ENV);
+        assert!(matches!(
+            ApiConfig::from_getter(|name| missing.get(name).cloned()),
+            Err(ApiConfigError::MissingRequiredConfig {
+                name: STRIPE_WEBHOOK_SIGNING_SECRET_ENV
+            })
+        ));
+
+        let sentinel = "stripe-secret-sentinel";
+        let mut invalid = valid_api_config_values();
+        invalid.insert(STRIPE_WEBHOOK_SIGNING_SECRET_ENV, sentinel.to_owned());
+        let Err(error) = ApiConfig::from_getter(|name| invalid.get(name).cloned()) else {
+            panic!("invalid Stripe webhook secret unexpectedly accepted");
+        };
+        assert!(matches!(
+            error,
+            ApiConfigError::InvalidStripeWebhookSigningSecret
+        ));
+        assert!(!format!("{error} {error:?}").contains(sentinel));
+    }
+
+    #[test]
     fn should_not_reveal_loops_webhook_signing_secret_in_configuration_errors() {
         let sentinel = "whsec-secret-sentinel";
         let mut values = valid_api_config_values();
@@ -2680,26 +3052,6 @@ mod tests {
 
         assert!(!error.to_string().contains(sentinel));
         assert!(!format!("{error:?}").contains(sentinel));
-    }
-
-    #[test]
-    fn should_require_valid_fifo_ingestion_queue_url_without_leaking_url() {
-        assert!(valid_ingestion_queue_url(
-            "https://sqs.eu-west-1.amazonaws.com/123456789012/product-listing-ingestion.fifo"
-        ));
-        for value in [
-            "",
-            "https://sqs.eu-west-1.amazonaws.com/123456789012/standard",
-            "https://sqs.eu-west-1.amazonaws.com/123456789012/ingestion.fifo?token=secret",
-            "ftp://sqs.example.test/ingestion.fifo",
-        ] {
-            assert!(!valid_ingestion_queue_url(value));
-        }
-        assert!(
-            !ApiStateError::InvalidIngestionQueueUrl
-                .to_string()
-                .contains("secret")
-        );
     }
 
     #[test]

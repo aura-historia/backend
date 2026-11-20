@@ -14,44 +14,46 @@ on:
       - "mjml/**"
       - "ci/**"
       - "opensearch/**"
-      - "releases/**"
-      - "src/user-service/src/ports/consent_workflow_cleanup.rs"
       - "docs/swagger.yaml"
       - "Cargo.toml"
+      - "Dockerfile"
       - "src/**/Cargo.toml"
       - "src/**/src/main.rs"
-      - "src/**/Dockerfile"
+      - "src/agent-discovery/src/environment.rs"
       - "src/aura-historia-api/src/lib.rs"
+      - "src/aura-historia-api/src/transport.rs"
+      - "src/aura-historia-api/src/content_notices/mod.rs"
       - "src/aura-historia-api/src/search_filters/mod.rs"
       - "src/aura-historia-api/src/notifications/mod.rs"
       - "src/aura-historia-api/src/partnership_applications/mod.rs"
       - "src/aura-historia-api/src/partnerships/mod.rs"
+      - "src/aura-historia-mcp/src/config.rs"
+      - "src/aura-historia-mcp/src/server_card.rs"
       - ".github/actions/**"
-      - ".github/workflows/cdk-test.yml"
-      - ".github/workflows/container-images.yml"
-      - ".github/workflows/deploy.yml"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "infra/**"
       - "mjml/**"
       - "ci/**"
       - "opensearch/**"
-      - "releases/**"
-      - "src/user-service/src/ports/consent_workflow_cleanup.rs"
       - "docs/swagger.yaml"
       - "Cargo.toml"
+      - "Dockerfile"
       - "src/**/Cargo.toml"
       - "src/**/src/main.rs"
-      - "src/**/Dockerfile"
+      - "src/agent-discovery/src/environment.rs"
       - "src/aura-historia-api/src/lib.rs"
+      - "src/aura-historia-api/src/transport.rs"
+      - "src/aura-historia-api/src/content_notices/mod.rs"
       - "src/aura-historia-api/src/search_filters/mod.rs"
       - "src/aura-historia-api/src/notifications/mod.rs"
       - "src/aura-historia-api/src/partnership_applications/mod.rs"
       - "src/aura-historia-api/src/partnerships/mod.rs"
+      - "src/aura-historia-mcp/src/config.rs"
+      - "src/aura-historia-mcp/src/server_card.rs"
       - ".github/actions/**"
-      - ".github/workflows/cdk-test.yml"
-      - ".github/workflows/container-images.yml"
-      - ".github/workflows/deploy.yml"
+      - ".github/workflows/**"
 
 jobs:
   infra-test:
@@ -60,12 +62,12 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
 
@@ -87,7 +89,7 @@ jobs:
       - name: Test CDK app and deployment helpers
         run: |
           npm --prefix infra test
-          node --test ci/*.test.cjs ci/delivery/*.test.cjs
+          node --test ci/*.test.cjs
 
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all

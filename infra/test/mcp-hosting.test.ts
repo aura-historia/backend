@@ -1,128 +1,40 @@
 import * as cdk from "aws-cdk-lib";
-import { Template } from "aws-cdk-lib/assertions";
+import type { Template } from "aws-cdk-lib/assertions";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, stageConfig } from "../src/config";
-import { museChallengeEnvironment, openAiAppsChallengeEnvironment } from "../src/constructs/lambda-environment";
-import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_SERVER_CARD_PATH, mcpRouteCatalog } from "../src/constructs/mcp";
+import { MCP_SERVER_CARD_PATH } from "../src/constructs/mcp";
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
-import { credentialSecrets } from "../src/credentials";
-import { credentialReference, releaseVersionDescription } from "./credential-reference";
+import { expectHostOrigin } from "./host-origin-assertions";
 
 describe.each(STAGES)("%s MCP hosting", (stage) => {
   const config = stageConfig(stage);
   let mcp: Template;
-  let compute: Template;
-  let fullApi: Template;
 
   beforeAll(() => {
     const app = new cdk.App({ analyticsReporting: false });
     const stacks = createApplicationStacks(app, { stage, env: { account: "123456789012", region: "eu-central-1" } });
-    compute = Template.fromStack(stacks.compute);
     mcp = templateForConstruct(stacks.api, stacks.api.mcp);
-    fullApi = Template.fromStack(stacks.api);
   });
 
-  test("exposes only the protocol, probes and exact reserved metadata paths through one MCP live alias", () => {
-    const routes = Object.values(mcp.findResources("AWS::ApiGatewayV2::Route"));
-    for (const type of ["AWS::ApiGatewayV2::Api", "AWS::ApiGatewayV2::Integration", "AWS::Lambda::Permission"]) {
-      expect(Object.keys(mcp.findResources(type))).toHaveLength(1);
-    }
-    const [[apiId, api]] = Object.entries(mcp.findResources("AWS::ApiGatewayV2::Api"));
-    const [[integrationId, integration]] = Object.entries(mcp.findResources("AWS::ApiGatewayV2::Integration"));
-    const [permission] = Object.values(mcp.findResources("AWS::Lambda::Permission"));
-    expect(routes.map((route) => route.Properties.RouteKey).sort()).toEqual([
-      "ANY /v1", "GET /health", "HEAD /health", "GET /ready", "HEAD /ready",
-      "GET /.well-known/oauth-protected-resource", "HEAD /.well-known/oauth-protected-resource",
-      "GET /.well-known/oauth-protected-resource/v1", "HEAD /.well-known/oauth-protected-resource/v1",
-      "GET /.well-known/openai-apps-challenge", "HEAD /.well-known/openai-apps-challenge",
-      "GET /.well-known/mcp/server-card.json", "HEAD /.well-known/mcp/server-card.json",
-      ...(config.mcp.museChallenge === undefined ? [] : [
-        `GET /.well-known/muse-challenge/${config.mcp.museChallenge}`,
-        `HEAD /.well-known/muse-challenge/${config.mcp.museChallenge}`,
-      ]),
-    ].sort());
-    expect(mcpRouteCatalog(config.mcp).map((route) => `${route.method} ${route.path}`).sort())
-      .toEqual(routes.map((route) => route.Properties.RouteKey).sort());
-    for (const route of routes) {
-      expect(route.Properties.ApiId).toEqual({ Ref: apiId });
-      expect(route.Properties.AuthorizationType).toBe("NONE");
-      expect(JSON.stringify(route.Properties.Target)).toContain(integrationId);
-      expect(route.Properties.RouteKey).not.toMatch(/\*|\{|\$default/);
-    }
-    expect(api.Properties.DisableExecuteApiEndpoint).toBe(true);
-    expect(integration.Properties).toMatchObject({ IntegrationType: "AWS_PROXY", PayloadFormatVersion: "2.0", TimeoutInMillis: 29000 });
-    expect(integration.Properties).not.toHaveProperty("RequestParameters");
-    expect(integration.Properties).not.toHaveProperty("ResponseParameters");
-    expect(integration.Properties.IntegrationUri).toEqual({ "Fn::Join": ["", [
-      "arn:", { Ref: "AWS::Partition" }, `:lambda:eu-central-1:123456789012:function:aura-historia-mcp-${stage}:live`,
-    ]] });
-    expect(permission.Properties).toMatchObject({
-      Action: "lambda:InvokeFunction", Principal: "apigateway.amazonaws.com",
-      FunctionName: integration.Properties.IntegrationUri,
-    });
-    expect(JSON.stringify(permission.Properties.SourceArn)).toContain(apiId);
-    expect(mcp.findResources("AWS::ApiGatewayV2::Authorizer")).toEqual({});
-    // Keep MCP's ANY admission wholly outside the closed REST catalog.
-    const allRoutes = Object.values(fullApi.findResources("AWS::ApiGatewayV2::Route"));
-    expect(allRoutes.filter((route) => route.Properties.RouteKey === "ANY /v1")).toHaveLength(1);
-    expect(allRoutes.some((route) => /\{proxy\+\}|\$default/.test(route.Properties.RouteKey))).toBe(false);
-  });
-
-  test("uses exact browser origins and carries the full protocol and challenge header contract", () => {
-    const [api] = Object.values(mcp.findResources("AWS::ApiGatewayV2::Api"));
-    expect(api.Properties.CorsConfiguration).toEqual({
-      AllowHeaders: MCP_CORS_ALLOW_HEADERS,
-      AllowMethods: ["GET", "HEAD", "POST", "OPTIONS"],
-      AllowOrigins: config.mcp.allowedOrigins,
-      ExposeHeaders: MCP_CORS_EXPOSE_HEADERS,
-      MaxAge: 0,
-    });
-    expect(MCP_CORS_ALLOW_HEADERS).toEqual([
-      "Authorization", "Content-Type", "Accept", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name",
-      "Mcp-Session-Id", "X-Correlation-Id",
-    ]);
-    expect(MCP_CORS_EXPOSE_HEADERS).toEqual(["WWW-Authenticate", "X-Request-Id", "X-Correlation-Id", "Content-Type"]);
-    expect(config.mcp.allowedOrigins).toEqual(stage === "prod"
-      ? ["https://aura-historia.com"] : ["https://stage.aura-historia.com", "http://localhost:3000"]);
-    expect(config.mcp.allowedOrigins.every((origin) => !origin.includes("*") && origin !== "null")).toBe(true);
-  });
-
-  test("keeps the public /v1 path and Host intact through exact certificates and regional origin mapping", () => {
-    const [[domainId, domain]] = Object.entries(mcp.findResources("AWS::ApiGatewayV2::DomainName"));
-    const [[apiId]] = Object.entries(mcp.findResources("AWS::ApiGatewayV2::Api"));
-    const [mapping] = Object.values(mcp.findResources("AWS::ApiGatewayV2::ApiMapping"));
+  test("keeps the public /v1 path and Host intact from the exact public host to the locked host origin", () => {
     const [distribution] = Object.values(mcp.findResources("AWS::CloudFront::Distribution"));
-    const host = stage === "prod" ? "mcp.aura-historia.com" : "mcp.stage.aura-historia.com";
+    const host = "mcp.aura-historia.com";
     expect(config.mcp.domainName).toBe(host);
-    expect(domain.Properties).toMatchObject({
-      DomainName: host,
-      DomainNameConfigurations: [{
-        CertificateArn: `{{resolve:ssm:/certificates/${stage}/mcp-regional-certificate-arn}}`,
-        EndpointType: "REGIONAL", SecurityPolicy: "TLS_1_2",
-      }],
-      RoutingMode: "API_MAPPING_ONLY",
-    });
-    expect(mapping.Properties).toEqual({ ApiId: { Ref: apiId }, DomainName: { Ref: domainId }, Stage: stage });
     const front = distribution.Properties.DistributionConfig;
     expect(front.Aliases).toEqual([host]);
     expect(front.ViewerCertificate.AcmCertificateArn).toBe(`{{resolve:ssm:/certificates/${stage}/mcp-cloudfront-certificate-arn}}`);
-    expect(front.Origins).toEqual([{
-      Id: "McpHttpApiOrigin", DomainName: { "Fn::GetAtt": [domainId, "RegionalDomainName"] },
-      CustomOriginConfig: {
-        HTTPPort: 80, HTTPSPort: 443, OriginKeepaliveTimeout: 5, OriginProtocolPolicy: "https-only",
-        OriginReadTimeout: 30, OriginSSLProtocols: ["TLSv1.2"],
-      },
-    }]);
+    expect(front.Origins).toHaveLength(1);
+    expectHostOrigin(front.Origins[0], stage, "McpHttpApiOrigin");
     expect(front.DefaultCacheBehavior.OriginRequestPolicyId).toBe("216adef6-5c7f-47e4-b989-5492eafa07d3");
     expect(mcp.toJSON().Outputs.McpEndpointUrl.Value).toBe(`https://${host}/v1`);
     expect(JSON.stringify(front)).not.toMatch(/OriginPath|LambdaFunctionAssociations|FunctionAssociations/);
     expect(mcp.findResources("AWS::Route53::RecordSet")).toEqual({});
   });
 
-  test("disables shared caching on every protocol behavior and adds no-store to preflight and Gateway errors without stripping challenges or trace IDs", () => {
+  test("disables shared caching on every protocol behavior and adds no-store to preflight and proxy errors without stripping challenges or trace IDs", () => {
     const policies = mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy");
     const [[policyId, responseHeaders]] = Object.entries(policies)
       .filter(([, policy]) => policy.Properties.ResponseHeadersPolicyConfig.Name === `mcp-${stage}-no-store`);
@@ -179,7 +91,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     });
     expect(cardHeaders.Properties.ResponseHeadersPolicyConfig).toEqual({
       Name: `mcp-${stage}-server-card`,
-      // The origin's own Cache-Control wins; only Gateway-generated errors lack one.
+      // The origin's own Cache-Control wins; only proxy-generated errors lack one.
       CustomHeadersConfig: { Items: [{ Header: "Cache-Control", Value: "no-store", Override: false }] },
       CorsConfig: {
         AccessControlAllowCredentials: false,
@@ -189,86 +101,6 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
         OriginOverride: true,
       },
     });
-  });
-
-  test("allocates a bounded Lambda with listing providers and no ingestion publication", () => {
-    const [[functionId, fn]] = Object.entries(compute.findResources("AWS::Lambda::Function"))
-      .filter(([, resource]) => resource.Properties.FunctionName === `aura-historia-mcp-${stage}`);
-    const environment = fn.Properties.Environment.Variables;
-    expect(fn.Properties).toMatchObject({
-      Runtime: "provided.al2023", Handler: "lib.handler", Architectures: ["x86_64"],
-      MemorySize: 512, Timeout: 28, ReservedConcurrentExecutions: stage === "prod" ? 5 : 2,
-    });
-    expect(fn.Properties.VpcConfig).toBeDefined();
-    expect(fn.Properties.Layers).toHaveLength(1);
-    expect(environment).toMatchObject({
-      AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true", COMMIT_SHA: { Ref: "CommitSHA" },
-      OAUTH_ISSUER_URL: config.oauthIssuerUrl,
-      MCP_ALLOWED_HOSTS: config.mcp.domainName, MCP_ALLOWED_ORIGINS: config.mcp.allowedOrigins.join(","),
-      STAGE: stage,
-      PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED: String(stage === "prod"),
-      OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
-      OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${stage}/reader/username}}`,
-      OPENSEARCH_PASSWORD: credentialReference(credentialSecrets(stage).openSearch, "readerPassword"),
-      VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
-      VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: credentialReference(credentialSecrets(stage).google, "applicationCredentials"),
-      POSTGRES_USERNAME: credentialReference(credentialSecrets(stage).postgresRuntime, "username"),
-      POSTGRES_PASSWORD: credentialReference(credentialSecrets(stage).postgresRuntime, "password"),
-      POSTGRES_DATABASE: "aura_historia", POSTGRES_MAX_CONNECTIONS: "1",
-      POSTGRES_TLS_ROOT_CERT: "/opt/aura-historia/rds-ca/global-bundle.pem",
-      ANTHROPIC_API_KEY: credentialReference(credentialSecrets(stage).anthropic, "apiKey"),
-    });
-    expect(Object.keys(environment).sort()).toEqual([
-      "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
-      ...(config.mcp.openAiAppsChallenge === undefined ? [] : ["MCP_OPENAI_APPS_CHALLENGE"]),
-      ...(config.mcp.museChallenge === undefined ? [] : ["MCP_MUSE_CHALLENGE"]),
-      "LOG_LEVEL", "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
-      "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
-      "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
-      "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT",
-      "POSTGRES_USERNAME", "POSTGRES_PASSWORD", "ANTHROPIC_API_KEY",
-    ].sort());
-    expect(environment.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
-    expect(environment.MCP_OPENAI_APPS_CHALLENGE).toEqual(config.mcp.openAiAppsChallenge);
-    expect(environment.MCP_MUSE_CHALLENGE).toEqual(config.mcp.museChallenge);
-    const budget = fn.Properties.ReservedConcurrentExecutions * Number(environment.POSTGRES_MAX_CONNECTIONS);
-    expect(budget).toBe(stage === "prod" ? 5 : 2);
-    const rest = Object.values(compute.findResources("AWS::Lambda::Function"))
-      .find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`)!;
-    expect(rest.Properties.Environment.Variables.OAUTH_ISSUER_URL).toBe(environment.OAUTH_ISSUER_URL);
-    expect(rest.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
-    for (const key of ["STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
-      "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON"]) {
-      expect(environment[key]).toEqual(rest.Properties.Environment.Variables[key]);
-    }
-    const roleId = fn.Properties.Role["Fn::GetAtt"][0];
-    const statements = Object.values(compute.findResources("AWS::IAM::Policy"))
-      .filter((policy) => policy.Properties.Roles.some((role: { Ref: string }) => role.Ref === roleId))
-      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .filter((statement) => !JSON.stringify(statement.Action).includes("logs:"));
-    expect(environment.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeUndefined();
-    expect(rest.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeDefined();
-    const restRole = rest.Properties.Role["Fn::GetAtt"][0];
-    const restSend = Object.values(compute.findResources("AWS::IAM::Policy"))
-      .filter((policy) => policy.Properties.Roles.some((role: { Ref: string }) => role.Ref === restRole))
-      .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .find((statement) => statement.Action === "sqs:SendMessage");
-    expect(restSend).toBeDefined();
-    expect(JSON.stringify(restSend.Resource)).not.toBe('"*"');
-    expect(statements).toEqual([]);
-    expect(JSON.stringify(statements)).not.toContain("sqs:");
-    const [alias] = Object.values(compute.findResources("AWS::Lambda::Alias"))
-      .filter((resource) => resource.Properties.FunctionName.Ref === functionId);
-    expect(alias.Properties.Name).toBe("live");
-    const versionId = alias.Properties.FunctionVersion["Fn::GetAtt"][0];
-    const version = compute.findResources("AWS::Lambda::Version")[versionId];
-    expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
-    const secrets = credentialSecrets(stage);
-    expect(version.Properties.Description).toEqual(releaseVersionDescription("AuraHistoriaMcpArtifactSha256",
-      [secrets.anthropic, secrets.google, secrets.openSearch, secrets.postgresRuntime]));
-    expect(fn.Properties.Code.S3Key).toEqual({ Ref: "AuraHistoriaMcpArtifactKey" });
-    expect(compute.findResources("AWS::Lambda::Url")).toEqual({});
   });
 
   test("admits bounded JSON-RPC bodies only on POST /v1 while retaining managed protections and disabling request sampling", () => {
@@ -306,22 +138,9 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     for (const rule of [rules[1], rules[2], rules[4]]) expect(rule.OverrideAction).toEqual({ None: {} });
     expect(mcp.findResources("AWS::WAFv2::LoggingConfiguration")).toEqual({});
   });
-
-  test("writes no gateway access log, so no payload, Authorization, Origin or query is logged", () => {
-    const [gatewayStage] = Object.values(mcp.findResources("AWS::ApiGatewayV2::Stage"));
-    expect(gatewayStage.Properties.AccessLogSettings).toBeUndefined();
-    const gatewayGroups = Object.values(fullApi.findResources("AWS::Logs::LogGroup"))
-      .filter((log) => String(log.Properties.LogGroupName).startsWith("/aws/apigateway/"));
-    expect(gatewayGroups).toEqual([]);
-    const logs = Object.values(compute.findResources("AWS::Logs::LogGroup"));
-    expect(logs.find((log) => log.Properties.LogGroupName === `/aws/lambda/aura-historia-mcp-${stage}`)?.Properties.RetentionInDays).toBe(30);
-    expect(gatewayStage.Properties.DefaultRouteSettings).toMatchObject({
-      ThrottlingBurstLimit: stage === "prod" ? 10 : 4, ThrottlingRateLimit: stage === "prod" ? 20 : 5,
-    });
-  });
 });
 
-test("keeps front-door payload and timeout budgets inside the actual buffered transport and Lambda limits", () => {
+test("keeps front-door payload and timeout budgets consistent with the buffered transport", () => {
   const transport = readFileSync(resolve(__dirname, "../../src/aura-historia-mcp/src/config.rs"), "utf8");
   const body = transport.match(/const MAX_REQUEST_BYTES: usize = ([0-9_* ]+);/);
   expect(body).not.toBeNull();
@@ -342,41 +161,4 @@ test("recognizes precisely declared lengths above the transport's request budget
   expect(oversized.test("000262144")).toBe(false);
   expect(oversized.test("000262145")).toBe(true);
   expect(oversized.test("999999999999999999999999999999")).toBe(true);
-});
-
-test("passes only a token the MCP server accepts for OpenAI domain verification", () => {
-  const mcp = stageConfig("prod").mcp;
-  expect(openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: undefined })).toEqual({});
-  expect(openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: "token-1_A=" }))
-    .toEqual({ MCP_OPENAI_APPS_CHALLENGE: "token-1_A=" });
-  for (const token of ["", "token\n", " token", "two words", "tökén", "x".repeat(513)]) {
-    expect(() => openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: token })).toThrow(/openAiAppsChallenge/);
-  }
-});
-
-test("passes and routes only a Muse token the MCP server accepts", () => {
-  const mcp = stageConfig("prod").mcp;
-  expect(museChallengeEnvironment({ ...mcp, museChallenge: undefined })).toEqual({});
-  expect(museChallengeEnvironment({ ...mcp, museChallenge: "token-1_A" })).toEqual({ MCP_MUSE_CHALLENGE: "token-1_A" });
-  const routes = mcpRouteCatalog({ ...mcp, museChallenge: "token-1_A" }).map((route) => `${route.method} ${route.path}`);
-  expect(routes).toEqual(expect.arrayContaining([
-    "GET /.well-known/muse-challenge/token-1_A", "HEAD /.well-known/muse-challenge/token-1_A",
-  ]));
-  expect(mcpRouteCatalog({ ...mcp, museChallenge: undefined }).some((route) => route.path.includes("muse-challenge"))).toBe(false);
-  for (const token of ["", "token\n", " token", "two words", "tökén", "a/b", "{token}", "*", "key=value", "x".repeat(129)]) {
-    expect(() => museChallengeEnvironment({ ...mcp, museChallenge: token })).toThrow(/museChallenge/);
-    expect(() => mcpRouteCatalog({ ...mcp, museChallenge: token })).toThrow(/museChallenge/);
-  }
-});
-
-test("serves the OpenAI domain verification token only on the production host", () => {
-  const token = stageConfig("prod").mcp.openAiAppsChallenge;
-  expect(token).toBe("_d_8VglwY-g1mC_cJRoTQ7yS04s4x8say68ByQT8R0E");
-  expect(openAiAppsChallengeEnvironment(stageConfig("prod").mcp)).toEqual({ MCP_OPENAI_APPS_CHALLENGE: token });
-  expect(stageConfig("dev").mcp.openAiAppsChallenge).toBeUndefined();
-});
-
-test("serves the Muse challenge only on the production host", () => {
-  expect(stageConfig("prod").mcp.museChallenge).toBe("a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11");
-  expect(stageConfig("dev").mcp.museChallenge).toBeUndefined();
 });

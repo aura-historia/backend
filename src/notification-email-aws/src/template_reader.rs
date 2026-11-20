@@ -1,106 +1,161 @@
-use crate::{
-    provider_failure::{classify_s3_template_fetch, provider_error},
-    template_mapping::{EmailLanguage, EmailTemplateType, s3_template_key},
-};
+use crate::template_mapping::{EmailLanguage, EmailTemplateType, template_path};
 use application::error::box_error;
-use aws_sdk_s3::Client as S3Client;
 use handlebars::Handlebars;
 use notification_service::ports::notification_channel_sender::NotificationChannelSendError;
 use serde_json::Value;
+use std::path::Path;
 
+/// A compiled template that cannot be loaded. It names the template, never its content.
+#[derive(Debug, thiserror::Error)]
+pub enum EmailTemplateLoadError {
+    #[error("email template {template} cannot be read")]
+    Unreadable {
+        template: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("email template {template} is not valid Handlebars")]
+    Invalid {
+        template: String,
+        #[source]
+        source: Box<handlebars::TemplateError>,
+    },
+}
+
+/// Every compiled email template, read from the template directory and compiled once at
+/// startup, so a missing or broken template stops the process instead of failing deliveries.
 pub(crate) struct TemplateReader {
-    s3: S3Client,
-    template_bucket: String,
-    template_prefix: String,
     handlebars: Handlebars<'static>,
 }
 
 impl TemplateReader {
-    pub(crate) fn new(
-        s3: S3Client,
-        template_bucket: impl Into<String>,
-        template_prefix: impl Into<String>,
-    ) -> Self {
-        Self {
-            s3,
-            template_bucket: template_bucket.into(),
-            template_prefix: template_prefix.into(),
-            handlebars: Handlebars::new(),
+    pub(crate) fn load(directory: &Path) -> Result<Self, EmailTemplateLoadError> {
+        let mut handlebars = Handlebars::new();
+        for template_type in EmailTemplateType::ALL {
+            for language in EmailLanguage::ALL {
+                let template = template_path(template_type, language);
+                let source =
+                    std::fs::read_to_string(directory.join(&template)).map_err(|source| {
+                        EmailTemplateLoadError::Unreadable {
+                            template: template.clone(),
+                            source,
+                        }
+                    })?;
+                handlebars
+                    .register_template_string(&template, source)
+                    .map_err(|source| EmailTemplateLoadError::Invalid {
+                        template,
+                        source: Box::new(source),
+                    })?;
+            }
         }
+        Ok(Self { handlebars })
     }
 
-    pub(crate) async fn render(
+    pub(crate) fn render(
         &self,
         template_type: EmailTemplateType,
         language: EmailLanguage,
         data: &Value,
     ) -> Result<String, NotificationChannelSendError> {
-        let key = s3_template_key(&self.template_prefix, template_type, language);
-        let response = self
-            .s3
-            .get_object()
-            .bucket(&self.template_bucket)
-            .key(key)
-            .send()
-            .await
-            .map_err(|source| {
-                let template_missing = source
-                    .as_service_error()
-                    .is_some_and(|error| error.is_no_such_key());
-                let status_code = source
-                    .raw_response()
-                    .map(|response| response.status().as_u16());
-                provider_error(
-                    classify_s3_template_fetch(template_missing, status_code),
-                    box_error(source),
-                )
-            })?;
-        let bytes = response
-            .body
-            .collect()
-            .await
-            .map_err(|source| NotificationChannelSendError::Retryable {
-                code: "S3_TEMPLATE_READ_FAILED",
+        self.handlebars
+            .render(&template_path(template_type, language), data)
+            .map_err(|source| NotificationChannelSendError::Permanent {
+                code: "TEMPLATE_RENDER_FAILED",
                 source: box_error(source),
-            })?
-            .into_bytes();
-        let template = String::from_utf8(bytes.to_vec()).map_err(|source| {
-            NotificationChannelSendError::Permanent {
-                code: "S3_TEMPLATE_INVALID_UTF8",
-                source: box_error(source),
-            }
-        })?;
-        render_template(&self.handlebars, &template, data)
+            })
     }
-}
-
-fn render_template(
-    handlebars: &Handlebars<'static>,
-    template: &str,
-    data: &Value,
-) -> Result<String, NotificationChannelSendError> {
-    handlebars
-        .render_template(template, data)
-        .map_err(|source| NotificationChannelSendError::Permanent {
-            code: "S3_TEMPLATE_RENDER_FAILED",
-            source: box_error(source),
-        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::template_root;
     use serde_json::json;
 
+    /// The test helpers render template text in Handlebars strict mode, which delivery does not use.
+    fn render_template(
+        handlebars: &Handlebars<'static>,
+        template: &str,
+        data: &Value,
+    ) -> Result<String, NotificationChannelSendError> {
+        handlebars
+            .render_template(template, data)
+            .map_err(|source| NotificationChannelSendError::Permanent {
+                code: "TEMPLATE_RENDER_FAILED",
+                source: box_error(source),
+            })
+    }
+
     #[test]
-    fn should_return_safe_code_when_template_cannot_render() {
+    fn should_render_the_template_of_the_type_and_language_from_the_template_root()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = template_root(
+            "<p>{{title}}</p>",
+            &[(
+                "watchlist/product-update/price/de.html",
+                Some("<p>Preis: {{title}}</p>"),
+            )],
+        )?;
+        let templates = TemplateReader::load(&root)?;
+
+        let rendered = templates.render(
+            EmailTemplateType::WatchlistUpdatePrice,
+            EmailLanguage::De,
+            &json!({ "title": "Bronze Vase" }),
+        )?;
+
+        assert_eq!("<p>Preis: Bronze Vase</p>", rendered);
+        Ok(())
+    }
+
+    #[test]
+    fn should_refuse_to_load_when_a_template_is_missing() -> std::io::Result<()> {
+        let root = template_root("<p></p>", &[("content-notice/receipt/it.html", None)])?;
+
+        let error = TemplateReader::load(&root).err().expect("missing template");
+
+        assert!(matches!(error, EmailTemplateLoadError::Unreadable { .. }));
+        assert_eq!(
+            "email template content-notice/receipt/it.html cannot be read",
+            error.to_string()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_refuse_to_load_a_template_that_is_not_valid_handlebars() -> std::io::Result<()> {
+        let root = template_root(
+            "<p></p>",
+            &[("search-filter/digest/fr.html", Some("{{#if"))],
+        )?;
+
         assert!(matches!(
-            render_template(&Handlebars::new(), "{{#if", &json!({})),
+            TemplateReader::load(&root),
+            Err(EmailTemplateLoadError::Invalid { template, .. })
+                if template == "search-filter/digest/fr.html"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_return_a_permanent_safe_code_when_a_template_cannot_render()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = template_root("{{lookup}}", &[])?;
+        let templates = TemplateReader::load(&root)?;
+
+        assert!(matches!(
+            templates.render(
+                EmailTemplateType::SearchFilterMatch,
+                EmailLanguage::En,
+                &json!({})
+            ),
             Err(NotificationChannelSendError::Permanent {
-                code: "S3_TEMPLATE_RENDER_FAILED",
+                code: "TEMPLATE_RENDER_FAILED",
                 ..
             })
         ));
+        Ok(())
     }
 
     #[test]

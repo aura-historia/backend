@@ -30,7 +30,6 @@ on:
       - 'docs/mcp-tools.json'
       - 'docs/fixtures/**'
       - 'infra/sql/**'
-      - 'infra/assets/rds-ca-layer/**'
   pull_request:
     paths:
       - '.github/workflows/**'
@@ -53,7 +52,6 @@ on:
       - 'docs/mcp-tools.json'
       - 'docs/fixtures/**'
       - 'infra/sql/**'
-      - 'infra/assets/rds-ca-layer/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.source_sha && format('{0}-{1}', github.run_id, github.run_attempt) || 'ci' }}
@@ -137,7 +135,7 @@ jobs:
           id: integration
           lanes: INFRASTRUCTURE
           slots: 4
-          profile: api
+          profile: all
           compilation_cache: dependencies
 
   remaining:

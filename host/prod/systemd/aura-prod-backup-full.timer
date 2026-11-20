@@ -1,0 +1,13 @@
+[Unit]
+Description=Aura Historia prod weekly full backup, Sundays 02:30 UTC
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/prod/README.md
+
+[Timer]
+OnCalendar=Sun *-*-* 02:30:00 UTC
+Unit=aura-prod-backup@full.service
+# Catch up once after downtime instead of skipping the run.
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

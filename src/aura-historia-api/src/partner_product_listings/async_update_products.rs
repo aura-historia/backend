@@ -269,8 +269,8 @@ mod tests {
         let calls = sent.lock().unwrap();
         let messages = &calls[0];
         for message in messages {
-            let wire = product_listing_ingestion_sqs::codec::encode(message).unwrap();
-            let decoded = product_listing_ingestion_sqs::codec::decode(&wire).unwrap();
+            let wire = product_listing_ingestion_queue::codec::encode(message).unwrap();
+            let decoded = product_listing_ingestion_queue::codec::decode(&wire).unwrap();
             let ProductListingIngestionIntent::Update { command, .. } =
                 decoded.into_intent().unwrap()
             else {
@@ -468,10 +468,8 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         assert_eq!(sent.lock().unwrap().len(), 1);
-        let limited = crate::transport::with_transport_middleware(
-            app,
-            crate::transport::NATIVE_REQUEST_TIMEOUT,
-        );
+        let limited =
+            crate::transport::with_transport_middleware(app, crate::transport::REQUEST_TIMEOUT);
         let oversized = request(&limited, &path, &"x".repeat(1_048_577), None, true).await;
         assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(

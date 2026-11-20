@@ -1,5 +1,4 @@
-//! Exercises the real S3 and SES SDKs with only their HTTP connectors replaced; no AWS calls.
-use aws_sdk_s3::config::{Credentials as S3Credentials, Region as S3Region};
+//! Exercises the real SES SDK with only its HTTP connector replaced; no AWS calls.
 use aws_sdk_sesv2::config::{
     Credentials as SesCredentials, Region as SesRegion, retry::RetryConfig, timeout::TimeoutConfig,
 };
@@ -21,7 +20,11 @@ use serde_email::Email;
 use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 use tracing::instrument::WithSubscriber;
@@ -36,19 +39,11 @@ use user_service::ports::{
 };
 
 const CONFIGURATION_SET: &str = "aura-historia-ephemeral-email";
-const TEMPLATE_KEY: &str = "ephemeral/test-commit/mjml/newsletter/confirmation/en.html";
 const TEMPLATE: &str = "<html><body>{{#if first_name}}Hello {{first_name}}{{else}}Hello{{/if}}<a href=\"{{confirmation_url}}\">Confirm subscription</a></body></html>";
-
-#[derive(Clone, Copy, Debug)]
-enum Service {
-    S3,
-    Ses,
-}
 
 #[derive(Debug)]
 enum Reply {
     Response(u16, &'static str),
-    OversizedTemplate,
     IoFailure,
     Hang,
 }
@@ -57,23 +52,19 @@ enum Reply {
 struct State {
     replies: VecDeque<Reply>,
     requests: Vec<Value>,
-    paths: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
 struct ReplayHttp {
-    service: Service,
     state: Arc<Mutex<State>>,
 }
 
 impl ReplayHttp {
-    fn new(service: Service, replies: impl IntoIterator<Item = Reply>) -> Self {
+    fn new(replies: impl IntoIterator<Item = Reply>) -> Self {
         Self {
-            service,
             state: Arc::new(Mutex::new(State {
                 replies: replies.into_iter().collect(),
                 requests: Vec::new(),
-                paths: Vec::new(),
             })),
         }
     }
@@ -81,38 +72,23 @@ impl ReplayHttp {
     fn requests(&self) -> Vec<Value> {
         self.state.lock().unwrap().requests.clone()
     }
-
-    fn paths(&self) -> Vec<String> {
-        self.state.lock().unwrap().paths.clone()
-    }
 }
 
 impl HttpConnector for ReplayHttp {
     fn call(&self, request: HttpRequest) -> HttpConnectorFuture {
         assert!(request.headers().get("authorization").is_some());
-        let body = match self.service {
-            Service::S3 => {
-                assert_eq!(request.method(), "GET");
-                assert!(request.uri().to_string().contains(TEMPLATE_KEY));
-                Value::Null
-            }
-            Service::Ses => {
-                assert_eq!(request.method(), "POST");
-                assert!(
-                    request
-                        .uri()
-                        .to_string()
-                        .contains("/v2/email/outbound-emails")
-                );
-                let body: Value =
-                    serde_json::from_slice(request.body().bytes().expect("SES JSON request body"))
-                        .expect("valid SES JSON request");
-                assert_eq!(body["ConfigurationSetName"], CONFIGURATION_SET);
-                body
-            }
-        };
+        assert_eq!(request.method(), "POST");
+        assert!(
+            request
+                .uri()
+                .to_string()
+                .contains("/v2/email/outbound-emails")
+        );
+        let body: Value =
+            serde_json::from_slice(request.body().bytes().expect("SES JSON request body"))
+                .expect("valid SES JSON request");
+        assert_eq!(body["ConfigurationSetName"], CONFIGURATION_SET);
         let mut state = self.state.lock().unwrap();
-        state.paths.push(request.uri().to_string());
         state.requests.push(body);
         let reply = state.replies.pop_front().expect("unexpected SDK retry");
         drop(state);
@@ -120,24 +96,8 @@ impl HttpConnector for ReplayHttp {
             Reply::Response(status, body) => {
                 let response: HttpResponse = http::Response::builder()
                     .status(status)
-                    .header(
-                        "content-type",
-                        match self.service {
-                            Service::S3 => "text/html",
-                            Service::Ses => "application/json",
-                        },
-                    )
+                    .header("content-type", "application/json")
                     .body(SdkBody::from(body.to_owned()))
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
-                HttpConnectorFuture::ready(Ok(response))
-            }
-            Reply::OversizedTemplate => {
-                let response: HttpResponse = http::Response::builder()
-                    .status(200)
-                    .header("content-type", "text/html")
-                    .body(SdkBody::from("x".repeat(128 * 1024 + 1)))
                     .unwrap()
                     .try_into()
                     .unwrap();
@@ -163,24 +123,40 @@ impl HttpClient for ReplayHttp {
     }
 }
 
-fn sender(s3_http: ReplayHttp, ses_http: ReplayHttp) -> SesNewsletterConfirmationEmailSender {
-    sender_with_ses_timeout(s3_http, ses_http, Some(Duration::from_millis(100)))
+fn sender(ses_http: ReplayHttp) -> SesNewsletterConfirmationEmailSender {
+    sender_with_ses_timeout(ses_http, Some(Duration::from_millis(100)))
 }
 
-fn sender_with_ses_timeout(
-    s3_http: ReplayHttp,
-    ses_http: ReplayHttp,
-    sdk_timeout: Option<Duration>,
-) -> SesNewsletterConfirmationEmailSender {
-    let s3 = aws_sdk_s3::Client::from_conf(
-        aws_sdk_s3::Config::builder()
-            .behavior_version_latest()
-            .region(S3Region::new("eu-central-1"))
-            .credentials_provider(S3Credentials::new("test", "test", None, None, "sdk-test"))
-            .force_path_style(true)
-            .http_client(s3_http)
-            .build(),
-    );
+static NEXT_TEMPLATE_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
+
+/// A fresh template directory holding `template` for every email language.
+fn template_directory(template: &str) -> PathBuf {
+    let directory = std::env::temp_dir().join(format!(
+        "newsletter-confirmation-ses-{}-{}",
+        std::process::id(),
+        NEXT_TEMPLATE_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+    ));
+    for language in ["de", "en", "es", "fr", "it"] {
+        let path = directory.join(format!("newsletter/confirmation/{language}.html"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, template).unwrap();
+    }
+    directory
+}
+
+fn config(template_directory: PathBuf) -> NewsletterConfirmationEmailConfig {
+    NewsletterConfirmationEmailConfig::new(
+        template_directory,
+        "sender@example.test",
+        "reply@example.test",
+        CONFIGURATION_SET,
+        "ephemeral",
+        "http://127.0.0.1:3000",
+    )
+    .unwrap_or_else(|_| panic!("valid newsletter email config"))
+}
+
+fn ses_client(ses_http: ReplayHttp, sdk_timeout: Option<Duration>) -> aws_sdk_sesv2::Client {
     // The injected client deliberately permits retries. SendEmail has no idempotency key;
     // the sender must override this to one attempt before making a network call.
     let mut ses_config = aws_sdk_sesv2::Config::builder()
@@ -193,18 +169,29 @@ fn sender_with_ses_timeout(
         ses_config =
             ses_config.timeout_config(TimeoutConfig::builder().operation_timeout(timeout).build());
     }
-    let ses = aws_sdk_sesv2::Client::from_conf(ses_config.build());
-    let config = NewsletterConfirmationEmailConfig::new(
-        "test-templates",
-        "sender@example.test",
-        "reply@example.test",
-        CONFIGURATION_SET,
-        "ephemeral",
-        "ephemeral/test-commit/",
-        "http://127.0.0.1:3000",
+    aws_sdk_sesv2::Client::from_conf(ses_config.build())
+}
+
+fn sender_with_template(
+    ses_http: ReplayHttp,
+    template: &str,
+) -> SesNewsletterConfirmationEmailSender {
+    SesNewsletterConfirmationEmailSender::new(
+        ses_client(ses_http, Some(Duration::from_millis(100))),
+        config(template_directory(template)),
     )
-    .unwrap_or_else(|_| panic!("valid newsletter email config"));
-    SesNewsletterConfirmationEmailSender::new(s3, ses, config)
+    .unwrap_or_else(|error| panic!("{error}"))
+}
+
+fn sender_with_ses_timeout(
+    ses_http: ReplayHttp,
+    sdk_timeout: Option<Duration>,
+) -> SesNewsletterConfirmationEmailSender {
+    SesNewsletterConfirmationEmailSender::new(
+        ses_client(ses_http, sdk_timeout),
+        config(template_directory(TEMPLATE)),
+    )
+    .unwrap_or_else(|error| panic!("{error}"))
 }
 
 fn email(first_name: Option<&str>) -> NewsletterConfirmationEmail {
@@ -220,23 +207,14 @@ fn email(first_name: Option<&str>) -> NewsletterConfirmationEmail {
     }
 }
 
-fn template_http() -> ReplayHttp {
-    ReplayHttp::new(Service::S3, [Reply::Response(200, TEMPLATE)])
-}
-
 #[tokio::test]
 async fn sends_signed_ses_payload_with_confirmation_link_and_accepts_receipt() {
-    let s3_http = template_http();
-    let ses_http = ReplayHttp::new(
-        Service::Ses,
-        [Reply::Response(200, r#"{"MessageId":"ses-receipt-123"}"#)],
-    );
+    let ses_http = ReplayHttp::new([Reply::Response(200, r#"{"MessageId":"ses-receipt-123"}"#)]);
     let email = email(Some("Ada & Co"));
     let token = email.token.as_str().to_owned();
     let confirmation_id = email.confirmation_id.to_string();
-    let outcome = sender(s3_http.clone(), ses_http.clone()).send(email).await;
+    let outcome = sender(ses_http.clone()).send(email).await;
     assert_eq!(outcome, NewsletterConfirmationEmailSendOutcome::Accepted);
-    assert_eq!(s3_http.paths().len(), 1);
     assert_eq!(ses_http.requests().len(), 1);
     let requests = ses_http.requests();
     let request = &requests[0];
@@ -288,55 +266,40 @@ async fn sends_signed_ses_payload_with_confirmation_link_and_accepts_receipt() {
     );
 }
 
-#[tokio::test]
-async fn missing_oversized_and_invalid_templates_are_rejected_before_ses() {
-    for reply in [
-        Reply::Response(404, "<Error><Code>NoSuchKey</Code></Error>"),
-        Reply::OversizedTemplate,
-        Reply::Response(200, "{{#if invalid"),
-        Reply::Response(200, "<html>{{{first_name}}}{{confirmation_url}}</html>"),
+#[test]
+fn missing_oversized_and_unsafe_templates_stop_the_sender_from_starting() {
+    let missing = template_directory(TEMPLATE);
+    std::fs::remove_file(missing.join("newsletter/confirmation/it.html")).unwrap();
+    let invalid_utf8 = template_directory(TEMPLATE);
+    std::fs::write(invalid_utf8.join("newsletter/confirmation/de.html"), [0xff]).unwrap();
+    for directory in [
+        missing,
+        invalid_utf8,
+        template_directory(&format!("{TEMPLATE}{}", "x".repeat(128 * 1024))),
+        template_directory("{{#if invalid"),
+        template_directory("<html>{{{first_name}}}{{confirmation_url}}</html>"),
+        template_directory("<html>no confirmation link</html>"),
     ] {
-        let ses_http = ReplayHttp::new(Service::Ses, []);
-        let s3_http = ReplayHttp::new(Service::S3, [reply]);
-        assert_eq!(
-            sender(s3_http.clone(), ses_http.clone())
-                .send(email(None))
-                .await,
-            NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
-                retryability: NewsletterConfirmationEmailRetryability::NotRetryable,
-            }
+        let error = SesNewsletterConfirmationEmailSender::new(
+            ses_client(ReplayHttp::new([]), None),
+            config(directory),
+        )
+        .err()
+        .expect("unusable template");
+        assert!(
+            error
+                .to_string()
+                .starts_with("newsletter confirmation template newsletter/confirmation/"),
+            "{error}"
         );
-        assert_eq!(s3_http.paths().len(), 1);
-        assert!(ses_http.requests().is_empty());
     }
-}
-
-#[tokio::test]
-async fn unavailable_templates_are_retryable_without_sending_email() {
-    let s3_http = ReplayHttp::new(
-        Service::S3,
-        (0..3).map(|_| Reply::Response(503, "<Error><Code>ServiceUnavailable</Code></Error>")),
-    );
-    let ses_http = ReplayHttp::new(Service::Ses, []);
-    assert_eq!(
-        sender(s3_http.clone(), ses_http.clone())
-            .send(email(None))
-            .await,
-        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
-            retryability: NewsletterConfirmationEmailRetryability::Retryable,
-        }
-    );
-    assert!(!s3_http.paths().is_empty());
-    assert!(ses_http.requests().is_empty());
 }
 
 #[tokio::test]
 async fn success_without_a_nonempty_ses_receipt_has_unknown_acceptance() {
     for response in [r#"{}"#, r#"{"MessageId":""}"#] {
-        let ses_http = ReplayHttp::new(Service::Ses, [Reply::Response(200, response)]);
-        let outcome = sender(template_http(), ses_http.clone())
-            .send(email(None))
-            .await;
+        let ses_http = ReplayHttp::new([Reply::Response(200, response)]);
+        let outcome = sender(ses_http.clone()).send(email(None)).await;
         assert_eq!(
             outcome,
             NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
@@ -347,16 +310,11 @@ async fn success_without_a_nonempty_ses_receipt_has_unknown_acceptance() {
 
 #[tokio::test]
 async fn modeled_message_rejection_is_definite() {
-    let ses_http = ReplayHttp::new(
-        Service::Ses,
-        [Reply::Response(
-            400,
-            r#"{"__type":"MessageRejected","message":"rejected"}"#,
-        )],
-    );
-    let outcome = sender(template_http(), ses_http.clone())
-        .send(email(None))
-        .await;
+    let ses_http = ReplayHttp::new([Reply::Response(
+        400,
+        r#"{"__type":"MessageRejected","message":"rejected"}"#,
+    )]);
+    let outcome = sender(ses_http.clone()).send(email(None)).await;
     assert_eq!(
         outcome,
         NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
@@ -379,11 +337,9 @@ async fn modeled_and_unmodeled_throttling_are_retryable_definite_rejections() {
         ),
         Reply::Response(429, r#"{"message":"rate limited"}"#),
     ] {
-        let ses_http = ReplayHttp::new(Service::Ses, [reply]);
+        let ses_http = ReplayHttp::new([reply]);
         assert_eq!(
-            sender(template_http(), ses_http.clone())
-                .send(email(None))
-                .await,
+            sender(ses_http.clone()).send(email(None)).await,
             NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
                 retryability: NewsletterConfirmationEmailRetryability::Retryable,
             }
@@ -394,16 +350,11 @@ async fn modeled_and_unmodeled_throttling_are_retryable_definite_rejections() {
 
 #[tokio::test]
 async fn ambiguous_transport_failure_does_not_trigger_hidden_ses_sdk_retry() {
-    let ses_http = ReplayHttp::new(
-        Service::Ses,
-        [
-            Reply::IoFailure,
-            Reply::Response(200, r#"{"MessageId":"second-send"}"#),
-        ],
-    );
-    let outcome = sender(template_http(), ses_http.clone())
-        .send(email(None))
-        .await;
+    let ses_http = ReplayHttp::new([
+        Reply::IoFailure,
+        Reply::Response(200, r#"{"MessageId":"second-send"}"#),
+    ]);
+    let outcome = sender(ses_http.clone()).send(email(None)).await;
     assert_eq!(
         outcome,
         NewsletterConfirmationEmailSendOutcome::AcceptanceUnknown
@@ -417,10 +368,10 @@ async fn ambiguous_transport_failure_does_not_trigger_hidden_ses_sdk_retry() {
 
 #[tokio::test]
 async fn stalled_ses_response_times_out_with_unknown_acceptance_and_no_resend() {
-    let ses_http = ReplayHttp::new(Service::Ses, [Reply::Hang]);
+    let ses_http = ReplayHttp::new([Reply::Hang]);
     let outcome = tokio::time::timeout(
         Duration::from_secs(2),
-        sender(template_http(), ses_http.clone()).send(email(None)),
+        sender(ses_http.clone()).send(email(None)),
     )
     .await
     .expect("SDK operation timeout must bound the stalled request");
@@ -433,11 +384,11 @@ async fn stalled_ses_response_times_out_with_unknown_acceptance_and_no_resend() 
 
 #[tokio::test]
 async fn stalled_ses_request_is_bounded_by_adapter_deadline() {
-    let ses_http = ReplayHttp::new(Service::Ses, [Reply::Hang]);
+    let ses_http = ReplayHttp::new([Reply::Hang]);
     let start = tokio::time::Instant::now();
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
-        sender_with_ses_timeout(template_http(), ses_http.clone(), None).send(email(None)),
+        sender_with_ses_timeout(ses_http.clone(), None).send(email(None)),
     )
     .await
     .expect("adapter SES deadline must bound the stalled request");
@@ -447,28 +398,6 @@ async fn stalled_ses_request_is_bounded_by_adapter_deadline() {
     );
     assert!(start.elapsed() >= Duration::from_secs(3));
     assert_eq!(ses_http.requests().len(), 1);
-}
-
-#[tokio::test]
-async fn stalled_s3_request_is_bounded_by_adapter_deadline_without_ses_send() {
-    let s3_http = ReplayHttp::new(Service::S3, [Reply::Hang]);
-    let ses_http = ReplayHttp::new(Service::Ses, []);
-    let start = tokio::time::Instant::now();
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(4),
-        sender_with_ses_timeout(s3_http.clone(), ses_http.clone(), None).send(email(None)),
-    )
-    .await
-    .expect("adapter S3 deadline must bound the stalled request");
-    assert_eq!(
-        outcome,
-        NewsletterConfirmationEmailSendOutcome::DefinitelyRejected {
-            retryability: NewsletterConfirmationEmailRetryability::Retryable,
-        }
-    );
-    assert!(start.elapsed() >= Duration::from_secs(2));
-    assert_eq!(s3_http.paths().len(), 1);
-    assert!(ses_http.requests().is_empty());
 }
 
 #[derive(Clone, Default)]
@@ -493,21 +422,16 @@ async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_paylo
     // interest calculation across dispatches without installing a global default.
     let _interest_cache_guard =
         tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
-    for (template_reply, ses_reply, phase, category) in [
+    for (template, ses_reply, phase, category) in [
         (
-            Reply::Response(404, "<Error><Code>NoSuchKey</Code></Error>"),
-            None,
-            "preparation",
-            "TemplateMissing",
-        ),
-        (
-            Reply::Response(200, "{{{first_name}}}{{confirmation_url}}"),
+            // Strict rendering fails on a variable the confirmation data does not carry.
+            "{{unknown}}{{confirmation_url}}",
             None,
             "preparation",
             "TemplateInvalid",
         ),
         (
-            Reply::Response(200, TEMPLATE),
+            TEMPLATE,
             Some(Reply::Response(
                 403,
                 r#"{"__type":"AccessDeniedException","message":"private-provider-detail reader@example.test"}"#,
@@ -516,7 +440,7 @@ async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_paylo
             "AccessDenied",
         ),
         (
-            Reply::Response(200, TEMPLATE),
+            TEMPLATE,
             Some(Reply::Response(
                 400,
                 r#"{"__type":"MessageRejected","message":"private-provider-detail reader@example.test"}"#,
@@ -525,7 +449,7 @@ async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_paylo
             "MessageRejected",
         ),
         (
-            Reply::Response(200, TEMPLATE),
+            TEMPLATE,
             Some(Reply::Response(
                 400,
                 r#"{"__type":"private-provider-detail","message":"reader@example.test"}"#,
@@ -533,14 +457,9 @@ async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_paylo
             "ses",
             "OtherServiceError",
         ),
+        (TEMPLATE, Some(Reply::IoFailure), "ses", "TransportFailure"),
         (
-            Reply::Response(200, TEMPLATE),
-            Some(Reply::IoFailure),
-            "ses",
-            "TransportFailure",
-        ),
-        (
-            Reply::Response(200, TEMPLATE),
+            TEMPLATE,
             Some(Reply::Response(200, r#"{}"#)),
             "ses",
             "MissingReceipt",
@@ -557,9 +476,8 @@ async fn failure_logs_identify_the_phase_without_exposing_mail_or_provider_paylo
         let message = email(Some("private-recipient-name"));
         let token = message.token.as_str().to_owned();
         let confirmation_id = message.confirmation_id.to_string();
-        let s3_http = ReplayHttp::new(Service::S3, [template_reply]);
-        let ses_http = ReplayHttp::new(Service::Ses, ses_reply);
-        let outcome = sender(s3_http, ses_http.clone())
+        let ses_http = ReplayHttp::new(ses_reply);
+        let outcome = sender_with_template(ses_http.clone(), template)
             .send(message)
             .with_subscriber(subscriber)
             .await;

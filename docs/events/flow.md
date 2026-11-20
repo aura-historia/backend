@@ -1,8 +1,8 @@
 # Event flow
 
 This document owns event sources, routing and consumer completion semantics.
-[Architecture](../arch.md#12-cdc-and-projection-architecture) owns general rules;
-the [worker runbook](../durable-worker-runbook.md) owns activation and recovery.
+[Architecture](../arch.md#12-outbox-queue-and-projection-architecture) owns general rules;
+the [worker runbook](../durable-worker-runbook.md) owns recovery.
 Code and configuration define exact codecs and resource settings, not live state.
 
 ## Delivery paths
@@ -10,11 +10,10 @@ Code and configuration define exact codecs and resource settings, not live state
 ```mermaid
 flowchart TD
     Writes[Service transaction] --> PG[PostgreSQL state and events]
-    PG --> DMS[DMS CDC]
-    DMS --> Kinesis[Kinesis]
-    Kinesis --> Router[Router Lambda]
-    Router --> Standard[Scoped Standard SQS queues]
-    Router --> Consent[Recipient-scoped consent FIFO]
+    PG -->|AFTER INSERT trigger, same transaction| Outbox[delivery_outbox]
+    Outbox --> Dispatcher[Outbox dispatcher]
+    Dispatcher --> Standard[Standard job scopes]
+    Dispatcher --> Consent[Recipient-grouped consent FIFO scope]
     Standard --> Workers[Worker use cases]
     Consent --> Loops[Consent use case and Loops adapter]
     Intake[Async partner and provider intake] --> Commands[ProductListing command FIFO]
@@ -23,21 +22,22 @@ flowchart TD
 
 Command admission and committed-change delivery are separate boundaries. An API
 success may confirm a transaction or queue custody; neither implies search visibility
-or external delivery. PostgreSQL remains authoritative. DMS start and router activation
-require the [infrastructure procedure](../infra.md#cdc-and-scheduled-work).
-Routine application delivery leaves DMS running and preserves selected-source identity,
-strict router shapes, retained-message readers and intentional consumer/schedule activation.
-Any captured relation DDL, capture selection/topology change or consumer retirement requires
-reviewed maintenance through the same environment admission hold. Stopping DMS does not
-drain Kinesis/SQS, discard retained contracts or authorize a new slot/start position; use
-[controlled maintenance and recovery](../durable-worker-runbook.md#approved-dms-maintenance).
+or external delivery. PostgreSQL remains authoritative. Capture is part of the writer's
+transaction: a committed source insert always has its outbox row, and a rolled-back one has
+none. The outbox, the [job queue](../../src/platform-postgres-queue/README.md) and their custody
+tables are the whole delivery path; nothing outside PostgreSQL holds work in transit.
+Changing a selected source's routed columns needs the capture trigger, the dispatcher's codec
+and the route to change together, under a new snapshot version when stored rows could still
+carry the old shape. The [delivery outbox](../../src/delivery-outbox/README.md) owns
+dispatch mechanics and the [worker runbook](../durable-worker-runbook.md#delivery-outbox-recovery)
+owns recovery.
 
 ## Account identity deletion
 
-Account removal atomically appends `user_identity_deletion_requests`. DMS selects only
-its deleted user ID; provider identities and delivery state stay outside CDC. Inserts
+Account removal atomically appends `user_identity_deletion_requests`. The outbox captures
+only its deleted user ID; provider identities and delivery state stay outside the outbox. Inserts
 route schema-1 `USER_IDENTITY_DELETION` jobs to the isolated `user-identity-deletion`
-Standard queue. The worker rereads retained identity state and acknowledges only committed
+standard scope. The worker rereads retained identity state and acknowledges only committed
 completion. Unknown targets, active claims and uncertain provider effects remain retryable.
 [Account lifecycle](../account-lifecycle.md) owns provider and re-registration rules;
 [worker recovery](../durable-worker-runbook.md#user-identity-deletion-recovery) owns redrive.
@@ -47,7 +47,7 @@ completion. Unknown targets, active claims and uncertain provider effects remain
 [Shipping](../shipping.md#immutable-management-change-signals) owns version 1 immutable
 profile/default signals, retained deletion fences and protected history. Only the
 minimal address-free signals atomically coalesce durable shipping dependency work.
-Terms, evidence, creation receipts and original signals remain outside ordinary CDC.
+Terms, evidence, creation receipts and original signals are never captured by the outbox.
 Only `listing_shipping_wakeups` (work UUID and positive bigint generation) is selected;
 schema-1 `LISTING_SHIPPING` jobs target the isolated `listing-shipping` worker scope.
 Workers reread current committed dependencies and checkpoint bounded pages. See the
@@ -75,8 +75,8 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   apply through the existing delivery use case after catalog normalization commits.
   Their failures do not undo terminal raw progress. Existing shipping change and validity
   signals retain their ordinary transaction boundaries.
-- Async partner commands and mapped Shopify/WooCommerce observations use a separate
-  ProductListing FIFO. The consumer commits canonical state/event or raw capture
+- Async partner commands, mapped Shopify/WooCommerce observations and crawler raw
+  observations use the separate `product-listing-ingestion` FIFO scope of the job queue. The consumer commits canonical state/event or raw capture
   together with its successful command receipt. [Admission, execution and retry identity](../product-listing.md#asynchronous-ingestion-submission)
   are independent of downstream normalization and projection.
 - Provider observations of one source record are ordered by provider source time. An
@@ -104,11 +104,21 @@ unknown products retain their ordering fence without creating a canonical listin
 `SHOPIFY_PRODUCT` payload schema 1 retains the nested listing snapshot, stripping
 `body_html` inside `product_listing` (and at the outer level). Raw values use schema 1.
 Unsupported schemas fail closed. Broad `products/*` topics are acknowledged
-without forwarding, including queue redrives.
+without forwarding.
 
-`X-Shopify-Triggered-At` continues to supply webhook source-time ordering independently
+Shopify delivers these topics over HTTPS to [`POST /v1/webhooks/shopify`](../swagger.yaml).
+The API verifies `X-Shopify-Hmac-Sha256` over the exact body with the app client secret
+(current or, during rotation, previous) before reading anything else, maps the delivery
+headers to the observation's provenance and answers `200` only after confirmed command
+admission. A malformed or unmappable delivery is `400`; uncertain admission is `5xx` and
+Shopify retries it for about four hours. A longer outage is recovered by re-importing.
+
+`X-Shopify-Triggered-At` supplies webhook source-time ordering independently
 of product `updated_at`, using the existing provider ordering and deletion-barrier rules
-above. Provider receipt and command deduplication remain unchanged.
+above. The required `X-Shopify-Webhook-Id` keys the provider receipt and the command
+identity, so Shopify's retries of one delivery deduplicate. Separate subscriptions deliver
+one event under different webhook IDs; equal listing state then collapses during capture.
+The retained raw provenance keeps `eventBridgeEventId`, which is `null` for HTTPS deliveries.
 
 Initial/manual/recovery imports use the existing canonical asynchronous upsert and
 withdrawal endpoints. The app owns publication reads: imports upsert published products
@@ -134,35 +144,32 @@ with its authoritative semantic mutation. Default signals contain source/operato
 optional location identities, assignment/location revision, applicability flags, actor
 and occurrence time, without address, point or evidence. Duplicate current-revision
 no-ops emit nothing; clearing emits a null selection and preserves the ordering fence.
-Location/default rows and receipts remain outside CDC. Exact persistence and
+Location/default rows and receipts are never captured by the outbox. Exact persistence and
 inheritance semantics belong to [geography](../geography.md#listingsource-location-defaults-2000).
 
 These signals atomically establish coalesced durable listing-geography work. The
-`listing_geography_wakeups` table alone adds CDC/job routing; the original journals stay
-outside DMS. Consumers reread current authority under dependency equality guards and
+`listing_geography_wakeups` table alone adds outbox capture and job routing; the original journals stay
+outside capture. Consumers reread current authority under dependency equality guards and
 use the listing's monotonic projection fence. Location correction, retirement,
 source replacement/clear and provider rights/expiry refresh current read state without
 rewriting historical listing assertions. Missing authority produces absence. See the
 [effective geography contract](../geography.md#effective-listing-geography-2003) and
 [recovery runbook](../durable-worker-runbook.md#listing-geography-recovery).
 
-## CDC routing
+<a id="cdc-routing"></a>
 
-The router consumes native Kinesis envelopes containing strict DMS records. It
-validates the complete route and encoded jobs before any send, and checkpoints only
-once every required publication is confirmed. Partial or uncertain fanout can duplicate
-jobs. Failure stops at the earliest unconfirmed sequence; safe non-trigger operations
-and informational controls produce no jobs. Invalid rows and incompatible schema
-controls retain failure custody rather than being silently skipped. The DMS-generated
-`create-table` control for `awsdms_apply_exceptions` in the empty target schema is
-informational and creates no jobs; this exception does not accept its data records,
-other schema operations or unknown tables.
+## Outbox routing
 
-The DMS adapter decodes a serialized JSONB `product_listing_events.payload` once
-before shared event validation; already-object payloads follow the same validation.
-Malformed JSON, non-object values, unsupported versions and invalid event fields
-retain failure custody. Other row fields and raw evidence are not decoded into
-jobs. This transport conversion preserves event identity and retry keys.
+An `AFTER INSERT` row trigger on each selected source captures a versioned snapshot of exactly
+the columns its route reads, in the writer's transaction. The dispatcher routes each snapshot
+and enqueues all of its jobs atomically, and moves a snapshot it cannot decode, route or encode
+into failure custody without blocking later ones; the
+[delivery outbox](../../src/delivery-outbox/README.md) owns capture, dispatch and custody.
+Updates and deletes of selected sources, and every other table, capture nothing.
+
+ProductListing event snapshots carry the JSONB `payload` as an object; routing validates the
+complete event contract. Other row fields and raw evidence are not captured. Snapshots are
+transport: jobs carry compact identities, never snapshots.
 
 | Selected source | Trigger | Consumer |
 | --- | --- | --- |
@@ -174,6 +181,7 @@ jobs. This transport conversion preserves event identity and retry keys.
 | `geo_resolution_wakeups` | INSERT | Geographic resolution worker |
 | `listing_geography_wakeups` | INSERT | Effective listing geography worker |
 | `listing_shipping_wakeups` | INSERT | Effective listing shipping worker |
+| `user_identity_deletion_requests` | INSERT | User identity deletion worker |
 
 Product event fanout:
 
@@ -192,23 +200,24 @@ rows, saved-filter configuration, Users, watchlist entries, Auction events, proo
 operational receipts do not implicitly trigger these routes. In particular, a User update
 is not a subscription job.
 
-Consent CDC is deliberately minimized: INSERT/UPDATE carry only `intent_id` and
-`recipient_key`; DELETE carries only the primary key under default replica identity.
-Only INSERT produces work; extra fields fail validation even on non-trigger operations.
-Email, profile, proof, source keys, leases and provider data must not enter this CDC path.
+Consent capture is deliberately minimized to `intent_id` and `recipient_key`. Email,
+profile, proof, source keys, leases and provider data never enter the outbox. Each recipient's
+intents reach its FIFO group in commit order ([ordering](../../src/delivery-outbox/README.md#ordering)).
+A snapshot redriven from custody runs after that recipient's intents that were already
+dispatched; the consent worker rereads its intent, so it cannot override a newer one.
 
-Geographic resolution CDC selects only the immutable resolution ID/generation wake-up
-table, with exact decimal-string generations. All operations reject extra columns.
+Geographic resolution capture selects only the immutable resolution ID/generation wake-up
+table, with integer generations. Extra columns fail closed.
 Private inputs, cache fingerprints, tenant scope, review choices and provider evidence
-remain outside CDC. Resolution claims/completions reread PostgreSQL; old generations
+remain outside the outbox. Resolution claims/completions reread PostgreSQL; old generations
 complete as superseded and active leases retain retry custody. Hourly backend cleanup
 supplies recovery for missed deliveries by advancing runnable pending generations and
 inserting fresh immutable wake-ups, preserving attempts. It
 also purges ineligible evidence and commits invalidation. Cleanup makes no provider
-calls; fresh recovery wake-ups require the normal CDC/SQS path to be healthy.
+calls; fresh recovery wake-ups require the outbox dispatcher to be running.
 Accepted evidence and the content-free enrichment/invalidation journal commit together.
 Dependency journal inserts atomically coalesce effective-listing-geography work.
-Only its compact work ID/generation wake-ups participate in CDC; private source
+Only its compact work ID/generation wake-ups are captured by the outbox; private source
 evidence, addresses, resolution payloads and checkpoints do not. See [durable geography](../geography.md#durable-resolution-and-party-integration-2002).
 Cached reuse emits a subject-specific RESOLVED signal for a new source binding;
 source revision changes clear reviewed geography and atomically emit INVALIDATED,
@@ -225,33 +234,35 @@ version 2 with strict codecs, verified semantic fingerprints and stable retry id
 Mutable text uses the same explicit `UNCHANGED`/`CLEAR`/`SET` wire patches as other fields;
 request omission and null retain distinct semantic fingerprints. Unsupported envelope versions
 are rejected. The FIFO grouping, deduplication and command identity rules remain stable.
-Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
+Jobs carry compact identity/revision metadata, never outbox snapshots or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
 credentials, signatures and signed request headers still never enter it.
 
-Exact route and wire definitions live in [CDC routing](../../src/aura-historia-cdc-routing/src/lib.rs),
-[router decoding](../../src/cdc-router-lambda/src/cdc.rs) and [job codecs](../../src/aura-historia-jobs/src/).
+Exact route and wire definitions live in the [routing crate](../../src/aura-historia-cdc-routing/src/lib.rs),
+[snapshot codecs](../../src/delivery-outbox/src/snapshot.rs), the
+[capture trigger](../../migrations/20261118090000_delivery_outbox.sql) and
+[job codecs](../../src/aura-historia-jobs/src/).
 
 ## Consumer completion and fences
 
 Workers invoke service use cases and acknowledge only confirmed completed outcomes.
 Duplicates, authoritative stale skips and deliberately ignored inputs may complete;
 missing required source, active leases, malformed jobs, dependency failure or uncertain
-commit/effect do not. A FIFO consumer moves a job that can never succeed as delivered into
-its own DLQ on redelivery and acknowledges it only once the transfer is confirmed
+commit/effect do not. A consumer parks a job that can never succeed as delivered; the queue
+moves it into `job_queue_failures` custody on redelivery
 ([failure custody](../durable-worker-runbook.md#failure-custody-and-controlled-redrive)).
-SQS transport IDs are not business idempotency keys.
+Job IDs are not business idempotency keys.
 
 | Consumer | Authority and completion rule |
 | --- | --- |
-| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the DLQ on redelivery; other failures retain only their own FIFO message group. |
+| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the job queue's failure custody on redelivery; other failures retain only their own FIFO group. |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. A delivery has exactly one source: a notification, a saved-search digest or an [external email](#external-email-delivery). |
-| Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; an undecodable job or missing intent moves to the DLQ on redelivery. See [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
+| Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; an undecodable job or missing intent moves to custody on redelivery. See [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
 | Geographic resolution | Lease a bounded claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Acknowledge settled generations, including `BLOCKED`/`FAILED`; retain contention, transient failures and provider-gated work (see [recovery](../durable-worker-runbook.md#geographic-resolution-recovery)). |
 
 ProductListing projections use externally versioned, content-free
@@ -268,21 +279,20 @@ freshness or widen the scheduled matching interval.
 | Intake | Boundary and acknowledgment |
 | --- | --- |
 | WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. Delivery IDs are unique only per webhook and second, so command and provider-receipt identity also bind the product and the sanitized evidence digest; the randomly sampled `related_ids` is not evidence. Deletions, including non-public status updates, carry the product ID as `sourceListingId`, so they withdraw the product's listing even when no live upsert has bound its raw stream, such as a listing created through the partner API. |
-| Shopify | Partner EventBridge → retained provider Standard queue → Shopify Lambda → command FIFO. Forwarding and command application are separate acknowledgments and failure locations. |
-| Stripe | Partner EventBridge → dedicated Lambda → User-service reconciliation. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. |
+| Shopify | Signed HTTPS webhook → API → command FIFO. The `200` acknowledges confirmed admission, not raw capture; command application is a separate acknowledgment and failure location. Shopify's retries end after about four hours; re-importing recovers longer outages. |
+| Stripe | Signed HTTP webhook → synchronous User-service reconciliation; the answer is the acknowledgment. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. See [Stripe subscription reconciliation](#stripe-subscription-reconciliation). |
 | Cognito pre-sign-up | Federated collision checks fail closed. Linking requires the explicit provider trust policy and verified persisted identity; email alone is insufficient. |
 | Cognito post-confirmation | Registration commits the initial User/binding. Profile bootstrap applies only on first creation; replay does not synchronize profile or restore consent. [Signup consent](../marketing-consent.md#grants-and-double-opt-in) is a separate verified decision. |
 | Loops | Exact-byte signed HTTP event → atomic preference application/receipt. See [preference webhooks](../marketing-consent.md#preference-webhooks). |
-| Cleanup / FX | Scheduler invokes bounded use cases. Expiry is enforced on use; cleanup is not an authorization check. FX occurrences keep stable retry identity. |
-| Periodic matching | Scheduler starts a one-shot Fargate task; see [saved-filter matching](#periodic-saved-filter-matching). |
-| Log retention | AWS log-group creation invokes the retention handler; narrowly configured evidence groups are exempt. It does not grant business runtimes log-administration rights. |
+| Cleanup / FX | [Host timers](../../host/prod/README.md#scheduled-jobs) run `ops backend-cleanup` hourly and `ops fx-refresh` twice a day; each invokes bounded use cases. Expiry is enforced on use; cleanup is not an authorization check. FX occurrences keep stable retry identity. |
+| Periodic matching | A daily host timer runs the one-shot `ops periodic-match`; see [saved-filter matching](#periodic-saved-filter-matching). |
 
 The Cognito collision policy is provider-specific: Google linking requires verified
 incoming and destination identities; Facebook collisions are rejected, and a profile
 linked to Facebook is not a Google-link destination. The database's email uniqueness
-remains the race barrier. [Identity recovery](../infra.md#manual-platform-operations) must preserve
+remains the race barrier. [Identity recovery](../infra.md#federated-registration-conflicts) must preserve
 the existing bound account. PostConfirmation errors propagate but do not roll back
-Cognito confirmation; there is no durable queue/DLQ for that registration boundary.
+Cognito confirmation; there is no durable queue or custody for that registration boundary.
 Unsettled PostgreSQL registration therefore needs operator recovery.
 
 ### Periodic saved-filter matching
@@ -401,10 +411,10 @@ remain incomplete task outcomes. The final short transaction rechecks filter ver
 state/progress and current listing event before idempotent insertion. Matching pins persisted
 FX at the window end and retains historical sale-observation valuations. An opted-in
 shipping match separately retains immutable FX ID/capture time and target maximum, without
-changing its private destination snapshot. Shipping valuation columns remain excluded from
-CDC; notification wake-ups still carry match identifiers only. Existing source-currency predicates retain their
+changing its private destination snapshot. Shipping valuation columns are never captured by
+the outbox; notification wake-ups still carry match identifiers only. Existing source-currency predicates retain their
 meaning. Subsequent FX captures do not rewrite matches or repeat their notifications.
-Persisted match INSERTs feed the existing CDC notification route independently of external notification
+Persisted match INSERTs feed the existing outbox notification route independently of external notification
 eligibility and monthly quotas.
 
 An interactive [match preview](../../src/search-filter-service/src/use_cases/preview_search_filter_matches.rs)
@@ -429,14 +439,14 @@ owns operator checks.
 
 Saved-search email uses one durable user/run group. PostgreSQL freezes the run's
 intended filters and their versioned matching configuration before discovery. The
-persisted window end is the logical run identity: resumed invocations finish that
+persisted window end is the logical run identity: a resumed execution finishes that
 run before starting another. Candidate selection, including an empty set, is also
 frozen before evaluation so process restarts cannot refill the first-50 budget.
 Successful, changed/inactive and superseded filters
 are terminal; exhausted retries remain pending until recovery or the fixed 24-hour
 run deadline. A user's group can finish independently of other users' failed filters.
 
-New matches carry their run identity at insertion. The existing CDC generator still
+New matches carry their run identity at insertion. The existing match-notification generator still
 selects each match under the authoritative user-tier lock and unchanged monthly
 ranking (distinct origin events, creation time and event identity). Selection reads
 its completion fence after acquiring that lock, including suppression and replay,
@@ -445,7 +455,7 @@ and cross-filter display deduplication do not change that quota unit. Per-filter
 matches, feedback and per-match in-app notifications retain their existing behavior.
 Notification creation, eligible email membership snapshots and selection completion
 commit together. Suppressed selections are terminal; failed transactions remain
-recoverable. Repeated classifier evaluation and CDC replay cannot enroll an existing
+recoverable. Repeated classifier evaluation and outbox redrive cannot enroll an existing
 match again.
 
 Both filter completion and match notification selection attempt finalization for
@@ -495,68 +505,96 @@ address, as the email provider requires: a producer converts an international do
 punycode and rejects an address it cannot convert, which the provider would refuse
 permanently.
 
-The delivery row carries only the message identity. As for every source, DMS publishes
-only the delivery primary key, and the router job carries only `notification_delivery_id`.
-Recipient address, language and payload never enter Kinesis, SQS or logs. Delivery takes
+The delivery row carries only the message identity. As for every source, the outbox
+captures only the delivery primary key, and the routed job carries only `notification_delivery_id`.
+Recipient address, language and payload never enter the outbox, jobs or logs. Delivery takes
 the recipient and language from the message, never from a user account, and renders the
 kind's template in that language or in English. External templates carry no name and no
 account or notification-settings links. Claim, lease, fenced finalization, retry
-classification, attempt counting, DLQ and alarms are shared with user notifications.
+classification, attempt counting and custody are shared with user notifications.
 The delivery attempt's logs label the source as `notification`, `digest` or `external`,
 including when a claimed source is rejected. A missing message or an unknown or
-undecodable message is invalid persisted state and follows the invalid-job path to the
-DLQ. It is never treated as suppression.
+undecodable message is invalid persisted state and follows the invalid-job path to
+custody. It is never treated as suppression.
 
 The message and its payload are personal data. Each origin owns their retention and
 erases its messages by origin; there is no automatic purge. Erasure removes only
 messages whose delivery is `DELIVERED` or `FAILED`, together with that delivery. It keeps
 and reports pending or in-progress messages, so it never races a send or strands a
 delivery job (a job for a missing delivery is retried, not acknowledged). Origins erase
-those again once they finish. Retention periods must exceed the delivery queue's message
-retention, so no duplicate job outlives its delivery row.
+those again once they finish. A duplicate job whose delivery row was erased is retried until
+its budget moves it to custody; it sends nothing.
 
 Roll out as expand before contract. Deploy the schema and delivery support for a source
 or template kind before any producer writes it.
 
 ### Stripe subscription reconciliation
 
-Subscription created, updated and deleted events request a fresh customer/subscription
-read; their snapshots do not directly assign tiers. Stripe [does not guarantee event
-ordering](https://docs.stripe.com/event-destinations/eventbridge#event-ordering), and
-second-resolution event timestamps cannot establish a total order.
+Stripe delivers `customer.subscription.created`, `.updated` and `.deleted` to the API's
+signed webhook, `POST /v1/webhooks/stripe` ([API contract](../swagger.yaml)). The
+`Stripe-Signature` proof is checked against the raw body before anything is parsed:
+HMAC-SHA256 over `{timestamp}.{body}` with the endpoint signing secret, any `v1` signature
+in the header may match so secret rotation works, other header entries are ignored, the
+timestamp must lie within five minutes of arrival, and comparison is constant-time. The
+webhook endpoint must be created with API version `2026-10-28.endive`
+(`STRIPE_WEBHOOK_API_VERSION` in `billing-stripe`); subscription events rendered with
+another version fail closed, so changing the version means a new endpoint together with a
+code change, as in Stripe's [endpoint
+upgrade](https://docs.stripe.com/upgrades#update-your-webhook-endpoints). Other
+authenticated event types are acknowledged without effects.
 
-The Stripe event ID identifies a durable receipt. Reusing it with different canonical
-content, customer or subscription identity fails closed. Receipts are retained for replay
-safety. Identical completed deliveries skip provider I/O. A customer reconciliation
-revision advances on every completed new event, including unchanged tiers. If another
-reconciliation commits during a provider read, the older reader must retry from current
-state. Provider failures, malformed selected events, unknown users and identity conflicts
-remain failures for Lambda’s asynchronous retry policy. This route currently has no
-configured asynchronous failure destination; exhausted retries require operator replay
-from retained provider event evidence.
+Subscription events request a fresh customer/subscription read; their snapshots do not
+directly assign tiers. Stripe [does not guarantee event
+ordering](https://docs.stripe.com/webhooks#event-ordering), and second-resolution event
+timestamps cannot establish a total order.
+
+The Stripe event ID identifies a durable receipt, fingerprinted by event type,
+subscription and customer. Delivery metadata such as `pending_webhooks` and the rendered
+snapshot are not part of it, so redeliveries and the same event sent to several
+destinations dedupe. Reusing an ID with a different type, customer or subscription fails
+closed. Older receipts fingerprint the whole rendered snapshot; their scheme is stored with
+them, and they dedupe a delivery of the same event by customer and subscription alone.
+Receipts are retained for replay safety. Identical completed deliveries skip provider I/O.
+A customer reconciliation revision advances on every completed new event, including
+unchanged tiers. If another reconciliation commits during a provider read, the older
+reader must retry from current state.
+
+The webhook answers only after the reconciliation commits or fails, within a 20-second
+budget that covers the bounded provider read. Completed and identical replayed events
+answer `2xx`. Malformed events and conflicting receipts answer `400`. Provider failures,
+unknown users, identity conflicts, invalid provider state, uncertain commits and an
+exhausted budget answer `5xx`. Stripe retries every non-2xx answer for up to three days in
+live mode; once the cause is fixed, an operator resends a failed event from the Stripe
+Dashboard within 15 days or with `stripe events resend` within 30 days of its creation.
+The log event `stripe_webhook.reconciliation_failed` records each `5xx` with its causes,
+and `stripe_webhook.rejected` each authentic event answered `400`; unauthenticated
+requests are not logged.
 
 Current `active`, `trialing` and `past_due` subscriptions grant the highest configured
-product tier across the customer's subscriptions. `past_due` retains access during
-payment recovery; canceled, unpaid, incomplete, expired and paused subscriptions grant
-none. Unknown statuses/products and incomplete responses fail closed. Subscription
-pagination is explicit and the entire provider read has a bounded deadline. Customer
-metadata may establish an unbound user's association but cannot replace another customer
-or contradict an existing user's association.
+product tier across the customer's subscriptions. `past_due` retains access during payment
+recovery; canceled, unpaid, incomplete, expired and paused subscriptions grant none.
+Unknown statuses/products and incomplete responses fail closed. Subscription pagination is
+explicit and the entire provider read has a bounded deadline. Customer metadata may
+establish an unbound user's association but cannot replace another customer or contradict
+an existing user's association.
 
-The consumer and billing API share the `STRIPE_API_KEY` stage credential: restricted permissions must preserve customer creation
-and Checkout/billing-portal session creation, plus customer and subscription reads.
-The key, product/price identifiers and event destination must use the same Stripe account
-and test/live environment. No transaction stays open across Stripe I/O; a failed
-application rolls back its receipt and revision together with business changes.
+The reconciliation and billing API share `STRIPE_API_KEY` from the host's `stripe.env`
+([secrets](../host/prod/README.md#secrets)): restricted permissions must preserve customer
+creation and Checkout/billing-portal session creation, plus customer and subscription reads.
+The endpoint signing secret, `STRIPE_WEBHOOK_SIGNING_SECRET` in the same file, is never
+logged. The API refuses to start without a valid `whsec_` secret. The key,
+product/price identifiers and webhook endpoint must use the same Stripe account and
+test/live environment. No transaction stays open across Stripe I/O; a failed application
+rolls back its receipt and revision together with business changes.
 
 ## Operations and validation
 
-[Worker operations](../durable-worker-runbook.md) distinguish router archives, worker
-DLQs, upstream provider failures and scheduled-task failures. Infrastructure declarations
-and fixtures do not prove delivery. Observe real mapping states, lag, backlog and completed
+[Worker operations](../durable-worker-runbook.md) distinguish outbox custody, job custody,
+upstream provider failures and scheduled-job failures. Infrastructure declarations
+and fixtures do not prove delivery. Observe real lag, backlog, custody and completed
 outcomes before retiring a producer or enabling traffic.
 
-Tests should cover strict CDC decoding, fanout, duplicate/reordered work, stale source
+Tests should cover strict snapshot decoding, fanout, duplicate/reordered work, stale source
 markers, uncertain commits, FIFO partial failure, notification finalization and deletion
 fences/rebuilds. Use isolated real dependencies where needed; live probes require approval.
 
@@ -578,7 +616,7 @@ source authority. Shipping invalidation consumes these committed records without
 rereads current state and tolerates duplicate/out-of-order signals. Profile/source-default
 management signals, canonical listing events and geographic lifecycle/rights signals use
 the same durable work basis. Neither original assertion content nor producer ownership
-keys enter the CDC job.
+keys enter the job.
 
 Effective shipping appends schema-1 `ENRICHMENT_SHIPPING_UPDATED` with exactly `{}` only
 when the public compact summary changes, or when an import accepts a new acquisition of

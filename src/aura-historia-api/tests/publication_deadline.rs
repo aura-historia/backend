@@ -1,44 +1,32 @@
-//! Deadline regression across HTTP API v2, the shared HTTP middleware, partner admission,
-//! and the real SQS SDK publisher. The connector replaces only the network, not the SDK.
+//! Deadline regression across the HTTP router and its request timeout, the shared HTTP
+//! middleware, partner admission, and the real queue publisher. Only the enqueue statement is
+//! fake.
 use application::operation_context::CredentialCapability;
 use aura_historia_api::{
-    app,
+    app_with_request_timeout,
     auth::{AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal},
-    lambda::handle_http_api_v2_request,
     state::{AppState, AsyncPartnerProductListingsState},
 };
-use aws_sdk_sqs::config::{Credentials, Region};
-use aws_smithy_runtime_api::{
-    client::{
-        http::{
-            HttpClient, HttpConnector, HttpConnectorFuture, HttpConnectorSettings,
-            SharedHttpConnector,
-        },
-        orchestrator::{HttpRequest, HttpResponse},
-        result::ConnectorError,
-        runtime_components::RuntimeComponents,
-    },
-    shared::IntoShared,
-};
-use aws_smithy_types::body::SdkBody;
 use axum::{Router, body::to_bytes, http::StatusCode};
-use lambda_http::{RequestExt, lambda_runtime::Context};
-use product_listing_ingestion_sqs::{
-    ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
+use product_listing_ingestion_queue::{
+    AdmissionError, IngestionAdmission, IngestionJob, QueueProductListingIngestionPublisher,
+    ScopedProductListingIngestionPublisher,
 };
 use product_listing_service::use_cases::SubmitPartnerProductListingIngestionHandler;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::sync::{mpsc, oneshot};
+use tower::ServiceExt;
 use user_core::user_id::UserId;
 
-const QUEUE_URL: &str = "https://sqs.us-east-1.amazonaws.com/123456789012/ingestion.fifo";
 const SOURCE_ID: &str = "ls_01h455vb4pex5vy7enb1p677vn";
 const PATH: &str = "/v1/listing-sources/ls_01h455vb4pex5vy7enb1p677vn/product-listings/async";
+/// Publication stops 300ms before the request times out.
+const TIMEOUT: Duration = Duration::from_secs(4);
 
 struct Auth {
     gate: Option<Arc<Gate>>,
@@ -85,112 +73,80 @@ impl TokenAuthenticator for Auth {
     }
 }
 
-// Every request goes through SQS request building/signing, wire serialization and receipt parsing.
-// Only the HTTP connector is fake: index 2 and listing `stall` never return a receipt.
-#[derive(Clone, Debug)]
-struct SqsHttp {
-    requests: mpsc::UnboundedSender<Value>,
+/// One enqueue the publisher started: its FIFO group and decoded wire message.
+#[derive(Debug)]
+struct Sent {
+    group: String,
+    message: Value,
 }
 
-impl HttpConnector for SqsHttp {
-    fn call(&self, request: HttpRequest) -> HttpConnectorFuture {
-        assert_eq!(request.method(), "POST");
-        assert_eq!(request.uri(), "https://sqs.us-east-1.amazonaws.com/");
-        assert_eq!(
-            request.headers().get("x-amz-target"),
-            Some("AmazonSQS.SendMessageBatch")
-        );
-        assert!(request.headers().get("authorization").is_some());
-        let body: Value = serde_json::from_slice(request.body().bytes().unwrap()).unwrap();
-        assert_eq!(body["QueueUrl"], QUEUE_URL);
-        let entries = body["Entries"].as_array().unwrap();
-        let stalled = entries.iter().any(|entry| {
-            let message: Value =
-                serde_json::from_str(entry["MessageBody"].as_str().unwrap()).unwrap();
-            message["index"] == 2 || message["payload"]["command"]["sourceListingId"] == "stall"
-        });
-        self.requests
-            .send(body.clone())
-            .expect("test must observe all SDK calls");
+// Every command goes through the publisher's encoding, FIFO keys and deadline handling. Only the
+// enqueue statement is fake: index 2 and listing `stall` never return.
+struct Admission {
+    sent: mpsc::UnboundedSender<Sent>,
+}
+
+#[async_trait::async_trait]
+impl IngestionAdmission for Admission {
+    async fn enqueue(&self, job: &IngestionJob) -> Result<(), AdmissionError> {
+        let message: Value = serde_json::from_str(job.body()).unwrap();
+        let stalled =
+            message["index"] == 2 || message["payload"]["command"]["sourceListingId"] == "stall";
+        self.sent
+            .send(Sent {
+                group: job.group_key().as_str().to_owned(),
+                message,
+            })
+            .expect("test must observe all enqueues");
         if stalled {
-            return HttpConnectorFuture::new(async {
-                std::future::pending::<Result<HttpResponse, ConnectorError>>().await
-            });
+            std::future::pending::<()>().await;
         }
-        let successful: Vec<_> = entries.iter().map(|entry| {
-            json!({"Id": entry["Id"], "MessageId": "confirmed", "MD5OfMessageBody": "0123456789abcdef0123456789abcdef"})
-        }).collect();
-        let response: HttpResponse = http::Response::builder()
-            .status(200)
-            .header("content-type", "application/x-amz-json-1.0")
-            .body(SdkBody::from(
-                json!({"Successful": successful, "Failed": []}).to_string(),
-            ))
-            .unwrap()
-            .try_into()
-            .unwrap();
-        HttpConnectorFuture::ready(Ok(response))
+        Ok(())
     }
 }
 
-impl HttpClient for SqsHttp {
-    fn http_connector(
-        &self,
-        _: &HttpConnectorSettings,
-        _: &RuntimeComponents,
-    ) -> SharedHttpConnector {
-        self.clone().into_shared()
-    }
-}
-
-fn router(requests: mpsc::UnboundedSender<Value>, gate: Option<Arc<Gate>>) -> Router {
-    let config = aws_sdk_sqs::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new(
-            "test",
-            "test",
-            None,
-            None,
-            "deadline-test",
-        ))
-        .http_client(SqsHttp { requests })
-        .build();
-    let publisher = ScopedSqsProductListingIngestionPublisher::new(
-        SqsProductListingIngestionPublisher::new(aws_sdk_sqs::Client::from_conf(config), QUEUE_URL),
+/// One warm composition: the same state and publisher serve every request.
+fn state(sent: mpsc::UnboundedSender<Sent>, gate: Option<Arc<Gate>>) -> AppState {
+    let publisher = ScopedProductListingIngestionPublisher::new(
+        QueueProductListingIngestionPublisher::new(Admission { sent }),
     );
     let state = AsyncPartnerProductListingsState::new(
         Arc::new(SubmitPartnerProductListingIngestionHandler::new(publisher)),
         Arc::new(Auth { gate }),
     );
-    app(AppState::new().with_async_partner_product_listings(state))
+    AppState::new().with_async_partner_product_listings(state)
 }
 
-fn request(body: &str, key: Option<&str>, remaining: Duration) -> lambda_http::Request {
-    let mut event = json!({
-        "version": "2.0", "routeKey": "$default", "rawPath": PATH, "rawQueryString": "",
-        "headers": {
-            "authorization": "Bearer partner-token", "content-type": "application/json",
-            "host": "api.example.test", "origin": "https://client.example.test"
-        },
-        "requestContext": {"stage": "$default", "http": {
-            "method": "DELETE", "path": PATH, "protocol": "HTTP/1.1",
-            "sourceIp": "127.0.0.1", "userAgent": "deadline-test"
-        }},
-        "body": body, "isBase64Encoded": false
-    });
+/// The router over `state` whose requests time out after `timeout`.
+fn router(state: &AppState, timeout: Duration) -> Router {
+    app_with_request_timeout(state.clone(), timeout)
+}
+
+fn request(body: &str, key: Option<&str>) -> axum::http::Request<axum::body::Body> {
+    let mut request = axum::http::Request::delete(PATH)
+        .header("authorization", "Bearer partner-token")
+        .header("content-type", "application/json")
+        .header("host", "api.example.test")
+        .header("origin", "https://client.example.test");
     if let Some(key) = key {
-        event["headers"]["idempotency-key"] = json!(key);
+        request = request.header("idempotency-key", key);
     }
-    let mut context = Context::default();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
+    request
+        .body(axum::body::Body::from(body.to_owned()))
         .unwrap()
-        .as_millis() as u64;
-    context.deadline = now + remaining.as_millis() as u64;
-    lambda_http::request::from_str(&event.to_string())
+}
+
+/// Sends one request through a router whose requests time out after `timeout`.
+async fn send(
+    state: &AppState,
+    body: &str,
+    key: Option<&str>,
+    timeout: Duration,
+) -> axum::response::Response {
+    router(state, timeout)
+        .oneshot(request(body, key))
+        .await
         .unwrap()
-        .with_lambda_context(context)
 }
 
 async fn report(response: axum::response::Response) -> (StatusCode, String, Value) {
@@ -214,15 +170,12 @@ async fn report(response: axum::response::Response) -> (StatusCode, String, Valu
     (status, key, body)
 }
 
-fn wire_index(request: &Value) -> usize {
-    let entries = request["Entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1, "same-group sends must be sequential");
-    let message: Value = serde_json::from_str(entries[0]["MessageBody"].as_str().unwrap()).unwrap();
-    message["index"].as_u64().unwrap() as usize
+fn wire_index(sent: &Sent) -> usize {
+    sent.message["index"].as_u64().unwrap() as usize
 }
 
 #[tokio::test(start_paused = true)]
-async fn delayed_preparation_still_reports_confirmed_custody_before_lambda_408() {
+async fn delayed_preparation_still_reports_confirmed_custody_before_the_request_times_out() {
     let (entered_tx, entered_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
     let gate = Arc::new(Gate {
@@ -230,59 +183,49 @@ async fn delayed_preparation_still_reports_confirmed_custody_before_lambda_408()
         release: Mutex::new(Some(release_rx)),
     });
     let (calls_tx, mut calls_rx) = mpsc::unbounded_channel();
-    let app = router(calls_tx, Some(gate));
+    let state = state(calls_tx, Some(gate));
     let body = r#"[{"sourceListingId":"same"},{"sourceListingId":""},{"sourceListingId":"same"},{"sourceListingId":"same"}]"#;
-    let first = tokio::spawn(handle_http_api_v2_request(
-        app.clone(),
-        request(body, Some("kept-key"), Duration::from_secs(5)),
-    ));
+    let first = tokio::spawn({
+        let state = state.clone();
+        async move { send(&state, body, Some("kept-key"), TIMEOUT).await }
+    });
     entered_rx.await.unwrap();
     tokio::time::advance(Duration::from_secs(2)).await; // time spent preparing the request
     assert!(
         calls_rx.try_recv().is_err(),
-        "no SQS send before authorization"
+        "no enqueue before authorization"
     );
     release_tx.send(()).unwrap();
     let first_call = calls_rx.recv().await.unwrap();
     let second_call = calls_rx.recv().await.unwrap();
     assert_eq!(wire_index(&first_call), 0);
     assert_eq!(wire_index(&second_call), 2);
-    assert_ne!(
-        first_call["Entries"][0]["MessageBody"],
-        second_call["Entries"][0]["MessageBody"]
-    );
-    assert_eq!(
-        first_call["Entries"][0]["MessageGroupId"],
-        second_call["Entries"][0]["MessageGroupId"]
-    );
+    assert_ne!(first_call.message, second_call.message);
+    assert_eq!(first_call.group, second_call.group);
     assert!(!first.is_finished());
 
-    // Same warm router/publisher, different invocation. A hung previous send cannot own its budget.
-    let fresh = handle_http_api_v2_request(
-        app,
-        request(
-            r#"[{"sourceListingId":"fresh"}]"#,
-            Some("fresh-key"),
-            Duration::from_secs(5),
-        ),
+    // Same warm publisher, different request. A hung previous send cannot own its budget.
+    let fresh = send(
+        &state,
+        r#"[{"sourceListingId":"fresh"}]"#,
+        Some("fresh-key"),
+        TIMEOUT,
     )
-    .await
-    .unwrap();
+    .await;
     let (status, key, fresh_report) = report(fresh).await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(key, "fresh-key");
     assert_eq!(fresh_report["acceptedCount"], 1);
     assert_eq!(wire_index(&calls_rx.recv().await.unwrap()), 0);
 
-    // Lambda outer timeout is at 4s; publication stops at 3.7s, leaving response headroom.
+    // The request times out at 4s; publication stops at 3.7s, leaving response headroom.
     tokio::time::advance(Duration::from_millis(1750)).await;
-    let (status, key, body) = report(first.await.unwrap().unwrap()).await;
+    let (status, key, body) = report(first.await.unwrap()).await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(key, "kept-key");
     assert!(body["submissionId"].as_str().unwrap().starts_with("plis1_"));
     assert_eq!(body["acceptedCount"], 1);
-    let confirmed_message: Value =
-        serde_json::from_str(first_call["Entries"][0]["MessageBody"].as_str().unwrap()).unwrap();
+    let confirmed_message = &first_call.message;
     assert_eq!(confirmed_message["listingSourceId"], SOURCE_ID);
     assert_eq!(confirmed_message["submissionId"], body["submissionId"]);
     assert_eq!(confirmed_message["inputCount"], 4);
@@ -298,20 +241,16 @@ async fn delayed_preparation_still_reports_confirmed_custody_before_lambda_408()
 }
 
 #[tokio::test(start_paused = true)]
-async fn zero_acceptance_and_expired_invocation_return_reports_without_poisoning_next_call() {
+async fn zero_acceptance_and_expired_request_return_reports_without_poisoning_next_call() {
     let (calls_tx, mut calls_rx) = mpsc::unbounded_channel();
-    let app = router(calls_tx, None);
-    let stalled = tokio::spawn(handle_http_api_v2_request(
-        app.clone(),
-        request(
-            r#"[{"sourceListingId":"stall"}]"#,
-            None,
-            Duration::from_secs(5),
-        ),
-    ));
+    let state = state(calls_tx, None);
+    let stalled = tokio::spawn({
+        let state = state.clone();
+        async move { send(&state, r#"[{"sourceListingId":"stall"}]"#, None, TIMEOUT).await }
+    });
     assert_eq!(wire_index(&calls_rx.recv().await.unwrap()), 0);
     tokio::time::advance(Duration::from_millis(3750)).await;
-    let (status, generated_key, body) = report(stalled.await.unwrap().unwrap()).await;
+    let (status, generated_key, body) = report(stalled.await.unwrap()).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(!generated_key.is_empty());
     assert_eq!(body["acceptedCount"], 0);
@@ -323,13 +262,15 @@ async fn zero_acceptance_and_expired_invocation_return_reports_without_poisoning
     );
 
     let expired_body = r#"[{"sourceListingId":"fresh"}]"#;
+    // A request whose budget ends before publication could start.
     let (status, key, expired) = report(
-        handle_http_api_v2_request(
-            app.clone(),
-            request(expired_body, Some("retry-key"), Duration::from_millis(1100)),
+        send(
+            &state,
+            expired_body,
+            Some("retry-key"),
+            Duration::from_millis(100),
         )
-        .await
-        .unwrap(),
+        .await,
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
@@ -343,18 +284,11 @@ async fn zero_acceptance_and_expired_invocation_return_reports_without_poisoning
     );
     assert!(
         calls_rx.try_recv().is_err(),
-        "expired invocation must not send"
+        "expired request must not send"
     );
 
-    let (status, key, retry) = report(
-        handle_http_api_v2_request(
-            app,
-            request(expired_body, Some("retry-key"), Duration::from_secs(5)),
-        )
-        .await
-        .unwrap(),
-    )
-    .await;
+    let (status, key, retry) =
+        report(send(&state, expired_body, Some("retry-key"), TIMEOUT).await).await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(key, "retry-key");
     assert_eq!(retry["submissionId"], expired["submissionId"]);

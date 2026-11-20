@@ -8,8 +8,7 @@ use std::collections::BTreeMap;
 use test_api::IntegrationTestService;
 
 #[aura_integration_test(services=[SCHEMA],isolated=true)]
-async fn should_publish_exactly_thirty_eight_complete_tools_on_one_page_across_http_sdk_and_lambda()
-{
+async fn should_publish_exactly_thirty_eight_complete_tools_on_one_page_across_http_and_sdk() {
     let server = Server::start(test_api::get_postgres_client().await).await;
     let expected = manifest_tools();
     assert_eq!(37, expected.len());
@@ -18,7 +17,6 @@ async fn should_publish_exactly_thirty_eight_complete_tools_on_one_page_across_h
     let bytes = response.bytes().await.unwrap();
     assert!(bytes.len() <= MAX_RESPONSE_BYTES);
     let body: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(body, server.lambda(None, "tools/list", json!({})).await);
     assert!(body["result"].get("nextCursor").is_none());
     let mut native = BTreeMap::new();
     for tool in body["result"]["tools"].as_array().unwrap() {

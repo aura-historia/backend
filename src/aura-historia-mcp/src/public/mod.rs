@@ -8,7 +8,7 @@ use aura_historia_runtime::{
     Runtime,
 };
 
-/// Typed handles allow native/Lambda composition and isolated protocol fixtures to use one registry.
+/// Typed handles allow the server's composition and isolated protocol fixtures to use one registry.
 pub struct PublicServices {
     pub listings: PublicProductListings,
     pub history: PublicProductListingHistory,

@@ -1,4 +1,5 @@
 use oauth_core::resource::AuraResourcePolicy;
+use platform_process::RateLimit;
 use std::{net::SocketAddr, time::Duration};
 use url::Url;
 
@@ -27,6 +28,9 @@ pub struct TransportConfig {
     /// Muse's domain verification token; it names the challenge path as well as its body.
     /// Absent means no challenge path exists.
     pub muse_challenge: Option<String>,
+    /// The process's request-rate limit, which replaces the API Gateway stage throttle; `None`
+    /// (the library default) limits nothing. Liveness probes are never limited.
+    pub rate_limit: Option<RateLimit>,
 }
 
 impl Default for TransportConfig {
@@ -43,6 +47,7 @@ impl Default for TransportConfig {
             server_version: UNRELEASED_SERVER_VERSION.to_owned(),
             openai_apps_challenge: None,
             muse_challenge: None,
+            rate_limit: None,
         }
     }
 }
@@ -70,6 +75,7 @@ impl TransportConfig {
         }
         config.openai_apps_challenge = env("MCP_OPENAI_APPS_CHALLENGE")?;
         config.muse_challenge = env("MCP_MUSE_CHALLENGE")?;
+        config.rate_limit = Some(rate_limit_from_env()?);
         config.validate()?;
         Ok(config)
     }
@@ -171,6 +177,22 @@ pub(crate) fn normalized_origin(value: &str) -> Option<String> {
     ))
 }
 
+/// API Gateway's former production MCP stage throttle: 20 requests per second, burst 10.
+const DEFAULT_RATE_LIMIT_PER_SECOND: f64 = 20.0;
+const DEFAULT_RATE_LIMIT_BURST: f64 = 10.0;
+
+fn rate_limit_from_env() -> Result<RateLimit, ConfigError> {
+    let number = |name: &'static str, default: f64| match env(name)? {
+        Some(value) => value.trim().parse().map_err(|_| ConfigError::RateLimit),
+        None => Ok(default),
+    };
+    RateLimit::new(
+        number("MCP_RATE_LIMIT_PER_SECOND", DEFAULT_RATE_LIMIT_PER_SECOND)?,
+        number("MCP_RATE_LIMIT_BURST", DEFAULT_RATE_LIMIT_BURST)?,
+    )
+    .map_err(|_| ConfigError::RateLimit)
+}
+
 fn env(name: &'static str) -> Result<Option<String>, ConfigError> {
     match std::env::var(name) {
         Ok(value) => Ok(Some(value)),
@@ -199,6 +221,8 @@ pub enum ConfigError {
         "MCP_MUSE_CHALLENGE must be one token of at most 128 ASCII letters, digits, '-' or '_'"
     )]
     MuseChallenge,
+    #[error("MCP_RATE_LIMIT_PER_SECOND and MCP_RATE_LIMIT_BURST must allow at least one request")]
+    RateLimit,
     #[error("invalid environment encoding for {0}")]
     Encoding(&'static str),
     #[error("MCP server card cannot be serialized")]

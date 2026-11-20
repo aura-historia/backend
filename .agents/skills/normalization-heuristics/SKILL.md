@@ -22,33 +22,22 @@ Optional inputs (natural language, never interpolated into commands):
 ## Rules
 
 - **Read-only production access.** Only [`scripts/prod_corpus.py`](scripts/prod_corpus.py) touches
-  AWS. It runs SQL inside a read-only transaction and refuses writes, transaction control and psql
+  the production database. It runs SQL in the prod PostgreSQL container, inside a read-only
+  transaction as the runtime role, and refuses writes, transaction control and psql
   meta-commands. Never run SQL against production any other way, and never write to it.
-- **Listing content never reaches logs, the repository or GitHub.** Only aggregates, counts, hashes, UUIDs,
-  dealer hosts and slugs may pass through CloudWatch (`query`, `size`, `sources`). The corpus moves
-  only over ECS Exec into a `0600` file. The S3 gateway endpoint allows no uploads; never route
-  around it (for example through the public subnets) and never widen its policy.
-- **Never read a secret value.** Credentials are injected into the task as ECS secrets.
+- **Listing content never reaches logs, the repository or GitHub.** Reviewed queries (`query`,
+  `size`, `sources`) select only aggregates, counts, hashes, UUIDs, dealer hosts and slugs. The
+  corpus moves only over the `docker exec` pipe into a `0600` file.
+- **Never read a secret value.** The container's local socket authenticates; no credential is read.
 - Keep all working data under `/tmp/aura-normalization/<YYYY-MM-DD>/` (created `0700`), never in
   the repository. Reviewed fixtures are minimized synthetic cases, never prod payloads.
-- Run `teardown` and confirm `status` is empty before you open the PR, and after any failure.
 
 ## Preconditions
 
-1. AWS CLI credentials for the production account: `aws sts get-caller-identity` succeeds. If they
-   have expired, ask the user to refresh them; do not work around it.
-2. The Session Manager plugin is on `PATH` (`session-manager-plugin --version`). If it is missing,
-   install it user-locally. This needs no sudo:
-
-   ```sh
-   d=$(mktemp -d) && curl -sSfL -o "$d/smp.deb" \
-     https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
-   mkdir -p ~/.local/opt/ssmplugin ~/.local/bin && dpkg-deb -x "$d/smp.deb" ~/.local/opt/ssmplugin
-   ln -sf ~/.local/opt/ssmplugin/usr/local/sessionmanagerplugin/bin/session-manager-plugin ~/.local/bin/
-   ```
-
-3. `openssl` is available. It filters the committed RDS CA bundle to the region's roots.
-4. The working tree is clean. Branch from a freshly fetched `origin/develop`:
+1. You run on the prod host as a member of the `docker` group, and the prod database is up:
+   `docker exec aura-prod-postgres-1 pg_isready` succeeds. Otherwise ask the user; do not work
+   around it.
+2. The working tree is clean. Branch from a freshly fetched `origin/develop`:
    `git switch -c feat/normalization-heuristics-<YYYY-MM-DD> origin/develop`.
 
 Below, `S=.agents/skills/normalization-heuristics/scripts`, `W=/tmp/aura-normalization/<YYYY-MM-DD>`
@@ -70,16 +59,13 @@ mkdir -p "$W" && chmod 700 "$W" && cp "$R" "$W/baseline-replay"
 Skip this step when `work=` points at an existing export with `corpus.jsonl` and `sources.tsv`.
 
 ```sh
-python3 -I $S/prod_corpus.py status                # must be empty; otherwise run teardown first
-python3 -I $S/prod_corpus.py setup   --work "$W"
 python3 -I $S/prod_corpus.py size    --work "$W"   # volume by evaluator version and reason
-python3 -I $S/prod_corpus.py export  --work "$W"   # about 3 minutes for 38k cases
+python3 -I $S/prod_corpus.py export  --work "$W"   # streams the corpus into $W/corpus.jsonl
 python3 -I $S/prod_corpus.py sources --work "$W"   # listing source id -> slug, host
 ```
 
-The roles stay until step 9, so step 4 can run evidence queries. Each query is a reviewed SQL file
-run with `prod_corpus.py query --work "$W" FILE.sql`, and must select only aggregates, hosts or
-IDs.
+Step 4 can run evidence queries. Each query is a reviewed SQL file run with
+`prod_corpus.py query --work "$W" FILE.sql`, and must select only aggregates, hosts or IDs.
 
 ### 3. Baseline replay
 
@@ -196,11 +182,7 @@ may show hosts, counts, dates and the short wrong value itself (`.`, an image pa
 Never put a listing title, description, listing URL or ID in it. Link the issues from the PR's
 crawler follow-ups.
 
-### 10. Clean up, commit, open the PR
-
-```sh
-python3 -I $S/prod_corpus.py teardown --work "$W" && python3 -I $S/prod_corpus.py status
-```
+### 10. Commit, open the PR
 
 Commit with a conventional message and push the branch. Open the PR against `develop` with
 [the template](references/pr-template.md). If no change is backed by evidence, open no PR; report the

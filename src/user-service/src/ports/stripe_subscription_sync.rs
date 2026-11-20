@@ -9,6 +9,40 @@ pub struct StripeSubscriptionEvent {
     pub fingerprint: [u8; 32],
 }
 
+/// What an authenticated Stripe webhook delivery asks the reconciliation to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StripeWebhookEvent {
+    /// A subscription created, updated or deleted event requesting a fresh provider read.
+    Subscription(StripeSubscriptionEvent),
+    /// Any other event type; acknowledged without effects.
+    Ignored,
+}
+
+#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+pub enum StripeWebhookVerificationError {
+    /// Missing, malformed, expired or non-matching `Stripe-Signature` proof.
+    #[error("Stripe webhook signature is missing or invalid")]
+    InvalidSignature,
+    /// Authentic body that is not a supported event of the pinned API version.
+    #[error("Stripe webhook event is malformed")]
+    MalformedEvent,
+    #[error("Stripe webhook signature could not be computed")]
+    CryptographicFailure,
+}
+
+/// Authenticates a Stripe webhook delivery and parses its event.
+pub trait StripeWebhookVerifier: Send + Sync {
+    /// `signature_header` is the single received `Stripe-Signature` value and `raw_body` the
+    /// exact received bytes. `arrived_at_unix_seconds` comes from the trusted runtime clock.
+    /// The signature is checked before the body is parsed.
+    fn verify(
+        &self,
+        signature_header: &[u8],
+        raw_body: &[u8],
+        arrived_at_unix_seconds: i64,
+    ) -> Result<StripeWebhookEvent, StripeWebhookVerificationError>;
+}
+
 #[derive(Debug, Clone)]
 pub struct StripeCustomerSubscriptionState {
     pub user_id: Option<UserId>,

@@ -1,0 +1,13 @@
+[Unit]
+Description=Aura Historia prod backend cleanup, hourly
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/prod/README.md
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+Unit=aura-prod-ops@backend-cleanup.service
+# Catch up once after downtime instead of skipping the run.
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

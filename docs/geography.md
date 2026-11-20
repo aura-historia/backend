@@ -343,7 +343,7 @@ under bounded policy. A picked place is browsing enrichment, not a verified back
 
 Only current unsuspended owners may access addresses/preferences; delegated callers require
 the corresponding user scope. Success and errors are `no-store`. Content remains outside
-public indexes, logs and ordinary CDC/jobs; only compact resolution wake-ups leave storage.
+public indexes, logs, the outbox and jobs; only compact resolution wake-ups leave storage.
 
 ### Deletion, erasure and retained snapshots
 

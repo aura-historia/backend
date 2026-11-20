@@ -420,15 +420,11 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
         event_id: facts.event_id,
         product_listing_id: facts.product_listing_id,
     };
-    let idempotency_key = IdempotencyKey::new(format!("product-event:{}", facts.event_id));
-    let ordering_key = OrderingKey::new(format!("product:{}", facts.product_listing_id));
+    let projection = product_listing_projection_job(facts.event_id, facts.product_listing_id);
+    let idempotency_key = projection.idempotency_key.clone();
+    let ordering_key = projection.ordering_key.clone();
 
-    let mut jobs = vec![domain_job(
-        WorkerQueue::ProductListingOpenSearch,
-        idempotency_key.clone(),
-        ordering_key.clone(),
-        DomainJobPayload::ProductListingEvent(base_job.clone()),
-    )];
+    let mut jobs = vec![projection];
 
     match facts.event_kind {
         ProductListingRoutingEventKind::Discovered => {
@@ -484,6 +480,23 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
     }
 
     Ok(jobs)
+}
+
+/// The ProductListing projector job for one listing event. CDC routing and full reprojection
+/// share its identity, so the projector deduplicates both the same way.
+pub fn product_listing_projection_job(
+    event_id: EventId,
+    product_listing_id: ProductListingId,
+) -> DomainJob {
+    domain_job(
+        WorkerQueue::ProductListingOpenSearch,
+        IdempotencyKey::new(format!("product-event:{event_id}")),
+        OrderingKey::new(format!("product:{product_listing_id}")),
+        DomainJobPayload::ProductListingEvent(ProductListingEventJob {
+            event_id,
+            product_listing_id,
+        }),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1349,13 +1362,6 @@ fn domain_job(
     }
 }
 
-pub fn row_for_operation(change: &CdcChange) -> Result<&Value, CdcRouteError> {
-    match change.operation {
-        Operation::Delete => change.old_record.as_ref().ok_or(CdcRouteError::MissingRow),
-        Operation::Insert | Operation::Update => required_row(change),
-    }
-}
-
 pub fn required_row(change: &CdcChange) -> Result<&Value, CdcRouteError> {
     change.record.as_ref().ok_or(CdcRouteError::MissingRow)
 }
@@ -1381,7 +1387,7 @@ fn integer_field(row: &Value, field: &str) -> Option<i64> {
     }
 }
 
-pub fn canonical_decimal_i64(value: &str) -> Option<i64> {
+fn canonical_decimal_i64(value: &str) -> Option<i64> {
     let digits = value.strip_prefix('-').unwrap_or(value);
     if digits.is_empty()
         || !digits.bytes().all(|byte| byte.is_ascii_digit())
@@ -1445,6 +1451,35 @@ pub enum CdcRouteError {
     MissingRow,
     #[error("CDC row missing required column {0}")]
     MissingColumn(&'static str),
+}
+
+impl CdcRouteError {
+    /// A bounded label for failure custody and diagnostics; never row content.
+    pub const fn class(&self) -> &'static str {
+        match self {
+            Self::UnsupportedTableForWorker(_) => "unsupported_source",
+            Self::UnsupportedProductListingEvent { .. } => "unsupported_event",
+            Self::UnsupportedProductListingEventSchemaVersion { .. } => "unsupported_event_version",
+            Self::MissingProductListingEventField { .. }
+            | Self::InvalidProductListingEventField { .. }
+            | Self::NonCanonicalProductListingEventField { .. }
+            | Self::UnknownProductListingEventField { .. }
+            | Self::InconsistentProductListingEvent { .. }
+            | Self::InvalidProductListingEventPayload => "invalid_event_payload",
+            Self::InvalidEventId
+            | Self::InvalidProductListingId
+            | Self::InvalidProductListingRawStreamId
+            | Self::InvalidProductListingRawRevisionId
+            | Self::InvalidProductListingRawRevision
+            | Self::InvalidObjectId(_)
+            | Self::InvalidMarketingConsentSyncIntentId
+            | Self::NonCanonicalMarketingConsentSyncIntentId
+            | Self::InvalidMarketingConsentRecipientKey => "invalid_identity",
+            Self::InvalidSourceContract(_) | Self::MissingRow | Self::MissingColumn(_) => {
+                "invalid_source_row"
+            }
+        }
+    }
 }
 
 #[cfg(test)]

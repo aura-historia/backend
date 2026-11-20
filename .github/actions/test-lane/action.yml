@@ -111,7 +111,7 @@ runs:
         arguments=()
         for lane in "${selected[@]}"; do arguments+=(--lane "$lane"); done
         if [ "$PROFILE" != none ]; then
-          arguments+=(--features test-api/supervisor,test-api/s3,test-api/ses,test-api/aura-historia-api,test-api/api-gateway,test-api/eventbridge)
+          arguments+=(--features test-api/supervisor,test-api/aura-historia-api)
         fi
         python3 ci/guard-disk.py --target "$CARGO_TARGET_DIR" --log "$RUNNER_TEMP/lane/$LANE_ID/disk.jsonl" -- \
           python3 ci/run-test-lane.py "${arguments[@]}" --slots "$SLOTS" --profile "$PROFILE" \

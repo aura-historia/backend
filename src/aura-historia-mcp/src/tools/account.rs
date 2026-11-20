@@ -92,7 +92,7 @@ fn acting_user(context: &OperationContext) -> Result<UserId, OperationError> {
     }
 }
 
-/// One family in the shared native/Lambda registry; services own authorization and CAS.
+/// One family in the shared registry; services own authorization and CAS.
 pub fn operations(
     profile: UserProfile,
     addresses: PrivateAddresses,

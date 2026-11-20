@@ -1,20 +1,19 @@
-"""The read-only guard and the transfer parsing, without AWS."""
+"""The read-only guard and the psql invocation, without a database."""
 
 import unittest
 
 from pathlib import Path
 
 from prod_corpus import (
-    EXPORT_SQL, SIZE_SQL, SOURCES_SQL, CorpusError, argument_parser, checked_sql, extract_chunk,
-    parse_export_report,
+    EXPORT_SQL, SIZE_SQL, SOURCES_SQL, CorpusError, argument_parser, checked_sql, psql_command,
 )
 
 
 class CheckedSqlTest(unittest.TestCase):
-    def test_should_wrap_the_bundled_queries_in_a_read_only_transaction(self):
+    def test_should_wrap_the_bundled_queries_in_a_read_only_transaction_as_the_runtime_role(self):
         for sql in (EXPORT_SQL, SIZE_SQL, SOURCES_SQL):
             wrapped = checked_sql(sql)
-            self.assertTrue(wrapped.startswith("BEGIN TRANSACTION READ ONLY;\n"))
+            self.assertTrue(wrapped.startswith("BEGIN TRANSACTION READ ONLY;\nSET LOCAL ROLE aura_runtime;\n"))
             self.assertTrue(wrapped.endswith("COMMIT;\n"))
 
     def test_should_allow_forbidden_words_inside_literals_identifiers_and_comments(self):
@@ -27,6 +26,7 @@ class CheckedSqlTest(unittest.TestCase):
             "UPDATE users SET language = 'de'",
             "SET TRANSACTION READ WRITE",
             "set role aura_migrator",
+            "RESET ROLE",
             "\\! rm -rf /",
             "SELECT 1;\n  \\copy users TO '/tmp/x'",
             "SELECT pg_terminate_backend(1)",
@@ -37,22 +37,14 @@ class CheckedSqlTest(unittest.TestCase):
                 checked_sql(sql)
 
 
-class TransferParsingTest(unittest.TestCase):
-    def test_should_extract_only_the_lines_between_the_markers(self):
-        output = ("\nThe Session Manager plugin was installed successfully.\r\n"
-                  "Starting session with SessionId: ecs-x\r\nBEGIN_CHUNK\r\nAAAA\r\nBBBB\r\nEND_CHUNK\r\n"
-                  "Exiting session with sessionId: ecs-x.\r\n")
-        self.assertEqual(["AAAA", "BBBB"], extract_chunk(output))
-
-    def test_should_report_a_truncated_session_as_missing(self):
-        self.assertIsNone(extract_chunk("BEGIN_CHUNK\r\nAAAA\r\n"))
-        self.assertIsNone(extract_chunk("Cannot perform start session: EOF"))
-
-    def test_should_parse_the_export_report_without_confusing_line_counters(self):
-        report = parse_export_report(
-            "lines=37741 gz_bytes=23829386 sha256=0ae19032b975e9744c096915c1f28b91\nb64_lines=418060\nREADY")
-        self.assertEqual({"lines": 37741, "gz_bytes": 23829386,
-                          "sha256": "0ae19032b975e9744c096915c1f28b91", "b64_lines": 418060}, report)
+class PsqlCommandTest(unittest.TestCase):
+    def test_should_read_the_query_from_stdin_and_stop_at_the_first_error(self):
+        command = psql_command(headers=False)
+        self.assertEqual(["docker", "exec", "-i"], command[:3])
+        self.assertEqual(["-f", "-"], command[-2:])
+        self.assertIn("ON_ERROR_STOP=1", command)
+        self.assertIn("-t", command)
+        self.assertNotIn("-t", psql_command(headers=True))
 
 
 class ArgumentsTest(unittest.TestCase):

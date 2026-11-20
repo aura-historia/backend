@@ -104,7 +104,7 @@ pub struct NormalizeProductListingRawRevisionResult {
     pub oldest_pending_age_seconds: Option<u64>,
     /// Non-durable cursor for the next reconciliation page. `None` safely resets the traversal.
     pub next_pending_stream_cursor: Option<PendingProductListingRawStreamCursor>,
-    /// Streams needing another bounded drain after a clean capped turn. The SQS Lambda
+    /// Streams needing another bounded drain after a clean capped turn. The queue consumer
     /// retains the wake-up until progress is fully drained.
     pub continuation_stream_ids: Vec<ProductListingRawStreamId>,
 }

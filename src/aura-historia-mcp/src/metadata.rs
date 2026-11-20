@@ -12,12 +12,6 @@ pub struct InvocationContext {
     pub(crate) max_response_bytes: usize,
 }
 
-#[derive(Clone)]
-pub(crate) struct InvocationDeadline {
-    pub deadline: Instant,
-    pub request_id: String,
-}
-
 impl InvocationContext {
     /// Bound application work by the request cancellation and absolute transport deadline.
     pub(crate) async fn execute<T>(

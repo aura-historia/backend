@@ -17,23 +17,10 @@ members = [
     "src/aura-historia-runtime",
     "src/aura-historia-jobs",
     "src/aura-historia-cdc-routing",
-    "src/cdc-router-lambda",
-    "src/platform-lambda-sqs",
+    "src/delivery-outbox",
     "src/platform-worker-queue-contract",
     "src/search-filter-periodic-match",
-    "src/backend-cleanup-lambda",
-    "src/product-listing-opensearch-lambda",
-    "src/product-listing-normalization-lambda",
     "src/product-listing-normalization-replay",
-    "src/product-listing-ingestion-lambda",
-    "src/product-content-assessment-lambda",
-    "src/product-embedding-lambda",
-    "src/product-translation-lambda",
-    "src/search-filter-match-notification-lambda",
-    "src/watchlist-notification-lambda",
-    "src/notification-delivery-lambda",
-    "src/marketing-consent-sync-lambda",
-    "src/user-identity-deletion-lambda",
     "src/admin-overview-service",
     "src/admin-overview-postgres",
     "src/auction-core",
@@ -41,10 +28,10 @@ members = [
     "src/auction-postgres",
     "src/billing-service",
     "src/billing-stripe",
-    "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
+    "src/cognito-post-confirmation-forwarder",
     "src/cognito-pre-sign-up",
-    "src/database-migration-lambda",
+    "src/cognito-trigger-signing",
     "src/credential-core",
     "src/domain-primitives",
     "src/localization",
@@ -60,9 +47,6 @@ members = [
     "src/geo",
     "src/geo-service",
     "src/geo-postgres",
-    "src/geo-resolution-lambda",
-    "src/listing-geography-lambda",
-    "src/listing-shipping-lambda",
     "src/geo-amazon-location",
     "src/search-filter-core",
     "src/search-filter-service",
@@ -71,7 +55,7 @@ members = [
     "src/product-listing-core",
     "src/product-listing-normalization",
     "src/product-listing-shopify",
-    "src/product-listing-ingestion-sqs",
+    "src/product-listing-ingestion-queue",
     "src/product-service",
     "src/product-listing-service",
     "src/woocommerce-service",
@@ -79,12 +63,16 @@ members = [
     "src/search-filter-translation-llm",
     "src/product-listing-postgres",
     "src/platform-observability",
-    "src/platform-google-adc",
     "src/platform-lambda-bootstrap",
     "src/platform-aws",
+    "src/platform-cloudwatch-logs",
     "src/platform-opensearch",
     "src/platform-postgres",
-    "src/platform-postgres-secretsmanager",
+    "src/platform-postgres-queue",
+    "src/platform-process",
+    "src/platform-worker",
+    "src/aura-historia-worker",
+    "src/aura-historia-ops",
     "src/fxrate-core",
     "src/fxrate-service",
     "src/fxrate-postgres",
@@ -106,8 +94,6 @@ members = [
     "src/content-notice-core",
     "src/content-notice-service",
     "src/content-notice-postgres",
-    "src/shopify-lambda",
-    "src/stripe-lambda",
     "src/user-core",
     "src/user-service",
     "src/user-cognito",
@@ -123,7 +109,6 @@ members = [
     "src/oauth-service",
     "src/oauth-postgres",
     "src/oauth-client-metadata-http",
-    "src/fxrate-lambda",
     "src/crawler",
 ]
 
@@ -138,34 +123,20 @@ tokio-util = "0.7.18"
 aura-historia-jobs = { path = "src/aura-historia-jobs" }
 aura-historia-cdc-routing = { path = "src/aura-historia-cdc-routing" }
 platform-worker-queue-contract = { path = "src/platform-worker-queue-contract" }
-cdc-router-lambda = { path = "src/cdc-router-lambda" }
-platform-lambda-sqs = { path = "src/platform-lambda-sqs" }
-product-listing-opensearch-lambda = { path = "src/product-listing-opensearch-lambda" }
-product-listing-normalization-lambda = { path = "src/product-listing-normalization-lambda" }
-product-listing-ingestion-lambda = { path = "src/product-listing-ingestion-lambda" }
-product-content-assessment-lambda = { path = "src/product-content-assessment-lambda" }
-product-embedding-lambda = { path = "src/product-embedding-lambda" }
-product-translation-lambda = { path = "src/product-translation-lambda" }
-search-filter-match-notification-lambda = { path = "src/search-filter-match-notification-lambda" }
-watchlist-notification-lambda = { path = "src/watchlist-notification-lambda" }
-notification-delivery-lambda = { path = "src/notification-delivery-lambda" }
-marketing-consent-sync-lambda = { path = "src/marketing-consent-sync-lambda" }
+delivery-outbox = { path = "src/delivery-outbox" }
 base64 = "0.23.0"
 async-trait = "0.1.89"
 getrandom = "0.4.3"
 axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
-aws-sdk-eventbridge = "1.108.0"
 aws-sdk-geoplaces = "1.69.0"
-aws-sdk-opensearch = "1.131.0"
-aws-sdk-sqs = "1.101.0"
 aws-sdk-sesv2 = "1.122.0"
 aws-sdk-s3 = "1.135.0"
-aws-sdk-secretsmanager = "1.117.0"
+aws-sdk-cloudwatch = "1.143.0"
+aws-sdk-cloudwatchlogs = "1.135.0"
 aws-smithy-runtime-api = "1.18.0"
 aws-smithy-types = "1.6.1"
-aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 chrono = "0.4"
 credential-core = { path = "src/credential-core" }
@@ -186,7 +157,6 @@ geo-service = { path = "src/geo-service" }
 geo-postgres = { path = "src/geo-postgres" }
 geo-amazon-location = { path = "src/geo-amazon-location" }
 google-cloud-auth = "1.12.0"
-derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 application = { path = "src/application" }
 admin-overview-service = { path = "src/admin-overview-service" }
@@ -195,12 +165,18 @@ auction-core = { path = "src/auction-core" }
 auction-service = { path = "src/auction-service" }
 auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
-platform-google-adc = { path = "src/platform-google-adc" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
+platform-cloudwatch-logs = { path = "src/platform-cloudwatch-logs" }
+cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
+cognito-trigger-signing = { path = "src/cognito-trigger-signing" }
+platform-process = { path = "src/platform-process" }
+platform-worker = { path = "src/platform-worker" }
+aura-historia-worker = { path = "src/aura-historia-worker" }
+search-filter-periodic-match = { path = "src/search-filter-periodic-match" }
 platform-aws = { path = "src/platform-aws" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
-platform-postgres-secretsmanager = { path = "src/platform-postgres-secretsmanager" }
+platform-postgres-queue = { path = "src/platform-postgres-queue" }
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
@@ -232,7 +208,7 @@ http-body-util = "0.1.5"
 hyper = "1.11.0"
 hyper-util = "0.1.20"
 product-listing-core = { path = "src/product-listing-core" }
-product-listing-ingestion-sqs = { path = "src/product-listing-ingestion-sqs" }
+product-listing-ingestion-queue = { path = "src/product-listing-ingestion-queue" }
 product-listing-shopify = { path = "src/product-listing-shopify" }
 product-listing-normalization = { path = "src/product-listing-normalization" }
 product-service = { path = "src/product-service" }
@@ -250,7 +226,6 @@ watchlist-core = { path = "src/watchlist-core" }
 watchlist-service = { path = "src/watchlist-service" }
 watchlist-postgres = { path = "src/watchlist-postgres" }
 isocountry = "0.3.2"
-lambda_http = { version = "1.3.1", default-features = false, features = ["apigw_http"] }
 lambda_runtime = "1.2.1"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
@@ -291,9 +266,7 @@ tokio = { version = "1.52.3", default-features = false }
 tower = "0.5.2"
 tower-http = { version = "0.7.0", features = ["cors", "limit", "sensitive-headers", "timeout", "trace"] }
 tracing = "0.1.44"
-tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-typed-builder = "0.23.2"
 percent-encoding = "2.3.2"
 url = { version = "2.5.8", features = ["serde"] }
 unicode-normalization = "0.1.25"

@@ -96,7 +96,7 @@ describe("API Web ACL custom resource", () => {
 
   test("restores every synthesized API rule after CloudFormation stringification", () => {
     const app = new cdk.App({ analyticsReporting: false });
-    const template = Template.fromStack(createApplicationStacks(app, { stage: "dev" }).api);
+    const template = Template.fromStack(createApplicationStacks(app, { stage: "prod" }).api);
     const webAcls = Object.entries(template.findResources("AWS::CloudFormation::CustomResource"))
       .filter(([id]) => id.includes("ApiWebAcl"))
       .map(([, resource]) => (resource as { Properties: { Rules: unknown[] } }).Properties);

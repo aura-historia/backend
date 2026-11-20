@@ -1,3 +1,5 @@
+pub mod host_lookup;
+
 use aws_lambda_events::cognito::{
     CognitoEventUserPoolsPreSignup, CognitoEventUserPoolsPreSignupTriggerSource,
 };
@@ -274,7 +276,7 @@ pub async fn handler<R: ResolveFederatedAccountUseCase, L: FederatedIdentityLink
                 request_id,
                 trigger_kind = "external_provider",
                 provider_name = %provider.provider_name,
-                result_category = "linked_to_postgres_identity",
+                result_category = "linked_to_existing_identity",
                 duration_ms = started_at.elapsed().as_millis() as u64,
             );
             Ok(payload)
@@ -336,6 +338,7 @@ fn resolve_provider<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host_lookup::HostAccountLookup;
     use lambda_runtime::{Context, LambdaEvent};
     use std::sync::Mutex;
     use user_service::{
@@ -682,6 +685,96 @@ mod tests {
             .await,
             Err(PreSignUpError::TemporarilyUnavailable)
         ));
+    }
+
+    /// A host whose pre-sign-up endpoint answers every lookup with `decision`.
+    async fn host_answering(decision: serde_json::Value) -> HostAccountLookup {
+        let app = axum::Router::new().route(
+            "/internal/cognito/pre-sign-up",
+            axum::routing::post(move || async move { axum::Json(decision) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener");
+        let address = listener.local_addr().expect("test listener address");
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        HostAccountLookup::new(
+            &format!("http://{address}/internal/cognito/pre-sign-up"),
+            cognito_trigger_signing::signature::SigningKey::new(
+                "pre-sign-up-handler-test-signing-key-0123",
+            )
+            .expect("test signing key"),
+        )
+        .expect("test host lookup")
+    }
+
+    #[tokio::test]
+    async fn allow_reject_and_link_behave_as_before_through_the_host_lookup() {
+        let google = [policy(
+            "Google",
+            ExistingEmailAction::LinkVerified,
+            Some("Cognito_Subject"),
+        )];
+        let google_signup = || {
+            event(
+                "PreSignUp_ExternalProvider",
+                Some("Google_google-subject"),
+                serde_json::json!({ "email": "member@example.test", "email_verified": "true" }),
+            )
+        };
+
+        let linker = FakeLinker::default();
+        let allowing = host_answering(serde_json::json!({ "decision": "ALLOW_NEW_ACCOUNT" })).await;
+        let allowed = handler(
+            google_signup(),
+            &google,
+            &allowing.for_invocation("request-test-id"),
+            &linker,
+        )
+        .await;
+        assert!(allowed.is_ok());
+        assert!(calls(&linker).is_empty());
+
+        let rejecting =
+            host_answering(serde_json::json!({ "decision": "REJECT_EXISTING_ACCOUNT" })).await;
+        let rejected = handler(
+            google_signup(),
+            &google,
+            &rejecting.for_invocation("request-test-id"),
+            &linker,
+        )
+        .await;
+        assert_eq!(Err(PreSignUpError::ExistingAccount), rejected.map(|_| ()));
+        assert!(calls(&linker).is_empty());
+
+        let linking = host_answering(serde_json::json!({
+            "decision": "LINK_EXISTING_ACCOUNT",
+            "identity": {
+                "issuer": "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_test-pool",
+                "subject": "canonical-sub"
+            },
+            "canonicalEmail": "member@example.test"
+        }))
+        .await;
+        let linked = handler(
+            google_signup(),
+            &google,
+            &linking.for_invocation("request-test-id"),
+            &linker,
+        )
+        .await;
+        assert!(linked.is_ok());
+        assert_eq!(
+            calls(&linker),
+            [LinkRequest {
+                user_pool_id: "eu-central-1_test-pool".to_owned(),
+                source_provider_name: "Google".to_owned(),
+                source_provider_attribute_name: "Cognito_Subject".to_owned(),
+                source_subject: "google-subject".to_owned(),
+                destination_subject: "canonical-sub".to_owned(),
+                canonical_email: "member@example.test".to_owned(),
+            }]
+        );
     }
 
     #[test]

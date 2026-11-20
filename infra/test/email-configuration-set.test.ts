@@ -18,19 +18,17 @@ test("infrastructure source does not refer to the legacy shared configuration se
 
 describe.each(STAGES)("%s managed SES configuration set", (stage) => {
   const stacks = createApplicationStacks(new cdk.App({ analyticsReporting: false }), { stage });
-  const compute = Template.fromStack(stacks.compute);
   const identity = Template.fromStack(stacks.identity);
   const [[setId, set]] = Object.entries(identity.findResources("AWS::SES::ConfigurationSet"));
   const [[destinationId, destination]] = Object.entries(
     identity.findResources("AWS::SES::ConfigurationSetEventDestination"),
   );
   const setRef = { Ref: setId };
-  const otherStage = stage === "dev" ? "prod" : "dev";
 
-  test("owns exactly one native retained set in compute and leaves the shared identity unmanaged", () => {
+  test("owns exactly one native retained set in identity and leaves the shared identity unmanaged", () => {
     const config = stageConfig(stage);
-    expect(config.notificationEmail.configurationSet).toBe(`aura-historia-${stage}-email`);
-    expect(config.cognitoEmail?.configurationSet).toBe(config.notificationEmail.configurationSet);
+    expect(config.emailSending.configurationSet).toBe(`aura-historia-${stage}-email`);
+    expect(config.cognitoEmail?.configurationSet).toBe(config.emailSending.configurationSet);
     identity.resourceCountIs("AWS::SES::ConfigurationSet", 1);
     identity.resourceCountIs("AWS::SES::ConfigurationSetEventDestination", 1);
     expect(set.Properties).toEqual({
@@ -50,7 +48,6 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
         expect(JSON.stringify(resource)).not.toMatch(/ses:|configuration.?set|email.?identity/i);
       }
       expect(JSON.stringify(template.toJSON())).not.toContain("my-first");
-      expect(JSON.stringify(template.toJSON())).not.toContain(`aura-historia-${otherStage}-email`);
     }
   });
 
@@ -79,11 +76,10 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
     expect(poolId).toBe("IdentityPrimaryUserPool6ED02BC6");
     expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolClient")))
       .toEqual(["IdentityPrimaryUserPoolPrimaryUserPoolClientPublic80694516"]);
-    expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolDomain")))
-      .toEqual(stage === "prod" ? [
-        "IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955",
-        "IdentityPrimaryUserPoolPrimaryUserPoolCustomDomainCB5E75CB",
-      ] : ["IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955"]);
+    expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolDomain"))).toEqual([
+      "IdentityPrimaryUserPoolPrimaryUserPoolDomainC98AD955",
+      "IdentityPrimaryUserPoolPrimaryUserPoolCustomDomainCB5E75CB",
+    ]);
     expect(Object.keys(identity.findResources("AWS::Cognito::UserPoolIdentityProvider")))
       .toEqual(["IdentityGoogleIdentityProviderB503749B", "IdentityFacebookIdentityProviderD75F6B2A"]);
     expect(pool.Properties.Schema).toEqual([
@@ -105,35 +101,5 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
       },
     });
     expect(pool.DependsOn).toContain(destinationId);
-  });
-
-  test.each([
-    ["aura-historia-api", "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET"],
-    ["notification-delivery-lambda", "NOTIFICATION_EMAIL_CONFIGURATION_SET"],
-  ])("%s selects and can send only through its own managed set", (binaryName, environmentKey) => {
-    const functions = Object.values(compute.findResources("AWS::Lambda::Function"));
-    const sender = functions.find((resource) => resource.Properties.FunctionName === `${binaryName}-${stage}`)!;
-    expect(JSON.stringify(sender.Properties.Environment.Variables[environmentKey])).toContain("Fn::ImportValue");
-    expect(stacks.compute.dependencies).toContain(stacks.identity);
-
-    const roleId = sender.Properties.Role["Fn::GetAtt"][0];
-    const policies = Object.values(compute.findResources("AWS::IAM::Policy"))
-      .filter((policy) => policy.Properties.Roles.some((role: { Ref: string }) => role.Ref === roleId));
-    const sesStatements = policies.flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-      .filter((statement) => JSON.stringify(statement.Action).includes("ses:"));
-    expect(sesStatements).toEqual([{
-      Effect: "Allow",
-      Action: "ses:SendEmail",
-      Resource: [
-        { "Fn::Join": ["", [
-          "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
-          { Ref: "AWS::AccountId" }, ":identity/notify.aura-historia.com",
-        ]] },
-        { "Fn::Join": ["", [
-          "arn:", { Ref: "AWS::Partition" }, ":ses:", { Ref: "AWS::Region" }, ":",
-          { Ref: "AWS::AccountId" }, ":configuration-set/", sender.Properties.Environment.Variables[environmentKey],
-        ]] },
-      ],
-    }]);
   });
 });

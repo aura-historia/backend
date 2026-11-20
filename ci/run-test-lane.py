@@ -19,7 +19,7 @@ def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lane", choices=LANES, action="append", required=True)
     parser.add_argument("--slots", type=int, required=True)
-    parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api"], required=True)
+    parser.add_argument("--profile", choices=["none", "postgres", "aws", "opensearch", "api", "all"], required=True)
     parser.add_argument("--supervisor", type=pathlib.Path, required=True)
     parser.add_argument("--state-dir", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
@@ -49,7 +49,7 @@ def discover_lane(args, root):
         execute(argv, root, os.environ, stdout=output)
     data = json.loads((args.output / "nextest.json").read_text())
     suites = validate_suites(data, packages, selection)
-    if "database-migration-lambda" in selection["packages"]:
+    if "aura-historia-ops" in selection["packages"]:
         case = suites[PRISTINE_TARGET]["testcases"].get(PRISTINE_CASE)
         if case is None or case["ignored"]:
             raise ValueError(f"Required pristine migration case is absent or ignored: {PRISTINE_CASE}")
@@ -85,7 +85,7 @@ def main():
     args.state_dir.mkdir(parents=True, exist_ok=True)
     environment = standalone_environment(os.environ)
     if PRISTINE_TARGET in suites:
-        pristine = dict(selection, package_args=["--package", "database-migration-lambda"])
+        pristine = dict(selection, package_args=["--package", "aura-historia-ops"])
         argv = ["cargo", "nextest", "run", *cargo_args(pristine, args.features), "--test-threads", "1",
                 "--retries", "0", "--no-tests", "fail", "-E", PRISTINE_FILTER]
         execute(supervised(args, "postgres", 1, "pristine", argv), root, environment,

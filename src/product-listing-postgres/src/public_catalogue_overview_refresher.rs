@@ -13,8 +13,8 @@ use product_listing_service::{
 };
 use std::time::Duration;
 
-/// Scans every live listing once, so it is far above the Lambda session default; it must
-/// stay below the maintenance Lambda timeout.
+/// Scans every live listing once, so it is far above the pool's statement default; the hourly
+/// `ops backend-cleanup` run that refreshes it allows for it.
 pub const PUBLIC_CATALOGUE_OVERVIEW_REFRESH_STATEMENT_TIMEOUT: &str = "480s";
 
 #[derive(Debug, Clone, Copy, Default)]

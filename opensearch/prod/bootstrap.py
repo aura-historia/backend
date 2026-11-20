@@ -12,7 +12,6 @@ import shutil
 import ssl
 import subprocess
 import tarfile
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -22,9 +21,8 @@ PRIVATE = ROOT / ".private"
 OPERATOR = PRIVATE / "operator"
 NODE = PRIVATE / "node"
 COMPOSE = ["docker", "compose", "--file", str(ROOT / "compose.yaml")]
-VOLUMES = ["aura-historia-opensearch-prod-" + name for name in ["data", "certificates", "gateway"]]
+VOLUMES = ["aura-historia-opensearch-prod-" + name for name in ["data", "certificates"]]
 LOCAL = "https://localhost:19201"
-PUBLIC = "https://opensearch.aura-historia.com"
 
 
 def run(args, **kwargs):
@@ -114,14 +112,14 @@ def client_context(admin=False):
     return context
 
 
-def request(path, method="GET", body=None, credentials=None, public=False):
+def request(path, method="GET", body=None, credentials=None):
     headers = {"Content-Type": "application/json"}
     if credentials:
         value = credentials["username"] + ":" + credentials["password"]
         headers["Authorization"] = "Basic " + base64.b64encode(value.encode()).decode()
-    req = urllib.request.Request((PUBLIC if public else LOCAL) + path,
+    req = urllib.request.Request(LOCAL + path,
                                  data=None if body is None else json.dumps(body).encode(), method=method, headers=headers)
-    context = ssl.create_default_context() if public else client_context(admin=credentials is None)
+    context = client_context(admin=credentials is None)
     try:
         with urllib.request.urlopen(req, context=context, timeout=20) as response:
             return response.status, json.load(response)
@@ -168,7 +166,7 @@ def initialize(credentials):
     mapping = json.loads((ROOT.parent / "mappings/product_listings.json").read_text())
     mapping["settings"].update(number_of_shards=1, number_of_replicas=0)
     require(request("/product-listings", "PUT", mapping))
-    # This non-business probe runs before the gateway is started and adds no mapping fields.
+    # This non-business probe runs before any application connects and adds no mapping fields.
     require(request("/product-listings/_doc/__bootstrap_probe__", "PUT", {}, credentials["product-projector"]), 201)
     require(request("/product-listings/_doc/__bootstrap_probe__", "DELETE"))
     require(request("/product-listings/_refresh", "POST"))
@@ -176,64 +174,19 @@ def initialize(credentials):
         raise RuntimeError("Fresh product index is not empty")
 
 
-def verify(credentials, public=False):
-    require(request("/product-listings/_search", "POST", {"size": 0}, credentials["reader"], public))
-    require(request("/product-listings/_search", "POST", {"size": 0}, credentials["product-projector"], public), 403)
-    require(request("/product-listings/_doc/__denied_probe__", "PUT", {}, credentials["reader"], public), 403)
-    if public:
-        require(request("/_plugins/_security/api/internalusers", public=True), 403)
-        require(request("/product-listings/_search", "POST", {"size": 0}, public=True), 401)
-        bad = {"username": credentials["reader"]["username"], "password": secrets.token_urlsafe(32)}
-        require(request("/product-listings/_search", "POST", {"size": 0}, bad, True), 401)
-    else:
-        health = require(request("/_cluster/health"))
-        if health["status"] != "green" or health["number_of_nodes"] != 1:
-            raise RuntimeError("Production single-node cluster is not green")
-    print(("Public" if public else "Local") + " TLS, scoped reader/projector and administration-denial checks passed", flush=True)
-
-
-RUNTIME_SECRET = "/aura-historia/prod/app/opensearch"
-
-
-def aws_with_input(service, operation, request):
-    """Pass values through a private request file, never through process arguments."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as file:
-        json.dump(request, file)
-        file.flush()
-        return run(["aws", service, operation, "--region", "eu-central-1", "--cli-input-json", "file://" + file.name])
-
-
-def publish_runtime_configuration(credentials):
-    """Endpoint and usernames are plain SSM configuration; passwords are the runtime credential secret
-    that releases inject at deployment (infra/src/credentials.ts). A changed secret takes effect with
-    the next release."""
-    account = json.loads(run(["aws", "sts", "get-caller-identity", "--output", "json"]))["Account"]
-    if account != "550663032924":
-        raise RuntimeError("Refusing to publish production configuration to an unexpected AWS account")
-    values = {"endpoint-url": PUBLIC}
-    values.update({role + "/username": credential["username"] for role, credential in credentials.items()})
-    for suffix, value in values.items():
-        name = "/opensearch/prod/" + suffix
-        aws_with_input("ssm", "put-parameter", {"Name": name, "Type": "String", "Value": value, "Overwrite": True})
-        print("Configured " + name, flush=True)
-    passwords = json.dumps({"readerPassword": credentials["reader"]["password"],
-                            "productProjectorPassword": credentials["product-projector"]["password"]})
-    listed = json.loads(run(["aws", "secretsmanager", "list-secrets", "--region", "eu-central-1", "--output", "json",
-                             "--filters", "Key=name,Values=" + RUNTIME_SECRET]))
-    if any(secret["Name"] == RUNTIME_SECRET for secret in listed.get("SecretList", [])):
-        aws_with_input("secretsmanager", "put-secret-value", {"SecretId": RUNTIME_SECRET, "SecretString": passwords})
-    else:
-        aws_with_input("secretsmanager", "create-secret", {"Name": RUNTIME_SECRET, "SecretString": passwords})
-    print("Configured " + RUNTIME_SECRET + "; release to deploy it", flush=True)
+def verify(credentials):
+    require(request("/product-listings/_search", "POST", {"size": 0}, credentials["reader"]))
+    require(request("/product-listings/_search", "POST", {"size": 0}, credentials["product-projector"]), 403)
+    require(request("/product-listings/_doc/__denied_probe__", "PUT", {}, credentials["reader"]), 403)
+    health = require(request("/_cluster/health"))
+    if health["status"] != "green" or health["number_of_nodes"] != 1:
+        raise RuntimeError("Production single-node cluster is not green")
+    print("Local TLS, scoped reader/projector and administration-denial checks passed", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--verify-public", action="store_true")
-    parser.add_argument("--publish-runtime-configuration", action="store_true")
-    args = parser.parse_args()
-    if args.publish_runtime_configuration and not args.verify_public:
-        parser.error("--publish-runtime-configuration requires successful --verify-public checks")
+    parser.parse_args()
     os.umask(0o077)
     for directory in [PRIVATE, OPERATOR, NODE]:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -243,8 +196,6 @@ def main():
     if state_path.exists():
         state = json.loads(state_path.read_text())
     else:
-        if args.verify_public:
-            raise RuntimeError("Initialize the fresh private node before verifying public access")
         if shutil.disk_usage("/var/lib/docker").free < 100 * 1024**3:
             raise RuntimeError("Fresh production setup requires at least 100 GiB free Docker storage")
         available_kib = next(int(line.split()[1]) for line in Path("/proc/meminfo").read_text().splitlines()
@@ -272,14 +223,6 @@ def main():
         private_json(state_path, state)
     else:
         verify(credentials)
-    if args.verify_public:
-        verify(credentials, public=True)
-        observation = {"target": "prod", "targetHost": PUBLIC, "index": "product-listings", "alias": "product-listings",
-                       "mapping": require(request("/product-listings/_mapping")), "aliases": require(request("/product-listings/_alias")),
-                       "observedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-        private_json(PRIVATE / "observation.json", observation)
-    if args.publish_runtime_configuration:
-        publish_runtime_configuration(credentials)
 
 
 if __name__ == "__main__":

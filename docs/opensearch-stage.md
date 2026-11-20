@@ -7,7 +7,7 @@ certificates and firewall. The [dev](../opensearch/stage/compose.yaml) and
 [production](../opensearch/prod/compose.yaml) Compose projects pin their engine and
 resource limits; neither proves the running version or capacity.
 A single host is an outage domain, not a high-availability design.
-Verify actual host/DNS, security, assets, capacity and AWS connectivity before activation.
+Verify actual host, security, assets and capacity before activation.
 
 PostgreSQL owns business state; OpenSearch contains only rebuildable ProductListing
 search state. Saved-filter configuration, matching progress and matches stay in PostgreSQL;
@@ -21,11 +21,10 @@ fences or configure a TTL to clear them. Rebuild rules belong in the
 
 Use a reviewed source ref in a dedicated, stable checkout and a fresh volume.
 Keep that checkout in place for Docker's configuration and certificate bind mounts;
-switch development branches in a separate checkout. Production uses
-`https://opensearch.aura-historia.com` on HTTPS 443, which already matches the AWS
-application egress policy. Point its DNS A record directly at the approved host,
-with Cloudflare proxying disabled, and keep TCP 80/443 reachable for Caddy's
-automatic public certificate issuance and renewal. Administration is available
+switch development branches in a separate checkout. The node publishes no public port:
+the prod project's application containers reach it at `https://opensearch:9200` on the
+shared `search` network and trust its private CA
+([prod networks](../host/prod/README.md#networks)). Administration is available
 only at `https://localhost:19201` with the private operator client certificate.
 Transport/node/admin keys and runtime credentials are generated independently of
 dev; production does not load demo certificates or demo users.
@@ -33,35 +32,18 @@ dev; production does not load demo certificates or demo users.
 The [production bootstrap](../opensearch/prod/bootstrap.py) requires Python 3,
 OpenSSL, Docker Compose and the normal OpenSearch host prerequisites below. It
 checks for at least 100 GiB free Docker storage and enough available RAM for the
-configured container limit plus 8 GiB host headroom. The default container limit
-is 32 GiB, with a 16 GiB heap and no swap. Its CPU quota is eight logical CPUs;
-the host CPU allocation below reserves six and permits two shared CPUs.
+configured container limit plus 8 GiB host headroom. The container runs without
+swap; its heap and memory limits follow the host's memory plan.
 
-### Production CPU allocation
+### Production resource allocation
 
-The production host has six physical cores with two hardware threads each. Keep
-sibling threads together: CPUs `3-5,9-11` are reserved for OpenSearch, `2,8` are
-shared for bursting, and `0-1,6-7` remain available exclusively to other host
-workloads. OpenSearch runs in its own top-level systemd slice on `2-5,8-11`;
-ordinary host services, user sessions and other containers use `0-2,6-8`.
-This reserves three physical cores (six logical CPUs); kernel and interrupt
-activity can still occur there. CPU shares alone do not provide this reservation.
-
-Require cgroup v2 and Docker's systemd cgroup driver. Verify CPU topology before
-using these host-specific masks on another machine, and keep the slice, Compose
-`OPENSEARCH_CPUSET` and host exclusions consistent. Install and enable the slice
-before first bootstrap, then apply host exclusions after bootstrap reports a
-healthy node.
-
-The enabled slice, persistent slice properties and `init.scope` drop-in survive
-reboot; `set-property` alone is transient for `init.scope`. Every
-additional top-level slice or scope must also exclude the reserved CPUs. Verify
-`EffectiveCPUs` for the host slices and the running container's `cpuset.cpus.effective`
-and `cpu.max`; the latter must allow eight CPUs (`800000 100000`). Changing the
-container's parent slice requires recreation and a brief search outage; preserve
-its existing external volumes. To remove the reservation, restore prior host CPU
-masks, recreate OpenSearch without the dedicated parent slice and CPU mask, then
-disable and remove the slice.
+OpenSearch runs in the host's serving tier, `aura_serving.slice`, with no CPU
+pinning or quota: CPU and IO weights rank it with PostgreSQL above the pipeline,
+batch and interactive tiers, and its memory reservation is protected from their
+pressure. The [host tiers](../host/README.md) own the slices, the memory plan and
+their verification. Install the tiers before first bootstrap. Changing the
+container's parent slice or memory settings requires recreation and a brief search
+outage; preserve its existing external volumes.
 
 ### Production storage and bootstrap
 
@@ -77,10 +59,11 @@ From the repository root:
 
 ```sh
 python3 opensearch/prod/bootstrap.py
-docker compose -f opensearch/prod/compose.yaml --profile public up -d
-# Wait for public TLS issuance, then verify and publish only runtime credentials:
-python3 opensearch/prod/bootstrap.py --verify-public --publish-runtime-configuration
+docker compose -f opensearch/prod/compose.yaml up -d
 ```
+
+Then copy the two runtime credential pairs and the node's CA certificate from `.private/`
+into the prod project's [secret files](../host/prod/README.md#secrets).
 
 Bootstrap creates only its own labelled volumes, initializes security once, installs
 the shared roles/pipeline and creates the empty product index. It refuses unknown
@@ -95,19 +78,15 @@ Keep it in access-controlled operator backups; never commit or print its content
 For local administration use `curl --config opensearch/prod/.private/admin-curl`
 with the loopback URL, without disabling TLS verification. Check private certificate
 expiry before the 825-day node/admin lifetime and rotate certificates through a
-reviewed restart; Caddy renews its public certificate independently. The private
-admin key is not mounted into the running search node or public gateway.
+reviewed restart. The private admin key is not mounted into the running search node or
+the proxy.
 
-The verifier checks trusted local/public TLS, reader search, denied reader writes,
-denied projector reads and blocked public administration. Initialization exercises
-one non-business document before public activation and removes it, leaving an empty
-product index. Publishing writes only the endpoint and two scoped credential pairs
-to `/opensearch/prod/` in the approved workload account. It does not grant a pipeline
-or application search administration access. Fresh sanitized mapping/alias evidence
-is saved in `.private/observation.json` for release review.
-
-These checks prove host/public behavior. The private Lambda/Fargate readiness gate
-below is still required after AWS platform creation and before application activation.
+The verifier checks trusted local TLS, a green single-node cluster, reader search, denied
+reader writes and denied projector reads. Initialization exercises one non-business
+document before activation and removes it, leaving an empty product index. Neither
+runtime credential grants search administration.
+The application's `/v1/ready` queries OpenSearch, so a deployed API that is ready has
+reached the node over the `search` network with its reader credential.
 
 ## Dev host setup
 
@@ -155,7 +134,7 @@ Compose preserves its data volume; **never use `down -v`** on populated storage.
 Do not recreate populated indices, reset aliases or restore old security backups
 as part of an application release.
 
-## Public TLS and AWS gate
+## Dev public TLS
 
 Caddy exposes restricted application routes on
 `https://opensearch.stage.aura-historia.com:9443`, never security/admin APIs.
@@ -191,91 +170,52 @@ docker compose --profile public --env-file opensearch/stage/.env -f opensearch/s
 
 Require unauthenticated/wrong-credential requests to fail, a scoped reader search to
 succeed with trusted TLS, and reader writes/admin routes to be denied. Verify product-projector
-permissions separately with safe fixtures. Host-local checks do not prove AWS access.
-
-### Dev private-subnet egress and release gate
-
-AWS uses **`dev`**, not `stage`: `/opensearch/dev/endpoint-url` selects this service,
-with distinct `reader` and `product-projector` credential pairs. Do not recreate shared
-dev credentials or change unrelated stage parameters. Endpoint and usernames are SSM `String`
-configuration; passwords are the stage's OpenSearch [runtime credential](infra.md#runtime-credentials)
-secret. Never expose values in transcripts. Rotate host credentials, then release the new secret
-version to affected consumers before revoking old ones.
-
-[`config.ts`](../infra/src/config.ts) declares destination CIDRs and
-[`network.ts`](../infra/src/constructs/network.ts) permits dev application TCP 9443
-through NAT. Verify owner approval, current DNS/routing and the **deployed** rule
-before rollout. Security groups do not follow DNS changes. Coordinate host rotation
-with CIDR/configuration and TLS changes; never broaden to `0.0.0.0/0`, use a raw-IP
-URL or disable verification. Host-side NAT-EIP allowlisting is not a stage prerequisite.
-
-Use an approved private probe path before platform activation enables consumers; if it is
-unavailable, hold activation. Record effective endpoint/role references, rule/CIDR
-and sanitized private-workload readiness, product-reader and projector results,
-including periodic-matcher Fargate access. Synth, SSM inspection, local curl or a
-waived standalone NAT test are not workload evidence. Label failed/omitted/waived
-checks explicitly; repair DNS/SG/NAT/TLS/auth and retest before dependent cutover.
+permissions separately with safe fixtures.
 
 ## Release and schema-change contract
 
-Host/security/assets/upgrades remain manual operations; the delivery pipeline and
-scoped database operations do not administer OpenSearch. Follow the
-[first-time release](infra.md#first-time-environment-and-maintenance) and
-[consumer activation](durable-worker-runbook.md#activation-and-cdc-source-retirement), without
-using compute creation as a readiness probe. Runtime roles must never gain admin rights.
+Host, security, asset and engine changes are manual operator operations. The
+[Deploy workflow](../host/prod/README.md#deploys), migrations and `ops` commands do not
+administer OpenSearch and hold no administration credentials; runtime roles never gain
+admin rights. A new host follows this guide before the prod project's
+[first start](../host/prod/README.md#first-start), which needs the node running; changes to
+what feeds the projection follow [outbox source changes](durable-worker-runbook.md#outbox-source-changes).
 
-Compare release assets with actual state. Approve compatible readers/additive mappings
-before writers; incompatible changes require a
+Before deploying a commit, compare its `opensearch/**` changes since the deployed commit
+with the node's actual mapping, alias and pipeline; repository assets are desired state.
+Apply compatible reader changes and additive mappings through the loopback administration
+endpoint before deploying the writers that use them, while the old readers and projectors
+still run. Record the sanitized resulting mapping/alias and verify old/new compatibility
+before the deploy. Use the mode-0600 `.private/admin-curl` file; never put passwords in
+commands or output. A missing fact holds the deploy until the owner supplies it.
+
+Existing field/type/settings changes, alias cutovers and uncertain compatibility are
+incompatible. They require a
 [fenced new-generation rebuild](durable-worker-runbook.md#projection-fences-and-rebuild)
-from PostgreSQL and retained deletion facts, with catch-up and checked cutover.
-No automated rebuild tool is implied. Engine upgrades need reconstruction/backup
-verification, pinned-image/adapter review, an outage/restart plan and post-restart
-version/health/security checks. Never downgrade a migrated volume.
-
-The release compatibility report compares every tracked `opensearch/**` transition
-from the target's last verified application release through the complete candidate.
-Repository assets are desired state; sanitized current mapping/alias observations are
-required. Missing private facts hold the routine path until the owner supplies evidence.
-Existing field/type/settings changes, alias/rebuild cutovers and uncertain compatibility
-require maintenance. A model verdict cannot override those restrictions.
-
-For a compatible mapping addition the approval summary prominently displays:
-
-**BLOCKING MANUAL OPENSEARCH PREREQUISITE — COMPLETE BEFORE APPROVING aws-<target>**
-
-The checklist names the target host/index/alias, source-asset SHA256 values, reviewed
-host-local patch, ordered commands, preconditions, expected resulting mapping digest,
-verification and stop conditions. Use a mode-0600 `.admin-curl` credential file; never
-put passwords in commands/output. Complete the action while old readers/projectors run,
-record sanitized actual mapping/alias evidence, and verify old/new compatibility and
-private workload readiness. The protected target approval attests the exact target,
-bundle, report and prerequisite digest. Replacing a prerequisite or observing an
-unplanned change invalidates approval and requires a fresh report.
-
-Execution revalidates the expected **after** mapping and alias state against the approved
-transition. A successful manual addition is not treated as unexplained baseline drift.
-Read-only postchecks corroborate available observations; pipelines receive no search
-administration credentials, SSH automation or exposed administrative endpoint. A missing
-or incorrect completion attestation blocks mutation.
+from PostgreSQL and retained deletion facts, which
+[`ops reproject-all --generation <g>`](../src/aura-historia-ops/README.md) reconstructs, with
+catch-up and a checked cutover. Engine upgrades need pinned-image/adapter review, an
+outage/restart plan and post-restart version/health/security checks.
 
 First-time bootstrap, incompatible cutovers, fencing/draining, destructive rebuilds and
-engine transitions use their dedicated approved procedure and the common maintenance
-hold. Never recreate a populated index, discard tombstones, expose administration,
-grant runtime admin rights or downgrade a migrated volume. Application/alias rollback
-and migration retries do not undo database, queue or search effects.
+engine transitions use their dedicated approved procedure. Never recreate a populated
+index, discard tombstones, expose administration, grant runtime admin rights or downgrade a
+migrated volume. Application rollback, a deploy of an earlier commit, and migration retries
+do not undo database, queue or search effects.
 
 ## Monitoring and recovery
 
-Monitor cluster/index health, restarts, disk/inodes, JVM/native memory, gateway
-TLS/auth failures, certificate expiry and product-search/projection latency. Configure
+Monitor cluster/index health, restarts, disk/inodes, JVM/native memory, TLS/auth
+failures, certificate expiry and product-search/projection latency. Configure
 alerts from measured capacity and recovery headroom, not the Compose limits alone.
 Validate representative populated-data load and rebuild time before broad activation.
-Reconstruct under the projection fence rules; use off-host snapshots only with tested
-restore. Preserve failure custody under [controlled recovery](durable-worker-runbook.md#failure-custody-and-controlled-redrive).
+The node is not backed up ([backups](../host/prod/README.md#backups)): reconstruct it with
+`ops reproject-all` under the projection fence rules. Preserve failure custody under
+[controlled recovery](durable-worker-runbook.md#failure-custody-and-controlled-redrive).
 
 PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read
 projection. Product projector acknowledgment means a write was accepted or external
 versioning fenced it as stale. Search visibility follows the normal refresh cycle. The
-projector has document-write permissions; the runtime gateway exposes search and document
-routes. Monitor queue/projection lag, backlog age, failures/DLQ, version/fence correctness
-and rebuildability alongside cluster health.
+projector has document-write permissions; the reader only searches. Monitor queue/projection
+lag, backlog age, failure custody, version/fence correctness and rebuildability alongside
+cluster health.

@@ -19,12 +19,14 @@ geo = { workspace = true, features = ["data"] }
 admin-overview-postgres = { workspace = true }
 admin-overview-service = { workspace = true }
 async-trait = { workspace = true }
+cognito-post-confirmation = { workspace = true }
+cognito-trigger-signing = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-geoplaces = { workspace = true }
+aws-sdk-cloudwatchlogs = { workspace = true }
 aws-sdk-cognitoidentityprovider = { workspace = true }
-aws-sdk-s3 = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["cognito"] }
 aws-sdk-sesv2 = { workspace = true }
-aws-sdk-sqs = { workspace = true }
 application = { workspace = true }
 auction-core = { workspace = true }
 auction-postgres = { workspace = true }
@@ -51,8 +53,9 @@ oauth-core = { workspace = true }
 oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
-platform-lambda-bootstrap = { workspace = true }
+platform-process = { workspace = true }
 platform-observability = { workspace = true }
+platform-cloudwatch-logs = { workspace = true }
 platform-postgres = { workspace = true }
 
 jsonwebtokens = { workspace = true }
@@ -60,7 +63,6 @@ listing-source-core = { workspace = true }
 listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 localization = { workspace = true }
-lambda_http = { workspace = true }
 partnership-core = { workspace = true }
 partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }
@@ -79,14 +81,17 @@ serde_path_to_error = { workspace = true }
 serde_qs = { workspace = true }
 sqlx = { workspace = true }
 product-listing-core = { workspace = true }
-product-listing-ingestion-sqs = { workspace = true }
+product-listing-ingestion-queue = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
+product-listing-normalization = { workspace = true }
 product-listing-service = { workspace = true }
+product-listing-shopify = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 thiserror = { workspace = true }
+tracing-subscriber = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { workspace = true, features = ["util"] }
@@ -112,12 +117,9 @@ jsonschema = { version = "0.61.0", default-features = false }
 schemars = { workspace = true }
 classifier-model = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
-aws-smithy-runtime-api = { workspace = true }
-aws-smithy-types = { workspace = true }
 base64 = { workspace = true }
 mockall = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
-product-listing-normalization = { workspace = true }
 product-service = { workspace = true }
 rstest = { workspace = true }
 strum = { workspace = true }

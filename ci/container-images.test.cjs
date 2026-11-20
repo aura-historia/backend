@@ -2,76 +2,20 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, rmSync, writeFileSync } = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { spawnSync } = require('node:child_process');
-const { loadCatalog, resolveImage, resolveImages } = require('./container-images.cjs');
+const { loadCatalog, validateCatalog } = require('./container-images.cjs');
 
-const sha = '6a9c07fa66163b0917434cbf6bcc20e40b9c845c';
-const digest = `sha256:${'a'.repeat(64)}`;
 const image = loadCatalog()[0];
-
-function response(tag, value = digest) {
-  return { imageDetails: [{ imageDigest: value, imageTags: [tag] }] };
-}
 
 test('the checked-in image catalog is valid', () => {
   assert.equal(loadCatalog().length, 1);
 });
 
-test('a missing image is the only response that permits a new build', () => {
-  const missing = Object.assign(new Error('not found'), { code: 'ImageNotFoundException' });
-  assert.equal(resolveImage(image, sha, () => { throw missing; }, { allowMissing: true }).status, 'missing');
-  assert.throws(() => resolveImage(image, sha, () => { throw new Error('AccessDeniedException'); }, { allowMissing: true }), /AccessDeniedException/);
+test('two images may not share an id or a GHCR package', () => {
+  assert.throws(() => validateCatalog([image, { ...image }]), /duplicate id/);
+  assert.throws(() => validateCatalog([image, { ...image, id: 'other' }]), /duplicate repository/);
 });
 
-test('all catalog entries resolve by their own repository, SHA tag, and digest parameter', () => {
-  const twoImages = [
-    { ...image, id: 'one', repository: 'aura-one', digestParameter: 'OneDigest', taskDefinitionOutput: 'OneTaskArn' },
-    { ...image, id: 'two', repository: 'aura-two', digestParameter: 'TwoDigest', taskDefinitionOutput: 'TwoTaskArn' },
-  ];
-  const resolved = resolveImages(twoImages, sha, (repository, tag) => response(tag, repository === 'aura-one' ? digest : `sha256:${'b'.repeat(64)}`));
-  assert.deepEqual(Object.keys(resolved).sort(), ['OneDigest', 'TwoDigest']);
-  assert.notEqual(resolved.OneDigest, resolved.TwoDigest);
-});
-
-test('the deploy parameter selector handles absent and older compute stacks without activation toggles', () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), 'deploy-parameters-'));
-  try {
-    const stackPath = path.join(directory, 'compute-stack.json');
-    const digestsPath = path.join(directory, 'digests.json');
-    const script = path.join(__dirname, 'container-images.cjs');
-    const digests = { [image.digestParameter]: digest };
-    writeFileSync(digestsPath, JSON.stringify(digests));
-    const runSelector = () => spawnSync(process.execPath, [script, 'deploy-parameters', '--stack-file', stackPath, '--commit-sha', sha, '--digests', digestsPath], { encoding: 'utf8', timeout: 15000 });
-
-    writeFileSync(stackPath, '');
-    const absent = runSelector();
-    assert.equal(absent.status, 0, absent.stderr);
-    assert.deepEqual(JSON.parse(absent.stdout), {
-      parameters: { CommitSHA: sha, [image.digestParameter]: digest },
-      preserveExistingParameters: true,
-    });
-
-    writeFileSync(stackPath, JSON.stringify({ Stacks: [{ Parameters: [
-      { ParameterKey: 'CommitSHA', ParameterValue: sha },
-      { ParameterKey: image.activationParameter, ParameterValue: 'true' },
-      { ParameterKey: 'CdcRouterEnabled', ParameterValue: 'false' },
-    ] }] }));
-    const older = runSelector();
-    assert.equal(older.status, 0, older.stderr);
-    assert.deepEqual(JSON.parse(older.stdout).parameters, { CommitSHA: sha, [image.digestParameter]: digest });
-    assert.equal(JSON.parse(older.stdout).parameters[image.activationParameter], undefined);
-    assert.equal(JSON.parse(older.stdout).parameters.CdcRouterEnabled, undefined);
-
-    writeFileSync(stackPath, JSON.stringify({ Stacks: [{ Parameters: [
-      { ParameterKey: image.digestParameter, ParameterValue: 'sha256:bad' },
-    ] }] }));
-    const malformed = runSelector();
-    assert.notEqual(malformed.status, 0);
-    assert.match(malformed.stderr, /malformed/);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
+test('an image needs a declared binary and its own smoke test', () => {
+  assert.throws(() => validateCatalog([{ ...image, binary: 'not-a-binary' }]), /is not declared/);
+  assert.throws(() => validateCatalog([{ ...image, id: 'unknown' }]), /smoke test/);
 });

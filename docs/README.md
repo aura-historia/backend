@@ -15,8 +15,15 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Email consent, provider eligibility and evidence | [Marketing consent](marketing-consent.md) |
 | Account deletion, provider identity lifecycle and re-registration | [Account lifecycle](account-lifecycle.md) |
 | Event sources, routes and completion semantics | [Event flow](events/flow.md) |
-| Worker activation, failure custody and replay | [Worker runbook](durable-worker-runbook.md) |
-| AWS releases, migration, initialization and rollback | [Infrastructure](infra.md) |
+| Outbox source changes, failure custody and redrive | [Worker runbook](durable-worker-runbook.md) |
+| PostgreSQL job queue: delivery, FIFO groups, deduplication and custody | [Job queue](../src/platform-postgres-queue/README.md) |
+| Delivery outbox: capture, dispatch, custody and reprojection | [Delivery outbox](../src/delivery-outbox/README.md) |
+| Host processes: configuration from environment and files, PostgreSQL pools, shutdown | [Host process](../src/platform-process/README.md) |
+| Worker process: consumers per scope, concurrency, timeouts, shutdown, outbox dispatcher | [Worker](../src/aura-historia-worker/README.md), [consumer runtime](../src/platform-worker/README.md) |
+| Operator and scheduled commands: migrate, inspect, redrive, `reproject-all`, cleanup | [Ops commands](../src/aura-historia-ops/README.md) |
+| Production operations: credentials, logs, scheduled work, rollback and the resources that stay on AWS | [Infrastructure](infra.md) |
+| Host tiers, memory plan, firewall and the deploy user | [Host guide](../host/README.md) |
+| Prod Compose project: secrets, first start, deploys, timers, backups and restore | [Prod Compose project](../host/prod/README.md) |
 | Local tests, CI lanes and fixture diagnostics | [Testing and CI](ci.md) |
 | HTTP creation retry exceptions and recovery | [Command retries](command-retries.md) |
 | HTTP routing, authentication and cache isolation | [API front door](http-api-front-door.md) |
@@ -43,5 +50,5 @@ choices, safety rules and operator procedures—not every type, setting or imple
 - Amend an existing owner when possible; add a document only for a distinct boundary
   and give it an entry in this map. Do not grow general guides into implementation inventories.
 
-Local CDK commands live in [`infra/README.md`](../infra/README.md); deployment operations
-live here. Swagger hosting files and crawler documentation have separate ownership.
+Local CDK commands live in [`infra/README.md`](../infra/README.md) and host procedures in
+[`host/`](../host/README.md); operating guarantees live here. Swagger hosting files and crawler documentation have separate ownership.

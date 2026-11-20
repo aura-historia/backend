@@ -263,10 +263,41 @@ pub(crate) const LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("LOOPS_WEBHOOK_TEMPORARILY_UNAVAILABLE");
 pub(crate) const LOOPS_WEBHOOK_UNAUTHORIZED: ApiErrorCode =
     ApiErrorCode("LOOPS_WEBHOOK_UNAUTHORIZED");
+pub(crate) const STRIPE_WEBHOOK_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("STRIPE_WEBHOOK_INTERNAL_ERROR");
+pub(crate) const STRIPE_WEBHOOK_INVALID_BODY: ApiErrorCode =
+    ApiErrorCode("STRIPE_WEBHOOK_INVALID_BODY");
+pub(crate) const STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE: ApiErrorCode =
+    ApiErrorCode("STRIPE_WEBHOOK_PAYLOAD_TOO_LARGE");
+pub(crate) const STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("STRIPE_WEBHOOK_TEMPORARILY_UNAVAILABLE");
+pub(crate) const STRIPE_WEBHOOK_UNAUTHORIZED: ApiErrorCode =
+    ApiErrorCode("STRIPE_WEBHOOK_UNAUTHORIZED");
+// The internal post-confirmation endpoint's codes; it is not part of the public API contract.
+pub(crate) const POST_CONFIRMATION_CONFLICT: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_CONFLICT");
+pub(crate) const POST_CONFIRMATION_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_INTERNAL_ERROR");
+pub(crate) const POST_CONFIRMATION_INVALID_EVENT: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_INVALID_EVENT");
+pub(crate) const POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_TEMPORARILY_UNAVAILABLE");
+pub(crate) const POST_CONFIRMATION_UNAUTHORIZED: ApiErrorCode =
+    ApiErrorCode("POST_CONFIRMATION_UNAUTHORIZED");
+// The internal pre-sign-up endpoint's codes; it is not part of the public API contract.
+pub(crate) const PRE_SIGN_UP_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_INTERNAL_ERROR");
+pub(crate) const PRE_SIGN_UP_INVALID_REQUEST: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_INVALID_REQUEST");
+pub(crate) const PRE_SIGN_UP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PRE_SIGN_UP_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PRE_SIGN_UP_UNAUTHORIZED: ApiErrorCode = ApiErrorCode("PRE_SIGN_UP_UNAUTHORIZED");
 pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_ADDRESS_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_ADDRESS_NOT_FOUND");
+/// A process-wide request-rate limit is exhausted; see `rate_limit`.
+pub(crate) const REQUEST_RATE_LIMITED: ApiErrorCode = ApiErrorCode("REQUEST_RATE_LIMITED");
 pub(crate) const ADDRESS_SUGGESTIONS_RATE_LIMITED: ApiErrorCode =
     ApiErrorCode("ADDRESS_SUGGESTIONS_RATE_LIMITED");
 pub(crate) const ADDRESS_SUGGESTIONS_UNAVAILABLE: ApiErrorCode =

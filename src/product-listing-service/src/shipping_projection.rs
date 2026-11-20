@@ -172,7 +172,7 @@ pub enum ShippingProjectionError {
 }
 #[async_trait::async_trait]
 pub trait ShippingProjectionStore: Send {
-    /// Claim only the work identified by a CDC/SQS wake-up.
+    /// Claim only the work identified by an outbox-routed wake-up.
     async fn claim(
         &mut self,
         work: ShippingWorkId,

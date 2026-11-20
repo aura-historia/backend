@@ -591,3 +591,28 @@ async fn should_reject_ambiguous_raw_envelopes_before_admission_or_dispatch() {
     assert_eq!(0, admissions.load(Ordering::SeqCst));
     assert_eq!(0, calls.load(Ordering::SeqCst));
 }
+
+#[tokio::test]
+async fn should_rate_limit_requests_but_never_liveness_probes() {
+    let mut config = config();
+    config.rate_limit = Some(platform_process::RateLimit::new(0.001, 1.0).unwrap());
+    let app = router(config, Registry::default(), Arc::new(AnonymousGate)).unwrap();
+    let list = modern("tools/list", json!({}));
+
+    assert_eq!(
+        StatusCode::OK,
+        app.clone().oneshot(request(&list)).await.unwrap().status()
+    );
+    let limited = app.clone().oneshot(request(&list)).await.unwrap();
+    assert_eq!(StatusCode::TOO_MANY_REQUESTS, limited.status());
+    assert_eq!("1", limited.headers()["retry-after"]);
+    assert_eq!("no-store", limited.headers()["cache-control"]);
+    let health = Request::get("/health")
+        .header("host", "mcp.example.test")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        app.oneshot(health).await.unwrap().status()
+    );
+}
