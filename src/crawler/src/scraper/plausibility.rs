@@ -649,13 +649,18 @@ fn is_link_or_path(value: &str, reading: LinkReading) -> bool {
 /// "Add to cart £45", is the action the `state` contract allows where a page shows no label: a
 /// selector cannot take the action's words without the amount the shop prints beside them.
 fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
-    let cart_or_enquiry_action = regex!(
-        r"(?i)\b(?:add to (?:cart|basket|bag)|buy|enquire|inquire|make an offer|in (?:den )?warenkorb|in (?:de )?winkel(?:wagen|mand)|ajouter au panier)\b"
-    );
     (is_price_text(state)
-        && !cart_or_enquiry_action.is_match(state)
+        && !names_cart_or_enquiry_action(state)
         && !is_status_label_beside_amount(state))
     .then_some(PlausibilityCheck::PriceText)
+}
+
+/// Whether `state` names a cart or enquiry action, such as "Add to cart" or "In den Warenkorb".
+fn names_cart_or_enquiry_action(state: &str) -> bool {
+    regex!(
+        r"(?i)\b(?:add to (?:cart|basket|bag)|buy|enquire|inquire|make an offer|in (?:den )?warenkorb|in (?:de )?winkel(?:wagen|mand)|ajouter au panier)\b"
+    )
+    .is_match(state)
 }
 
 /// Whether the ProductListing normalization resolves `state`, or what is left of it once the
