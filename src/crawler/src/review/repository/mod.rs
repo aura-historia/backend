@@ -33,6 +33,7 @@ use url::Url;
 
 mod classifier_rejection;
 mod crawl_resumption;
+mod final_round;
 mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
@@ -53,6 +54,7 @@ mod sample_labels;
 mod sample_redirects;
 mod schema_payload;
 mod source_label;
+mod source_park;
 mod source_qualification;
 mod url_pattern_sample;
 mod verdicts;
@@ -68,7 +70,8 @@ pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use schema_payload::ProductSchemaCandidateFailure;
-pub(crate) use source_qualification::AGENT_RETRY_DUE;
+pub use source_park::MAX_PARK_RETRIES_PER_CALL;
+pub(crate) use source_qualification::{AGENT_RETRY_DUE, agent_final_round_due};
 pub use verdicts::Approval;
 
 use non_product_loop::NonProductLoop;
@@ -83,7 +86,7 @@ use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
 use repair_rounds::refuse_agent_while_human_required;
 pub(crate) use repair_rounds::{
     after_last_human_event, agent_repair_rounds, agent_round_binds, agent_rounds_of_review,
-    handed_review_to_human,
+    final_round_of_review, final_round_started_at, handed_review_to_human, review_waits_for_human,
 };
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
@@ -138,6 +141,18 @@ pub enum ReviewRepositoryError {
     MissingHandoverNote,
     #[error("only a review agent hands a review to a human; a human changes or judges it instead")]
     OnlyAgentsHandOver,
+    #[error(
+        "only the author agent starts the agents' final round; a human changes or judges the review instead"
+    )]
+    FinalRoundNeedsAuthorAgent,
+    #[error(
+        "review {0} gets no final round now: it does not wait for a human, or its final round already ran within the round window"
+    )]
+    FinalRoundNotDue(CrawlerReviewId),
+    #[error(
+        "an agent labels AGENTS_UNRESOLVED only in the agents' final round, which review {0} has not started"
+    )]
+    FinalRoundOnlyLabel(CrawlerReviewId),
     #[error(
         "a review agent labels a ListingSource only with a note naming the evidence: what it read and why the crawler should not crawl the shop"
     )]

@@ -38,6 +38,11 @@ pub enum SourceLabel {
     JavascriptRendered,
     /// The products are behind a login.
     LoginRequired,
+    /// The review agents could not finish the source's review or qualification, even in their
+    /// final round: the author and the reviewer still disagreed, or the obstacle fits no other
+    /// label. The note names both sides' last positions. Unlike `OTHER`, a human's catch-all, the
+    /// agents retry it on their own once it expires.
+    AgentsUnresolved,
     /// Any other cause; the note names it.
     Other,
     /// Retired: the shop sells online, but one of the crawler's approaches does not fit it. It
@@ -49,7 +54,7 @@ pub enum SourceLabel {
 
 impl SourceLabel {
     /// Every label a ListingSource may carry, the retired one included.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::NotAnEshop,
         Self::NotAnAntiqueShop,
         Self::UrlPatternApproachNotApplicable,
@@ -59,12 +64,13 @@ impl SourceLabel {
         Self::BotProtection,
         Self::JavascriptRendered,
         Self::LoginRequired,
+        Self::AgentsUnresolved,
         Self::Other,
         Self::ApproachNotApplicable,
     ];
 
     /// The labels a new label may use: every label but the retired one.
-    pub const OFFERED: [Self; 10] = [
+    pub const OFFERED: [Self; 11] = [
         Self::NotAnEshop,
         Self::NotAnAntiqueShop,
         Self::UrlPatternApproachNotApplicable,
@@ -74,6 +80,7 @@ impl SourceLabel {
         Self::BotProtection,
         Self::JavascriptRendered,
         Self::LoginRequired,
+        Self::AgentsUnresolved,
         Self::Other,
     ];
 
@@ -89,6 +96,7 @@ impl SourceLabel {
             Self::BotProtection => "BOT_PROTECTION",
             Self::JavascriptRendered => "JAVASCRIPT_RENDERED",
             Self::LoginRequired => "LOGIN_REQUIRED",
+            Self::AgentsUnresolved => "AGENTS_UNRESOLVED",
             Self::Other => "OTHER",
             Self::ApproachNotApplicable => "APPROACH_NOT_APPLICABLE",
         }
@@ -211,6 +219,10 @@ pub struct AppliedSourceLabel {
     #[serde(with = "time::serde::rfc3339")]
     pub labelled_at: OffsetDateTime,
     pub labelled_by: ReviewActor,
+    /// When the agents try the source again: set for a review agent's park label, which expires
+    /// then; `None` for a label that never expires.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub retry_at: Option<OffsetDateTime>,
 }
 
 impl super::QueryValue for SourceLabel {
@@ -232,6 +244,7 @@ impl super::QueryValue for SourceLabel {
         ("BOT_PROTECTION", Self::BotProtection),
         ("JAVASCRIPT_RENDERED", Self::JavascriptRendered),
         ("LOGIN_REQUIRED", Self::LoginRequired),
+        ("AGENTS_UNRESOLVED", Self::AgentsUnresolved),
         ("OTHER", Self::Other),
         ("APPROACH_NOT_APPLICABLE", Self::ApproachNotApplicable),
     ];
@@ -422,6 +435,7 @@ mod tests {
             note: None,
             labelled_at: datetime!(2026-11-12 09:00:00 UTC),
             labelled_by: ReviewActor::Human,
+            retry_at: None,
         };
 
         assert_eq!(
@@ -429,7 +443,8 @@ mod tests {
                 "label": "APPROACH_NOT_APPLICABLE",
                 "note": null,
                 "labelled_at": "2026-11-12T09:00:00Z",
-                "labelled_by": "HUMAN"
+                "labelled_by": "HUMAN",
+                "retry_at": null
             }),
             serde_json::to_value(applied).unwrap_or_else(|error| panic!("serialize: {error}"))
         );

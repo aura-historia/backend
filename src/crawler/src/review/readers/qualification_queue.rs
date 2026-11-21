@@ -4,10 +4,12 @@
 //! existed before qualification did.
 
 use crate::review::model::{
-    AGENT_NEEDS_HUMAN_RETRY_HOURS, MAX_AGENT_NEEDS_HUMAN_DECISIONS, QueuedSourceLabel, ReviewActor,
+    AGENT_NEEDS_HUMAN_BEFORE_FINAL_ROUND, QueuedSourceLabel, ReviewActor,
     SourceAwaitingQualification, SourceLabel,
 };
-use crate::review::repository::{AGENT_RETRY_DUE, listing_source_id_from_uuid};
+use crate::review::repository::{
+    AGENT_RETRY_DUE, agent_final_round_due, listing_source_id_from_uuid,
+};
 use serde::Serialize;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -17,13 +19,16 @@ pub const MAX_QUEUED_SOURCES: i64 = 100;
 
 /// The sources waiting, new sources first, then the backfill, then the sources the agents try
 /// again after their own `NEEDS_HUMAN`: a new source is not crawled until it is decided, while a
-/// backfill source keeps being crawled meanwhile. Binds `$1`, the most sources, and `$2` and `$3`
-/// of [`AGENT_RETRY_DUE`].
+/// backfill source keeps being crawled meanwhile. A try after the agents' daily `NEEDS_HUMAN`
+/// tries is their final round. Binds `$1`, the most sources, and `$2` of
+/// [`agent_final_round_due`].
 fn awaiting_qualification() -> String {
+    let final_round_due = agent_final_round_due();
     format!(
         "SELECT s.listing_source_id, s.listing_source_name, s.crawl_root_url, s.crawl_host,
                s.qualification_backfill, s.source_label, s.source_label_note, s.source_labelled_by,
                CASE WHEN s.qualification IS NOT NULL THEN s.qualification_note END AS earlier_note,
+               s.qualification IS NOT NULL AND {final_round_due} AS final_round,
                ARRAY(SELECT DISTINCT r.artifact_type FROM crawler_reviews r
                      WHERE r.listing_source_id = s.listing_source_id
                        AND r.status = 'PENDING_REVIEW'
@@ -63,8 +68,7 @@ impl QualificationQueueReader {
     pub async fn read(&self) -> Result<QualificationQueue, sqlx::Error> {
         let rows = sqlx::query(sqlx::AssertSqlSafe(awaiting_qualification()))
             .bind(MAX_QUEUED_SOURCES)
-            .bind(AGENT_NEEDS_HUMAN_RETRY_HOURS)
-            .bind(MAX_AGENT_NEEDS_HUMAN_DECISIONS)
+            .bind(i64::from(AGENT_NEEDS_HUMAN_BEFORE_FINAL_ROUND))
             .fetch_all(&self.pool)
             .await?;
         Ok(QualificationQueue {
@@ -109,5 +113,6 @@ fn source_of_row(row: &PgRow) -> Result<SourceAwaitingQualification, sqlx::Error
         source_label,
         pending_review_artifacts: row.try_get("pending_review_artifacts")?,
         earlier_note: row.try_get("earlier_note")?,
+        final_round: row.try_get("final_round")?,
     })
 }

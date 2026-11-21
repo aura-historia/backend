@@ -141,6 +141,9 @@ pub enum ReviewEventAction {
     /// `POST /api/reviews/{id}/hand-to-human`: a review agent made the review wait for a human
     /// without a further needs-repair round, saying why in the event's notes.
     HandedToHuman,
+    /// `POST /api/reviews/{id}/final-round`: the author agent opened the agents' final round on a
+    /// review that would wait for a human, with the strongest model, before the source is parked.
+    FinalRoundStarted,
     Approved,
     Rejected,
     /// `POST /api/reviews/{id}/restore`: a human brought back what the review's approval replaced.
@@ -151,7 +154,7 @@ pub enum ReviewEventAction {
 }
 
 impl ReviewEventAction {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
@@ -161,6 +164,7 @@ impl ReviewEventAction {
         Self::NoSoldPageRecorded,
         Self::RepairRequested,
         Self::HandedToHuman,
+        Self::FinalRoundStarted,
         Self::Approved,
         Self::Rejected,
         Self::Restored,
@@ -179,6 +183,7 @@ impl ReviewEventAction {
             Self::NoSoldPageRecorded => "NO_SOLD_PAGE_RECORDED",
             Self::RepairRequested => "REPAIR_REQUESTED",
             Self::HandedToHuman => "HANDED_TO_HUMAN",
+            Self::FinalRoundStarted => "FINAL_ROUND_STARTED",
             Self::Approved => "APPROVED",
             Self::Rejected => "REJECTED",
             Self::Restored => "RESTORED",
@@ -225,6 +230,27 @@ impl HandoverReason {
         match self {
             Self::NeedsHuman => "needs_human",
             Self::NothingToStageAfterReview => "nothing_to_stage_after_review",
+        }
+    }
+}
+
+/// What brought a review to the agents' final round: the step after which it would have waited
+/// for a human. The `FINAL_ROUND_STARTED` event keeps it as its details' `after`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum FinalRoundCause {
+    /// The agents' needs-repair rounds reached the cap.
+    RepairCap,
+    /// An agent, or the crawler's non-product page loop guard, handed the review to a human.
+    HandedOver,
+}
+
+impl FinalRoundCause {
+    /// The name the logs carry, as [`HandoverReason::log_name`].
+    pub const fn log_name(self) -> &'static str {
+        match self {
+            Self::RepairCap => "repair_cap",
+            Self::HandedOver => "handed_over",
         }
     }
 }

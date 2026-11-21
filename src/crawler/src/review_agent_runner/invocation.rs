@@ -8,7 +8,7 @@
 
 use super::qualification::QueuedSource;
 use super::queue::{QueuedReview, ReviewArtifact};
-use super::settings::{AgentProcessSettings, RunnerSettings, effort_flag};
+use super::settings::{AgentProcessSettings, AgentRound, RunnerSettings, effort_flag};
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review_mcp::{
     AgentRole, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV, ToolSchemaError,
@@ -126,6 +126,9 @@ pub(super) struct RoleContract {
     /// reads only the rules of the review it works.
     product_schema_rules: &'static str,
     url_pattern_rules: &'static str,
+    /// What the role's process is told in the agents' final round, after the review or source is
+    /// named, so the prompt before it stays the one the prompt cache serves.
+    final_round: &'static str,
     report_schema: &'static str,
 }
 
@@ -135,12 +138,14 @@ pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
             prompt: include_str!("prompts/author.md"),
             product_schema_rules: include_str!("prompts/author.product-schema.md"),
             url_pattern_rules: include_str!("prompts/author.url-pattern.md"),
+            final_round: include_str!("prompts/author.final-round.md"),
             report_schema: include_str!("schemas/author-report.v3.json"),
         },
         AgentRole::Reviewer => RoleContract {
             prompt: include_str!("prompts/reviewer.md"),
             product_schema_rules: include_str!("prompts/reviewer.product-schema.md"),
             url_pattern_rules: include_str!("prompts/reviewer.url-pattern.md"),
+            final_round: include_str!("prompts/reviewer.final-round.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
         // The qualifier works no review, so no artifact type's rules apply.
@@ -148,6 +153,7 @@ pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
             prompt: include_str!("prompts/qualifier.md"),
             product_schema_rules: "",
             url_pattern_rules: "",
+            final_round: include_str!("prompts/qualifier.final-round.md"),
             report_schema: include_str!("schemas/qualifier-report.v1.json"),
         },
     }
@@ -159,18 +165,28 @@ impl RoleContract {
     /// prompt before it is the same for every review of an artifact type and the model's prompt
     /// cache serves it across processes.
     pub(super) fn prompt(&self, review: &QueuedReview) -> String {
-        self.template(review.artifact_type)
+        let prompt = self
+            .template(review.artifact_type)
             .replace("{review_id}", &review.review_id.to_string())
-            .replace("{artifact_type}", review.artifact_type.as_str())
+            .replace("{artifact_type}", review.artifact_type.as_str());
+        self.in_round(prompt, review.round())
+    }
+
+    /// `prompt` as a process of `round` reads it: the final round's instructions follow it.
+    fn in_round(&self, prompt: String, round: AgentRound) -> String {
+        match round {
+            AgentRound::Regular => prompt,
+            AgentRound::Final => prompt + self.final_round,
+        }
     }
 
     /// The prompt and report schema the ledger and the log name a process by: the first 12 hex
     /// characters of the SHA-256 of the role's prompt template for `artifact` and of its report
     /// schema, so a changed prompt or schema shows in the ledger without a version to bump.
-    pub(super) fn prompt_sha256(&self, artifact: ReviewArtifact) -> String {
+    pub(super) fn prompt_sha256(&self, artifact: ReviewArtifact, round: AgentRound) -> String {
         use sha2::{Digest, Sha256};
         let digest = Sha256::new()
-            .chain_update(self.template(artifact))
+            .chain_update(self.in_round(self.template(artifact), round))
             .chain_update(self.report_schema)
             .finalize();
         digest
@@ -239,7 +255,7 @@ pub(super) fn agent_command(
     review: &QueuedReview,
 ) -> Result<AgentCommand, CommandError> {
     let contract = role_contract(role);
-    let process = settings.process(role, review.artifact_type);
+    let process = settings.process(role, review.artifact_type, review.round());
     let mcp_args = [
         "--role".to_owned(),
         role.as_str().to_owned(),
@@ -268,7 +284,7 @@ pub(super) fn qualifier_command(
     source: &QueuedSource,
 ) -> Result<AgentCommand, CommandError> {
     let role = AgentRole::Qualifier;
-    let process = settings.process(role, ReviewArtifact::UrlPattern);
+    let process = settings.process(role, ReviewArtifact::UrlPattern, source.round());
     let mcp_args = [
         "--role".to_owned(),
         role.as_str().to_owned(),
@@ -285,7 +301,10 @@ pub(super) fn qualifier_command(
             &mcp_args,
         )?,
         env: settings.child_env.clone(),
-        prompt: qualifier_prompt(role_contract(role).prompt, source),
+        prompt: role_contract(role).in_round(
+            qualifier_prompt(role_contract(role).prompt, source),
+            source.round(),
+        ),
     })
 }
 
@@ -530,6 +549,7 @@ mod tests {
 
     fn review() -> QueuedReview {
         QueuedReview {
+            final_round: crate::review::model::FinalRoundStatus::None,
             review_id: CrawlerReviewId::new(),
             artifact_type: ReviewArtifact::UrlPattern,
             listing_source_id: listing_source_core::ListingSourceId::new(),
@@ -744,6 +764,7 @@ mod tests {
 
     fn queued_source(source_label: Option<QueuedSourceLabel>) -> QueuedSource {
         QueuedSource {
+            final_round: false,
             listing_source_id: listing_source_core::ListingSourceId::new(),
             listing_source_name: "Uhren Antik".to_owned(),
             crawl_root_url: "https://uhren.example/".to_owned(),
@@ -1109,14 +1130,101 @@ mod tests {
         let mut hashes = std::collections::BTreeSet::new();
         for role in [AgentRole::Author, AgentRole::Reviewer] {
             for artifact in [ReviewArtifact::ProductSchema, ReviewArtifact::UrlPattern] {
-                let hash = role_contract(role).prompt_sha256(artifact);
+                let hash = role_contract(role).prompt_sha256(artifact, AgentRound::Regular);
                 assert_eq!(hash.len(), 12, "{role} {artifact}");
                 assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "{hash}");
-                assert_eq!(hash, role_contract(role).prompt_sha256(artifact));
+                assert_eq!(
+                    hash,
+                    role_contract(role).prompt_sha256(artifact, AgentRound::Regular)
+                );
                 hashes.insert(hash);
             }
         }
         assert_eq!(hashes.len(), 4, "{hashes:?}");
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            for artifact in [ReviewArtifact::ProductSchema, ReviewArtifact::UrlPattern] {
+                assert!(
+                    hashes.insert(role_contract(role).prompt_sha256(artifact, AgentRound::Final)),
+                    "the final round's prompt has a hash of its own: {role} {artifact}"
+                );
+            }
+        }
+    }
+
+    /// Language is never a reason to stop: every agent that reads a shop's pages is told so.
+    #[test]
+    fn should_tell_every_agent_that_reads_pages_that_language_is_no_reason_to_stop() {
+        for role in [AgentRole::Author, AgentRole::Reviewer, AgentRole::Qualifier] {
+            let prompt = role_contract(role).prompt;
+            assert!(
+                prompt.contains("Pages in any language, such as Japanese, Chinese or Arabic, are read and judged like any others: language is never a reason to stop."),
+                "{role}"
+            );
+        }
+    }
+
+    /// A final-round process runs on the final round's model and effort and reads the final
+    /// round's instructions after the review or source is named, so the prompt before them stays
+    /// the one the prompt cache serves; a regular process reads none of them.
+    #[test]
+    fn should_tell_a_final_round_process_what_its_round_asks_after_the_cached_prompt() {
+        let settings = settings();
+        let regular = review();
+        let last = QueuedReview {
+            final_round: crate::review::model::FinalRoundStatus::Open,
+            ..regular.clone()
+        };
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            let command = agent_command(&settings, role, &last).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                flag(&command.args, "--model"),
+                Some("claude-opus-5-5"),
+                "{role}"
+            );
+            assert_eq!(flag(&command.args, "--effort"), Some("high"), "{role}");
+            let named = command
+                .prompt
+                .find(&format!("Your review: {}", last.review_id))
+                .unwrap_or_else(|| panic!("{role} names the review"));
+            let final_round = command
+                .prompt
+                .find("This is the agents' final round")
+                .unwrap_or_else(|| panic!("{role} is told its final round"));
+            assert!(named < final_round, "{role}");
+            let regular_command =
+                agent_command(&settings, role, &regular).unwrap_or_else(|e| panic!("{e}"));
+            assert!(
+                !regular_command
+                    .prompt
+                    .contains("This is the agents' final round"),
+                "{role}"
+            );
+        }
+        let author =
+            agent_command(&settings, AgentRole::Author, &last).unwrap_or_else(|e| panic!("{e}"));
+        for label in [
+            "BOT_PROTECTION, JAVASCRIPT_RENDERED or LOGIN_REQUIRED",
+            "URL_PATTERN_APPROACH_NOT_APPLICABLE",
+            "PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE",
+            "NOT_AN_ESHOP",
+            "AGENTS_UNRESOLVED",
+        ] {
+            assert!(author.prompt.contains(label), "{label}");
+        }
+        let qualifier = qualifier_command(
+            &settings,
+            &QueuedSource {
+                final_round: true,
+                ..queued_source(None)
+            },
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(flag(&qualifier.args, "--model"), Some("claude-opus-5-5"));
+        assert!(
+            qualifier
+                .prompt
+                .contains("This is the agents' final try on this source")
+        );
     }
 
     /// Claude Code turns a report schema into a strict tool schema only when every object closes

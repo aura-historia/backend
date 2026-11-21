@@ -4,9 +4,10 @@
 //! since a time, for the digest. The console decides what is pending and what waits for a human;
 //! the runner only picks which reviews this pass works.
 
+use super::settings::AgentRound;
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, HandoverCause, PendingReviewPage,
-    PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
+    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, FinalRoundStatus, HandoverCause,
+    PendingReviewPage, PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
@@ -61,6 +62,20 @@ pub struct QueuedReview {
     pub repair_requested: bool,
     /// Whether the page classifier judges the review before an author works it.
     pub classification_due: bool,
+    /// Where the agents' final round on the review stands.
+    pub final_round: FinalRoundStatus,
+}
+
+impl QueuedReview {
+    /// The round the review's processes work: the final round once it is due or open.
+    pub fn round(&self) -> AgentRound {
+        match self.final_round {
+            FinalRoundStatus::None => AgentRound::Regular,
+            FinalRoundStatus::Due | FinalRoundStatus::Open | FinalRoundStatus::Ended => {
+                AgentRound::Final
+            }
+        }
+    }
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -85,6 +100,9 @@ pub struct HumanRequiredReview {
 pub struct ReviewQueue {
     pub workable: Vec<QueuedReview>,
     pub waiting_for_human: Vec<HumanRequiredReview>,
+    /// Of those that wait for a human, the ones the agents' final round takes now: those due for
+    /// it, and those whose round ended, whose source the runner still has to park.
+    pub final_round_needed: Vec<QueuedReview>,
 }
 
 /// The agents' queue: every page of the reviews they can work, then every page of those that wait
@@ -152,18 +170,18 @@ impl ReviewQueue {
             workable: workable
                 .into_iter()
                 .filter(|review| !waiting_ids.contains(&review.review_id))
-                .filter_map(|review| {
-                    Some(QueuedReview {
-                        review_id: review.review_id,
-                        artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
-                        listing_source_id: review.listing_source_id,
-                        listing_source_name: Some(review.listing_source_name),
-                        handed_back: review.handed_back,
-                        created: review.created,
-                        repair_requested: review.repair_request.is_some(),
-                        classification_due: review.classification_due,
-                    })
+                .filter_map(queued)
+                .collect(),
+            final_round_needed: waiting_for_human
+                .iter()
+                .filter(|review| {
+                    matches!(
+                        review.final_round,
+                        FinalRoundStatus::Due | FinalRoundStatus::Ended
+                    )
                 })
+                .cloned()
+                .filter_map(queued)
                 .collect(),
             waiting_for_human: waiting_for_human
                 .into_iter()
@@ -182,6 +200,22 @@ impl ReviewQueue {
     }
 }
 
+/// The review `review` lists as the pass works it; `None` for an artifact type the agents do not
+/// author.
+fn queued(review: PendingReviewSummary) -> Option<QueuedReview> {
+    Some(QueuedReview {
+        review_id: review.review_id,
+        artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
+        listing_source_id: review.listing_source_id,
+        listing_source_name: Some(review.listing_source_name),
+        handed_back: review.handed_back,
+        created: review.created,
+        repair_requested: review.repair_request.is_some(),
+        classification_due: review.classification_due,
+        final_round: review.final_round,
+    })
+}
+
 /// `GET /api/reviews/{id}`, of which the runner reads only the review, when its pages joined it
 /// and its event trail.
 #[derive(Debug, Deserialize)]
@@ -190,7 +224,7 @@ struct ReviewDetail {
     #[serde(default)]
     pages: Vec<DetailPage>,
     #[serde(default)]
-    events: Vec<DetailEvent>,
+    events: Vec<TrailEvent>,
 }
 
 /// A page of the review, with the key the runner reads: `fetched`, when the page was stored on
@@ -203,12 +237,15 @@ struct DetailPage {
 
 /// An event of a review's trail, with the keys the runner reads.
 #[derive(Debug, Deserialize)]
-struct DetailEvent {
-    actor: String,
-    action: String,
-    candidate_version: i64,
+pub struct TrailEvent {
+    pub actor: String,
+    pub action: String,
+    pub candidate_version: i64,
+    /// The event's notes, such as a verdict's or a hand-over's reasoning.
+    #[serde(default)]
+    pub notes: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
-    created: OffsetDateTime,
+    pub created: OffsetDateTime,
 }
 
 async fn review_detail(
@@ -219,6 +256,14 @@ async fn review_detail(
         .get(&format!("/api/reviews/{review_id}"))
         .await?
         .decode()
+}
+
+/// The event trail of `review_id`, oldest first.
+pub async fn review_trail(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<Vec<TrailEvent>, ConsoleError> {
+    Ok(review_detail(console, review_id).await?.events)
 }
 
 /// Whether the console says `review_id` waits for a human now: the agents' needs-repair rounds
@@ -252,11 +297,7 @@ pub async fn reviewer_judged_review(
     ))
 }
 
-fn judged_by_reviewer(
-    events: &[DetailEvent],
-    pages: &[DetailPage],
-    candidate_version: i64,
-) -> bool {
+fn judged_by_reviewer(events: &[TrailEvent], pages: &[DetailPage], candidate_version: i64) -> bool {
     events.last().is_some_and(|event| {
         event.actor == ReviewActor::AgentReviewer.as_str()
             && event.action == ReviewEventAction::RepairRequested.as_str()
@@ -377,6 +418,9 @@ pub struct ReviewEventEntry {
     pub event_id: CrawlerReviewEventId,
     pub review_id: CrawlerReviewId,
     pub artifact_type: String,
+    /// The review's ListingSource; `None` from a console of an older build.
+    #[serde(default)]
+    pub listing_source_id: Option<ListingSourceId>,
     pub listing_source_name: Option<String>,
     pub actor: String,
     pub action: String,
@@ -461,6 +505,7 @@ mod tests {
     fn queued(count: usize) -> Vec<QueuedReview> {
         (0..count)
             .map(|_| QueuedReview {
+                final_round: crate::review::model::FinalRoundStatus::None,
                 review_id: CrawlerReviewId::new(),
                 artifact_type: ReviewArtifact::ProductSchema,
                 listing_source_id: ListingSourceId::new(),
@@ -473,8 +518,9 @@ mod tests {
             .collect()
     }
 
-    fn trail_event(actor: ReviewActor, action: ReviewEventAction, version: i64) -> DetailEvent {
-        DetailEvent {
+    fn trail_event(actor: ReviewActor, action: ReviewEventAction, version: i64) -> TrailEvent {
+        TrailEvent {
+            notes: None,
             actor: actor.as_str().to_owned(),
             action: action.as_str().to_owned(),
             candidate_version: version,
@@ -674,6 +720,7 @@ mod tests {
             human_required,
             handed_back: None,
             classification_due: false,
+            final_round: crate::review::model::FinalRoundStatus::None,
             created: now,
             updated: now,
         }
@@ -817,6 +864,7 @@ mod tests {
 
     fn event_at(created: OffsetDateTime) -> ReviewEventEntry {
         ReviewEventEntry {
+            listing_source_id: None,
             event_id: CrawlerReviewEventId::new(),
             review_id: CrawlerReviewId::new(),
             artifact_type: "URL_PATTERN".to_owned(),

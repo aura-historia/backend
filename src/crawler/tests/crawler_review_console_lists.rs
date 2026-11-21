@@ -456,6 +456,103 @@ async fn should_wait_for_no_human_outside_agent_mode() {
     assert!(!counts.agent_mode);
 }
 
+/// "Waiting for a human" counts and lists only the reviews of crawled ListingSources, so the tile
+/// and the list it links to agree and a review nobody can act on is not counted (#3006). The
+/// reviews of sources the agents parked, by a label that expires or by an undecided qualification,
+/// form the Parked group instead, with the label and the time of the next retry; a disabled source
+/// the agents did not park is in neither.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_only_crawled_reviews_as_waiting_for_a_human_and_group_the_parked_ones() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 1);
+    let crawled = source(&pool, "Crawled", "crawled.example.com", true).await;
+    let disabled = source(&pool, "Disabled", "disabled.example.com", true).await;
+    let parked_label = source(&pool, "Challenged", "challenged.example.com", true).await;
+    let parked_qualification = source(&pool, "Unreachable", "unreachable.example.com", true).await;
+    let mut reviews = Vec::new();
+    for listing_source_id in [crawled, disabled, parked_label, parked_qualification] {
+        let review_id = pending_schema_review(&repository, listing_source_id).await;
+        repository
+            .request_repair(review_id, ReviewActor::AgentReviewer, Some("still wrong"))
+            .await
+            .unwrap();
+        reviews.push(review_id);
+    }
+    for (listing_source_id, park) in [
+        (disabled, "crawl_enabled = FALSE"),
+        (
+            parked_label,
+            "crawl_enabled = FALSE, source_label = 'BOT_PROTECTION', \
+             source_label_note = 'challenge on every item page', source_labelled_at = NOW(), \
+             source_labelled_by = 'AGENT_AUTHOR', \
+             source_label_retry_at = NOW() + INTERVAL '30 days'",
+        ),
+        (
+            parked_qualification,
+            "crawl_enabled = FALSE, qualification = 'NEEDS_HUMAN', \
+             qualification_note = 'unreachable', qualified_at = NOW(), \
+             qualified_by = 'AGENT_AUTHOR', qualification_retry_at = NOW() + INTERVAL '60 days'",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {park} WHERE listing_source_id = $1"
+        )))
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let query = |waiting, label| ReviewQuery {
+        waiting: Some(waiting),
+        label,
+        ..ReviewQuery::default()
+    };
+
+    let human = list_reviews(&repository, query(ReviewWaiting::Human, None)).await;
+    let parked = list_reviews(&repository, query(ReviewWaiting::Parked, None)).await;
+    let challenged = list_reviews(
+        &repository,
+        query(ReviewWaiting::Parked, Some(SourceLabel::BotProtection)),
+    )
+    .await;
+    let counts = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap();
+    let parked_sources = list_sources(
+        &pool,
+        ListingSourceQuery {
+            status: Some(SourceStatus::Parked),
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
+
+    assert_eq!(review_ids(&human), vec![reviews[0]]);
+    assert_eq!(counts.reviews.waiting_for_human, 1);
+    assert_eq!(
+        sorted(&review_ids(&parked)),
+        sorted(&[reviews[2], reviews[3]])
+    );
+    let park_of = |review_id| {
+        parked
+            .items
+            .iter()
+            .find(|review| review.review_id == review_id)
+            .and_then(|review| review.parked.clone())
+            .unwrap_or_else(|| panic!("{review_id} is parked"))
+    };
+    assert_eq!(park_of(reviews[2]).label, Some(SourceLabel::BotProtection));
+    assert_eq!(park_of(reviews[3]).label, None);
+    assert!(park_of(reviews[2]).next_retry_at < park_of(reviews[3]).next_retry_at);
+    assert_eq!(review_ids(&challenged), vec![reviews[2]]);
+    assert_eq!((counts.reviews.parked, counts.sources.parked), (2, 2));
+    assert_eq!(
+        sorted(&source_ids(&parked_sources)),
+        sorted(&[parked_label, parked_qualification])
+    );
+}
+
 fn overview_reader(pool: &PgPool, repository: &CrawlerReviewRepository) -> ConsoleOverviewReader {
     ConsoleOverviewReader::new(repository, ListingSourceOverviewReader::new(pool.clone()))
 }
@@ -967,13 +1064,14 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
                 "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
                 "failing_to_scrape": 1, "held_removals": 0, "identity_conflicts": 0,
-                "labelled": 0
+                "labelled": 0, "parked": 0
             },
             "reviews": {
                 "pending_total": 3,
                 "pending_by_artifact": { "PRODUCT_SCHEMA": 2, "URL_PATTERN": 1 },
                 "pending_disabled_sources": 2,
                 "waiting_for_human": 1,
+                "parked": 0,
                 "held_for_non_product_loop": 0
             },
             "agent_mode": true

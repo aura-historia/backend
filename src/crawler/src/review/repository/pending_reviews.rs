@@ -8,16 +8,18 @@
 //! service).
 
 use super::repair_rounds::{
-    after_last_human_event, agent_round_binds, agent_rounds_of_review, handed_review_to_human,
+    agent_round_binds, agent_rounds_of_review, final_round_of_review, handed_review_to_human,
+    review_waits_for_human,
 };
 use super::{
     ReviewRepositoryError, crawler_review_id_from_uuid, listing_source_id_from_uuid,
     row_to_repair_request,
 };
 use crate::CrawlerReviewId;
-use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds, FinalRound};
 use crate::review::model::{
-    PageSize, PendingReviewPage, PendingReviewSummary, PendingReviewTotals, STATUS_PENDING_REVIEW,
+    FinalRoundStatus, PageSize, PendingReviewPage, PendingReviewSummary, PendingReviewTotals,
+    STATUS_PENDING_REVIEW,
 };
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -55,9 +57,7 @@ impl Default for PendingReviewQuery {
 /// review.
 const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
-         SELECT q.*, ($5::bigint IS NOT NULL AND (q.agent_rounds >= $5::bigint OR q.handed_to_human)) AS waits_for_human \
-         FROM ( \
-             SELECT r.review_id, r.listing_source_id, s.listing_source_name, \
+         SELECT r.review_id, r.listing_source_id, s.listing_source_name, \
                     r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
                     r.repair_note, r.created, r.updated, \
                     (SELECT MAX(h.created) FROM crawler_review_events h \
@@ -66,12 +66,15 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     " AS agent_rounds, ",
     handed_review_to_human!(),
     " AS handed_to_human, ",
+    final_round_of_review!(),
+    " AS final_round, ",
+    review_waits_for_human!(),
+    " AS waits_for_human, ",
     crate::review::repository::classifiable_review!(),
     " AS classification_due \
-             FROM crawler_reviews r \
-             JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
-             WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
-         ) q \
+         FROM crawler_reviews r \
+         JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
+         WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
      ), \
      totals AS ( \
          SELECT COUNT(*) FILTER (WHERE NOT waits_for_human) AS workable, \
@@ -170,6 +173,7 @@ fn row_to_summary(
     let rounds = AgentRounds {
         needs_repair: u32::try_from(row.try_get::<i64, _>("agent_rounds")?).unwrap_or(u32::MAX),
         handed_to_human: row.try_get("handed_to_human")?,
+        final_round: FinalRound::from_code(row.try_get("final_round")?),
     };
     Ok(PendingReviewSummary {
         review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
@@ -183,6 +187,7 @@ fn row_to_summary(
         human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, rounds),
         handed_back: row.try_get("handed_back")?,
         classification_due: row.try_get("classification_due")?,
+        final_round: FinalRoundStatus::of(agent_decisions, STATUS_PENDING_REVIEW, rounds),
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })

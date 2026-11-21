@@ -300,7 +300,7 @@ const TONES = {
     rejected_by_model: 'bad',
     crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn', identity_conflict: 'bad', page_identity_changed: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
-    awaiting_qualification: 'warn', qualification_needs_human: 'bad',
+    awaiting_qualification: 'warn', qualification_needs_human: 'bad', qualification_parked: 'neutral',
     QUALIFIED: 'ok', DISQUALIFIED: 'bad', NEEDS_HUMAN: 'bad',
     crawling: 'info', scraping: 'info',
     HUMAN: 'info', AGENT_AUTHOR: 'neutral', AGENT_REVIEWER: 'neutral', SYSTEM: 'neutral',
@@ -355,7 +355,10 @@ function reasonWord(reason) {
 function reviewFlags(review, {live = false, revoked = false} = {}) {
     const flags = [];
     const pending = review.status === 'PENDING_REVIEW';
-    if (pending && review.human_required) {
+    if (pending && review.parked) {
+        const label = review.parked.label ? sourceLabelName(review.parked.label) : 'Qualification undecided';
+        flags.push(`<span title="${escapeHtml(`The agents parked the source and retry it ${formatDate(review.parked.next_retry_at)}`)}">${badge(`Parked · ${label} · retry ${untilText(review.parked.next_retry_at)}`, TONES.source_disabled)}</span>`);
+    } else if (pending && review.human_required) {
         flags.push(badge('Needs a human', TONES.human_required));
     } else if (pending && review.repair_request) {
         flags.push(badge('Waiting for repair', TONES.waiting_for_repair));
@@ -364,7 +367,7 @@ function reviewFlags(review, {live = false, revoked = false} = {}) {
     if (pending && evaluation?.decision === 'REJECT' && !evaluation.approved_by_llm) {
         flags.push(badge('Rejected by the model', TONES.rejected_by_model));
     }
-    if (pending && review.listing_source_crawl_enabled === false) flags.push(badge('Source disabled', TONES.source_disabled));
+    if (pending && !review.parked && review.listing_source_crawl_enabled === false) flags.push(badge('Source disabled', TONES.source_disabled));
     if (live) flags.push(badge('Live', TONES.live));
     if (revoked) flags.push(badge('Revoked', TONES.rejection_revoked));
     return flags.join(' ');
@@ -602,7 +605,8 @@ function overviewTilesHtml() {
       ${tile('info', '#sources&activity=scraping', sources?.scraping_now, 'Scraping now', {live: true})}
       ${needing}
       ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews ? pending : undefined, 'Pending reviews', {sub: pendingSub, delta: 'pending'})}
-      ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'the agents stopped on these', delta: 'waiting_for_human'}) : ''}
+      ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'none expected: the agents park what they cannot finish', delta: 'waiting_for_human'}) : ''}
+      ${overviewCounts?.agent_mode ? tile('neutral', '#reviews&waiting=parked', reviews.parked, 'Parked', {sub: `${formatCount(sources?.parked || 0)} sources · the agents retry them later`}) : ''}
       ${reviews?.held_for_non_product_loop ? tile('bad', '#reviews&status=PENDING_REVIEW&artifact=PRODUCT_SCHEMA', reviews.held_for_non_product_loop, 'URL pattern loops', {sub: 'held for a human: non-product pages keep opening reviews'}) : ''}
     </div>`;
 }
@@ -618,7 +622,8 @@ let activity = {items: undefined, failures: []};
 
 const REVIEW_FEED_ACTIONS = {
     APPROVED: ['approved', 'ok'], REJECTED: ['rejected', 'bad'], REPAIR_REQUESTED: ['asked for a repair of', 'warn'],
-    HANDED_TO_HUMAN: ['handed to a human', 'bad'], RESTORED: ['restored what an approval replaced on', 'neutral'],
+    HANDED_TO_HUMAN: ['handed to a human', 'bad'], FINAL_ROUND_STARTED: ['started the final round on', 'warn'],
+    RESTORED: ['restored what an approval replaced on', 'neutral'],
     REJECTION_REVOKED: ['revoked the rejection of', 'neutral']
 };
 
@@ -697,7 +702,7 @@ const lists = {
 };
 
 const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled'],
-    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human']];
+    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -721,6 +726,7 @@ function listApiQuery(kind, params) {
     } else {
         copy('artifact');
         copy('waiting');
+        copy('label');
         const source = params.get('listing_source') || '';
         if (REVIEW_ID_PATTERN.test(source)) query.set('listing_source', source);
     }
@@ -737,7 +743,7 @@ function listApiPath(kind) {
 }
 
 function listFiltersActive(kind) {
-    const names = kind === 'sources' ? ['q', 'status', 'label', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
+    const names = kind === 'sources' ? ['q', 'status', 'label', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'label', 'listing_source'];
     return names.some(name => listParameter(name));
 }
 
@@ -880,7 +886,8 @@ function renderListFilters(kind) {
     return `${sourceChip}${search}
       ${renderChips('Status', REVIEW_STATUS_CHIPS, listParameter('status'), 'status')}
       ${renderChips('Type', REVIEW_TYPE_CHIPS, listParameter('artifact'), 'artifact')}
-      ${renderSelect('Waiting', 'waiting', [['', 'Any'], ['human', 'Waiting for a human'], ['repair', 'Waiting for repair']], listParameter('waiting'))}
+      ${renderSelect('Waiting', 'waiting', [['', 'Any'], ['human', 'Waiting for a human'], ['repair', 'Waiting for repair'], ['parked', 'Parked: the agents retry later']], listParameter('waiting'))}
+      ${renderSelect('Label', 'label', [['', 'Any label'], ...Object.entries({...SOURCE_LABELS, ...RETIRED_SOURCE_LABELS})], listParameter('label'))}
       ${reset}`;
 }
 
@@ -1104,7 +1111,16 @@ function primaryStatus(source) {
         return {
             key: 'labelled', tone: sourceLabelTone(applied.label), text: sourceLabelName(applied.label),
             more: applied.note || '', note: true,
-            title: `Labelled by ${actorWord(applied.labelled_by)}; not crawled until a human clears the label`
+            title: applied.retry_at
+                ? `Parked by ${actorWord(applied.labelled_by)}; the agents clear the label and qualify the source again ${formatDate(applied.retry_at)} (${untilText(applied.retry_at)})`
+                : `Labelled by ${actorWord(applied.labelled_by)}; not crawled until a human clears the label`
+        };
+    }
+    if (!source.crawl_enabled && source.qualification?.qualification === 'NEEDS_HUMAN' && source.qualification.retry_at) {
+        const retry = source.qualification.retry_at;
+        return {
+            key: 'qualification_parked', text: `Qualification parked · retry ${untilText(retry)}`, more: source.qualification.note, note: true,
+            title: `The review agents could not decide yet; they decide again ${formatDate(retry)}. A human may qualify it any time`
         };
     }
     if (!source.crawl_enabled && source.qualification?.qualification === 'NEEDS_HUMAN') {
@@ -1246,7 +1262,8 @@ function sourceColumns() {
 const SOURCE_GROUP_LABELS = {
     crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
     removals_held: 'Removals held', identity_conflict: 'Identity conflict', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled',
-    awaiting_qualification: 'Awaiting qualification', qualification_needs_human: 'Qualification needs a human'
+    awaiting_qualification: 'Awaiting qualification', qualification_needs_human: 'Qualification needs a human',
+    qualification_parked: 'Qualification parked'
 };
 
 function sourceGroupCount(key) {
@@ -1706,6 +1723,7 @@ const SOURCE_LABELS = {
     BOT_PROTECTION: 'BOT PROTECTION',
     JAVASCRIPT_RENDERED: 'JAVASCRIPT RENDERED',
     LOGIN_REQUIRED: 'LOGIN REQUIRED',
+    AGENTS_UNRESOLVED: 'AGENTS UNRESOLVED',
     OTHER: 'OTHER',
 };
 
@@ -1716,13 +1734,13 @@ const RETIRED_SOURCE_LABELS = {
 
 // A label's colour says what kind of reason it is: blue for a site that is not an art and antiques e-shop,
 // nothing broken; amber where the crawler's technique does not fit the shop; red where the shop
-// keeps the crawler out or is gone; grey for any other reason.
+// keeps the crawler out or is gone; grey for any other reason, the agents' unresolved park included.
 const SOURCE_LABEL_TONES = {
     NOT_AN_ESHOP: 'info', NOT_AN_ANTIQUE_SHOP: 'info',
     URL_PATTERN_APPROACH_NOT_APPLICABLE: 'warn', PRODUCT_SCHEMA_APPROACH_NOT_APPLICABLE: 'warn',
     APPROACH_NOT_APPLICABLE: 'warn', JAVASCRIPT_RENDERED: 'warn',
     ROBOTS_DISALLOWED: 'bad', SHOP_CLOSED: 'bad', BOT_PROTECTION: 'bad', LOGIN_REQUIRED: 'bad',
-    OTHER: 'neutral'
+    AGENTS_UNRESOLVED: 'neutral', OTHER: 'neutral'
 };
 
 function sourceLabelTone(label) {
@@ -2173,6 +2191,7 @@ function queueFromRoute() {
 function queueLabel(params) {
     if (params.get('waiting') === 'human') return 'waiting for a human';
     if (params.get('waiting') === 'repair') return 'waiting for repair';
+    if (params.get('waiting') === 'parked') return 'parked';
     if (params.get('status') === 'PENDING_REVIEW') return 'pending';
     return 'in this list';
 }
@@ -2760,6 +2779,7 @@ const REVIEW_EVENT_LABELS = {
     NO_SOLD_PAGE_RECORDED: 'No sold page found',
     REPAIR_REQUESTED: 'Repair requested',
     HANDED_TO_HUMAN: 'Handed to a human',
+    FINAL_ROUND_STARTED: 'Final round started',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
     RESTORED: 'Restored',

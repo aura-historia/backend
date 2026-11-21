@@ -17,6 +17,8 @@ use serde::Serialize;
 use serde_json::json;
 
 const QUALIFICATIONS: &str = "/api/source-qualifications";
+/// Sends the sources whose agent park label expired back to qualification.
+const RETRY_PARKED: &str = "/api/source-qualifications/retry-parked";
 const QUALIFICATION_SUFFIX: &str = "/qualification";
 const PAGE_SUFFIX: &str = "/page";
 
@@ -31,7 +33,8 @@ struct QueueAnswer<'a> {
 
 impl ReviewServer {
     /// Answers the qualification routes, or `None` for any other request:
-    /// `GET /api/source-qualifications`, `GET /api/source-qualifications/{id}/page`,
+    /// `GET /api/source-qualifications`, `POST /api/source-qualifications/retry-parked`,
+    /// `GET /api/source-qualifications/{id}/page`,
     /// `POST /api/source-qualifications/{id}` and `PUT` and `DELETE`
     /// `/api/listing-sources/{id}/qualification`.
     pub(super) async fn route_source_qualification(
@@ -42,6 +45,12 @@ impl ReviewServer {
         let method = request.method.as_str();
         if method == "GET" && request.path == QUALIFICATIONS {
             return Some(self.qualification_queue_answer().await);
+        }
+        if method == "POST" && request.path == RETRY_PARKED {
+            return Some(match self.repository.retry_parked_sources(actor).await {
+                Ok(retried) => HttpResponse::json(200, &json!({ "retried": retried })),
+                Err(error) => review_error(error),
+            });
         }
         if let Some(rest) = request
             .path

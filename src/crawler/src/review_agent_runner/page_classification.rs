@@ -823,6 +823,7 @@ mod tests {
 
     fn review(classification_due: bool) -> QueuedReview {
         QueuedReview {
+            final_round: crate::review::model::FinalRoundStatus::None,
             review_id: CrawlerReviewId::new(),
             artifact_type: ReviewArtifact::ProductSchema,
             listing_source_id: ListingSourceId::new(),

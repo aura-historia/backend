@@ -58,6 +58,22 @@ const CLASSIFIER_DEFAULTS: RoleDefaults = RoleDefaults {
     effort: ClaudeEffort::Low,
     max_turns: NonZeroU32::new(15).unwrap(),
 };
+/// The model and effort of the agents' final round, author and reviewer alike: the strongest model
+/// at `high` effort, since a final round runs only on a review or qualification the regular rounds
+/// could not finish and the source is parked after it.
+const FINAL_ROUND_DEFAULTS: RoleDefaults = RoleDefaults {
+    model: "claude-opus-5-5",
+    effort: ClaudeEffort::High,
+    max_turns: NonZeroU32::MIN,
+};
+/// The name the final round's settings carry, `CRAWLER_REVIEW_AGENT_FINAL_ROUND_MODEL` and
+/// `CRAWLER_REVIEW_AGENT_FINAL_ROUND_EFFORT`; a final-round process keeps its role's turn cap.
+pub const FINAL_ROUND_SETTINGS_NAME: &str = "final_round";
+pub const MAX_FINAL_ROUNDS_PER_DAY_ENV: &str =
+    "CRAWLER_REVIEW_AGENT_RUNNER_MAX_FINAL_ROUNDS_PER_DAY";
+/// Final rounds, of reviews and qualifications together, the runner starts within a rolling day,
+/// so a backlog of reviews the agents stopped on cannot spend the login's allowance at once.
+const DEFAULT_MAX_FINAL_ROUNDS_PER_DAY: NonZeroU32 = NonZeroU32::new(30).unwrap();
 /// The name the page classifier's settings carry, `CRAWLER_REVIEW_AGENT_CLASSIFIER_<SETTING>`. The
 /// classifier is no role of `review-mcp`: it runs with the reviewer's tools that only read.
 pub const CLASSIFIER_SETTINGS_NAME: &str = "classifier";
@@ -95,6 +111,22 @@ pub struct AgentProcessSettings {
     pub max_turns: NonZeroU32,
 }
 
+/// Which round an agent process works: a regular one with its role's settings, or the agents'
+/// final round with the final round's model and effort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentRound {
+    Regular,
+    Final,
+}
+
+/// The agents' final round: its model and effort, and how many it starts a day.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FinalRoundSettings {
+    pub model: String,
+    pub effort: ClaudeEffort,
+    pub max_per_day: NonZeroU32,
+}
+
 /// The settings of one runner start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunnerSettings {
@@ -119,6 +151,7 @@ pub struct RunnerSettings {
     /// The page classifier's process, which judges a fresh `manual_schema_required` review's
     /// pages before an author works it.
     pub classifier: AgentProcessSettings,
+    pub final_round: FinalRoundSettings,
     pub max_reviews_per_run: NonZeroU32,
     /// How many agent processes run at once.
     pub max_processes: NonZeroU32,
@@ -152,11 +185,24 @@ impl RunnerSettings {
         }
     }
 
-    /// What a process of `role` on a review of `artifact` is started with: the role's settings,
-    /// on a URL-pattern review with the role's [`url_pattern_model`](Self::url_pattern_model) when
-    /// it has one.
-    pub fn process(&self, role: AgentRole, artifact: ReviewArtifact) -> AgentProcessSettings {
+    /// What a process of `role` on a review of `artifact` in `round` is started with: the role's
+    /// settings, on a URL-pattern review with the role's
+    /// [`url_pattern_model`](Self::url_pattern_model) when it has one; in the final round the
+    /// final round's model and effort with the role's turn cap.
+    pub fn process(
+        &self,
+        role: AgentRole,
+        artifact: ReviewArtifact,
+        round: AgentRound,
+    ) -> AgentProcessSettings {
         let settings = self.role(role).clone();
+        if round == AgentRound::Final {
+            return AgentProcessSettings {
+                model: self.final_round.model.clone(),
+                effort: self.final_round.effort,
+                ..settings
+            };
+        }
         let model = match artifact {
             ReviewArtifact::ProductSchema => None,
             ReviewArtifact::UrlPattern => self.url_pattern_model(role),
@@ -249,6 +295,7 @@ impl RunnerSettings {
             reviewer: read.agent(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
             reviewer_url_pattern_model: read.url_pattern_model(AgentRole::Reviewer)?,
             classifier: read.process(CLASSIFIER_SETTINGS_NAME, &CLASSIFIER_DEFAULTS)?,
+            final_round: read.final_round()?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -316,6 +363,35 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
         name: &str,
         defaults: &RoleDefaults,
     ) -> Result<AgentProcessSettings, RunnerSettingsError> {
+        let (model, effort) = self.model_and_effort(name, defaults)?;
+        Ok(AgentProcessSettings {
+            model,
+            effort,
+            max_turns: self
+                .positive(&process_setting(name, "MAX_TURNS"))?
+                .unwrap_or(defaults.max_turns),
+        })
+    }
+
+    /// The final round's model and effort and its daily cap.
+    fn final_round(&self) -> Result<FinalRoundSettings, RunnerSettingsError> {
+        let (model, effort) =
+            self.model_and_effort(FINAL_ROUND_SETTINGS_NAME, &FINAL_ROUND_DEFAULTS)?;
+        Ok(FinalRoundSettings {
+            model,
+            effort,
+            max_per_day: self
+                .positive(MAX_FINAL_ROUNDS_PER_DAY_ENV)?
+                .unwrap_or(DEFAULT_MAX_FINAL_ROUNDS_PER_DAY),
+        })
+    }
+
+    /// The model and effort of the agent process named `name`.
+    fn model_and_effort(
+        &self,
+        name: &str,
+        defaults: &RoleDefaults,
+    ) -> Result<(String, ClaudeEffort), RunnerSettingsError> {
         let model = self
             .model(&process_setting(name, "MODEL"))?
             .unwrap_or_else(|| defaults.model.to_owned());
@@ -326,13 +402,7 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
             })?,
             None => defaults.effort,
         };
-        Ok(AgentProcessSettings {
-            model,
-            effort,
-            max_turns: self
-                .positive(&process_setting(name, "MAX_TURNS"))?
-                .unwrap_or(defaults.max_turns),
-        })
+        Ok((model, effort))
     }
 
     /// The model of `role` on a URL-pattern review: [`AUTHOR_URL_PATTERN_MODEL_ENV`] or
@@ -569,6 +639,14 @@ mod tests {
                 max_turns: NonZeroU32::new(15).unwrap_or(NonZeroU32::MIN),
             }
         );
+        assert_eq!(
+            read.final_round,
+            FinalRoundSettings {
+                model: "claude-opus-5-5".to_owned(),
+                effort: ClaudeEffort::High,
+                max_per_day: NonZeroU32::new(30).unwrap_or(NonZeroU32::MIN),
+            }
+        );
         assert_eq!(read.max_reviews_per_run.get(), 60);
         assert_eq!(read.max_processes.get(), 20);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
@@ -653,7 +731,7 @@ mod tests {
                 (AgentRole::Reviewer, ReviewArtifact::ProductSchema),
                 (AgentRole::Reviewer, ReviewArtifact::UrlPattern),
             ]
-            .map(|(role, artifact)| settings.process(role, artifact).model)
+            .map(|(role, artifact)| settings.process(role, artifact, AgentRound::Regular).model)
         };
         let defaults = settings(&[], &[]).unwrap_or_else(|error| panic!("{error}"));
         let set = settings(
@@ -685,7 +763,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            set.process(AgentRole::Reviewer, ReviewArtifact::UrlPattern),
+            set.process(
+                AgentRole::Reviewer,
+                ReviewArtifact::UrlPattern,
+                AgentRound::Regular
+            ),
             AgentProcessSettings {
                 model: "claude-opus-5-5".to_owned(),
                 ..set.reviewer.clone()
@@ -697,6 +779,47 @@ mod tests {
                 .map(|role| process_setting(role.as_str(), "URL_PATTERN_MODEL")),
             [AUTHOR_URL_PATTERN_MODEL_ENV, REVIEWER_URL_PATTERN_MODEL_ENV]
         );
+    }
+
+    /// A final-round process of either role, a qualifier's included, runs on the final round's
+    /// model and effort, whatever the role's or the URL-pattern model, with its role's turn cap.
+    #[test]
+    fn should_run_every_final_round_process_on_the_final_round_s_model_and_effort() {
+        let set = settings(
+            &[],
+            &[
+                ("CRAWLER_REVIEW_AGENT_FINAL_ROUND_MODEL", "claude-fable-5-2"),
+                ("CRAWLER_REVIEW_AGENT_FINAL_ROUND_EFFORT", "max"),
+                (MAX_FINAL_ROUNDS_PER_DAY_ENV, "4"),
+                (REVIEWER_URL_PATTERN_MODEL_ENV, "claude-haiku-5-5"),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        for (role, artifact) in [
+            (AgentRole::Author, ReviewArtifact::ProductSchema),
+            (AgentRole::Reviewer, ReviewArtifact::UrlPattern),
+            (AgentRole::Qualifier, ReviewArtifact::UrlPattern),
+        ] {
+            assert_eq!(
+                set.process(role, artifact, AgentRound::Final),
+                AgentProcessSettings {
+                    model: "claude-fable-5-2".to_owned(),
+                    effort: ClaudeEffort::Max,
+                    max_turns: set.role(role).max_turns,
+                },
+                "{role:?} {artifact:?}"
+            );
+        }
+        assert_eq!(set.final_round.max_per_day.get(), 4);
+        assert!(matches!(
+            settings(&[], &[("CRAWLER_REVIEW_AGENT_FINAL_ROUND_EFFORT", "huge")]),
+            Err(RunnerSettingsError::Invalid { .. })
+        ));
+        assert!(matches!(
+            settings(&[], &[(MAX_FINAL_ROUNDS_PER_DAY_ENV, "0")]),
+            Err(RunnerSettingsError::Invalid { .. })
+        ));
     }
 
     #[test]

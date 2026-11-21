@@ -6,15 +6,21 @@ use super::{QueryValue, SortDirection};
 /// What a pending review waits for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewWaiting {
-    /// A human: the agents stopped on it (`human_required`).
+    /// A human: the agents stopped on a review of a crawled ListingSource (`human_required`).
+    /// Normally none does, since the agents park what they cannot finish.
     Human,
     /// A repair: a needs-repair verdict is open and the agents have not stopped on it.
     Repair,
+    /// The agents' retry of its ListingSource, which they parked (`parked`).
+    Parked,
 }
 
 impl QueryValue for ReviewWaiting {
-    const VALUES: &'static [(&'static str, Self)] =
-        &[("human", Self::Human), ("repair", Self::Repair)];
+    const VALUES: &'static [(&'static str, Self)] = &[
+        ("human", Self::Human),
+        ("repair", Self::Repair),
+        ("parked", Self::Parked),
+    ];
 }
 
 /// The order of the review queue.

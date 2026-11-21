@@ -1,0 +1,2 @@
+
+This is the agents' final try on this source, run on a stronger model: the earlier qualifier processes decided NEEDS_HUMAN, and no human decides it instead. Read the shop's pages again, more of them if you need to, and decide QUALIFIED or DISQUALIFIED whenever the evidence allows it. Decide NEEDS_HUMAN only when the site really cannot be read now, such as unreachable or behind a challenge on every page: the source then stays uncrawled and the agents try it again in some weeks.

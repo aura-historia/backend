@@ -148,6 +148,7 @@ impl ReviewServer {
             agent_max_repair_rounds = agent_limits.max_repair_rounds.get(),
             agent_repair_round_window_days = agent_limits.repair_round_window_days.get(),
             agent_no_pattern_max_age_days = agent_limits.no_pattern_max_age_days.get(),
+            agent_park_max_age_days = agent_limits.park_max_age_days.get(),
             max_concurrent_live_jobs = self.live_jobs.limit().get(),
             "Crawler review console listening"
         );
@@ -641,6 +642,19 @@ impl ReviewServer {
                     .hand_to_human(review_id, actor, payload.cause(), payload.notes.as_deref())
                     .await,
             );
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/final-round")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/final-round") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            return match self.repository.start_final_round(review_id, actor).await {
+                Ok(after) => HttpResponse::json(200, &json!({ "ok": true, "after": after })),
+                Err(error) => review_error(error),
+            };
         }
 
         if request.method == "POST"
@@ -1315,6 +1329,11 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "AGENTS_CANNOT_INSPECT_URL_PATTERN_PAGES")
         }
         ReviewRepositoryError::OnlyAgentsHandOver => forbidden(&error, "HAND_OVER_NEEDS_AGENT"),
+        ReviewRepositoryError::FinalRoundNeedsAuthorAgent => {
+            forbidden(&error, "FINAL_ROUND_NEEDS_AUTHOR_AGENT")
+        }
+        ReviewRepositoryError::FinalRoundNotDue(_) => conflict(&error, "FINAL_ROUND_NOT_DUE"),
+        ReviewRepositoryError::FinalRoundOnlyLabel(_) => conflict(&error, "FINAL_ROUND_ONLY_LABEL"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }
@@ -4442,6 +4461,165 @@ Origin: http://127.0.0.1:7878/x
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+        }
+
+        /// A review at the repair cap gets one final round, which only the author agent starts:
+        /// the review is the agents' again, the first needs-repair verdict in it leaves the author
+        /// one repair pass and the second ends the round, it is never due twice in the round window,
+        /// and once it ended the author parks the review's source with a label that expires instead
+        /// of leaving the review for a human.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_give_a_review_at_the_cap_one_final_round_and_let_the_author_park_its_source()
+         {
+            let (server, review_id) = pending_review_server_deciding(agent_mode(AgentLimits {
+                max_repair_rounds: std::num::NonZeroU32::MIN,
+                ..AgentLimits::default()
+            }))
+            .await;
+            let review = format!("GET /api/reviews/{review_id}");
+            let needs_repair = format!("POST /api/reviews/{review_id}/needs-repair");
+            let final_round = format!("POST /api/reviews/{review_id}/final-round");
+            let notes = json!({ "notes": "the title takes the shop name" }).to_string();
+            let queued = |queue: &serde_json::Value| {
+                queue["reviews"]
+                    .as_array()
+                    .and_then(|reviews| {
+                        reviews
+                            .iter()
+                            .find(|queued| queued["review_id"] == review_id.to_string())
+                            .cloned()
+                    })
+                    .unwrap_or_else(|| panic!("review not queued: {queue}"))
+            };
+            let source_label = format!("POST /api/reviews/{review_id}/source-label");
+            let unresolved = json!({
+                "label": "AGENTS_UNRESOLVED",
+                "note": "Author: the h1 holds the title. Reviewer: it holds the shop name.",
+            })
+            .to_string();
+            let (status, refused) =
+                send_as(&server, AUTHOR_TOKEN, &source_label, &unresolved).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(
+                refused["reason"], "FINAL_ROUND_ONLY_LABEL",
+                "a regular round parks nothing as unresolved"
+            );
+            let (status, _) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+            let (_, waiting) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                "GET /api/pending-reviews?human_required=true",
+                "",
+            )
+            .await;
+            assert_eq!(queued(&waiting)["final_round"], "DUE");
+
+            for (token, reason) in [
+                (TOKEN, "FINAL_ROUND_NEEDS_AUTHOR_AGENT"),
+                (REVIEWER_TOKEN, "REVIEWER_CANNOT_CHANGE_CANDIDATES"),
+            ] {
+                let (status, refused) = send_as(&server, token, &final_round, "").await;
+                assert!(status.starts_with("HTTP/1.1 403"), "{status} {refused}");
+                assert_eq!(refused["reason"], reason);
+            }
+            let (status, started) = send_as(&server, AUTHOR_TOKEN, &final_round, "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {started}");
+            assert_eq!(started["after"], "REPAIR_CAP");
+            let (status, refused) = send_as(&server, AUTHOR_TOKEN, &final_round, "").await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "FINAL_ROUND_NOT_DUE");
+            let (_, detail) = send_as(&server, TOKEN, &review, "").await;
+            assert_eq!(detail["review"]["human_required"], false);
+            let (_, workable) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                "GET /api/pending-reviews?human_required=false",
+                "",
+            )
+            .await;
+            assert_eq!(queued(&workable)["final_round"], "OPEN");
+            let version = detail["review"]["candidate_version"].clone();
+            let edit = json!({
+                "expected_candidate_version": version,
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1.product", "type": "text"},
+            })
+            .to_string();
+            let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
+            let (status, edited) = send_as(&server, AUTHOR_TOKEN, &schema_field, &edit).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+
+            let (status, _) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+            let (_, repairing) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                "GET /api/pending-reviews?human_required=false",
+                "",
+            )
+            .await;
+            assert_eq!(
+                queued(&repairing)["final_round"],
+                "OPEN",
+                "the first needs-repair verdict of the final round leaves the author a repair pass"
+            );
+            let (_, detail) = send_as(&server, TOKEN, &review, "").await;
+            let repair = json!({
+                "expected_candidate_version": detail["review"]["candidate_version"].clone(),
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1.product-title", "type": "text"},
+            })
+            .to_string();
+            let (status, repaired) = send_as(&server, AUTHOR_TOKEN, &schema_field, &repair).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {repaired}");
+
+            let (status, _) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+            let (_, waiting) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                "GET /api/pending-reviews?human_required=true",
+                "",
+            )
+            .await;
+            assert_eq!(queued(&waiting)["final_round"], "ENDED");
+            let (status, refused) = send_as(&server, AUTHOR_TOKEN, &schema_field, &edit).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "HUMAN_REQUIRED");
+            let (status, parked) = send_as(&server, AUTHOR_TOKEN, &source_label, &unresolved).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {parked}");
+            assert_eq!(parked["labelled_by"], "AGENT_AUTHOR");
+            assert!(parked["retry_at"].is_string(), "{parked}");
+
+            // A human who clears the park hands the source's reviews back to the regular rounds:
+            // the ended final round no longer lets an agent park the source again.
+            let listing_source_id = detail["review"]["listing_source_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{detail}"))
+                .to_owned();
+            let (status, cleared) = send_as(
+                &server,
+                TOKEN,
+                &format!("DELETE /api/listing-sources/{listing_source_id}/label"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {cleared}");
+            let (_, handed_back) = send_as(&server, TOKEN, &review, "").await;
+            assert_eq!(
+                (
+                    &handed_back["review"]["agent_rounds"],
+                    &handed_back["review"]["human_required"]
+                ),
+                (&json!(0), &json!(false))
+            );
+            let (status, refused) =
+                send_as(&server, AUTHOR_TOKEN, &source_label, &unresolved).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "FINAL_ROUND_ONLY_LABEL");
         }
     }
 

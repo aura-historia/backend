@@ -192,6 +192,12 @@ async fn should_requeue_the_agents_old_rule_decisions_and_keep_the_humans() {
         .await
         .unwrap();
 
+    // The migration ran before qualifications stored a retry time (#2990), so it is replayed on
+    // rows without one, as it found them.
+    sqlx::query("UPDATE listing_sources SET qualification_retry_at = NULL")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::raw_sql(MIGRATION).execute(&pool).await.unwrap();
 
     let mut queued: Vec<ListingSourceId> = QualificationQueueReader::new(pool.clone())

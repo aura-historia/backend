@@ -115,6 +115,7 @@ mod tests {
                     human_required: true,
                     handed_back: None,
                     classification_due: false,
+                    final_round: crate::review::model::FinalRoundStatus::None,
                     created,
                     updated: created,
                 })

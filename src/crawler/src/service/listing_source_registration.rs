@@ -378,7 +378,8 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
              cleared AS ( \
                  UPDATE listing_sources s \
                  SET qualification = NULL, qualification_note = NULL, qualified_at = NULL, \
-                     qualified_by = NULL, qualification_backfill = FALSE, updated = NOW() \
+                     qualified_by = NULL, qualification_retry_at = NULL, \
+                     qualification_backfill = FALSE, updated = NOW() \
                  FROM moved WHERE s.listing_source_id = moved.listing_source_id \
                  RETURNING s.listing_source_id, moved.was_qualified) \
              INSERT INTO listing_source_qualification_events (listing_source_id, actor) \

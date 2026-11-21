@@ -36,10 +36,47 @@ pub struct PendingReviewSummary {
     /// (`docs/crawler/extraction-and-review.md#page-classifier`).
     #[serde(default)]
     pub classification_due: bool,
+    /// Where the agents' final round on the review stands.
+    #[serde(default)]
+    pub final_round: FinalRoundStatus,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+}
+
+/// The agents' final round on a pending review, as the queue reports it to the runner: one
+/// strongest-model round the author agent may start on a review that would wait for a human,
+/// before its source is parked (`docs/crawler/operations.md`, review agents).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum FinalRoundStatus {
+    /// The review does not wait for a human and no final round runs on it.
+    #[default]
+    None,
+    /// It waits for a human and may get its final round now.
+    Due,
+    /// Its final round started and the agents work it.
+    Open,
+    /// Its final round ended without a decision: the agents park its source.
+    Ended,
+}
+
+impl FinalRoundStatus {
+    /// The status of a review in `status` that the agents worked as `rounds` says, under `policy`.
+    pub fn of(
+        policy: &crate::review::agent_decisions::AgentDecisionPolicy,
+        status: &str,
+        rounds: crate::review::agent_decisions::AgentRounds,
+    ) -> Self {
+        use crate::review::agent_decisions::FinalRound;
+        match rounds.final_round {
+            FinalRound::Open => Self::Open,
+            FinalRound::Ended => Self::Ended,
+            FinalRound::NotStarted if policy.final_round_due(status, rounds) => Self::Due,
+            FinalRound::NotStarted => Self::None,
+        }
+    }
 }
 
 /// One page of the agents' queue, oldest first, and the totals of the whole queue.
@@ -80,6 +117,7 @@ mod tests {
             human_required: false,
             handed_back,
             classification_due: false,
+            final_round: FinalRoundStatus::None,
             created,
             updated: created,
         }

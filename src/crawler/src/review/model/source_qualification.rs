@@ -9,14 +9,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-/// How long a review agent's `NEEDS_HUMAN` stands before the agents try the source again, since
-/// most come from a site the agent could not reach for the moment.
-pub const AGENT_NEEDS_HUMAN_RETRY_HOURS: i32 = 24;
-
-/// How many `NEEDS_HUMAN` decisions of the review agents a source gets, since a human last decided
-/// or cleared its qualification, before it waits for a human for good.
-pub const MAX_AGENT_NEEDS_HUMAN_DECISIONS: i64 = 3;
-
 /// What a qualification decided. Serialized and persisted by its `SCREAMING_SNAKE_CASE` name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -27,7 +19,8 @@ pub enum Qualification {
     /// Not an art and antiques e-shop, or one the crawler may not or cannot reach at all; its label
     /// says which.
     Disqualified,
-    /// The decider could not tell from what it could read; a human decides.
+    /// The decider could not tell from what it could read. A review agent's is tried again on the
+    /// [park schedule](super::ParkSchedule); a human may decide it any time.
     NeedsHuman,
 }
 
@@ -76,6 +69,10 @@ pub enum QualificationDecisionError {
     NeedsHumanWithLabel,
     #[error("the label {0} is retired")]
     RetiredLabel(&'static str),
+    #[error(
+        "AGENTS_UNRESOLVED parks a source after the review agents' final round on a review; a qualification that cannot decide is NEEDS_HUMAN"
+    )]
+    ReviewOnlyLabel,
 }
 
 /// A qualification as decided: what it decided, the label it sets, if any, and the note with the
@@ -106,6 +103,9 @@ impl QualificationDecision {
         if let Some(label) = label.filter(|label| label.is_retired()) {
             return Err(QualificationDecisionError::RetiredLabel(label.as_str()));
         }
+        if label == Some(SourceLabel::AgentsUnresolved) {
+            return Err(QualificationDecisionError::ReviewOnlyLabel);
+        }
         match (qualification, label) {
             (Qualification::Disqualified, Some(label)) if label.disqualifies() => {}
             (Qualification::Disqualified, _) => {
@@ -127,6 +127,15 @@ impl QualificationDecision {
             label,
             note,
         })
+    }
+
+    /// A `QUALIFIED` decision without a label, which always fits.
+    pub fn qualified(note: SourceLabelNote) -> Self {
+        Self {
+            qualification: Qualification::Qualified,
+            label: None,
+            note,
+        }
     }
 
     pub fn qualification(&self) -> Qualification {
@@ -162,6 +171,10 @@ pub struct AppliedQualification {
     #[serde(with = "time::serde::rfc3339")]
     pub qualified_at: OffsetDateTime,
     pub qualified_by: ReviewActor,
+    /// When the agents decide it again: set for a review agent's `NEEDS_HUMAN`, which parks the
+    /// source until then; `None` for a decision that stands until it is changed.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub retry_at: Option<OffsetDateTime>,
 }
 
 /// What a decided qualification did to the source's label.
@@ -230,6 +243,10 @@ pub struct SourceAwaitingQualification {
     /// The note of the review agent's earlier `NEEDS_HUMAN` this try follows, as evidence; `None`
     /// for a source never decided.
     pub earlier_note: Option<String>,
+    /// Whether this try is the agents' final round: their daily `NEEDS_HUMAN` tries since a human
+    /// last decided are spent, so the strongest model decides, and a further `NEEDS_HUMAN` parks
+    /// the source.
+    pub final_round: bool,
 }
 
 /// A label a queued source carries, with its note, as the decider reads it.
@@ -324,6 +341,11 @@ mod tests {
                 Qualification::Qualified,
                 Some(SourceLabel::ApproachNotApplicable),
                 QualificationDecisionError::RetiredLabel("APPROACH_NOT_APPLICABLE"),
+            ),
+            (
+                Qualification::Qualified,
+                Some(SourceLabel::AgentsUnresolved),
+                QualificationDecisionError::ReviewOnlyLabel,
             ),
         ];
         for (qualification, label, error) in refused {

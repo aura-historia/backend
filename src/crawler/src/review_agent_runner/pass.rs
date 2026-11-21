@@ -35,7 +35,7 @@ use super::queue::{
     review_queue, reviewer_judged_review, select_reviews, waits_for_human,
 };
 use super::reports::{AgentReport, AuthorAction, AuthorReport, ReviewerDecision, TrailVerdict};
-use super::settings::{RunnerSettings, effort_flag};
+use super::settings::{AgentRound, RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
 use super::usage_pacing::UsageWindows;
@@ -50,6 +50,8 @@ use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
+
+mod final_round;
 
 const PASS_STARTED_EVENT: &str = "crawler.review_agent.pass_started";
 const PROCESS_FINISHED_EVENT: &str = "crawler.review_agent.process_finished";
@@ -77,6 +79,17 @@ pub struct PassSummary {
     /// URL-pattern reviews whose reviewer process did not start because the approval guard
     /// already refuses the candidate the author left: the reviewer could only refuse it again.
     pub guard_blocked: usize,
+    /// Final rounds this pass worked, started or continued.
+    pub final_rounds: usize,
+    /// Of them, those the final-round reviewer approved.
+    pub final_rounds_approved: usize,
+    /// Repair passes the final-round author got after the final-round reviewer asked for a
+    /// repair.
+    pub final_round_repair_passes: usize,
+    /// Sources this pass parked after a final round that did not approve.
+    pub parked: usize,
+    /// Reviews whose final round was due but that the daily cap on final rounds held back.
+    pub final_rounds_held_back: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -104,6 +117,8 @@ struct Pass<'a> {
 
 struct Shared {
     state: RunnerState,
+    /// The final rounds the daily cap still admits.
+    final_rounds_left: usize,
     cache_warm_up: CacheWarmUp,
     ledger: ProcessLedger,
     summary: PassSummary,
@@ -149,6 +164,7 @@ pub async fn work_pending_reviews(
     runner_stop: &RunnerStop,
     state: RunnerState,
     ledger: ProcessLedger,
+    final_rounds_left: usize,
 ) -> (Result<PassSummary, PassError>, RunnerState, ProcessLedger) {
     let pass = Pass {
         settings,
@@ -161,6 +177,7 @@ pub async fn work_pending_reviews(
         ),
         shared: Mutex::new(Shared {
             state,
+            final_rounds_left,
             cache_warm_up: CacheWarmUp::new(settings.cache_warm_up),
             ledger,
             summary: PassSummary::default(),
@@ -287,14 +304,29 @@ impl Pass<'_> {
         });
         let (cooldowns, last_worked) =
             self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
-        let (selected, cooling_down) = select_reviews(
+        let now = OffsetDateTime::now_utc();
+        let final_rounds = self.take_final_rounds(
+            queue
+                .final_round_needed
+                .into_iter()
+                .filter(|review| !started.contains(&review.review_id))
+                .filter(|review| {
+                    cooldowns
+                        .get(&review.review_id)
+                        .is_none_or(|until| *until <= now)
+                })
+                .collect(),
+            free,
+        );
+        let (mut selected, cooling_down) = select_reviews(
             unworked,
             &cooldowns,
             &last_worked,
-            OffsetDateTime::now_utc(),
-            free,
+            now,
+            free - final_rounds.len(),
             schema_owed,
         );
+        selected.splice(0..0, final_rounds);
         if first_read {
             self.with(|shared| {
                 shared.summary.pending = pending;
@@ -320,6 +352,10 @@ impl Pass<'_> {
     /// that waits for a human after either pass, whichever process's needs-repair verdict brought
     /// it to the cap, gets no further process and no cooldown.
     async fn work_review(&self, review: QueuedReview) {
+        if review.round() == AgentRound::Final {
+            self.work_final_round(review).await;
+            return;
+        }
         let author_report = match self.run_process(AgentRole::Author, &review).await.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return,
             Step::NoDecision => None,
@@ -667,7 +703,9 @@ impl Pass<'_> {
         }
         let started = OffsetDateTime::now_utc();
         let contract = role_contract(role);
-        let process = self.settings.process(role, review.artifact_type);
+        let process = self
+            .settings
+            .process(role, review.artifact_type, review.round());
         if role == AgentRole::Author {
             self.with(|shared| shared.summary.worked += 1);
         }
@@ -676,14 +714,22 @@ impl Pass<'_> {
             review_id = %review.review_id,
             artifact_type = %review.artifact_type,
             role = role.as_str(),
-            prompt_sha256 = contract.prompt_sha256(review.artifact_type),
+            prompt_sha256 = contract.prompt_sha256(review.artifact_type, review.round()),
+            final_round = review.round() == AgentRound::Final,
             model = %process.model,
             effort = effort_flag(process.effort),
             max_turns = process.max_turns.get(),
             "Starting a review agent process"
         );
-        let mut record =
-            ProcessRecord::started(review, role, contract.prompt_sha256(review.artifact_type));
+        let mut record = ProcessRecord::started(
+            review,
+            role,
+            contract.prompt_sha256(review.artifact_type, review.round()),
+        );
+        let trail = match review.round() {
+            AgentRound::Final => self.final_round_trail(review).await,
+            AgentRound::Regular => String::new(),
+        };
         let step = match agent_command(self.settings, role, review) {
             Ok(mut command) => {
                 if role == AgentRole::Author
@@ -691,6 +737,7 @@ impl Pass<'_> {
                 {
                     command.prompt.push_str(&note);
                 }
+                command.prompt.push_str(&trail);
                 let output = run_agent(
                     &command,
                     self.settings.process_timeout,
@@ -870,6 +917,7 @@ impl Pass<'_> {
             role = name(Some(record.role)),
             prompt_sha256 = %record.prompt_sha256,
             repair_round = record.repair_round,
+            final_round = record.final_round,
             end = name(Some(record.end)),
             limit = name(record.limit),
             usage_limit = name(record.usage_limit),
@@ -1031,6 +1079,7 @@ impl ProcessRecord {
             artifact_type: Some(review.artifact_type.as_str().to_owned()),
             prompt_sha256,
             repair_round: review.repair_requested,
+            final_round: review.round() == AgentRound::Final,
             end: ProcessEnd::Failed,
             limit: None,
             usage_limit: None,

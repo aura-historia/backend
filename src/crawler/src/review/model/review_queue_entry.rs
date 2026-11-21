@@ -1,7 +1,7 @@
 //! A row of the console's review queue (`GET /api/reviews`). The contract is in
 //! `docs/crawler/operations.md` (review service).
 
-use super::{RepairRequest, ReviewActor};
+use super::{RepairRequest, ReviewActor, SourceLabel};
 use crate::CrawlerReviewId;
 use crate::scraper::css_selector::product_schema_service::{
     SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
@@ -30,6 +30,9 @@ pub struct ReviewQueueEntry {
     /// Whether, in `agent` authoring mode, the agents' needs-repair rounds reached the cap or an
     /// agent handed the review over, so it waits for a human. Always `false` in the other modes.
     pub human_required: bool,
+    /// How the review agents parked the review's ListingSource, while they did; `None` for a source
+    /// they did not park.
+    pub parked: Option<SourcePark>,
     /// The outcome of the crawler's LLM evaluation of the generated schema the review holds;
     /// `None` when no LLM evaluated it.
     pub auto_schema_evaluation: Option<AutoSchemaEvaluationOutcome>,
@@ -37,6 +40,17 @@ pub struct ReviewQueueEntry {
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+}
+
+/// A ListingSource the review agents parked: labelled with a label that expires, or left
+/// `NEEDS_HUMAN` by their qualification, until they try it again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourcePark {
+    /// The park label; `None` for a source whose qualification the agents left undecided.
+    pub label: Option<SourceLabel>,
+    /// When the agents try the source again.
+    #[serde(with = "time::serde::rfc3339")]
+    pub next_retry_at: OffsetDateTime,
 }
 
 /// A review of a ListingSource as its page lists it: the queue entry with whether its approved
@@ -86,6 +100,7 @@ mod tests {
             reason: "initial_schema_generation".to_owned(),
             repair_request: None,
             human_required: false,
+            parked: None,
             auto_schema_evaluation,
             created,
             updated: created,
