@@ -44,6 +44,17 @@ Work is **ongoing at the user's request**. Checkpoint batches and continue disco
 do not end the task merely because a batch completed. Stop only on a user instruction
 or an actual blocking condition, preserving enough evidence and IDs to resume.
 
+## 2026-11-20 parallel run
+
+Twenty-plus shard agents (runs `2026-11-20-de-par-*`) added **209 dealers**, merged here with their shard decisions:
+the ledger now holds **1,006 added, 1,180 excluded and 1,499 deferred** domains. All 209 were read back live (identity,
+locations, defaults, delivery profiles; every ingestion list empty), then enriched where first-party evidence allowed:
+139 logos, 169 platforms, 98 delivery profiles and 227 locations across the batch. Paid-data spend: $0. Discovery stopped
+at the user's instruction; shard frontiers and status notes were not carried into this directory except as merged
+`frontier.jsonl`/`searches.jsonl` rows. Productive free sources were Gelbe Seiten (website in a base64 `webseiteLink`),
+Das Örtliche detail pages, the BVDG and VDDM member lists and OpenStreetMap Overpass; the shared WebSearch budget was exhausted
+early. Regional shards typically added 4-22 dealers each, so the long tail needs targeted sources rather than broad regional queries.
+
 ## Practical lessons and remaining enrichment
 
 - Shipping order thresholds support a minimum only. When a paid tariff applies only below a free-delivery threshold, retain that conditional tariff in the ledger and use an unknown-rate fallback; do not import it as an unconditional charge.
