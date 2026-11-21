@@ -159,9 +159,11 @@ async fn main() {
             spider_interval: Duration::from_mins(1),
             scraper_interval: Duration::from_mins(1),
             scraper_urls_per_source: 100,
-            spider_concurrency: 70,
+            // Sized to keep the server inside the host's memory cap: 70 parallel crawls and 70
+            // parallel scrapes grew the heap past it and the kernel killed the process.
+            spider_concurrency: 20,
             spider_site_concurrency_limit: 8,
-            scraper_concurrency: 70,
+            scraper_concurrency: 35,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             push_batch_size: 500,
