@@ -4222,7 +4222,7 @@ const plausibilityCheckDescriptions = {
     LINK_OR_PATH: 'is a link or file path',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
-    SAME_STATE_ON_EVERY_PAGE: 'is the same on every review page and names no availability',
+    REPEATED_STATE_WITHOUT_AVAILABILITY: 'repeats on other review pages, none of which names an availability',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
@@ -4260,7 +4260,7 @@ const CHECK_LABELS = {
     LINK_OR_PATH: 'Link or path',
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
-    SAME_STATE_ON_EVERY_PAGE: 'Same state on every page',
+    REPEATED_STATE_WITHOUT_AVAILABILITY: 'Repeated state, no availability',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity'
 };

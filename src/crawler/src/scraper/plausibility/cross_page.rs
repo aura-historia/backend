@@ -3,9 +3,9 @@
 //! that two pages share names the shop, the category or a default share image rather than
 //! the product. A shared `title` is a finding only when the pages that share it also share
 //! an identity or an image, or when every page shares it; otherwise it is the name two
-//! different products have in common. A `state` that every page shows alike is a finding when it
-//! names no availability: a form button, the shop's navigation or a shop-wide notice rather than
-//! the item's status. Runtime extraction sees one page at a time and cannot run them.
+//! different products have in common. A `state` that several pages share is a finding when no page's
+//! `state` names an availability: a form button, the shop's navigation or a shop-wide notice rather
+//! than the item's status. Runtime extraction sees one page at a time and cannot run them.
 
 use super::{
     PlausibilityField, collapse_whitespace, is_availability_value, names_cart_or_enquiry_action,
@@ -17,8 +17,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use url::Url;
 
-/// Fewest review pages that must show the same `state` before it reads as page chrome.
-const MIN_SAME_STATE_PAGES: usize = 3;
+/// Fewest review pages that must share a `state` before it reads as page chrome.
+const MIN_REPEATED_STATE_PAGES: usize = 3;
 
 /// The check a value failed against the candidate's extractions of the other pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,12 +31,12 @@ pub enum CrossPageCheck {
     /// container, such as a customer review box, would. A single page without images may
     /// show a product without photos, so only every page counts.
     NoImageOnAnyPage,
-    /// Every review page that shows a `state`, at least [`MIN_SAME_STATE_PAGES`], shows the same
-    /// one, and it names no availability the ProductListing normalization resolves and no cart or
-    /// enquiry action: a form button ("Valider"), the shop's navigation ("Acheter un livre
-    /// ancien"), a shop-wide notice or a cookie banner. Such a value tells no item from another,
-    /// so it never becomes an availability.
-    SameStateOnEveryPage,
+    /// At least [`MIN_REPEATED_STATE_PAGES`] review pages share this `state`, and no page's `state`
+    /// names an availability the ProductListing normalization resolves or a cart or enquiry action:
+    /// a form button ("Valider", and "Validate" on the shop's English pages), the shop's
+    /// navigation ("Acheter un livre ancien"), a shop-wide notice or a cookie banner. Such a value
+    /// tells no item from another, so it never becomes an availability.
+    RepeatedStateWithoutAvailability,
 }
 
 impl CrossPageCheck {
@@ -45,7 +45,7 @@ impl CrossPageCheck {
     pub(crate) const ALL: [Self; 3] = [
         Self::RepeatedAcrossPages,
         Self::NoImageOnAnyPage,
-        Self::SameStateOnEveryPage,
+        Self::RepeatedStateWithoutAvailability,
     ];
 
     /// How the review console describes the check.
@@ -53,8 +53,8 @@ impl CrossPageCheck {
         match self {
             Self::RepeatedAcrossPages => "repeats a value of another product page",
             Self::NoImageOnAnyPage => "yields no capturable image on any review page",
-            Self::SameStateOnEveryPage => {
-                "is the same on every review page and names no availability"
+            Self::RepeatedStateWithoutAvailability => {
+                "repeats on other review pages, none of which names an availability"
             }
         }
     }
@@ -89,14 +89,19 @@ impl CrossPageFinding {
         }
     }
 
-    /// The finding of a page whose `state` every other page shows alike, `None` for a page
-    /// without one.
-    fn same_state_on_every_page(page: &PageExtraction<'_>) -> Option<Self> {
-        page.raw.state().map(|state| Self {
-            field: PlausibilityField::State,
-            check: CrossPageCheck::SameStateOnEveryPage,
-            values: vec![state.to_owned()],
-        })
+    /// The finding of a page whose `state` is `repeated`, `None` for a page with another or none.
+    fn repeated_state_without_availability(
+        page: &PageExtraction<'_>,
+        repeated: &str,
+    ) -> Option<Self> {
+        page.raw
+            .state()
+            .filter(|state| collapse_whitespace(state) == repeated)
+            .map(|state| Self {
+                field: PlausibilityField::State,
+                check: CrossPageCheck::RepeatedStateWithoutAvailability,
+                values: vec![state.to_owned()],
+            })
     }
 }
 
@@ -159,7 +164,7 @@ impl CrossPageFindings {
                 || shares_a_key(sharing, &image_groups)
         });
         let no_image_on_any_page = !pages.iter().any(|page| page.has_capturable_image);
-        let same_state_on_every_page = shows_one_chrome_state(pages);
+        let chrome_state = repeated_state_without_availability(pages);
 
         identities
             .into_iter()
@@ -171,9 +176,9 @@ impl CrossPageFindings {
                     [
                         CrossPageFinding::repeated(PlausibilityField::SourceListingId, identities),
                         CrossPageFinding::repeated(PlausibilityField::Title, titles),
-                        same_state_on_every_page
-                            .then(|| CrossPageFinding::same_state_on_every_page(page))
-                            .flatten(),
+                        chrome_state.as_deref().and_then(|repeated| {
+                            CrossPageFinding::repeated_state_without_availability(page, repeated)
+                        }),
                         CrossPageFinding::repeated(PlausibilityField::Images, images),
                         no_image_on_any_page.then(CrossPageFinding::no_image_on_any_page),
                     ]
@@ -194,22 +199,30 @@ impl CrossPageFindings {
     }
 }
 
-/// Whether the pages that show a `state`, at least [`MIN_SAME_STATE_PAGES`], all show the same one,
-/// whitespace aside, and it is no availability value and no cart or enquiry action
-/// ([`CrossPageCheck::SameStateOnEveryPage`]).
-fn shows_one_chrome_state(pages: &[PageExtraction<'_>]) -> bool {
-    let states: Vec<String> = pages
+/// The `state` that the most review pages share, whitespace aside, when at least
+/// [`MIN_REPEATED_STATE_PAGES`] share it and no page's `state` is an availability value or a cart
+/// or enquiry action ([`CrossPageCheck::RepeatedStateWithoutAvailability`]).
+fn repeated_state_without_availability(pages: &[PageExtraction<'_>]) -> Option<String> {
+    let states: Vec<&str> = pages.iter().filter_map(|page| page.raw.state()).collect();
+    if states
         .iter()
-        .filter_map(|page| page.raw.state())
-        .map(collapse_whitespace)
-        .collect();
-    let Some(first) = states.first() else {
-        return false;
-    };
-    states.len() >= MIN_SAME_STATE_PAGES
-        && states.iter().all(|state| state == first)
-        && !is_availability_value(first)
-        && !names_cart_or_enquiry_action(first)
+        .any(|state| is_availability_value(state) || names_cart_or_enquiry_action(state))
+    {
+        return None;
+    }
+    let mut pages_per_state: HashMap<String, usize> = HashMap::new();
+    for state in states {
+        *pages_per_state
+            .entry(collapse_whitespace(state))
+            .or_default() += 1;
+    }
+    pages_per_state
+        .into_iter()
+        .filter(|(_, count)| *count >= MIN_REPEATED_STATE_PAGES)
+        .max_by(|(left_state, left), (right_state, right)| {
+            left.cmp(right).then_with(|| right_state.cmp(left_state))
+        })
+        .map(|(state, _)| state)
 }
 
 /// Each page's `(key, value)` pairs, as `keyed` yields them.
@@ -720,7 +733,7 @@ mod tests {
         }
     }
 
-    mod same_state_on_every_page {
+    mod repeated_state_without_availability {
         use super::*;
 
         fn product_with_state(identity: &str, state: Option<&str>) -> RawExtractedProduct {
@@ -748,56 +761,82 @@ mod tests {
             findings_of(&pages)
         }
 
-        fn same_state(value: &str) -> CrossPageFinding {
+        fn repeated_state(value: &str) -> CrossPageFinding {
             CrossPageFinding {
                 field: PlausibilityField::State,
-                check: CrossPageCheck::SameStateOnEveryPage,
+                check: CrossPageCheck::RepeatedStateWithoutAvailability,
                 values: vec![value.to_owned()],
             }
         }
 
         #[test]
-        fn should_report_a_state_that_every_page_shows_alike_and_names_no_availability() {
+        fn should_report_a_state_that_pages_share_when_none_names_an_availability() {
             for chrome in [
                 "Valider",
                 "Acheter un livre ancien",
                 "欲購買任何商品請私訊我們的粉絲專頁",
             ] {
-                let findings = findings_of_states(&[
-                    Some(chrome),
-                    Some(&format!("  {chrome} ")),
-                    None,
-                    Some(chrome),
-                ]);
+                let spaced = format!("  {chrome} ");
+                let findings =
+                    findings_of_states(&[Some(chrome), Some(&spaced), None, Some(chrome)]);
 
                 assert_eq!(
                     findings,
                     vec![
-                        vec![same_state(chrome)],
-                        vec![same_state(&format!("  {chrome} "))],
+                        vec![repeated_state(chrome)],
+                        vec![repeated_state(&spaced)],
                         vec![],
-                        vec![same_state(chrome)],
+                        vec![repeated_state(chrome)],
                     ],
                     "{chrome}"
                 );
             }
         }
 
+        /// napoli-antic's French pages show "Valider" and its English pages "Validate" on the
+        /// same reminder form.
         #[test]
-        fn should_report_nothing_when_a_page_shows_another_state() {
-            let findings = findings_of_states(&[Some("Valider"), Some("Valider"), Some("Vendu")]);
+        fn should_report_the_shared_state_beside_a_translated_one() {
+            let findings = findings_of_states(&[
+                Some("Validate"),
+                Some("Valider"),
+                Some("Valider"),
+                Some("Valider"),
+            ]);
 
-            assert!(findings.iter().all(Vec::is_empty), "{findings:?}");
+            assert_eq!(
+                findings,
+                vec![
+                    vec![],
+                    vec![repeated_state("Valider")],
+                    vec![repeated_state("Valider")],
+                    vec![repeated_state("Valider")],
+                ]
+            );
         }
 
         #[test]
-        fn should_report_nothing_for_an_availability_or_a_cart_or_enquiry_action() {
-            for state in [
+        fn should_report_nothing_when_a_page_names_an_availability_or_an_action() {
+            for other in [
+                "Vendu",
                 "In stock",
                 "Ajouter au panier",
-                "Add to basket now",
                 "Enquire about this piece",
             ] {
+                let findings = findings_of_states(&[
+                    Some("Valider"),
+                    Some("Valider"),
+                    Some("Valider"),
+                    Some(other),
+                ]);
+
+                assert!(findings.iter().all(Vec::is_empty), "{other}: {findings:?}");
+            }
+        }
+
+        #[test]
+        fn should_report_nothing_for_an_availability_or_an_action_every_page_shows() {
+            for state in ["In stock", "Ajouter au panier", "Add to basket now"] {
                 let findings = findings_of_states(&[Some(state), Some(state), Some(state)]);
 
                 assert!(findings.iter().all(Vec::is_empty), "{state}: {findings:?}");
@@ -805,8 +844,9 @@ mod tests {
         }
 
         #[test]
-        fn should_report_nothing_below_three_pages_with_a_state() {
-            let findings = findings_of_states(&[Some("Valider"), Some("Valider"), None]);
+        fn should_report_nothing_below_three_pages_sharing_a_state() {
+            let findings =
+                findings_of_states(&[Some("Valider"), Some("Valider"), Some("Validate"), None]);
 
             assert!(findings.iter().all(Vec::is_empty), "{findings:?}");
         }
