@@ -500,15 +500,34 @@ fn price_checks(price: &str) -> Vec<PlausibilityCheck> {
     .collect()
 }
 
-/// A price that holds no digit and that the ProductListing normalization resolves to an item
-/// that is gone: sold out, out of stock, reserved or unavailable. A price on application, such as
-/// "POA", resolves to none of them and stays plausible.
+/// A price that is the status of a gone item ([`gone_status_in_price`]).
 fn availability_text_check(price: &str) -> Option<PlausibilityCheck> {
+    gone_status_in_price(price).map(|_| PlausibilityCheck::AvailabilityText)
+}
+
+/// The status a price slot shows instead of an amount once the item is gone, as a label the
+/// ProductListing normalization resolves to sold out, out of stock, reserved or unavailable:
+/// "Sold", or the label left once the currency marker and the price caption the shop prints
+/// around the slot are set aside, as in "VERKAUFT €" or "Price: SOLD". `None` for a price with a
+/// digit, and for a price on application such as "POA", which resolves to none of them.
+pub(crate) fn gone_status_in_price(price: &str) -> Option<String> {
     if price.chars().any(|character| character.is_ascii_digit()) {
         return None;
     }
-    let gone = matches!(
-        quick_check_availability(price)
+    let price_caption = regex!(r"(?i)^\s*(?:price|preis|prix|prijs|precio|prezzo)\b");
+    let label = price.trim();
+    if resolves_to_gone(label) {
+        return Some(label.to_owned());
+    }
+    let label = without_amount(label);
+    let label = collapse_whitespace(&price_caption.replace(&label, ""));
+    resolves_to_gone(&label).then_some(label)
+}
+
+/// Whether the ProductListing normalization resolves `text` to an item that is gone.
+fn resolves_to_gone(text: &str) -> bool {
+    matches!(
+        quick_check_availability(text)
             .ok()
             .and_then(ListingAvailabilityQuickCheck::availability),
         Some(
@@ -517,8 +536,12 @@ fn availability_text_check(price: &str) -> Option<PlausibilityCheck> {
                 | ListingAvailability::Reserved
                 | ListingAvailability::Unavailable
         )
-    );
-    gone.then_some(PlausibilityCheck::AvailabilityText)
+    )
+}
+
+/// `value` with each whitespace run replaced by one space and outer whitespace removed.
+fn collapse_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
@@ -681,7 +704,7 @@ fn without_amount(text: &str) -> Cow<'_, str> {
 }
 
 /// Whether the ProductListing normalization resolves `text` to an availability.
-fn resolves_to_availability(text: &str) -> bool {
+pub(crate) fn resolves_to_availability(text: &str) -> bool {
     quick_check_availability(text)
         .ok()
         .and_then(ListingAvailabilityQuickCheck::availability)
@@ -1258,6 +1281,10 @@ mod tests {
                 "Out of stock",
                 "Reserved",
                 "Nicht verfügbar",
+                "VERKAUFT €",
+                "verkauft\u{a0}€",
+                "Price: SOLD",
+                "Prix : Vendu",
             ] {
                 let mut raw = plausible();
                 raw.price = Some(label.to_owned());
@@ -1278,6 +1305,8 @@ mod tests {
                 "Sold for £500",
                 "£1,250",
                 "Enquire",
+                "Preis auf Anfrage €",
+                "Kom €",
             ] {
                 let mut raw = plausible();
                 raw.price = Some(price.to_owned());
@@ -1492,6 +1521,42 @@ mod tests {
             raw.price = Some("£0.00".to_owned());
 
             assert!(PlausibilityFindings::of(&raw).blocks_approval());
+        }
+    }
+
+    /// The status a sold page shows in its price slot is the label the capture sends as the
+    /// availability, so it is one the normalization resolves.
+    mod gone_status_in_price {
+        use super::*;
+
+        #[test]
+        fn should_read_the_label_without_the_currency_marker_or_price_caption() {
+            for (price, label) in [
+                (" Sold Out ", "Sold Out"),
+                ("VERKAUFT\u{a0}€", "VERKAUFT"),
+                ("Price: SOLD", "SOLD"),
+                ("Reserved", "Reserved"),
+            ] {
+                assert_eq!(
+                    gone_status_in_price(price).as_deref(),
+                    Some(label),
+                    "{price}"
+                );
+                assert!(resolves_to_availability(label), "{label}");
+            }
+        }
+
+        #[test]
+        fn should_read_no_status_in_an_amount_or_a_price_on_application() {
+            for price in [
+                "Sold for £500",
+                "€ 1.250",
+                "POA",
+                "Preis auf Anfrage €",
+                "Kom €",
+            ] {
+                assert_eq!(gone_status_in_price(price), None, "{price}");
+            }
         }
     }
 

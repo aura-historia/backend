@@ -1,6 +1,7 @@
 //! Crawler-owned mapping from selected CSS extraction output to the generic raw-input contract.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use crate::scraper::plausibility::{gone_status_in_price, resolves_to_availability};
 use product_listing_core::source_listing_id::{InvalidSourceListingId, SourceListingId};
 use product_listing_normalization::{
     NormalizationContext, NormalizationError, NormalizationInputError,
@@ -51,7 +52,8 @@ pub(crate) fn pinned_source_listing_id(
 /// crawler-validated image projection and keep every supplied price, state and text
 /// value as extracted: the worker (the sole canonical normalization authority) parses
 /// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
-/// missing extraction clears a price. A title or state the page left out or blank is sent
+/// missing extraction clears a price, and a price slot that shows a sold item's status is no
+/// price ([`price_and_availability`]). A title or state the page left out or blank is sent
 /// unchanged, so the listing keeps the one it was last captured with, and a new listing starts
 /// without it; the source payload still shows the blank one. A raw attribute whose rule found
 /// only a blank value is left out of the generic raw values, which keep attributes as given; the
@@ -76,15 +78,16 @@ pub(crate) fn crawler_raw_input(
             )
         })
         .collect::<BTreeMap<_, _>>();
+    let (price, availability) = price_and_availability(raw);
     let raw_values = RawProductListingValues::new(json!({
         "sourceListingId": source_listing_id,
         "title": unless_blank(raw.title()),
         "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
         "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
-        "price": patch(raw.price.clone()),
+        "price": price,
         "priceEstimateMin": patch(raw.price_estimate_min.clone()),
         "priceEstimateMax": patch(raw.price_estimate_max.clone()),
-        "availability": unless_blank(raw.state()),
+        "availability": availability,
         "url": ProductListingRawValuesPatch::Set(candidate_url.to_string()),
         "images": ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
         "attributes": attributes,
@@ -133,6 +136,32 @@ pub(crate) fn crawler_provenance(
         "pageHash": page_hash,
         "schemaFingerprint": schema_fingerprint,
     }))
+}
+
+/// The price and availability a capture sends. A price slot that shows the status of a gone item
+/// instead of an amount, such as the "Sold" or "VERKAUFT €" a sold page prints where its price
+/// was ([`gone_status_in_price`]), is no price: the worker could not parse it and would reject
+/// the whole capture, so the listing would never learn that the item sold. The price is sent
+/// unchanged instead, so the listing keeps the price it was last captured with, and the status
+/// stands in for a `state` the page left out or that the normalization resolves to no
+/// availability.
+fn price_and_availability(
+    raw: &RawExtractedProduct,
+) -> (
+    ProductListingRawValuesPatch<String>,
+    ProductListingRawValuesPatch<String>,
+) {
+    let Some(status) = raw.price.as_deref().and_then(gone_status_in_price) else {
+        return (patch(raw.price.clone()), unless_blank(raw.state()));
+    };
+    let availability = match raw.state() {
+        Some(state) if resolves_to_availability(state) => state.to_owned(),
+        _ => status,
+    };
+    (
+        ProductListingRawValuesPatch::Unchanged,
+        ProductListingRawValuesPatch::Set(availability),
+    )
 }
 
 /// `SET` for a non-blank value, `UNCHANGED` for none: a field the page leaves out never clears
@@ -392,6 +421,101 @@ mod tests {
         let second = crawler_raw_input(&changed, &changed.images, &url, "stable-id")?.hash()?;
         assert_ne!(first, second);
         Ok(())
+    }
+
+    /// A sold page that prints its status where the price was is captured as sold and keeps the
+    /// listing's last price, instead of sending a price the worker cannot parse.
+    mod sold_status_in_the_price_slot {
+        use super::*;
+
+        fn sold_page(price: &str, state: Option<&str>) -> RawExtractedProduct {
+            let mut extracted = raw();
+            extracted.price = Some(price.to_owned());
+            extracted.state = state.map(str::to_owned);
+            extracted
+        }
+
+        fn price_and_availability_of(
+            extracted: &RawExtractedProduct,
+        ) -> Result<(serde_json::Value, serde_json::Value), NormalizationInputError> {
+            let url = Url::parse("https://example.com/products/1").unwrap();
+            let input = crawler_raw_input(extracted, &extracted.images, &url, "stable-id")?;
+            let values = input.raw_values().value();
+            Ok((values["price"].clone(), values["availability"].clone()))
+        }
+
+        #[test]
+        fn should_keep_the_price_and_send_the_status_when_the_page_shows_no_state()
+        -> Result<(), NormalizationInputError> {
+            let extracted = sold_page("VERKAUFT \u{a0}€", None);
+
+            let (price, availability) = price_and_availability_of(&extracted)?;
+
+            assert_eq!(price, serde_json::json!({"action": "UNCHANGED"}));
+            assert_eq!(
+                availability,
+                serde_json::json!({"action": "SET", "value": "VERKAUFT"})
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn should_send_the_status_in_place_of_a_state_that_names_no_availability()
+        -> Result<(), NormalizationInputError> {
+            let extracted = sold_page("Sold Out", Some("Valider"));
+
+            let (_, availability) = price_and_availability_of(&extracted)?;
+
+            assert_eq!(
+                availability,
+                serde_json::json!({"action": "SET", "value": "Sold Out"})
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn should_keep_a_state_that_names_an_availability() -> Result<(), NormalizationInputError> {
+            let extracted = sold_page("Sold", Some("Reserved"));
+
+            let (price, availability) = price_and_availability_of(&extracted)?;
+
+            assert_eq!(price, serde_json::json!({"action": "UNCHANGED"}));
+            assert_eq!(
+                availability,
+                serde_json::json!({"action": "SET", "value": "Reserved"})
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn should_keep_the_extracted_price_in_the_source_payload()
+        -> Result<(), NormalizationInputError> {
+            let url = Url::parse("https://example.com/products/1").unwrap();
+            let extracted = sold_page("Price: SOLD", None);
+
+            let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id")?;
+
+            assert_eq!(
+                input.source_payload().value().get("price"),
+                Some(&serde_json::json!("Price: SOLD"))
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn should_send_a_price_on_application_as_extracted() -> Result<(), NormalizationInputError>
+        {
+            let extracted = sold_page("POA", Some("In Stock"));
+
+            let (price, availability) = price_and_availability_of(&extracted)?;
+
+            assert_eq!(price, serde_json::json!({"action": "SET", "value": "POA"}));
+            assert_eq!(
+                availability,
+                serde_json::json!({"action": "SET", "value": "In Stock"})
+            );
+            Ok(())
+        }
     }
 
     /// A page that leaves its title out, or blank, and its state out leaves the listing's title
