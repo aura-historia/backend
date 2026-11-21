@@ -13,6 +13,7 @@ mod removed_page;
 mod richest_schema_selection;
 mod schema_fallback;
 mod seed_pages;
+mod sold_price_slot;
 mod transport_failure;
 
 // ---------------------------------------------------------------------------
