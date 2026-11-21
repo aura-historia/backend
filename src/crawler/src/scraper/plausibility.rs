@@ -13,6 +13,7 @@ use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::LazyLock;
@@ -662,11 +663,16 @@ fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
 /// The labels are the normalization's, so the exemption cannot drift from what it resolves;
 /// the cart and enquiry actions it does not resolve stay with the caller.
 fn is_status_label_beside_amount(state: &str) -> bool {
+    resolves_to_availability(state) || resolves_to_availability(&without_amount(state))
+}
+
+/// `text` with its amounts, currency markers and the connectors around them replaced by spaces,
+/// so the words a shop prints beside a price are left ("Sold for £500" leaves "Sold").
+fn without_amount(text: &str) -> Cow<'_, str> {
     let amount_and_connectors = regex!(
         r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
     );
-    resolves_to_availability(state)
-        || resolves_to_availability(&amount_and_connectors.replace_all(state, " "))
+    amount_and_connectors.replace_all(text, " ")
 }
 
 /// Whether the ProductListing normalization resolves `text` to an availability.
