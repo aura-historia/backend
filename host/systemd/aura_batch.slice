@@ -5,7 +5,7 @@ Documentation=https://github.com/aura-historia/backend/blob/develop/host/README.
 [Slice]
 CPUWeight=50
 IOWeight=50
-MemoryMax=6G
+MemoryMax=20G
 
 [Install]
 WantedBy=multi-user.target

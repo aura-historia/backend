@@ -19,7 +19,7 @@ cgroup driver. The prod Compose project, its secrets, scheduled jobs and backups
 | `aura_serving.slice` | PostgreSQL, OpenSearch, API, MCP, Caddy | 1000 | `MemoryLow=28G`, covering the members' reservations |
 | `aura_pipeline.slice` | worker, `ops` jobs, the crawler's log shipper | 200 | per-container limits |
 | `system.slice` | sshd, Docker, journald and other host services | 100 (default) | unlimited |
-| `aura_batch.slice` | crawler units, crawler database, crawler review agents | 50 | `MemoryMax=6G` |
+| `aura_batch.slice` | crawler units, crawler database, crawler review agents | 50 | `MemoryMax=20G` |
 | `user.slice` | interactive sessions, builds, agent sessions | 20 | `MemoryMax=10G` |
 
 A capped tier that reaches its limit first loses page cache, then the kernel kills
@@ -48,7 +48,7 @@ The plan for 64 GB; tune it from observed usage.
 | OpenSearch (8 GiB heap) | serving | `mem_limit: 20g`, `mem_reservation: 16g`, `oom_score_adj: -500` ([compose](../opensearch/prod/compose.yaml)) |
 | API, MCP, Caddy | serving | 3 GiB together |
 | Worker, `ops` and the crawler's log shipper | pipeline | worker 2 GiB; each `ops` run 768 MiB (cleanup can overlap periodic matching); the log shipper 128 MiB; the occasional restore check 4 GiB ([prod](prod/README.md)) |
-| Crawler stack | batch | 6 GiB slice cap; its database `mem_limit: 3g` ([compose](../src/crawler/docker-compose.yml)) |
+| Crawler stack | batch | 20 GiB slice cap; its database `mem_limit: 3g` ([compose](../src/crawler/docker-compose.yml)) |
 | Interactive sessions | user | 10 GiB slice cap |
 | Host and page cache | — | the rest |
 
