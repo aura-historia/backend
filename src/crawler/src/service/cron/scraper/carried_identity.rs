@@ -245,30 +245,25 @@ fn log_shown_identity(
         "identity_conflict"
     };
     let captured_identity = captured.unwrap_or_default();
+    macro_rules! log_at {
+        ($level:ident) => {
+            $level!(
+                event = SHOWS_CARRIED_IDENTITY_EVENT,
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                captured_identity,
+                page_identity,
+                carrier_url = %carrier_url,
+                evidence = evidence_name,
+                outcome,
+                "A product page shows an identity another product URL of its ListingSource carries"
+            )
+        };
+    }
     if captured.is_some() || evidence.is_some() {
-        info!(
-            event = SHOWS_CARRIED_IDENTITY_EVENT,
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            captured_identity,
-            page_identity,
-            carrier_url = %carrier_url,
-            evidence = evidence_name,
-            outcome,
-            "A product page shows an identity another product URL of its ListingSource carries"
-        );
+        log_at!(info);
     } else {
-        debug!(
-            event = SHOWS_CARRIED_IDENTITY_EVENT,
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            captured_identity,
-            page_identity,
-            carrier_url = %carrier_url,
-            evidence = evidence_name,
-            outcome,
-            "A product page shows an identity another product URL of its ListingSource carries"
-        );
+        log_at!(debug);
     }
 }
 

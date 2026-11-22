@@ -1262,13 +1262,19 @@ async fn shared_redirect_target_removal(
 /// The scrape interval doubled for each earlier consecutive scrape that ended at the same
 /// unsettled redirect, capped at [`UNSETTLED_REDIRECT_MAX_RECHECK_DELAY`].
 fn unsettled_redirect_recheck_delay(streak: u32) -> Duration {
-    let doublings = streak.saturating_sub(1);
+    doubling_delay(
+        UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY,
+        streak,
+        UNSETTLED_REDIRECT_MAX_RECHECK_DELAY,
+    )
+}
+
+/// `first` doubled for each outcome of a run before its `streak`-th, capped at `max`.
+fn doubling_delay(first: Duration, streak: u32, max: Duration) -> Duration {
     2_u32
-        .checked_pow(doublings)
-        .and_then(|factor| UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY.checked_mul(factor))
-        .map_or(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY, |delay| {
-            delay.min(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY)
-        })
+        .checked_pow(streak.saturating_sub(1))
+        .and_then(|factor| first.checked_mul(factor))
+        .map_or(max, |delay| delay.min(max))
 }
 
 async fn handle_successful_scrape(
@@ -1997,13 +2003,11 @@ async fn persist_schema_review_wait(
 /// The schema cooldown doubled for each earlier consecutive wait on the same review, capped
 /// at [`SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY`].
 fn schema_review_wait_retry_delay(streak: u32) -> Duration {
-    let doublings = streak.saturating_sub(1);
-    2_u32
-        .checked_pow(doublings)
-        .and_then(|factor| SCHEMA_ERROR_RETRY_COOLDOWN.checked_mul(factor))
-        .map_or(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY, |delay| {
-            delay.min(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY)
-        })
+    doubling_delay(
+        SCHEMA_ERROR_RETRY_COOLDOWN,
+        streak,
+        SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY,
+    )
 }
 
 /// The retry delay of a URL's `streak`-th identity conflict in a row. It grows as a page's wait on
