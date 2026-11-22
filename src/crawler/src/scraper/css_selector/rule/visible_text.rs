@@ -125,7 +125,9 @@ fn push_visible_text(
             scraper::Node::Element(child_element) => {
                 let name = child_element.name();
                 let rendered = text.layout == TextLayout::Rendered;
+                // A `<wbr>` only offers a line break, inside a long number too, so it is no gap.
                 if NON_TEXT_ELEMENTS.contains(&name)
+                    || name == "wbr"
                     || (rendered && is_visually_hidden(child_element))
                 {
                     continue;
@@ -579,6 +581,7 @@ mod tests {
         #[case::emphasis("<p><a href=\"/oak\">Oak</a><b>wood</b> chair</p>", "Oakwood chair")]
         #[case::currency_symbol("<span><span>$</span>370</span>", "$370")]
         #[case::digit_and_separator("<span>1<span>,</span>250</span>", "1,250")]
+        #[case::line_break_opportunity("<span>SKU 1234<wbr>5678</span>", "SKU 12345678")]
         fn should_not_separate_inline_elements(#[case] markup: &str, #[case] expected: &str) {
             assert_eq!(separated_text_of(markup), expected);
         }
