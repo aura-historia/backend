@@ -279,9 +279,10 @@ pub(crate) fn srcset_descriptor_width(descriptors: &str) -> usize {
 }
 
 /// Whether `url`, read from `source`, can name an image. A URL capture can never fetch
-/// never does (see [`is_unfetchable_url`]).
+/// never does (see [`is_unfetchable_url`]), and neither does a URL template a script has not
+/// filled in (see [`has_unresolved_template_token`]).
 fn is_probably_image_url(url: &str, source: ImageCandidateSource) -> bool {
-    if is_unfetchable_url(url) {
+    if is_unfetchable_url(url) || has_unresolved_template_token(url) {
         return false;
     }
     match source {
@@ -304,6 +305,29 @@ fn is_url_like(url: &str) -> bool {
 /// no image, so an element whose only image is one is an empty slot.
 fn is_unfetchable_url(url: &str) -> bool {
     is_hostless_url(url) || is_data_url(url)
+}
+
+/// Whether `url` holds a placeholder token such as `{width}`, literal or percent-encoded as
+/// `%7Bwidth%7D`, that a lazy loader's script replaces before the browser fetches the image:
+/// Shopify themes using lazysizes write `data-src="…/photo_{width}x.jpg"` next to
+/// `data-widths` and a working `src`. Capture runs no script, and the template itself does
+/// not resolve, so it is no image URL candidate and the element's next candidate stands in.
+/// Unlike an [unfetchable URL](is_unfetchable_url) it still is image markup: a script loads
+/// a real image from it, so a slot holding only such an image is no empty placeholder.
+fn has_unresolved_template_token(url: &str) -> bool {
+    url.to_ascii_lowercase()
+        .replace("%7b", "{")
+        .replace("%7d", "}")
+        .split('{')
+        .skip(1)
+        .any(|after_brace| {
+            after_brace.split_once('}').is_some_and(|(token, _)| {
+                !token.is_empty()
+                    && token
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            })
+        })
 }
 
 /// Whether `url` is a `data:` URI, its scheme compared case-insensitively.
@@ -529,6 +553,50 @@ mod tests {
         }
     }
 
+    /// A URL template a lazy loader fills in, which capture cannot fetch, is no image URL
+    /// candidate wherever it is read from.
+    #[rstest]
+    #[case::literal_token("//shop.example.com/cdn/shop/files/photo_{width}x.jpg?v=1")]
+    #[case::encoded_token("https://shop.example.com/cdn/shop/files/photo_%7Bwidth%7Dx.heic?v=1")]
+    #[case::lowercase_encoded_token("/cdn/shop/files/photo_%7bwidth%7dx.jpg")]
+    #[case::width_and_height("/images/photo_{width}x{height}.jpg")]
+    #[case::other_token("/images/{size}/photo.jpg")]
+    fn should_reject_a_url_with_an_unresolved_template_token_as_an_image_url_candidate(
+        #[case] url: &str,
+    ) {
+        for source in ALL_SOURCES {
+            assert!(!is_probably_image_url(url, source), "{source:?} took {url}");
+        }
+    }
+
+    /// Markup of leoleovintage.de: a lazysizes gallery image of a Shopify theme, whose
+    /// `data-src` is a template the theme's script fills in from `data-widths`.
+    const LEO_LEO_GALLERY_IMAGE: &str = r#"<img class="lazyload" src="//leoleovintage.de/cdn/shop/files/IMG_5449Kopie_300x300.heic?v=1" data-src="//leoleovintage.de/cdn/shop/files/IMG_5449Kopie_{width}x.heic?v=1" data-widths="[180, 360, 540, 720, 900, 1080, 1296, 1512, 1728, 2048]" alt="">"#;
+
+    #[test]
+    fn should_fall_back_to_the_src_when_the_data_src_is_an_unresolved_template() {
+        let html = Html::parse_fragment(LEO_LEO_GALLERY_IMAGE);
+        let selector = scraper::Selector::parse("img").unwrap();
+        let image = html.select(&selector).next().unwrap();
+
+        assert_eq!(
+            image_url_candidates_for_element(&image),
+            vec!["//leoleovintage.de/cdn/shop/files/IMG_5449Kopie_300x300.heic?v=1"]
+        );
+    }
+
+    #[rstest]
+    #[case::empty_braces("/images/photo%7B%7D.jpg")]
+    #[case::braces_around_punctuation("/images/photo{a.b}.jpg")]
+    fn should_keep_a_url_whose_braces_hold_no_template_token_as_an_image_url_candidate(
+        #[case] url: &str,
+    ) {
+        assert!(is_probably_image_url(
+            url,
+            ImageCandidateSource::ImageSpecific
+        ));
+    }
+
     #[test]
     fn should_take_the_widest_real_candidate_of_a_srcset_with_a_data_uri() {
         assert_eq!(
@@ -645,6 +713,9 @@ mod tests {
     )]
     #[case::hostless_picture_with_a_background(
         r#"<picture style="background-image: url(/uploads/photo)"><img src="//:0"></picture>"#
+    )]
+    #[case::lazy_image_with_only_a_url_template(
+        r#"<img class="lazyload" data-src="/cdn/shop/files/photo_{width}x.jpg" data-widths="[180, 360]">"#
     )]
     #[case::hostless_picture_next_to_a_real_image(
         r#"<picture><img src="//:0"></picture><img src="/uploads/photo">"#
