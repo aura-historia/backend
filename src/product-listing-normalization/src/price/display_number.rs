@@ -196,12 +196,22 @@ pub(super) fn extract_price_number_candidates(raw: &str) -> Vec<PriceNumberCandi
         .collect()
 }
 
-/// Where the percentages in `raw` start.
-pub(super) fn percentage_starts(raw: &str) -> Vec<usize> {
+/// The numbers in `raw` a percent sign follows.
+pub(super) fn percentages(raw: &str) -> Vec<Percentage> {
     digit_runs(raw)
         .into_iter()
-        .filter_map(|run| run.percentage_start)
+        .filter_map(|run| run.percentage)
         .collect()
+}
+
+/// A number a percent sign follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Percentage {
+    pub(super) start: usize,
+    /// Whether the number can be a percentage: a whole number of up to three digits, without a
+    /// leading zero, and at most two decimals (`30`, `19`, `2,5`). Any other number before a
+    /// percent sign is an amount that ran into one, as in `$1 04530% off`.
+    pub(super) plausible: bool,
 }
 
 /// A run of digits and number separators, starting and ending with a digit, read as an amount
@@ -211,7 +221,7 @@ pub(super) fn percentage_starts(raw: &str) -> Vec<usize> {
 /// still be one.
 struct DigitRun {
     amount: Option<(usize, usize)>,
-    percentage_start: Option<usize>,
+    percentage: Option<Percentage>,
 }
 
 impl DigitRun {
@@ -222,26 +232,32 @@ impl DigitRun {
         if !percent {
             return Self {
                 amount: Some((start, end)),
-                percentage_start: None,
+                percentage: None,
             };
         }
         let run = &raw[start..end];
-        let Some(space) = run.rfind(is_group_space) else {
-            return Self {
-                amount: None,
-                percentage_start: Some(start),
-            };
+        let (amount, percentage_start) = match run.rfind(is_group_space) {
+            None => (None, start),
+            Some(space) => {
+                let amount_end = run[..space]
+                    .rfind(|ch: char| ch.is_ascii_digit())
+                    .map(|last_digit| start + last_digit + 1);
+                let percentage_offset = run[space..]
+                    .find(|ch: char| ch.is_ascii_digit())
+                    .unwrap_or_default();
+                (
+                    amount_end.map(|end| (start, end)),
+                    start + space + percentage_offset,
+                )
+            }
         };
-        let percentage_offset = space
-            + run[space..]
-                .find(|ch: char| ch.is_ascii_digit())
-                .unwrap_or_default();
-        let amount_end = run[..space]
-            .rfind(|ch: char| ch.is_ascii_digit())
-            .map(|last_digit| start + last_digit + 1);
         Self {
-            amount: amount_end.map(|end| (start, end)),
-            percentage_start: Some(start + percentage_offset),
+            amount,
+            percentage: Some(Percentage {
+                start: percentage_start,
+                plausible: regex!(r"^(?:0|[1-9][0-9]{0,2})(?:[.,][0-9]{1,2})?$")
+                    .is_match(&raw[percentage_start..end]),
+            }),
         }
     }
 }
@@ -270,7 +286,9 @@ fn digit_runs(raw: &str) -> Vec<DigitRun> {
 /// Whether the text around a candidate leaves it one amount rather than part of a longer
 /// number form: a fraction or ratio (`1/2`), an exponent (`1e5`), a scale word (`1,5 Mio.`,
 /// `$1.5M`, `JPY 1万`), a digit of another script (`12３`, `1½`, `100²`), or a decimal separator
-/// with no whole units before it (`,50 €`). An abbreviation dot (`Fr.1'250`) is no separator.
+/// with no whole units before it (`,50 €`). An abbreviation dot (`Fr.1'250`) or an ellipsis
+/// (`Price...1,250 €`) is no separator, and neither is a dotted abbreviation after the amount
+/// (`1.250 m. Rahmen`, `1.250 k.A.`).
 pub(super) fn stands_alone(raw: &str, candidate: &PriceNumberCandidate) -> bool {
     !(continues_before(&raw[..candidate.start]) || continues_after(&raw[candidate.end..]))
 }
@@ -279,7 +297,9 @@ fn continues_before(before: &str) -> bool {
     let mut chars = before.chars().rev();
     match chars.next() {
         Some(ch) if is_other_script_digit(ch) => true,
-        Some('.' | ',') => chars.next().is_none_or(|ch| !ch.is_alphabetic()),
+        Some('.' | ',') => chars
+            .next()
+            .is_none_or(|ch| !(ch.is_alphanumeric() || matches!(ch, '.' | ','))),
         Some('/') => chars.next().is_some_and(is_any_digit),
         _ => false,
     }
@@ -292,7 +312,7 @@ fn continues_after(after: &str) -> bool {
         Some('/') => chars.next().is_some_and(is_any_digit),
         Some('e' | 'E') if regex!(r"^[eE][+\-]?[0-9]").is_match(after) => true,
         _ => regex!(
-            r"^[ \u{a0}\u{202f}\u{2009}]?(?:(?i:k|m|mn|bn|mio|mrd|tsd|tausend|thousand|millions?|millionen|milliarden?|milliards?|billions?|lakhs?|crores?|mil|mila|mille|milion[ei]?|millón|millones)(?:[^\p{L}]|$)|[万萬千億亿만천억])"
+            r"^(?:\s?(?i:mn|bn|mio|mrd|tsd|tausend|thousand|millions?|millionen|milliarden?|milliards?|billions?|lakhs?|crores?|milion[ei]?|millón|millones)(?:[^\p{L}]|$)|(?i:k|m)(?:[^\p{L}]|$)|\s(?i:k|m)(?:[^\p{L}.]|$)|\s?[万萬千億亿만천억])"
         )
         .is_match(after),
     }
@@ -340,7 +360,7 @@ mod tests {
 
     use super::{
         MAX_MINOR_UNITS, PriceError, Separator, WrittenNumber, extract_price_number_candidates,
-        normalise_fraction, parse_price_number, stands_alone,
+        normalise_fraction, parse_price_number, percentages, stands_alone,
     };
 
     #[rstest]
@@ -522,6 +542,31 @@ mod tests {
     }
 
     #[rstest]
+    #[case("30% off", "30", true)]
+    #[case("inkl. 19 % MwSt.", "19", true)]
+    #[case("2,5 % Rabatt", "2,5", true)]
+    #[case("100%", "100", true)]
+    #[case("0% APR", "0", true)]
+    #[case("$370 30% off", "30", true)]
+    #[case("$37030% off", "37030", false)]
+    #[case("$1 04530% off", "04530", false)]
+    #[case("$1,04530% off", "1,04530", false)]
+    #[case("€100 030% off", "030", false)]
+    #[case("2,555% Rabatt", "2,555", false)]
+    fn should_tell_a_percentage_from_an_amount_run_into_one(
+        #[case] raw: &str,
+        #[case] percentage: &str,
+        #[case] plausible: bool,
+    ) {
+        let found = percentages(raw);
+        let [found] = found.as_slice() else {
+            panic!("{raw}: {found:?}");
+        };
+        assert!(raw[found.start..].starts_with(percentage), "{raw}");
+        assert_eq!(plausible, found.plausible, "{raw}");
+    }
+
+    #[rstest]
     #[case("€ 1/2")]
     #[case("€ 100/200")]
     #[case("€ 1e5")]
@@ -530,6 +575,7 @@ mod tests {
     #[case("$1.5M")]
     #[case("$1k")]
     #[case("£2.5 m")]
+    #[case("€ 1.250 K")]
     #[case("€ 5 Tsd.")]
     #[case("$2 million")]
     #[case("JPY 1万")]
@@ -556,6 +602,10 @@ mod tests {
     #[case("€ 100 kg")]
     #[case("€1.250,00inkl. MwSt.")]
     #[case("€ 100 Mahagoni")]
+    #[case("€ 1.250 m. Rahmen")]
+    #[case("€ 1.250 k.A.")]
+    #[case("€ 1.250 mille fleurs")]
+    #[case("Price...1,250 €")]
     #[case("700円")]
     #[case("€ 100 each")]
     fn should_read_a_number_that_ends_where_the_amount_ends(#[case] raw: &str) {

@@ -10,9 +10,9 @@ pub(super) fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
 
 // Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility. `円` is only JPY
 // and `원` only KRW. Symbols match anywhere, so currency words are matched separately as tokens.
-// A dollar sign that letters run into belongs to the dollar those letters name: a listed prefix
-// (`US$`, `CA$`), an ISO code (`CAD$`), or else an unsupported dollar (`Z$`, `RD$`) that is no
-// marker at all, never USD.
+// One to three capitals written straight before a dollar sign name the dollar (see
+// [`dollar_prefix`]): a listed prefix (`US$`, `CA$`), an ISO code (`CAD$`), or an unsupported
+// dollar (`Z$`, `RD$`), which is no marker and makes the text ambiguous, never USD.
 pub(super) const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Eur, "€"),
     (Currency::Gbp, "£"),
@@ -37,6 +37,7 @@ pub(super) const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Inr, "₹"),
     (Currency::Twd, "NT$"),
     (Currency::Mxn, "MX$"),
+    (Currency::Mxn, "Mex$"),
     (Currency::Thb, "฿"),
     (Currency::Jpy, "円"),
     (Currency::Krw, "원"),
@@ -70,7 +71,9 @@ pub(super) fn currency_markers(raw: &str) -> Vec<CurrencyMarker> {
     for &(currency, symbol) in CURRENCY_SYMBOLS {
         markers.extend(
             raw.match_indices(symbol)
-                .filter(|(start, symbol)| !is_dollar_of_another_currency(raw, *start, symbol))
+                .filter(|(start, symbol)| {
+                    !symbol.ends_with('$') || dollar_prefix(raw, *start).is_none()
+                })
                 .map(|(start, symbol)| CurrencyMarker {
                     currency,
                     start,
@@ -110,12 +113,31 @@ pub(super) fn currency_markers(raw: &str) -> Vec<CurrencyMarker> {
     non_overlapping_markers
 }
 
-fn is_dollar_of_another_currency(raw: &str, start: usize, symbol: &str) -> bool {
-    symbol.ends_with('$')
-        && raw[..start]
-            .chars()
-            .next_back()
-            .is_some_and(|ch| ch.is_ascii_alphabetic())
+/// Whether `raw` writes a dollar sign after a prefix that names no supported dollar, such as
+/// `Z$ 100` or `AR$ 1.250`. Such an amount is in a currency the text names but no marker reads.
+pub(super) fn has_unsupported_dollar(raw: &str) -> bool {
+    raw.match_indices('$')
+        .filter_map(|(dollar, _)| dollar_prefix(raw, dollar))
+        .any(|prefix| {
+            let listed = CURRENCY_SYMBOLS
+                .iter()
+                .any(|(_, symbol)| symbol.strip_suffix('$') == Some(prefix));
+            let code = Currency::iter().any(|currency| currency.as_str() == prefix);
+            !listed && !code
+        })
+}
+
+/// The capitals that name the dollar a dollar sign at `dollar` writes: one to three ASCII
+/// capitals written straight before it, as `NZ$` and `RD$` write them. A longer or lower-case
+/// run of letters is a word the price runs into, as a label does in `Price$1,250`, and names
+/// no dollar.
+fn dollar_prefix(raw: &str, dollar: usize) -> Option<&str> {
+    let before = &raw[..dollar];
+    let letters = &before[before
+        .trim_end_matches(|ch: char| ch.is_ascii_alphabetic())
+        .len()..];
+    ((1..=3).contains(&letters.len()) && letters.bytes().all(|byte| byte.is_ascii_uppercase()))
+        .then_some(letters)
 }
 
 fn is_currency_code_token(raw: &str, start: usize, code_len: usize) -> bool {
@@ -126,8 +148,10 @@ fn is_currency_code_token(raw: &str, start: usize, code_len: usize) -> bool {
         && after.is_none_or(is_currency_code_token_boundary)
 }
 
+/// A code or currency word is a token between anything but letters: `priceEURvalue` holds no
+/// code, while a code written straight onto its amount (`1.250EUR`, `CHF866,67`) does.
 fn is_currency_code_token_boundary(ch: char) -> bool {
-    !ch.is_alphanumeric() && ch != '_'
+    !ch.is_alphabetic() && ch != '_'
 }
 
 pub(super) fn currency_marker_spans(raw: &str) -> Vec<(usize, usize)> {
@@ -143,7 +167,7 @@ mod tests {
 
     use money::Currency;
 
-    use super::currency_markers;
+    use super::{currency_markers, has_unsupported_dollar};
 
     fn marker_currencies(raw: &str) -> Vec<(Currency, &str)> {
         currency_markers(raw)
@@ -162,6 +186,11 @@ mod tests {
     #[case("USD$100", Currency::Usd, "USD$")]
     #[case("CAD$100", Currency::Cad, "CAD$")]
     #[case("USD $100", Currency::Usd, "USD")]
+    #[case("Mex$100", Currency::Mxn, "Mex$")]
+    #[case("Price$1,250", Currency::Usd, "$")]
+    #[case("Our price$1,250", Currency::Usd, "$")]
+    #[case("SALE$370", Currency::Usd, "$")]
+    #[case("us$100", Currency::Usd, "$")]
     fn should_read_a_prefixed_dollar_as_the_dollar_it_names(
         #[case] raw: &str,
         #[case] currency: Currency,
@@ -177,14 +206,39 @@ mod tests {
     #[rstest]
     #[case("Z$100")]
     #[case("RD$100")]
+    #[case("AR$ 1.250")]
     #[case("AUS$100")]
-    #[case("Mex$100")]
-    #[case("us$100")]
-    fn should_not_read_an_unlisted_prefixed_dollar_as_usd(#[case] raw: &str) {
+    fn should_read_an_unsupported_prefixed_dollar_as_no_marker(#[case] raw: &str) {
         assert_eq!(
             Vec::<(Currency, &str)>::new(),
             marker_currencies(raw),
             "{raw}"
         );
+        assert!(has_unsupported_dollar(raw), "{raw}");
+    }
+
+    #[rstest]
+    #[case("$100")]
+    #[case("US$100")]
+    #[case("NZ$100")]
+    #[case("USD$100")]
+    #[case("Mex$100")]
+    #[case("Price$1,250")]
+    #[case("SALE$370")]
+    fn should_not_take_a_supported_dollar_or_a_word_for_an_unsupported_dollar(#[case] raw: &str) {
+        assert!(!has_unsupported_dollar(raw), "{raw}");
+    }
+
+    #[rstest]
+    #[case("1.250EUR", Currency::Eur, "EUR")]
+    #[case("CHF866,67", Currency::Chf, "CHF")]
+    #[case("639SEK", Currency::Sek, "SEK")]
+    #[case("30euro", Currency::Eur, "euro")]
+    fn should_read_a_code_written_straight_onto_its_amount(
+        #[case] raw: &str,
+        #[case] currency: Currency,
+        #[case] marker: &str,
+    ) {
+        assert_eq!(vec![(currency, marker)], marker_currencies(raw), "{raw}");
     }
 }

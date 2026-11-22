@@ -3,10 +3,10 @@ mod display_number;
 
 #[cfg(test)]
 use currency_marker::currency_marker_spans;
-use currency_marker::{currency_markers, first_currency_marker_span};
+use currency_marker::{currency_markers, first_currency_marker_span, has_unsupported_dollar};
 use display_number::{
     MAX_MINOR_UNITS, PriceNumberCandidate, PriceNumberCandidateQuality,
-    extract_price_number_candidates, minor_unit_exponent, parse_price_number, percentage_starts,
+    extract_price_number_candidates, minor_unit_exponent, parse_price_number, percentages,
     price_number_candidate_quality, stands_alone,
 };
 use money::{Currency, MonetaryAmount, Price};
@@ -85,7 +85,7 @@ pub fn parse_price(
     if let Some(number) = euro_sign_decimal_number(raw) {
         return Ok((parse_price_number(&number, &Currency::Eur)?, Currency::Eur));
     }
-    if has_currency_marker_on_a_percentage(raw) {
+    if has_amount_run_into_a_percentage(raw) || has_unsupported_dollar(raw) {
         return Err(PriceError::ParseFailure);
     }
     let pairs = price_currency_pairs(raw);
@@ -115,13 +115,17 @@ pub fn parse_price(
             currency,
         )
     } else {
-        let currency = fallback_currency.ok_or_else(|| {
-            if currency_markers(raw).is_empty() {
-                PriceError::UnknownCurrency
-            } else {
-                PriceError::ParseFailure
+        let markers = currency_markers(raw);
+        let currency = match fallback_currency {
+            None if markers.is_empty() => return Err(PriceError::UnknownCurrency),
+            None => return Err(PriceError::ParseFailure),
+            // A currency the text states, even one no amount stands next to (`Preis in EUR:
+            // 1.250`), is never overruled by the source's fallback currency.
+            Some(fallback) if markers.iter().any(|marker| marker.currency != fallback) => {
+                return Err(PriceError::ParseFailure);
             }
-        })?;
+            Some(fallback) => fallback,
+        };
         (
             extract_price_number_candidate_from_candidates(
                 raw,
@@ -140,25 +144,27 @@ pub fn parse_price(
     Ok((amount, currency))
 }
 
-/// The longest display price text read, in bytes. A price is a label; longer text is no
+/// The longest display price text read, in characters. A price is a label; longer text is no
 /// price, and the bound keeps pairing every amount with every currency marker cheap on
 /// untrusted input.
-const MAX_DISPLAY_PRICE_BYTES: usize = 512;
+const MAX_DISPLAY_PRICE_CHARS: usize = 256;
 
 fn check_display_price_length(raw: &str) -> Result<(), PriceError> {
-    if raw.len() > MAX_DISPLAY_PRICE_BYTES {
+    if raw.chars().nth(MAX_DISPLAY_PRICE_CHARS).is_some() {
         return Err(PriceError::ParseFailure);
     }
     Ok(())
 }
 
-/// A currency marker written straight onto a percentage (`$37030% off`) marks an amount that
+/// A number before a percent sign that cannot be a percentage (`$1 04530% off`, `€ 37030%`),
+/// or a currency marker written straight onto a percentage (`$30% off`), marks an amount that
 /// ran into a discount badge, and which of the digits are the amount cannot be told.
-fn has_currency_marker_on_a_percentage(raw: &str) -> bool {
-    let percentage_starts = percentage_starts(raw);
-    currency_markers(raw)
-        .iter()
-        .any(|marker| percentage_starts.contains(&marker.end))
+fn has_amount_run_into_a_percentage(raw: &str) -> bool {
+    let percentages = percentages(raw);
+    let markers = currency_markers(raw);
+    percentages.iter().any(|percentage| {
+        !percentage.plausible || markers.iter().any(|marker| marker.end == percentage.start)
+    })
 }
 
 /// Reads a candidate as an amount when it stands alone in `raw`, so that a number that
@@ -214,7 +220,7 @@ pub fn normalize_price(
     }
     check_display_price_length(trimmed)?;
 
-    let trimmed = &*expand_zero_cents_dash(trimmed);
+    let trimmed = &*drop_zero_cents_dash(trimmed);
     let request_evidence = price_on_request_evidence(trimmed);
     match parse_display_price(trimmed, fallback_currency) {
         Ok(_) if request_evidence == PriceOnRequestEvidence::Explicit => Ok(None),
@@ -239,7 +245,7 @@ pub fn normalize_product_listing_price(
     }
     check_display_price_length(trimmed)?;
 
-    let trimmed = &*expand_zero_cents_dash(trimmed);
+    let trimmed = &*drop_zero_cents_dash(trimmed);
     let request_evidence = price_on_request_evidence(trimmed);
     let has_explicit_monetary_evidence = !price_currency_pairs(trimmed).is_empty();
     match parse_display_price(trimmed, fallback_currency) {
@@ -262,13 +268,15 @@ pub fn normalize_product_listing_price(
 }
 
 /// German, Swiss and Dutch displays write whole amounts with a dash in place of the cents
-/// (`2490,- €`, `1250.- €`). The dash means exactly `00`, so it is expanded before any other
-/// rule reads the amount. A dash followed by a digit is a range or a sign (`100,-200`) and stays.
-/// Several dash amounts list several prices (`Bank 850.-, Stuhl 350.- €`) and stay ambiguous.
-fn expand_zero_cents_dash(raw: &str) -> Cow<'_, str> {
-    let dash = regex!(r"([0-9][.,])-([^0-9]|$)");
+/// (`2490,- €`, `1250.- €`, `1.250,– €`, `1'250.-- CHF`). The dash means no cents, so it is
+/// dropped with its decimal separator before any other rule reads the amount, which keeps a dot
+/// that groups the thousands of `CHF 1.250.-` from also reading as a decimal separator. A dash
+/// followed by a digit is a range or a sign (`100,-200`) and stays. Several dash amounts list
+/// several prices (`Bank 850.-, Stuhl 350.- €`) and stay ambiguous.
+fn drop_zero_cents_dash(raw: &str) -> Cow<'_, str> {
+    let dash = regex!(r"([0-9])[.,](?:--?|[\u{2013}\u{2014}])([^0-9\-\u{2013}\u{2014}]|$)");
     if dash.find_iter(raw).count() == 1 {
-        dash.replace(raw, "${1}00${2}")
+        dash.replace(raw, "${1}${2}")
     } else {
         Cow::Borrowed(raw)
     }
@@ -601,7 +609,7 @@ fn has_benign_currency_amount_gap(raw: &str, left: (usize, usize), right: (usize
 }
 
 fn is_benign_currency_amount_separator(ch: char) -> bool {
-    ch.is_ascii_whitespace() || matches!(ch, '\u{00a0}' | '\u{202f}')
+    ch.is_whitespace()
 }
 
 fn distance_between_spans(left: (usize, usize), right: (usize, usize)) -> usize {
@@ -842,6 +850,14 @@ mod tests {
     #[case("$37030% off")]
     #[case("$530$37030% off")]
     #[case("€30%")]
+    // A number before a percent sign that cannot be a percentage ran into the amount.
+    #[case("€ 12 50030% off")]
+    #[case("$1 04530% off")]
+    #[case("$1,04530% off")]
+    #[case("Was € 530 Now € 37030%")]
+    #[case("530 € 37030% off")]
+    #[case("$530 $ 37030% off")]
+    #[case("€100 030% off")]
     // Digit groups a space joins that are no thousands.
     #[case("€ 12 50")]
     #[case("$370 50")]
@@ -864,6 +880,10 @@ mod tests {
     #[case("€ 1e5")]
     #[case("€ 12\u{ff13}")]
     #[case("£1½")]
+    // A dollar no supported currency names.
+    #[case("Z$ 100")]
+    #[case("AR$ 1.250")]
+    #[case("AUS$100")]
     // Beyond the storable minor units.
     #[case("€ 92.233.720.368.547.758,08")]
     fn should_fail_closed_when_the_amount_is_not_one_written_number(#[case] raw: &str) {
@@ -881,36 +901,78 @@ mod tests {
     #[case("CA$1,250", 125_000, Currency::Cad)]
     #[case("AU$ 1,250.50", 125_050, Currency::Aud)]
     #[case("CAD$ 1,250", 125_000, Currency::Cad)]
+    #[case("Mex$ 1,250", 125_000, Currency::Mxn)]
+    #[case("Price$1,250", 125_000, Currency::Usd)]
+    #[case("Our price$1,250.00", 125_000, Currency::Usd)]
     #[case("CHF 1\u{2019}250.–", 125_000, Currency::Chf)]
-    #[case("Fr. 1\u{2019}250.00", 125_000, Currency::Chf)]
     #[case("₹1,23,456.00", 12_345_600, Currency::Inr)]
-    fn should_read_prefixed_dollars_swiss_apostrophes_and_lakh_grouping(
+    // A code or a thin space between the amount and its currency.
+    #[case("1.250EUR inkl. 19% MwSt.", 125_000, Currency::Eur)]
+    #[case("Our price: CHF866,67 (19% VAT)", 86_667, Currency::Chf)]
+    #[case("1\u{2009}250\u{2009}€", 125_000, Currency::Eur)]
+    #[case("€\u{2009}1\u{2009}250", 125_000, Currency::Eur)]
+    // A dash in place of the cents, before or after the currency.
+    #[case("Preis: 1.250,– € inkl. 19% MwSt.", 125_000, Currency::Eur)]
+    #[case("1.250,-- €", 125_000, Currency::Eur)]
+    #[case("1'250.-- CHF", 125_000, Currency::Chf)]
+    #[case("CHF 1.250.-", 125_000, Currency::Chf)]
+    #[case("CHF 1.250.--", 125_000, Currency::Chf)]
+    #[case("€ 1.250.-", 125_000, Currency::Eur)]
+    // Abbreviations and ellipses next to the amount.
+    #[case("€ 1.250 m. Rahmen", 125_000, Currency::Eur)]
+    #[case("€ 1.250 k.A.", 125_000, Currency::Eur)]
+    #[case("€ 1.250 mille fleurs", 125_000, Currency::Eur)]
+    #[case("Price...1,250 €", 125_000, Currency::Eur)]
+    fn should_read_the_currency_the_text_states(
         #[case] raw: &str,
         #[case] expected_minor: u64,
         #[case] expected_currency: Currency,
     ) {
+        // A fallback currency other than the stated one never decides.
+        for fallback in [None, Some(Currency::Jpy)] {
+            assert_eq!(
+                Ok(Some(Price::new(expected_minor.into(), expected_currency))),
+                normalize_price(Some(raw), fallback),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_read_a_swiss_apostrophe_amount_with_the_fallback_currency() {
         assert_eq!(
-            Ok(Some(Price::new(expected_minor.into(), expected_currency))),
-            normalize_price(Some(raw), Some(Currency::Chf)),
+            Ok(Some(Price::new(125_000_u64.into(), Currency::Chf))),
+            normalize_price(Some("Fr. 1\u{2019}250.00"), Some(Currency::Chf))
+        );
+    }
+
+    #[rstest]
+    #[case("EUR reference; 100", Currency::Usd)]
+    #[case("Preis in EUR: 1.250", Currency::Chf)]
+    #[case("1.250 (EUR)", Currency::Chf)]
+    #[case("Preis: 1.250,– € inkl. 19% MwSt. oder 1.400 CHF", Currency::Usd)]
+    fn should_not_let_the_fallback_currency_overrule_a_stated_currency(
+        #[case] raw: &str,
+        #[case] fallback: Currency,
+    ) {
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            normalize_price(Some(raw), Some(fallback)),
             "{raw}"
         );
     }
 
     #[test]
-    fn should_not_read_an_unlisted_prefixed_dollar_as_usd() {
+    fn should_read_an_amount_without_a_paired_currency_in_the_stated_fallback_currency() {
         assert_eq!(
-            Err(PriceError::UnknownCurrency),
-            parse_price("Z$ 100", None)
-        );
-        assert_eq!(
-            Err(PriceError::UnknownCurrency),
-            parse_price("RD$100", None)
+            Ok(Some(Price::new(125_000_u64.into(), Currency::Eur))),
+            normalize_price(Some("Preis in EUR: 1.250"), Some(Currency::Eur))
         );
     }
 
     #[test]
     fn should_reject_display_price_text_longer_than_a_label() {
-        let overlong = "€1 ".repeat(200);
+        let overlong = "€1 ".repeat(100);
         assert_eq!(
             Err(PriceError::ParseFailure),
             normalize_price(Some(&overlong), Some(Currency::Eur))
@@ -922,9 +984,14 @@ mod tests {
         assert_eq!(
             Err(PriceError::ParseFailure),
             normalize_product_listing_price(
-                Some(&format!("Price on request {}", "x".repeat(600))),
+                Some(&format!("Price on request {}", "x".repeat(300))),
                 None
             )
+        );
+        // The bound counts characters, so a label in a script of multi-byte characters fits.
+        assert_eq!(
+            Ok(Some(Price::new(2_160_u64.into(), Currency::Jpy))),
+            normalize_price(Some(&format!("{}2,160 円", "税込価格・".repeat(40))), None)
         );
     }
 
@@ -1069,7 +1136,7 @@ mod tests {
     #[case("Bank 850.-€, Stuhl 350.-e €")]
     #[case("natur 1950.-, weiß 2250.- €")]
     fn should_not_read_other_dashes_as_zero_cents(#[case] raw: &str) {
-        assert_eq!(raw, super::expand_zero_cents_dash(raw), "{raw}");
+        assert_eq!(raw, super::drop_zero_cents_dash(raw), "{raw}");
     }
 
     #[test]
@@ -1099,7 +1166,6 @@ mod tests {
 
     #[rstest]
     #[case("18,00", Currency::Eur, 1800u64)]
-    #[case("EUR reference; 100", Currency::Usd, 10000u64)]
     #[case("1590", Currency::Eur, 159000u64)]
     #[case("1590", Currency::Gbp, 159000u64)]
     #[case("1.234,56", Currency::Eur, 123456u64)]
