@@ -5,8 +5,9 @@ mod display_number;
 use currency_marker::currency_marker_spans;
 use currency_marker::{currency_markers, first_currency_marker_span};
 use display_number::{
-    PriceNumberCandidate, PriceNumberCandidateQuality, extract_price_number_candidates,
-    minor_unit_exponent, parse_price_number, price_number_candidate_quality,
+    MAX_MINOR_UNITS, PriceNumberCandidate, PriceNumberCandidateQuality,
+    extract_price_number_candidates, minor_unit_exponent, parse_price_number, percentage_starts,
+    price_number_candidate_quality, stands_alone,
 };
 use money::{Currency, MonetaryAmount, Price};
 use product_listing_core::product_listing_price::ProductListingPrice;
@@ -66,6 +67,10 @@ pub fn detect_currency(raw: &str) -> Option<Currency> {
 ///   - `"1234.5"`       (single decimal digit)
 ///   - `"1'234.56"`     (apostrophe-thousands)
 ///   - `"12 € 50"`      (French: the euro sign as decimal separator)
+///   - `"$370 30% off"` (a percentage next to the amount is never the amount)
+///
+/// The amount must be one written number (see [`display_number`]): `€ 12 50`, `1,234,56 $`,
+/// `$37030% off` or `€ 1,5 Mio.` fail closed rather than read as a different amount.
 ///
 /// If no amount is adjacent to a currency marker, the optional `fallback_currency` is used
 /// (e.g. inferred from the ListingSource domain TLD). Ambiguous explicit currency-and-amount
@@ -76,8 +81,12 @@ pub fn parse_price(
     raw: &str,
     fallback_currency: Option<Currency>,
 ) -> Result<(MonetaryAmount, Currency), PriceNormalizationError> {
+    check_display_price_length(raw)?;
     if let Some(number) = euro_sign_decimal_number(raw) {
         return Ok((parse_price_number(&number, &Currency::Eur)?, Currency::Eur));
+    }
+    if has_currency_marker_on_a_percentage(raw) {
+        return Err(PriceError::ParseFailure);
     }
     let pairs = price_currency_pairs(raw);
     let (number, currency) = if let Some(first_pair) = pairs.first() {
@@ -89,7 +98,7 @@ pub fn parse_price(
             if has_negative_sign(raw, &number) {
                 return Err(PriceError::NegativeAmount);
             }
-            return Ok((parse_price_number(&number.value, &currency)?, currency));
+            return Ok((parse_price_candidate(raw, &number, &currency)?, currency));
         }
 
         let mut candidates = Vec::new();
@@ -126,9 +135,43 @@ pub fn parse_price(
     if has_negative_sign(raw, &number) {
         return Err(PriceError::NegativeAmount);
     }
-    let amount = parse_price_number(&number.value, &currency)?;
+    let amount = parse_price_candidate(raw, &number, &currency)?;
 
     Ok((amount, currency))
+}
+
+/// The longest display price text read, in bytes. A price is a label; longer text is no
+/// price, and the bound keeps pairing every amount with every currency marker cheap on
+/// untrusted input.
+const MAX_DISPLAY_PRICE_BYTES: usize = 512;
+
+fn check_display_price_length(raw: &str) -> Result<(), PriceError> {
+    if raw.len() > MAX_DISPLAY_PRICE_BYTES {
+        return Err(PriceError::ParseFailure);
+    }
+    Ok(())
+}
+
+/// A currency marker written straight onto a percentage (`$37030% off`) marks an amount that
+/// ran into a discount badge, and which of the digits are the amount cannot be told.
+fn has_currency_marker_on_a_percentage(raw: &str) -> bool {
+    let percentage_starts = percentage_starts(raw);
+    currency_markers(raw)
+        .iter()
+        .any(|marker| percentage_starts.contains(&marker.end))
+}
+
+/// Reads a candidate as an amount when it stands alone in `raw`, so that a number that
+/// continues as a fraction, exponent, scale word or another script's digit is never read in part.
+fn parse_price_candidate(
+    raw: &str,
+    candidate: &PriceNumberCandidate,
+    currency: &Currency,
+) -> Result<MonetaryAmount, PriceError> {
+    if !stands_alone(raw, candidate) {
+        return Err(PriceError::ParseFailure);
+    }
+    parse_price_number(&candidate.value, currency)
 }
 
 /// French price displays write the euro sign in place of the decimal separator (`12 € 50`,
@@ -169,6 +212,7 @@ pub fn normalize_price(
     if trimmed.is_empty() {
         return Ok(None);
     }
+    check_display_price_length(trimmed)?;
 
     let trimmed = &*expand_zero_cents_dash(trimmed);
     let request_evidence = price_on_request_evidence(trimmed);
@@ -193,6 +237,7 @@ pub fn normalize_product_listing_price(
     if trimmed.is_empty() {
         return Ok(None);
     }
+    check_display_price_length(trimmed)?;
 
     let trimmed = &*expand_zero_cents_dash(trimmed);
     let request_evidence = price_on_request_evidence(trimmed);
@@ -306,6 +351,7 @@ pub(crate) fn normalize_machine_decimal_price(
                 .checked_mul(fraction_scale)
                 .and_then(|fraction| amount.checked_add(fraction))
         })
+        .filter(|minor| *minor <= MAX_MINOR_UNITS)
         .ok_or(PriceNormalizationError::ParseFailure)?;
 
     Ok(Price::new(MonetaryAmount::from(minor), currency))
@@ -373,14 +419,14 @@ fn extract_price_number_candidate_from_candidates(
     candidates: Vec<PriceNumberCandidate>,
 ) -> Result<PriceNumberCandidate, PriceError> {
     if let [single] = candidates.as_slice() {
-        parse_price_number(&single.value, currency)?;
+        parse_price_candidate(raw, single, currency)?;
         return Ok(single.clone());
     }
 
     let mut parsed = Vec::new();
     for candidate in candidates {
         let quality = price_number_candidate_quality(&candidate.value);
-        match parse_price_number(&candidate.value, currency) {
+        match parse_price_candidate(raw, &candidate, currency) {
             Ok(amount) => parsed.push(ParsedPriceNumberCandidate {
                 amount,
                 quality,
@@ -551,7 +597,7 @@ fn has_benign_currency_amount_gap(raw: &str, left: (usize, usize), right: (usize
         return false;
     };
 
-    gap.chars().count() <= 3 && gap.chars().all(is_benign_currency_amount_separator)
+    gap.chars().take(4).count() <= 3 && gap.chars().all(is_benign_currency_amount_separator)
 }
 
 fn is_benign_currency_amount_separator(ch: char) -> bool {
@@ -765,6 +811,120 @@ mod tests {
         assert_eq!(
             Err(PriceError::ParseFailure),
             parse_price("USD 100 / EUR 90", None)
+        );
+    }
+
+    #[rstest]
+    // Issue #3097: a sale price followed by its discount badge.
+    #[case("$370 30% off", 37_000, Currency::Usd)]
+    #[case("$1,045 30% off", 104_500, Currency::Usd)]
+    #[case("€100 20% off", 10_000, Currency::Eur)]
+    #[case("€ 1.250,00 (19% VAT)", 125_000, Currency::Eur)]
+    #[case("1.250,00 € 19% MwSt.", 125_000, Currency::Eur)]
+    #[case("2490,-€ 10% off", 249_000, Currency::Eur)]
+    #[case("€ 370,-30%", 37_000, Currency::Eur)]
+    fn should_read_the_amount_next_to_a_percentage(
+        #[case] raw: &str,
+        #[case] expected_minor: u64,
+        #[case] expected_currency: Currency,
+    ) {
+        for fallback in [None, Some(Currency::Chf)] {
+            assert_eq!(
+                Ok(Some(Price::new(expected_minor.into(), expected_currency))),
+                normalize_price(Some(raw), fallback),
+                "{raw}"
+            );
+        }
+    }
+
+    #[rstest]
+    // Issue #3097: `$370` and a `30% off` badge captured without a gap.
+    #[case("$37030% off")]
+    #[case("$530$37030% off")]
+    #[case("€30%")]
+    // Digit groups a space joins that are no thousands.
+    #[case("€ 12 50")]
+    #[case("$370 50")]
+    #[case("$450 2 available")]
+    #[case("€ 1 2 3")]
+    // Inconsistent grouping or a decimal separator that also groups.
+    #[case("$1,234,56")]
+    #[case("1.2.3 €")]
+    #[case("1..2 €")]
+    #[case("12.34.56 €")]
+    #[case("£1,23,456")]
+    #[case("€ 0,001")]
+    #[case("€ 1250.000")]
+    // A number that continues in another form.
+    #[case(".50 €")]
+    #[case("€ 1,5 Mio.")]
+    #[case("$1.5M")]
+    #[case("$1k")]
+    #[case("£ 1/2")]
+    #[case("€ 1e5")]
+    #[case("€ 12\u{ff13}")]
+    #[case("£1½")]
+    // Beyond the storable minor units.
+    #[case("€ 92.233.720.368.547.758,08")]
+    fn should_fail_closed_when_the_amount_is_not_one_written_number(#[case] raw: &str) {
+        for fallback in [None, Some(Currency::Eur)] {
+            assert_eq!(
+                Err(PriceError::ParseFailure),
+                normalize_price(Some(raw), fallback),
+                "{raw}"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case("US$ 1,250", 125_000, Currency::Usd)]
+    #[case("CA$1,250", 125_000, Currency::Cad)]
+    #[case("AU$ 1,250.50", 125_050, Currency::Aud)]
+    #[case("CAD$ 1,250", 125_000, Currency::Cad)]
+    #[case("CHF 1\u{2019}250.–", 125_000, Currency::Chf)]
+    #[case("Fr. 1\u{2019}250.00", 125_000, Currency::Chf)]
+    #[case("₹1,23,456.00", 12_345_600, Currency::Inr)]
+    fn should_read_prefixed_dollars_swiss_apostrophes_and_lakh_grouping(
+        #[case] raw: &str,
+        #[case] expected_minor: u64,
+        #[case] expected_currency: Currency,
+    ) {
+        assert_eq!(
+            Ok(Some(Price::new(expected_minor.into(), expected_currency))),
+            normalize_price(Some(raw), Some(Currency::Chf)),
+            "{raw}"
+        );
+    }
+
+    #[test]
+    fn should_not_read_an_unlisted_prefixed_dollar_as_usd() {
+        assert_eq!(
+            Err(PriceError::UnknownCurrency),
+            parse_price("Z$ 100", None)
+        );
+        assert_eq!(
+            Err(PriceError::UnknownCurrency),
+            parse_price("RD$100", None)
+        );
+    }
+
+    #[test]
+    fn should_reject_display_price_text_longer_than_a_label() {
+        let overlong = "€1 ".repeat(200);
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            normalize_price(Some(&overlong), Some(Currency::Eur))
+        );
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            normalize_product_listing_price(Some(&overlong), Some(Currency::Eur))
+        );
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            normalize_product_listing_price(
+                Some(&format!("Price on request {}", "x".repeat(600))),
+                None
+            )
         );
     }
 
@@ -1006,14 +1166,16 @@ mod tests {
     }
 
     #[test]
-    fn should_check_machine_decimal_minor_unit_overflow() {
-        let maximum = normalize_machine_decimal_price("184467440737095516.15", Currency::Eur)
+    fn should_reject_machine_decimals_beyond_the_storable_minor_units() {
+        let maximum = normalize_machine_decimal_price("92233720368547758.07", Currency::Eur)
             .unwrap_or_else(|error| panic!("maximum minor unit value should parse: {error:?}"));
-        assert_eq!(u64::MAX, *maximum.monetary_amount);
-        assert_eq!(
-            Err(PriceError::ParseFailure),
-            normalize_machine_decimal_price("184467440737095516.16", Currency::Eur)
-        );
+        assert_eq!(i64::MAX as u64, *maximum.monetary_amount);
+        for overflowing in ["92233720368547758.08", "184467440737095516.16"] {
+            assert_eq!(
+                Err(PriceError::ParseFailure),
+                normalize_machine_decimal_price(overflowing, Currency::Eur)
+            );
+        }
     }
 
     #[rstest]
