@@ -44,7 +44,11 @@ pub(super) enum TextLayout {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 enum ElementFlow {
     /// Continues the line, as `span`, `a`, `b` or `sup` do, so `£<span>2,800</span>`
-    /// and `76 <sup>1</sup>&frasl;<sub>8</sub>` stay one value.
+    /// and `76 <sup>1</sup>&frasl;<sub>8</sub>` stay one value. Between two digits the
+    /// boundary is a gap: the digits of separate elements are separate numbers that the
+    /// shop's styling spaces apart, such as a price and its discount badge in
+    /// `$370<span>30% off</span>`, or a price and its superscript cents in `$370<sup>00</sup>`,
+    /// and joined they would read as one larger amount.
     #[default]
     Inline,
     /// Sits next to the other cells of its table row; a space keeps a row's label and
@@ -177,8 +181,8 @@ fn is_screen_reader_only(element: &scraper::node::Element) -> bool {
 ///
 /// Shops render a price for the eye and repeat it for screen readers, as Shopify themes
 /// do with `<span aria-hidden="true">€11.327<sup>95</sup></span><span
-/// class="visually-hidden">€11.327,95</span>`. The visible text, `€11.32795`, lost the
-/// separator that the superscript stood for, so the copy is captured in its place. A copy
+/// class="visually-hidden">€11.327,95</span>`. The visible text, `€11.327 95`, shows only a
+/// gap where the superscript stood for a separator, so the copy is captured in its place. A copy
 /// that adds words, such as WooCommerce's `Current price is: £2,950.`, or that moves or
 /// drops a separator is not the same text and stays dropped, as does one that follows a
 /// struck-through element.
@@ -207,9 +211,10 @@ fn accessible_copy<'a>(element: &scraper::ElementRef<'a>) -> Option<scraper::Ele
         .then_some(copy)
 }
 
-/// Whether `copy` is `visible` with characters other than letters and digits inserted, so
-/// both keep every character of `visible` in its place: `€11.327,95` adds a separator to
-/// `€11.32795`, while `£29.50` moves the one in `£2,950`.
+/// Whether `copy` is `visible` with characters other than letters and digits inserted, or
+/// standing in for a gap, so both keep every letter and digit of `visible` in its place:
+/// `€11.327,95` spells out the gap in `€11.327 95`, while `£29.50` moves the separator in
+/// `£2,950`.
 fn adds_only_separators(visible: &str, copy: &str) -> bool {
     let mut visible = visible.chars().peekable();
     for character in copy.chars() {
@@ -217,6 +222,8 @@ fn adds_only_separators(visible: &str, copy: &str) -> bool {
             visible.next();
         } else if character.is_alphanumeric() {
             return false;
+        } else if visible.peek().is_some_and(|gap| gap.is_whitespace()) {
+            visible.next();
         }
     }
     visible.next().is_none()
@@ -304,6 +311,8 @@ struct LaidOutText {
     /// [`TextLayout::Rendered`] only: whether a whitespace character, rather than only
     /// inline element boundaries, stands in the pending gap.
     pending_whitespace: bool,
+    /// [`TextLayout::Rendered`] only: whether an element boundary stands in the pending gap.
+    pending_element_boundary: bool,
 }
 
 impl LaidOutText {
@@ -313,12 +322,14 @@ impl LaidOutText {
             text: String::new(),
             pending_gap: ElementFlow::Inline,
             pending_whitespace: false,
+            pending_element_boundary: false,
         }
     }
 
     fn mark_boundary(&mut self, flow: ElementFlow) {
         if self.layout == TextLayout::Rendered {
             self.pending_gap = self.pending_gap.max(flow);
+            self.pending_element_boundary = true;
         }
     }
 
@@ -334,7 +345,7 @@ impl LaidOutText {
                     } else if character.is_ascii_whitespace() {
                         self.pending_whitespace = true;
                     } else {
-                        self.write_pending_gap();
+                        self.write_pending_gap(character);
                         self.text.push(character);
                     }
                 }
@@ -342,16 +353,22 @@ impl LaidOutText {
         }
     }
 
-    fn write_pending_gap(&mut self) {
+    /// Writes the gap passed before `next`, the visible character that follows it.
+    fn write_pending_gap(&mut self, next: char) {
         let gap = std::mem::take(&mut self.pending_gap);
         let whitespace = std::mem::take(&mut self.pending_whitespace);
+        let element_boundary = std::mem::take(&mut self.pending_element_boundary);
         if self.text.is_empty() {
             return;
         }
+        let between_digits =
+            next.is_ascii_digit() && self.text.ends_with(|c: char| c.is_ascii_digit());
         match gap {
             ElementFlow::Block => self.start_line(),
             ElementFlow::Cell => self.text.push(' '),
-            ElementFlow::Inline if whitespace => self.text.push(' '),
+            ElementFlow::Inline if whitespace || (element_boundary && between_digits) => {
+                self.text.push(' ')
+            }
             ElementFlow::Inline => {}
         }
     }
@@ -560,8 +577,43 @@ mod tests {
         )]
         #[case::price("<span>£<span>2,800</span></span>", "£2,800")]
         #[case::emphasis("<p><a href=\"/oak\">Oak</a><b>wood</b> chair</p>", "Oakwood chair")]
+        #[case::currency_symbol("<span><span>$</span>370</span>", "$370")]
+        #[case::digit_and_separator("<span>1<span>,</span>250</span>", "1,250")]
         fn should_not_separate_inline_elements(#[case] markup: &str, #[case] expected: &str) {
             assert_eq!(separated_text_of(markup), expected);
+        }
+
+        /// antiquesacredprints.com and antiquearchitectureprints.com show the sale price next
+        /// to its discount badge, which their styling spaces apart (#3097).
+        #[rstest]
+        #[case::discount_badge(
+            "<p class=\"price\"><s class=\"bfw\">$530</s>$370<span class=\"bfb bfb-l\">30% off</span></p>",
+            "$370 30% off"
+        )]
+        #[case::grouped_discount_badge(
+            "<p class=\"price\"><s class=\"bfw\">$1,045</s>$730<span class=\"bfb bfb-l\">30% off</span></p>",
+            "$730 30% off"
+        )]
+        #[case::superscript_cents("<span>$370<sup>00</sup></span>", "$370 00")]
+        #[case::footnote("<p>Dated 1850<sup>1</sup></p>", "Dated 1850 1")]
+        #[case::separate_elements("<span><b>12</b><i>34</i></span>", "12 34")]
+        #[case::dropped_struck_through_text("<span>1<s>2</s>3</span>", "1 3")]
+        fn should_separate_digits_of_separate_inline_elements(
+            #[case] markup: &str,
+            #[case] expected: &str,
+        ) {
+            assert_eq!(separated_text_of(markup), expected);
+        }
+
+        #[test]
+        fn should_join_digits_of_separate_elements_when_text_is_joined_as_written() {
+            assert_eq!(
+                text_of(
+                    "<span>$370<span>30% off</span></span>",
+                    TextLayout::AsWritten
+                ),
+                "$37030% off"
+            );
         }
     }
 
@@ -651,7 +703,7 @@ mod tests {
         )]
         #[case::not_aria_hidden(
             "<span>€11.327<sup>95</sup></span><span class=\"sr-only\">€11.327,95</span>",
-            "€11.32795"
+            "€11.327 95"
         )]
         #[case::moves_a_separator(
             "<span aria-hidden=\"true\">£2,950</span><span class=\"sr-only\">£29.50</span>",
@@ -659,11 +711,15 @@ mod tests {
         )]
         #[case::not_adjacent(
             "<span aria-hidden=\"true\">€11.327<sup>95</sup></span> / <span class=\"sr-only\">€11.327,95</span>",
-            "€11.32795 /"
+            "€11.327 95 /"
         )]
         #[case::hidden_from_screen_readers_too(
             "<span aria-hidden=\"true\">€11.327<sup>95</sup></span><span hidden>€11.327,95</span>",
-            "€11.32795"
+            "€11.327 95"
+        )]
+        #[case::moves_a_digit_across_the_gap(
+            "<span aria-hidden=\"true\">€11.327<sup>95</sup></span><span class=\"sr-only\">€113.279,5</span>",
+            "€11.327 95"
         )]
         #[case::struck_through(
             "<del aria-hidden=\"true\">£3,450</del><span class=\"sr-only\">£3,450</span><ins>£2,950</ins>",
