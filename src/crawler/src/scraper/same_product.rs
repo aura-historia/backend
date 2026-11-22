@@ -26,6 +26,43 @@ const LANGUAGE_PARAMETERS: &[&str] = &[
 /// page number or language tag.
 const PAGER_PARAMETERS: &[&str] = &["page", "pg"];
 
+/// Directory names that name a language in words, in English or in the language itself without
+/// diacritics, as a shop names the directory of a language version (`/english/…`). A language
+/// code (`/en/…`) before the path is a spelling ([`product_spelling`]); a two- or three-letter
+/// directory elsewhere names a category as often as a language, so codes are no language
+/// directory.
+const LANGUAGE_DIRECTORIES: &[&str] = &[
+    "english",
+    "japanese",
+    "nihongo",
+    "german",
+    "deutsch",
+    "french",
+    "francais",
+    "spanish",
+    "espanol",
+    "italian",
+    "italiano",
+    "dutch",
+    "nederlands",
+    "portuguese",
+    "portugues",
+    "chinese",
+    "korean",
+    "russian",
+    "swedish",
+    "svenska",
+    "danish",
+    "dansk",
+    "norwegian",
+    "norsk",
+    "finnish",
+    "suomi",
+    "polish",
+    "polski",
+    "czech",
+];
+
 /// A product URL as the same-product rule compares it.
 #[derive(Debug, Clone, Copy)]
 pub struct ProductUrlIdentity<'a> {
@@ -45,6 +82,12 @@ pub enum SameProductEvidence {
     /// The page identity is a whole path segment or query value of the URL's captured identity,
     /// which a rule read from the page URL (`/ukiyoe_detail.php?print_id=40475` and `40475`).
     IdentityToken,
+    /// The URLs name the same page in two language versions: spelled alike, they differ in one
+    /// directory only, which names a language in words on at least one side, and the page
+    /// identity is a whole query value or path segment they share
+    /// (`/ukiyoe/ukiyoe_detail.php?print_id=24689` and
+    /// `/english/ukiyoe_detail.php?print_id=24689` for `24689`).
+    LanguageDirectory,
     /// The captured titles are equal and name something ([`title_names_something`]), and
     /// neither URL is a list page ([`is_list_page`]). A missing title shows nothing: a captured
     /// removal clears it.
@@ -57,6 +100,7 @@ impl SameProductEvidence {
         match self {
             Self::Spelling => "spelling",
             Self::IdentityToken => "identity_token",
+            Self::LanguageDirectory => "language_directory",
             Self::Title => "title",
         }
     }
@@ -64,19 +108,24 @@ impl SameProductEvidence {
 
 /// The signal that shows `page`, whose page derives `page_identity`, and `carrier`, which carries
 /// that identity, show one product; `None` when no signal does, and the shared identity alone
-/// proves nothing. Spelling is checked first, then the identity token, then the titles.
+/// proves nothing. Spelling is checked first, then the identity token, the language directory
+/// and the titles.
 pub fn same_product_evidence(
     page: ProductUrlIdentity<'_>,
     page_identity: &str,
     carrier: ProductUrlIdentity<'_>,
 ) -> Option<SameProductEvidence> {
-    if product_spelling(page.url) == product_spelling(carrier.url) {
+    let (page_spelling, carrier_spelling) =
+        (product_spelling(page.url), product_spelling(carrier.url));
+    if page_spelling == carrier_spelling {
         Some(SameProductEvidence::Spelling)
     } else if page
         .captured_identity
         .is_some_and(|captured| is_identity_token_of(page_identity, captured))
     {
         Some(SameProductEvidence::IdentityToken)
+    } else if are_language_directory_versions(&page_spelling, &carrier_spelling, page_identity) {
+        Some(SameProductEvidence::LanguageDirectory)
     } else if titles_agree(page.title, carrier.title)
         && !is_list_page(page.url)
         && !is_list_page(carrier.url)
@@ -130,6 +179,42 @@ fn product_spelling(url: &Url) -> Url {
     });
     spelling.set_query(kept.as_deref().filter(|query| !query.is_empty()));
     spelling
+}
+
+/// Whether two [product spellings](product_spelling) name one page in two language versions: on
+/// one origin and with one query, their paths differ in one directory only, a language directory
+/// ([`LANGUAGE_DIRECTORIES`]) on at least one side, and `identity` is a whole query value or path
+/// segment of them ([`is_identity_token_of`]), so the URLs themselves name the product the shared
+/// identity stands for.
+fn are_language_directory_versions(spelling: &Url, other: &Url, identity: &str) -> bool {
+    let segments: Vec<&str> = spelling.path().split('/').collect();
+    let other_segments: Vec<&str> = other.path().split('/').collect();
+    let differing: Vec<usize> = (0..segments.len())
+        .filter(|&index| other_segments.get(index) != Some(&segments[index]))
+        .collect();
+    let differs_in_one_language_directory = match differing[..] {
+        [index] => {
+            segments.len() == other_segments.len()
+                && index + 1 < segments.len()
+                && (is_language_directory(segments[index])
+                    || is_language_directory(other_segments[index]))
+        }
+        _ => false,
+    };
+    let shared_link = match spelling.query() {
+        Some(query) => format!("{}?{query}", other.path()),
+        None => other.path().to_owned(),
+    };
+    spelling.origin() == other.origin()
+        && spelling.query() == other.query()
+        && differs_in_one_language_directory
+        && is_identity_token_of(identity, &shared_link)
+}
+
+fn is_language_directory(segment: &str) -> bool {
+    LANGUAGE_DIRECTORIES
+        .iter()
+        .any(|language| segment.eq_ignore_ascii_case(language))
 }
 
 fn collapse_slashes(path: &str) -> String {
@@ -357,6 +442,116 @@ mod tests {
                 page_identity,
                 "https://hara.example/b",
                 Some("Hokusai"),
+            ),
+            None
+        );
+    }
+
+    /// Hara Shobo serves each print in Japanese under `/ukiyoe/` and in English under `/english/`,
+    /// with titles in each language, and captured the Japanese page under a hash.
+    #[rstest::rstest]
+    #[case::replaced_directory(
+        "https://hara.example/ukiyoe//ukiyoe_detail.php?print_id=24689",
+        "https://hara.example/english/ukiyoe_detail.php?print_id=24689",
+        "24689"
+    )]
+    #[case::carrier_in_the_default_language(
+        "https://hara.example/english/ukiyoe_detail.php?print_id=24689",
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689",
+        "24689"
+    )]
+    #[case::two_language_directories(
+        "https://shop.example/Japanese/prints/24689",
+        "https://shop.example/english/prints/24689/",
+        "24689"
+    )]
+    #[case::tracking_parameter(
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689&utm_source=mail",
+        "https://hara.example/english/ukiyoe_detail.php?print_id=24689",
+        "24689"
+    )]
+    fn should_take_two_language_directories_of_one_page_for_one_product(
+        #[case] url: &str,
+        #[case] carrier: &str,
+        #[case] page_identity: &str,
+    ) {
+        assert_eq!(
+            evidence(
+                url,
+                Some("6f1c2a"),
+                Some("豊国三代　時世桜狩図"),
+                page_identity,
+                carrier,
+                Some("TOYOKUNI III Beauties by a teahouse")
+            ),
+            Some(SameProductEvidence::LanguageDirectory)
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::identity_not_in_the_urls(
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689",
+        "https://hara.example/english/ukiyoe_detail.php?print_id=24689",
+        "J263"
+    )]
+    #[case::identity_part_of_a_value(
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=124689",
+        "https://hara.example/english/ukiyoe_detail.php?print_id=124689",
+        "24689"
+    )]
+    #[case::other_query(
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689&set=2",
+        "https://hara.example/english/ukiyoe_detail.php?print_id=24689",
+        "24689"
+    )]
+    #[case::no_language_name(
+        "https://shop.example/vases/item.php?id=24689",
+        "https://shop.example/bowls/item.php?id=24689",
+        "24689"
+    )]
+    #[case::language_code_inside_the_path(
+        "https://shop.example/prints/art/item.php?id=24689",
+        "https://shop.example/prints/en/item.php?id=24689",
+        "24689"
+    )]
+    #[case::other_page_name(
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689",
+        "https://hara.example/english/book_detail.php?print_id=24689",
+        "24689"
+    )]
+    #[case::two_differing_directories(
+        "https://hara.example/ukiyoe/prints/detail.php?print_id=24689",
+        "https://hara.example/english/books/detail.php?print_id=24689",
+        "24689"
+    )]
+    #[case::extra_directory(
+        "https://hara.example/english/ukiyoe/detail.php?print_id=24689",
+        "https://hara.example/ukiyoe/detail.php?print_id=24689",
+        "24689"
+    )]
+    #[case::language_named_page(
+        "https://shop.example/prints/24689/japanese",
+        "https://shop.example/prints/24689/english",
+        "24689"
+    )]
+    #[case::other_host(
+        "https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689",
+        "https://other.example/english/ukiyoe_detail.php?print_id=24689",
+        "24689"
+    )]
+    fn should_not_take_other_pages_for_language_directories(
+        #[case] url: &str,
+        #[case] carrier: &str,
+        #[case] page_identity: &str,
+    ) {
+        assert_eq!(
+            evidence(
+                url,
+                Some("6f1c2a"),
+                Some("豊国三代"),
+                page_identity,
+                carrier,
+                Some("Toyokuni III")
             ),
             None
         );
@@ -656,6 +851,10 @@ mod tests {
         assert_eq!(
             SameProductEvidence::IdentityToken.as_str(),
             "identity_token"
+        );
+        assert_eq!(
+            SameProductEvidence::LanguageDirectory.as_str(),
+            "language_directory"
         );
         assert_eq!(SameProductEvidence::Title.as_str(), "title");
     }

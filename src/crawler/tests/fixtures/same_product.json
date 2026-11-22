@@ -79,6 +79,14 @@
         {"path": "ukiyoe/ukiyoe_detail.php?print_id=40475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=40475", "page_identity": "40475", "title": "Hiroshige, Tokaido Hara", "expected": "retire", "evidence": "identity_token"},
         {"path": "ukiyoe/ukiyoe_detail.php?print_id=140475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=140475", "page_identity": "40475", "title": "Kuniyoshi, warrior print", "expected": "keep", "evidence": null}
       ]
+    },
+    {
+      "name": "a print in Japanese and English directories, titled in each language, the Japanese page captured under a hash (Hara Shobo)",
+      "rows": [
+        {"path": "english/ukiyoe_detail.php?print_id=24689", "captured": "24689", "page_identity": "24689", "title": "TOYOKUNI III Beauties by a teahouse in a cherry garden, triptych", "expected": "survivor", "evidence": null},
+        {"path": "ukiyoe//ukiyoe_detail.php?print_id=24689", "captured": "9b0e5d3c1f7a", "page_identity": "24689", "title": "豊国三代　時世桜狩図", "expected": "retire", "evidence": "language_directory"},
+        {"path": "ukiyoe/ukiyoe_detail.php?print_id=124689", "captured": "4c2d8e6a0b91", "page_identity": "24689", "title": "国芳　武者絵", "expected": "keep", "evidence": null}
+      ]
     }
   ]
 }

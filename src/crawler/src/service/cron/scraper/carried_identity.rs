@@ -739,6 +739,14 @@ mod tests {
             Some("Hiroshige: Tokaido, Hara station"),
             SameProductEvidence::IdentityToken
         )]
+        #[case::language_directory(
+            "https://hara.example/ukiyoe//ukiyoe_detail.php?print_id=40475",
+            "9b0e5d3c1f7a",
+            Some("広重　東海道五十三次　原"),
+            "https://hara.example/english/ukiyoe_detail.php?print_id=40475",
+            Some("Hiroshige: Tokaido, Hara station"),
+            SameProductEvidence::LanguageDirectory
+        )]
         #[case::title(
             "https://hara.example/ukiyoe/hiroshige-hara",
             "H-1",
