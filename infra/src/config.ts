@@ -114,6 +114,8 @@ export interface MonitoringConfig {
    * its timer runs (host/prod/systemd).
    */
   readonly maximumJobAgeSeconds: Readonly<Record<string, number>>;
+  /** The oldest product embedding work that is neither committed nor parked may be this old. */
+  readonly maximumPendingEmbeddingAgeSeconds: number;
   readonly crawler: CrawlerMonitoringConfig;
   /**
    * The `api` stack's distributions. CloudFormation cannot reference them from the edge region,
@@ -198,13 +200,17 @@ export function stageConfig(stage: StageName): StageConfig {
       minimumFreeDiskPercent: 20,
       // A daily backup plus two hours' slack.
       maximumBackupAgeSeconds: 26 * 60 * 60,
-      // One missed run of the twice-daily FX refresh or the daily matching (which stops itself
-      // after two hours) alarms; the hourly cleanup alarms after two.
+      // One missed run of the twice-daily FX refresh, the daily embedding sweep or the daily
+      // matching (which stops itself after two hours) alarms; the hourly cleanup alarms after two.
       maximumJobAgeSeconds: {
         "backend-cleanup": 150 * 60,
+        "embedding-sweep": 27 * 60 * 60,
         "fx-refresh": 13 * 60 * 60,
         "periodic-match": 27 * 60 * 60,
       },
+      // A batch job's 24-hour target turnaround, the 30-minute round interval and half a day's
+      // slack; the daily sweep embeds pending work, but not work inside a running batch.
+      maximumPendingEmbeddingAgeSeconds: 36 * 60 * 60,
       crawler: {
         logGroupName: `/aura-historia/${stage}/host/crawler`,
         logRetentionDays: 7,

@@ -1,22 +1,16 @@
-//! `product-embedding`: embeds one product listing through Vertex AI behind a source-version guard.
+//! `product-embedding`: records one product listing's embedding revision as pending embedding
+//! work. The [batch rounds](crate::embedding_batches) embed it.
 
 use crate::composition::CompositionError;
-use application::error::find_source;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use async_trait::async_trait;
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
-use embedding::{
-    EmbeddingError, EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
-};
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_queue::Disposition;
-use platform_process::{
-    Dependency, FailureDiagnostic, UNCLASSIFIED_FAILURE, config::required,
-    google_application_default_credentials,
-};
+use platform_process::FailureDiagnostic;
 use platform_worker::{Job, JobHandler, error_class};
 use product_listing_postgres::{
-    SqlxProductListingEmbeddingSourceReader, SqlxProductListingEmbeddingWriterFactory,
+    SqlxProductListingEmbeddingQueueFactory, SqlxProductListingEmbeddingSourceReader,
 };
 use product_listing_service::use_cases::{
     EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventHandler,
@@ -29,33 +23,14 @@ use std::{
 };
 use tracing::{info, warn};
 
-const SCOPE: &str = "product-embedding";
-const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
-const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
-
-/// Builds the PostgreSQL-backed, source-version-guarded embedding use case.
-///
-/// The source read completes before the provider call and the write transaction begins only after
-/// it, so no pool connection is occupied while Vertex is awaited.
+/// Builds the PostgreSQL-backed use case that schedules a revision's embedding.
 pub fn compose_product_embedding_use_case(
     pool: PgPool,
-    generator: VertexAiEmbeddingGenerator,
 ) -> Arc<dyn EmbedProductListingEventUseCase> {
-    compose_product_embedding_use_case_with_generator(pool, generator)
-}
-
-pub fn compose_product_embedding_use_case_with_generator<G>(
-    pool: PgPool,
-    generator: G,
-) -> Arc<dyn EmbedProductListingEventUseCase>
-where
-    G: EmbeddingGenerator + 'static,
-{
     Arc::new(EmbedProductListingEventHandler::new(
         SqlxProductListingEmbeddingSourceReader::new(pool.clone()),
-        generator,
         SqlxUnitOfWork::new(pool),
-        SqlxProductListingEmbeddingWriterFactory::new(),
+        SqlxProductListingEmbeddingQueueFactory::new(),
     ))
 }
 
@@ -119,41 +94,21 @@ pub async fn execute_job(
     }
 }
 
-/// Provider, source, write, and commit failures leave the job retryable. In particular, a
-/// provider result does not prove that the guarded PostgreSQL commit completed. Only the failed
-/// stage and safe cause facts are kept; the error chain itself is never logged.
+/// Source, schedule and commit failures retain the job. Only the failed stage and safe cause
+/// facts are kept; the error chain itself is never logged.
 fn embedding_error_disposition(
     error: &EmbedProductListingEventError,
 ) -> ProductEmbeddingJobDisposition {
     use EmbedProductListingEventError as E;
     use ProductEmbeddingJobDisposition as D;
-    match error {
-        E::ServiceOrSystemPrincipalRequired => D::Poison("system_principal_required"),
-        E::InvalidInput { .. } => D::Poison("embedding_input_invalid"),
-        E::SourceReadFailed { .. } => {
-            D::DependencyUnavailable(FailureDiagnostic::postgres("source_read", error))
-        }
-        E::GenerationFailed { .. } => D::DependencyUnavailable(generation_failure(error)),
-        E::BeginTransactionFailed { .. } => {
-            D::DependencyUnavailable(FailureDiagnostic::postgres("write_begin", error))
-        }
-        E::EmbeddingWriteFailed { .. } => {
-            D::DependencyUnavailable(FailureDiagnostic::postgres("embedding_write", error))
-        }
-        E::CommitTransactionFailed { .. } => {
-            D::DependencyUnavailable(FailureDiagnostic::postgres("write_commit", error))
-        }
-    }
-}
-
-fn generation_failure(error: &EmbedProductListingEventError) -> FailureDiagnostic {
-    let failure = find_source::<EmbeddingError>(error);
-    FailureDiagnostic::new(
-        "generation",
-        Dependency::VertexAi,
-        failure.map_or(UNCLASSIFIED_FAILURE, EmbeddingError::diagnostic_category),
-        failure.and_then(EmbeddingError::http_status),
-    )
+    let stage = match error {
+        E::ServiceOrSystemPrincipalRequired => return D::Poison("system_principal_required"),
+        E::SourceReadFailed { .. } => "source_read",
+        E::BeginTransactionFailed { .. } => "write_begin",
+        E::ScheduleFailed { .. } => "schedule_write",
+        E::CommitTransactionFailed { .. } => "write_commit",
+    };
+    D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
 }
 
 pub fn embedding_disposition(
@@ -161,7 +116,7 @@ pub fn embedding_disposition(
 ) -> ProductEmbeddingJobDisposition {
     use EmbedProductListingEventOutcome as O;
     match outcome {
-        O::Applied => ProductEmbeddingJobDisposition::Complete("applied"),
+        O::Scheduled => ProductEmbeddingJobDisposition::Complete("scheduled"),
         O::Duplicate => ProductEmbeddingJobDisposition::Complete("duplicate"),
         O::Stale => ProductEmbeddingJobDisposition::Complete("stale"),
         O::IgnoredEvent => ProductEmbeddingJobDisposition::Complete("ignored_event"),
@@ -236,18 +191,8 @@ impl JobHandler for ProductEmbeddingJobs {
 }
 
 pub async fn compose(pool: &PgPool) -> Result<Arc<dyn JobHandler>, CompositionError> {
-    let project_id =
-        required(VERTEX_AI_PROJECT_ID_ENV).map_err(|e| CompositionError::new(SCOPE, e))?;
-    let location = required(VERTEX_AI_LOCATION_ENV).map_err(|e| CompositionError::new(SCOPE, e))?;
-    let credentials =
-        google_application_default_credentials().map_err(|e| CompositionError::new(SCOPE, e))?;
-    let generator = VertexAiEmbeddingGenerator::new(
-        VertexAiEmbeddingConfig::new(project_id, location),
-        credentials,
-    )
-    .map_err(|e| CompositionError::new(SCOPE, e))?;
     Ok(Arc::new(ProductEmbeddingJobs::new(
-        compose_product_embedding_use_case(pool.clone(), generator),
+        compose_product_embedding_use_case(pool.clone()),
     )))
 }
 
@@ -256,7 +201,6 @@ mod tests {
     use super::*;
     use crate::scopes::test_support::claimed_job;
     use product_listing_service::use_cases::EmbedProductListingEventResult;
-    use serde_json::{Map, Value, json};
     use std::{
         collections::VecDeque,
         sync::{
@@ -271,10 +215,10 @@ mod tests {
     const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
 
     #[tokio::test]
-    async fn acknowledges_committed_outcomes_and_retries_all_unfinished_records() {
+    async fn acknowledges_committed_and_authoritative_noop_outcomes_but_retries_unfinished_work() {
         use EmbedProductListingEventOutcome as O;
         let use_case = Arc::new(FakeUseCase::new([
-            FakeResult::Outcome(O::Applied),
+            FakeResult::Outcome(O::Scheduled),
             FakeResult::Outcome(O::Duplicate),
             FakeResult::Outcome(O::Stale),
             FakeResult::Outcome(O::IgnoredEvent),
@@ -282,12 +226,11 @@ mod tests {
             FakeResult::Outcome(O::ProductListingNotFound),
             FakeResult::Unavailable,
             FakeResult::PrincipalRejected,
-            FakeResult::InputInvalid,
         ]));
         let handler = ProductEmbeddingJobs::new(use_case.clone());
 
         let mut dispositions = Vec::new();
-        for _ in 0..9 {
+        for _ in 0..8 {
             dispositions.push(handler.handle(&claimed_job(VALID_BODY)).await);
         }
         dispositions.push(handler.handle(&claimed_job("not-json")).await);
@@ -302,12 +245,11 @@ mod tests {
                 Disposition::Retry(error_class("missing_source")),
                 Disposition::Retry(error_class("embedding_unavailable")),
                 Disposition::Retry(error_class("system_principal_required")),
-                Disposition::Retry(error_class("embedding_input_invalid")),
                 Disposition::Retry(error_class("invalid_wire_job")),
             ],
             dispositions
         );
-        assert_eq!(use_case.calls(), 9);
+        assert_eq!(use_case.calls(), 8);
     }
 
     #[test]
@@ -326,8 +268,8 @@ mod tests {
     async fn should_mark_guard_rejections_on_completed_jobs() {
         use EmbedProductListingEventOutcome as O;
         let use_case = Arc::new(FakeUseCase::new([
-            FakeResult::Outcome(O::Applied),
-            FakeResult::Outcome(O::Duplicate),
+            FakeResult::Outcome(O::Scheduled),
+            FakeResult::Outcome(O::Stale),
         ]));
         let handler = ProductEmbeddingJobs::new(use_case);
         let (logs, guard) = CapturedLogs::start();
@@ -338,73 +280,34 @@ mod tests {
 
         let completed = logs.events_where("message", COMPLETED);
         assert_eq!(2, completed.len());
-        assert_eq!(Some("applied"), completed[0]["outcome"].as_str());
+        assert_eq!(Some("scheduled"), completed[0]["outcome"].as_str());
         assert_eq!(Some(false), completed[0]["guard_rejection"].as_bool());
-        assert_eq!(Some("duplicate"), completed[1]["outcome"].as_str());
+        assert_eq!(Some("stale"), completed[1]["outcome"].as_str());
         assert_eq!(Some(true), completed[1]["guard_rejection"].as_bool());
     }
 
     #[tokio::test]
-    async fn should_distinguish_provider_and_postgres_failures_without_logging_their_causes() {
-        let use_case = Arc::new(FakeUseCase::new([
-            FakeResult::ProviderAuthenticationFailed,
-            FakeResult::ProviderThrottled,
-            FakeResult::SourceReadTimedOut,
-            FakeResult::CommitUnconfirmed,
-        ]));
-        let handler = ProductEmbeddingJobs::new(use_case);
-        let jobs = [
-            claimed_job(VALID_BODY),
-            claimed_job(VALID_BODY),
-            claimed_job(VALID_BODY),
-            claimed_job(VALID_BODY),
-        ];
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let use_case = Arc::new(FakeUseCase::new([FakeResult::ScheduleWriteFailed]));
+        let job = claimed_job(VALID_BODY);
         let (logs, guard) = CapturedLogs::start();
 
-        let mut dispositions = Vec::new();
-        for job in &jobs {
-            dispositions.push(handler.handle(job).await);
-        }
+        let disposition = ProductEmbeddingJobs::new(use_case).handle(&job).await;
         drop(guard);
 
-        assert!(
-            dispositions
-                .iter()
-                .all(|d| *d == Disposition::Retry(error_class("embedding_unavailable")))
-        );
-        let job_id = |index: usize| jobs[index].id().to_string();
         assert_eq!(
-            retained_diagnostics(&logs),
-            [
-                json!({"job_id": job_id(0), "attempt": 1, "outcome": "embedding_unavailable",
-                    "stage": "generation", "dependency": "vertex_ai",
-                    "error_category": "authentication"}),
-                json!({"job_id": job_id(1), "attempt": 1, "outcome": "embedding_unavailable",
-                    "stage": "generation", "dependency": "vertex_ai",
-                    "error_category": "http_status", "http_status": 429}),
-                json!({"job_id": job_id(2), "attempt": 1, "outcome": "embedding_unavailable",
-                    "stage": "source_read", "dependency": "postgres",
-                    "error_category": "pool_timed_out"}),
-                json!({"job_id": job_id(3), "attempt": 1, "outcome": "embedding_unavailable",
-                    "stage": "write_commit", "dependency": "postgres", "error_category": "io"}),
-            ]
+            Disposition::Retry(error_class("embedding_unavailable")),
+            disposition
         );
+        let retained = logs.events_where("message", RETAINED);
+        assert_eq!(1, retained.len());
+        assert_eq!(
+            Some(job.id().to_string().as_str()),
+            retained[0]["job_id"].as_str()
+        );
+        assert_eq!(Some("schedule_write"), retained[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), retained[0]["dependency"].as_str());
         assert!(!logs.text().contains("SENTINEL"));
-    }
-
-    /// The diagnostic fields of each retained-job event; timing varies between runs.
-    fn retained_diagnostics(logs: &CapturedLogs) -> Vec<Value> {
-        logs.events_where("message", RETAINED)
-            .into_iter()
-            .map(|fields| {
-                Value::Object(
-                    fields
-                        .into_iter()
-                        .filter(|(name, _)| name != "message" && name != "processing_duration_ms")
-                        .collect::<Map<_, _>>(),
-                )
-            })
-            .collect()
     }
 
     const VALID_BODY: &str = r#"{"schema_version":1,"scope":"product-embedding","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:evt_01h455vb4pex5vy7enb1p677vn","ordering_key":"product:pl_01h455vb4pex5vy7enb1p677vn","payload":{"event_id":"evt_01h455vb4pex5vy7enb1p677vn","product_listing_id":"pl_01h455vb4pex5vy7enb1p677vn"}}"#;
@@ -413,11 +316,7 @@ mod tests {
         Outcome(EmbedProductListingEventOutcome),
         Unavailable,
         PrincipalRejected,
-        InputInvalid,
-        ProviderAuthenticationFailed,
-        ProviderThrottled,
-        SourceReadTimedOut,
-        CommitUnconfirmed,
+        ScheduleWriteFailed,
     }
 
     struct FakeUseCase {
@@ -452,36 +351,16 @@ mod tests {
                     Ok(EmbedProductListingEventResult { outcome })
                 }
                 Some(FakeResult::Unavailable) => {
-                    Err(EmbedProductListingEventError::GenerationFailed {
-                        source: Box::new(std::io::Error::other("unavailable")),
+                    Err(EmbedProductListingEventError::CommitTransactionFailed {
+                        source: Box::new(std::io::Error::other("commit result unknown")),
                     })
                 }
                 Some(FakeResult::PrincipalRejected) => {
                     Err(EmbedProductListingEventError::ServiceOrSystemPrincipalRequired)
                 }
-                Some(FakeResult::InputInvalid) => {
-                    Err(EmbedProductListingEventError::InvalidInput {
+                Some(FakeResult::ScheduleWriteFailed) => {
+                    Err(EmbedProductListingEventError::ScheduleFailed {
                         source: Box::new(std::io::Error::other(SENTINEL)),
-                    })
-                }
-                Some(FakeResult::ProviderAuthenticationFailed) => {
-                    Err(EmbeddingError::AuthenticationFailed {
-                        source: Box::new(std::io::Error::other(SENTINEL)),
-                    }
-                    .into())
-                }
-                Some(FakeResult::ProviderThrottled) => Err(EmbeddingError::ApiFailure {
-                    status: 429_u16.try_into().expect("valid HTTP status"),
-                }
-                .into()),
-                Some(FakeResult::SourceReadTimedOut) => {
-                    Err(EmbedProductListingEventError::SourceReadFailed {
-                        source: Box::new(sqlx::Error::PoolTimedOut),
-                    })
-                }
-                Some(FakeResult::CommitUnconfirmed) => {
-                    Err(EmbedProductListingEventError::CommitTransactionFailed {
-                        source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
                     })
                 }
                 None => panic!("unexpected use case invocation"),

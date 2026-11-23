@@ -5,6 +5,7 @@
 mod composition;
 pub mod config;
 pub mod dispatcher;
+pub mod embedding_batches;
 pub mod health_metrics;
 pub mod scope;
 pub mod scopes;
@@ -39,7 +40,7 @@ pub async fn compose_handlers(
     Ok(handlers)
 }
 
-/// A long-running task beside the consumers, such as the title translation rounds. It returns
+/// A long-running task beside the consumers, such as the title translation or embedding rounds. It returns
 /// once its shutdown token is cancelled.
 pub type BackgroundTask =
     Box<dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
@@ -58,6 +59,11 @@ pub async fn compose_background_tasks(
             translation_batches::ROUND_INTERVAL,
         ));
     }
+    let embedding = ConsumedScope::Worker(WorkerScope::ProductListingEmbedding);
+    if config.scopes.iter().any(|scope| scope.scope == embedding) {
+        let rounds = embedding_batches::compose(pool).await?;
+        tasks.push(embedding_rounds(rounds, embedding_batches::ROUND_INTERVAL));
+    }
     Ok(tasks)
 }
 
@@ -69,6 +75,14 @@ pub fn translation_rounds(
     interval: std::time::Duration,
 ) -> BackgroundTask {
     Box::new(move |shutdown| Box::pin(translation_batches::run(use_case, interval, shutdown)))
+}
+
+/// The product embedding rounds as a background task.
+pub fn embedding_rounds(
+    use_case: Arc<dyn product_listing_service::use_cases::EmbedProductListingBatchesUseCase>,
+    interval: std::time::Duration,
+) -> BackgroundTask {
+    Box::new(move |shutdown| Box::pin(embedding_batches::run(use_case, interval, shutdown)))
 }
 
 /// A consumer, the dispatcher or the wake-up listener stopped before shutdown was requested.

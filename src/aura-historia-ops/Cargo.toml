@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 application = { workspace = true }
 delivery-outbox = { workspace = true }
+embedding = { workspace = true }
 fxrate-fxratesapi = { workspace = true }
 fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }

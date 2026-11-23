@@ -32,10 +32,10 @@ readonly SSH_DROP_IN=/etc/ssh/sshd_config.d/10-aura-keys-only.conf
 readonly UFW_BLOCK_BEGIN='# BEGIN aura-historia docker ingress'
 readonly UFW_BLOCK_END='# END aura-historia docker ingress'
 readonly PROD_VOLUMES=(aura-historia-prod-postgres-data aura-historia-prod-caddy-data)
-readonly PROD_TIMERS=(aura-prod-backend-cleanup.timer aura-prod-fx-refresh.timer aura-prod-periodic-match.timer
-  aura-prod-backup-full.timer aura-prod-backup-diff.timer aura-prod-secrets-copy.timer)
+readonly PROD_TIMERS=(aura-prod-backend-cleanup.timer aura-prod-fx-refresh.timer aura-prod-embedding-sweep.timer
+  aura-prod-periodic-match.timer aura-prod-backup-full.timer aura-prod-backup-diff.timer aura-prod-secrets-copy.timer)
 # The ops jobs those timers run; each touches its marker after a success.
-readonly PROD_OPS_JOBS=(backend-cleanup fx-refresh periodic-match)
+readonly PROD_OPS_JOBS=(backend-cleanup fx-refresh embedding-sweep periodic-match)
 readonly PROD_JOB_MARKERS=/var/lib/aura-historia/prod/jobs
 readonly DEPLOY_USER=deploy
 readonly DEPLOY_HOME=/var/lib/aura-historia/deploy

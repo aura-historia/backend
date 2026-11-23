@@ -15,6 +15,7 @@ files as in [host process startup](../platform-process/README.md).
 | `redrive <scope> --all \| <job-id>...` | Moves custody jobs back with their identity and order; `<scope>` `delivery-outbox` takes outbox IDs |
 | `reproject-all (--live \| --generation <g>) [--page-size <n>] [--start-after <listing-id>]` | Enqueues one projector job per listing; the target is never implicit. Pass the report's `last` as `--start-after` to resume |
 | `backend-cleanup` | Expired-data cleanup and recovery maintenance (`EXPIRY_CLEANUP_BATCH_SIZE`); every step runs and the command fails if any did |
+| `embedding-sweep` | Embeds pending [product embeddings](../../docs/product-listing.md#embeddings) synchronously before the periodic match (`VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION`); fails when Vertex AI answered none of them |
 | `fx-refresh` | Captures the FX rate snapshot (`FXRATES_API_TOKEN`); a rerun in the same hour is a duplicate |
 | `periodic-match` | Periodic saved-search matching; stops cleanly on SIGTERM |
 

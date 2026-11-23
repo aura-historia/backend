@@ -16,6 +16,10 @@ pub use commands::create_product_listing::{
     CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
     CreateProductListingResult, CreateProductListingUseCase,
 };
+pub use commands::embed_product_listing_batches::{
+    EmbedProductListingBatchesHandler, EmbedProductListingBatchesUseCase, MAX_EMBEDDINGS_PER_BATCH,
+    ProductEmbeddingRoundReport,
+};
 pub use commands::embed_product_listing_event::{
     EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventHandler,
     EmbedProductListingEventOutcome, EmbedProductListingEventResult,
@@ -37,6 +41,9 @@ pub use commands::process_product_listing_ingestion::{
     ProductListingIngestionCompletion, ProductListingIngestionEffect,
     ProductListingIngestionEnvelope, ProductListingIngestionError,
     ProductListingIngestionFailureClass,
+};
+pub use commands::product_embedding_work::{
+    MAX_EMBEDDING_ATTEMPTS, ProductEmbeddingSettlements, ProductEmbeddingWorkError,
 };
 pub use commands::product_listing_ingestion::{
     ProductListingIngestionActor, ProductListingIngestionCommandId,
@@ -62,6 +69,10 @@ pub use commands::submit_product_listing_ingestion::{
     SubmitInternalProductListingIngestionHandler, SubmitInternalProductListingIngestionUseCase,
     SubmitPartnerProductListingIngestionHandler, SubmitPartnerProductListingIngestionUseCase,
     product_listing_ingestion_identity,
+};
+pub use commands::sweep_product_listing_embeddings::{
+    MAX_SWEPT_EMBEDDINGS, ProductEmbeddingSweepReport, SweepProductListingEmbeddingsHandler,
+    SweepProductListingEmbeddingsUseCase,
 };
 pub use commands::translate_product_listing_event::{
     TranslateProductListingCommand, TranslateProductListingEventError,

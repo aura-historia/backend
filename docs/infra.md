@@ -89,6 +89,13 @@ On the Google side, in the project that runs Vertex AI:
   `principal://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/subject/arn:aws:iam::<account>:user/aura-historia-prod-host`,
   holds the Vertex AI role the application needs, directly or through
   `roles/iam.workloadIdentityUser` on a service account that holds it.
+- Product embedding batches stage in a Cloud Storage bucket of the same project, named in
+  `VERTEX_AI_EMBEDDING_BATCH_BUCKET` and located in `VERTEX_AI_LOCATION`'s multi-region (`EU`
+  for `eu`). It has uniform bucket-level access and a lifecycle rule that deletes objects 7 days
+  after creation. The host's principal and the Vertex AI Service Agent
+  (`service-<project-number>@gcp-sa-aiplatform.iam.gserviceaccount.com`), which reads a job's
+  input and writes its output, each hold `roles/storage.objectUser` on the bucket
+  ([recovery](durable-worker-runbook.md#product-embedding-recovery)).
 
 On the host, generate the configuration with
 `gcloud iam workload-identity-pools create-cred-config <provider resource> --aws` (plus
@@ -240,7 +247,8 @@ records become `AuraHistoria/Crawler` metrics when its journal reaches
 | `…-host-parked-jobs` | More jobs or outbox snapshots entered failure custody in the last 5 minutes; it clears 5 minutes later, while custody is kept until an operator acts (see the [worker runbook](durable-worker-runbook.md)) |
 | `…-host-ingestion-rejected` | ProductListing ingestion rejected a command in the last 5 minutes. A rejection is acknowledged without effect, so neither custody nor the backlog shows it; the worker log names its command and error code |
 | `…-host-low-free-disk` | The host filesystem has at most 20% free, above OpenSearch's low watermark |
-| `…-host-backend-cleanup-stale`, `…-host-fx-refresh-stale`, `…-host-periodic-match-stale` | The [scheduled job](../host/prod/README.md#scheduled-jobs) has not succeeded for 2.5 hours (cleanup), 13 hours (FX refresh) or 27 hours (matching): a missed FX refresh or matching run, or two missed cleanups; a missing figure counts as stale |
+| `…-host-embedding-backlog-age` | Product embedding work that is neither committed nor parked is at least 36 hours old ([recovery](durable-worker-runbook.md#product-embedding-recovery)) |
+| `…-host-backend-cleanup-stale`, `…-host-fx-refresh-stale`, `…-host-embedding-sweep-stale`, `…-host-periodic-match-stale` | The [scheduled job](../host/prod/README.md#scheduled-jobs) has not succeeded for 2.5 hours (cleanup), 13 hours (FX refresh) or 27 hours (embedding sweep, matching): a missed FX refresh, sweep or matching run, or two missed cleanups; a missing figure counts as stale |
 | `…-host-backup-stale` | The last successful backup is at least 26 hours old; no recorded backup counts as stale |
 | `…-crawler-scraper-pass-stalled`, `…-crawler-no-captures`, `…-crawler-spider-runs-failing` | The crawler stalls, captures nothing for a day, or fails unusually many spider runs ([crawler alarms](crawler/operations.md#metrics-and-alarms)); the first two fire while the crawler is stopped |
 | `…-api-cloudfront-5xx-rate`, `…-mcp-cloudfront-5xx-rate` | At least 5% of a distribution's requests failed with 5xx in two consecutive 5-minute periods of at least 10 requests |

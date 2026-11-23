@@ -311,6 +311,38 @@ several workers may run rounds side by side. Reads and saved-search matching fal
 translation lands, so the daily match needs no synchronous sweep. Operations are in the
 [runbook](durable-worker-runbook.md#title-translation-recovery).
 
+## Embeddings
+
+A listing's embedding is one `gemini-embedding-2` vector of 768 dimensions for its title,
+description and first image, computed in Vertex AI batch prediction at half the synchronous
+price. Search queries and saved-search filters stay synchronous because they are interactive.
+The `product-embedding` job only records the embedding revision as pending work in PostgreSQL,
+unless the listing has moved past it or already holds its embedding; a newer revision replaces
+older pending or parked work. A round every 30 minutes in the worker:
+
+1. collects ended batch prediction jobs and commits each vector under the embedding
+   source-marker guard, so a result for a superseded revision is dropped as stale;
+2. submits up to 10,000 pending embeddings as one job.
+
+Submission fetches each first image with the bounded image fetcher and stages it in a Cloud
+Storage bucket, because a batch cannot fetch HTTP URLs; the JSONL requests reference the staged
+objects by `gs://` URI and the job writes its output under the same prefix. A batch request
+carries the same text and image bytes as a synchronous request, without preprocessing on either
+path, so vectors from both paths share one index. An image that cannot be fetched is left out,
+as on the synchronous path. Requests a canceled or expired job did not reach, and failures where
+the provider could not be asked or did not answer, return to the queue unchanged; a rejected
+request, a failed job's unanswered requests or a failed guarded write spends one of an
+embedding's three attempts. Spent work and documents no provider can embed, such as a blank
+title, are parked until the content changes. A round settles work only while it is still where
+the round found it, so several workers may run rounds side by side.
+
+A listing without an embedding is still found lexically. Saved-search matching runs daily at
+15:00 UTC, so the host's `embedding-sweep` job embeds the work still pending at 14:00 UTC
+synchronously; only that leftover pays the synchronous price. Work inside a running batch stays
+there. An embedding that lands after the match advances the listing's `updated`, so the next
+match picks it up. Operations are in the
+[runbook](durable-worker-runbook.md#product-embedding-recovery).
+
 ## Source anti-corruption rules
 
 Boundary uncertainty never becomes invented domain truth. Reliable assertions set availability; reliable absence clears it; ambiguous or failed extraction preserves it. A supplied price or estimate whose currency cannot be determined is unresolved, not absent: it preserves the canonical field. Negative prices and nonzero precision beyond the currency's minor unit are rejected, never sign-stripped or truncated. A display price states one amount or one range. A range is two amounts joined by a dash, a tilde or a range word (`€ 1.000 – 1.500`, `1.000 - 1.500 EUR`, `€1.250 - €2.500`, `from £1,200 to £1,500`, `ab 1.000 bis 1.500 €`, `entre 1 000 et 1 500 €`), with the currency once for both bounds or on each; each bound follows the single-amount rules below ([`range.rs`](../src/product-listing-normalization/src/price/range.rs)). Without a stated currency, two numbers are a range in the fallback currency only when they are the whole price text apart from a price label, so `Lieferzeit: 1 - 2` is never a price. A currency written only between the bounds belongs to its own amount, and a currency on one side covers only a bare number on the other, so `Lot 12 – 680 €` and `€ 45 - 100 Stück` stay single prices; a dash directly after a decimal separator is a sign or a zero-cents dash (`100,-200`, `2490,- €`), never a range separator. Text that holds a range layout but cannot be one range fails closed as `PRICE_RANGE_INVALID`: currencies the fallback currency does not resolve as a dual-currency display, a lower bound not below the upper one, several different ranges or a range next to another price. An estimate field that states a range takes its corresponding bound. A display price amount is one written number ([`display_number.rs`](../src/product-listing-normalization/src/price/display_number.rs)): thousands grouped consistently or not at all, a decimal separator that does not also group, and nothing that continues it, such as a fraction, exponent, scale word (`1,5 Mio.`) or another script's digit. A percentage is never an amount, so a discount badge next to a price (`$370 30% off`) leaves the price; numbers that only read as one amount by being joined (`$37030% off`, `€ 12 50`), amounts beyond the storable minor units and text longer than a label are rejected rather than read as a different amount. A currency the text states is never overruled by the source's fallback currency, and a dollar no supported currency names (`Z$`) is rejected rather than read as USD. Unresolved and failed evaluations enter the [replay corpus](normalization-replay.md). Only reliable removal evidence withdraws a listing, never timeout, blocking or parsing failure. Missing/untracked inventory is not zero; zero stock is not sold evidence. Explicit sold availability still does not implicitly create a sale observation.

@@ -1,0 +1,13 @@
+[Unit]
+Description=Aura Historia prod product embedding sweep at 14:00 UTC, before the periodic match
+Documentation=https://github.com/aura-historia/backend/blob/develop/host/prod/README.md
+
+[Timer]
+OnCalendar=*-*-* 14:00:00 UTC
+Unit=aura-prod-ops@embedding-sweep.service
+# Catch up once after downtime instead of skipping the run.
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

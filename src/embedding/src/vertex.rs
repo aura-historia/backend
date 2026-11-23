@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 pub(crate) const GEMINI_EMBEDDING_MODEL_RESOURCE: &str =
     "publishers/google/models/gemini-embedding-2";
 const QUERY_CACHE_CAPACITY: usize = 4096;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Product embeddings run in the background worker, after its separately bounded image fetch.
 const PRODUCT_EMBEDDING_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -136,24 +136,31 @@ impl VertexAiEmbeddingGenerator {
             .into_embedding_vector()
     }
 
-    /// An image that cannot be fetched is left out of the embedding; its bounded cause is logged.
     async fn fetch_image(&self, image_url: &EmbeddingImageUrl) -> Option<FetchedImage> {
-        self.image_fetcher
-            .fetch(image_url.as_url())
-            .await
-            .inspect_err(|error| {
-                let fetch_failure = error.diagnostics();
-                tracing::info!(
-                    eventType = "EMBEDDING_IMAGE_OMITTED",
-                    imageOmissionReason = "fetch_failed",
-                    imageFetchFailure = fetch_failure.category,
-                    imageFetchHttpStatus = fetch_failure.http_status,
-                    imageFetchAttempts = fetch_failure.attempts,
-                    "Embedding image omitted."
-                );
-            })
-            .ok()
+        fetch_image(&self.image_fetcher, image_url).await
     }
+}
+
+/// An image that cannot be fetched is left out of the embedding; its bounded cause is logged.
+pub(crate) async fn fetch_image(
+    fetcher: &ImageFetcher,
+    image_url: &EmbeddingImageUrl,
+) -> Option<FetchedImage> {
+    fetcher
+        .fetch(image_url.as_url())
+        .await
+        .inspect_err(|error| {
+            let fetch_failure = error.diagnostics();
+            tracing::info!(
+                eventType = "EMBEDDING_IMAGE_OMITTED",
+                imageOmissionReason = "fetch_failed",
+                imageFetchFailure = fetch_failure.category,
+                imageFetchHttpStatus = fetch_failure.http_status,
+                imageFetchAttempts = fetch_failure.attempts,
+                "Embedding image omitted."
+            );
+        })
+        .ok()
 }
 
 #[async_trait::async_trait]
@@ -275,7 +282,7 @@ struct InlineData {
 }
 
 #[derive(Debug, Deserialize)]
-struct EmbedContentResponse {
+pub(crate) struct EmbedContentResponse {
     #[serde(default)]
     embedding: Option<ProviderEmbedding>,
     #[serde(default)]
@@ -283,7 +290,7 @@ struct EmbedContentResponse {
 }
 
 impl EmbedContentResponse {
-    fn into_embedding_vector(self) -> Result<EmbeddingVector, EmbeddingError> {
+    pub(crate) fn into_embedding_vector(self) -> Result<EmbeddingVector, EmbeddingError> {
         let values = self
             .embedding
             .or_else(|| self.embeddings.into_iter().next())
@@ -303,10 +310,7 @@ struct ProviderEmbedding {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use google_cloud_auth::credentials::{
-        AccessToken, AccessTokenCredentialsProvider, CacheableResource, CredentialsProvider,
-    };
-    use google_cloud_auth::errors::CredentialsError;
+    use crate::test_support::TestCredentials;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -321,39 +325,6 @@ mod tests {
     const PROVIDER_STALL: Duration = Duration::from_secs(30);
     /// Fails an unbounded embedding instead of hanging the test on the stalled fixture.
     const TEST_GUARD: Duration = Duration::from_secs(5);
-
-    #[derive(Debug)]
-    enum TestCredentials {
-        Issued,
-        Stalled,
-    }
-
-    impl CredentialsProvider for TestCredentials {
-        async fn headers(
-            &self,
-            _: http::Extensions,
-        ) -> Result<CacheableResource<http::HeaderMap>, CredentialsError> {
-            Err(CredentialsError::from_msg(
-                false,
-                "test credentials issue access tokens only",
-            ))
-        }
-
-        async fn universe_domain(&self) -> Option<String> {
-            None
-        }
-    }
-
-    impl AccessTokenCredentialsProvider for TestCredentials {
-        async fn access_token(&self) -> Result<AccessToken, CredentialsError> {
-            match self {
-                Self::Issued => Ok(AccessToken {
-                    token: "test-access-token".to_owned(),
-                }),
-                Self::Stalled => std::future::pending().await,
-            }
-        }
-    }
 
     #[derive(Debug, Clone, Copy)]
     enum ProviderBehavior {

@@ -1,6 +1,16 @@
+mod batches;
+mod cloud_storage;
+#[cfg(test)]
+mod test_support;
 mod vertex;
+mod vertex_batches;
 
+pub use batches::{
+    EmbeddingBatchId, EmbeddingBatchPoll, EndedEmbeddingBatch, ProductEmbeddingBatches,
+    ProductEmbeddingRequest, UnansweredEmbeddings,
+};
 pub use vertex::VertexAiEmbeddingGenerator;
+pub use vertex_batches::{VertexAiBatchConfig, VertexAiProductEmbeddingBatches};
 
 use std::{sync::Arc, time::Duration};
 use url::Url;
@@ -79,6 +89,23 @@ impl EmbeddingError {
             Self::RequestFailed { .. } => "request",
             Self::ApiFailure { .. } => "http_status",
             Self::InvalidResponse { .. } => "response_invalid",
+        }
+    }
+
+    /// Whether the provider could not be asked or did not answer, so the same request may
+    /// succeed later; such a failure says nothing about the request itself.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Self::AuthenticationFailed { .. } | Self::DeadlineExceeded { .. } => true,
+            Self::RequestFailed { source } => !source.is_decode(),
+            Self::ApiFailure { status } => {
+                status.is_server_error()
+                    || *status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || *status == reqwest::StatusCode::REQUEST_TIMEOUT
+            }
+            Self::InvalidInput { .. }
+            | Self::ClientInitializationFailed { .. }
+            | Self::InvalidResponse { .. } => false,
         }
     }
 
@@ -253,6 +280,30 @@ mod tests {
         ] {
             assert_eq!(category, error.diagnostic_category());
             assert_eq!(status, error.http_status());
+        }
+    }
+
+    #[test]
+    fn should_treat_only_unanswered_requests_as_transient() {
+        let status = |code: u16| EmbeddingError::ApiFailure {
+            status: reqwest::StatusCode::from_u16(code).unwrap(),
+        };
+        for transient in [
+            status(429),
+            status(503),
+            EmbeddingError::DeadlineExceeded {
+                deadline: Duration::from_secs(1),
+            },
+        ] {
+            assert!(transient.is_transient(), "{transient:?}");
+        }
+        for permanent in [
+            status(400),
+            status(403),
+            EmbeddingError::InvalidResponse { reason: "test" },
+            EmbeddingError::InvalidInput { reason: "test" },
+        ] {
+            assert!(!permanent.is_transient(), "{permanent:?}");
         }
     }
 

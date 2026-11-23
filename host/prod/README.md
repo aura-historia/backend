@@ -41,7 +41,7 @@ only the files it lists.
 | File | Content |
 | --- | --- |
 | `compose.env` | Compose interpolation: application image, its revision, backup bucket |
-| `settings.env` | Non-secret deployment settings: Cognito, Vertex AI, Stripe IDs, email senders |
+| `settings.env` | Non-secret deployment settings: Cognito, Vertex AI (with the embedding batch bucket), Stripe IDs, email senders |
 | `secrets/<credential>.env` | One credential per file, mode 0600 |
 | `opensearch-root-ca.pem` | The OpenSearch node's CA certificate (public), mode 0644 |
 | `google-credentials.json` | The keyless [Vertex AI configuration](../../docs/infra.md#vertex-ai-credentials), mode 0644 |
@@ -273,6 +273,7 @@ going when the next is due is not started twice.
 | --- | --- |
 | `aura-prod-backend-cleanup` | `ops backend-cleanup`, hourly |
 | `aura-prod-fx-refresh` | `ops fx-refresh`, 06:00 and 18:00 |
+| `aura-prod-embedding-sweep` | `ops embedding-sweep`, 14:00, before the match |
 | `aura-prod-periodic-match` | `ops periodic-match`, 15:00 |
 | `aura-prod-backup-full` | full backup, Sundays 02:30 |
 | `aura-prod-backup-diff` | differential backup, Monday to Saturday 02:30 |

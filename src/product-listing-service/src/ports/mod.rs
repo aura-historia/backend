@@ -12,6 +12,7 @@ pub mod product_listing_content_assessment_writer;
 pub mod product_listing_current_event_guard;
 pub mod product_listing_details_batch_reader;
 pub mod product_listing_details_reader;
+pub mod product_listing_embedding_queue;
 pub mod product_listing_embedding_reader;
 pub mod product_listing_embedding_source_reader;
 pub mod product_listing_embedding_writer;
@@ -91,6 +92,13 @@ pub use product_listing_details_reader::{
     ProductListingDetailsReadError, ProductListingDetailsReadModel,
     ProductListingDetailsReadRequest, ProductListingDetailsReader,
     ProductListingDetailsReaderFactory, ProductListingLot,
+};
+pub use product_listing_embedding_queue::{
+    BatchedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding, ProductEmbeddingAssignment,
+    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
+    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
+    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
+    SubmittedProductEmbeddingBatch,
 };
 pub use product_listing_embedding_reader::{
     ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,
