@@ -3400,6 +3400,72 @@
               "type": "object"
             },
             {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "type": {
                   "const": "ON_REQUEST",
@@ -5642,6 +5708,72 @@
                 "type",
                 "currency",
                 "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
               ],
               "type": "object"
             },
@@ -8011,6 +8143,72 @@
               "type": "object"
             },
             {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "type": {
                   "const": "ON_REQUEST",
@@ -9505,6 +9703,71 @@
               "type": "object"
             },
             {
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "type": {
                   "const": "ON_REQUEST",
@@ -9579,7 +9842,7 @@
             "display": {
               "anyOf": [
                 {
-                  "$ref": "#/$defs/ProductListingHistoryPriceDisplayData"
+                  "$ref": "#/$defs/ProductListingHistoryPriceDisplayData2"
                 },
                 {
                   "type": "null"
@@ -9594,7 +9857,160 @@
           "type": "object"
         },
         "ProductListingHistoryPriceDisplayData": {
-          "description": "A monetary amount in the currency's minor units.",
+          "description": "The source value in the requested currency, in the shape of the source value.",
+          "oneOf": [
+            {
+              "properties": {
+                "amount": {
+                  "description": "Unsigned amount in the currency's minor units.",
+                  "format": "uint64",
+                  "maximum": 18446744073709551615,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "type": {
+                  "const": "MONETARY",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "ON_REQUEST",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ],
+          "properties": {
+            "capturedAt": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "fxRateId": {
+              "pattern": "^fx_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fxRateId",
+            "capturedAt"
+          ],
+          "type": "object"
+        },
+        "ProductListingHistoryPriceDisplayData2": {
+          "description": "The source value in the requested currency, in the shape of the source value.",
           "properties": {
             "amount": {
               "description": "Unsigned amount in the currency's minor units.",
@@ -10832,6 +11248,72 @@
                 "type",
                 "currency",
                 "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
               ],
               "type": "object"
             },
@@ -14453,6 +14935,72 @@
               "type": "object"
             },
             {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "type": {
                   "const": "ON_REQUEST",
@@ -15858,6 +16406,72 @@
                 "type",
                 "currency",
                 "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
               ],
               "type": "object"
             },
@@ -17344,6 +17958,72 @@
                 "type",
                 "currency",
                 "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
               ],
               "type": "object"
             },
@@ -19792,6 +20472,72 @@
                 "type",
                 "currency",
                 "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
               ],
               "type": "object"
             },
@@ -22304,6 +23050,72 @@
                 "type",
                 "currency",
                 "amount"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "An asking price between two amounts of one currency.",
+              "properties": {
+                "currency": {
+                  "enum": [
+                    "EUR",
+                    "GBP",
+                    "USD",
+                    "AUD",
+                    "CAD",
+                    "NZD",
+                    "CNY",
+                    "BRL",
+                    "PLN",
+                    "TRY",
+                    "JPY",
+                    "CZK",
+                    "RUB",
+                    "AED",
+                    "SAR",
+                    "HKD",
+                    "SGD",
+                    "CHF",
+                    "ZAR",
+                    "SEK",
+                    "DKK",
+                    "NOK",
+                    "KRW",
+                    "INR",
+                    "TWD",
+                    "HUF",
+                    "RON",
+                    "MXN",
+                    "THB",
+                    "ARS"
+                  ],
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound in the currency's minor units, above `min`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound in the currency's minor units, below `max`.",
+                  "format": "uint64",
+                  "maximum": 9223372036854775807,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "RANGE",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "currency",
+                "min",
+                "max"
               ],
               "type": "object"
             },

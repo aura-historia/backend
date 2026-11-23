@@ -66,6 +66,7 @@ pub(super) struct ProductListingDetailsRow {
     title_language: Option<String>,
     price_kind: Option<String>,
     price_amount: Option<i64>,
+    price_max_amount: Option<i64>,
     price_currency: Option<String>,
     price_estimate_min_amount: Option<i64>,
     price_estimate_min_currency: Option<String>,
@@ -221,7 +222,7 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
             AS listing_source_operator_partner,
         p.title_text AS product_title_text, p.title_language AS product_title_language,
         selected_text.title_text, selected_text.title_language,
-        p.price_kind, p.price_amount, p.price_currency, p.price_estimate_min_amount,
+        p.price_kind, p.price_amount, p.price_max_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
         p.price_estimate_max_currency, p.sale_observation_fx_rate_id, p.sale_observed_at, p.availability, p.lifecycle, p.url,
         p.product_images,
@@ -398,8 +399,12 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             localized_title(row.product_title_text, row.product_title_language)?,
             localized_title(row.title_text, row.title_language)?,
         );
-        let product_price =
-            product_listing_price(row.price_kind, row.price_amount, row.price_currency)?;
+        let product_price = product_listing_price(
+            row.price_kind,
+            row.price_amount,
+            row.price_max_amount,
+            row.price_currency,
+        )?;
         let product_price_estimate_min = price(
             "estimate minimum",
             row.price_estimate_min_amount,

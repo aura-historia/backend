@@ -8,9 +8,10 @@ use crate::price::normalize_machine_decimal_price;
 use crate::text::{join_description_fragments, localize_normalized_title};
 use crate::{
     ImageUrlNormalizationError, ListingAvailabilityQuickCheck, NormalizationError, PriceField,
-    PriceNormalizationError, ProductListingNormalizationInput, RawProductListingOperation,
-    normalize_description, normalize_image_urls, normalize_price, normalize_product_listing_price,
-    normalize_source_listing_id_with_url_sha_fallback, normalize_title, quick_check_availability,
+    PriceNormalizationError, ProductListingNormalizationInput, RangeBound,
+    RawProductListingOperation, normalize_description, normalize_image_urls, normalize_price,
+    normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
+    normalize_title, quick_check_availability,
 };
 use localization::{Language, Localized};
 use money::{Currency, Price};
@@ -28,7 +29,7 @@ pub const PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION: u16 = 1;
 
 /// Provenance version of the raw-values normalization heuristics. Bump it when the decision for
 /// an existing input can change. It never triggers reprocessing of completed revisions.
-pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 5;
+pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 6;
 
 /// Stable provider-neutral encoding for raw price patch values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
@@ -632,7 +633,11 @@ fn normalize_price_patch(
         }
         ProductListingRawValuesPatch::Set(raw) => match price_format {
             ProductListingRawValuesPriceFormat::DisplayText => {
-                match normalize_price(Some(raw.as_str()), fallback_currency) {
+                let range_bound = match field {
+                    PriceField::EstimateMax => RangeBound::Upper,
+                    PriceField::Price | PriceField::EstimateMin => RangeBound::Lower,
+                };
+                match normalize_price(Some(raw.as_str()), fallback_currency, range_bound) {
                     Ok(Some(price)) => Ok(ProductListingRawValuesPatch::Set(price)),
                     Ok(None) => Ok(ProductListingRawValuesPatch::Clear),
                     Err(PriceNormalizationError::UnknownCurrency) => {

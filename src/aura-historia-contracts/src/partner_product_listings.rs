@@ -10,6 +10,7 @@ use crate::{
 use application::patch_field::PatchField;
 use listing_source_core::ListingSourceId;
 use money::Price;
+use product_listing_core::product_listing_price::PriceRangeError;
 use product_listing_core::{
     description::Description, listing_availability::ListingAvailability,
     product_listing::ProductListingPricing, product_listing_id::ProductListingKey,
@@ -129,7 +130,7 @@ impl CreateProductListingData {
             title: self.title.map(title).transpose()?,
             description: self.description.map(description),
             pricing: ProductListingPricing {
-                price: self.price.map(product_listing_price),
+                price: self.price.map(product_listing_price).transpose()?,
                 price_estimate_min: self.price_estimate_min.map(price),
                 price_estimate_max: self.price_estimate_max.map(price),
             },
@@ -154,7 +155,7 @@ impl UpdateProductListingData {
         let command = UpdateProductListingCommand {
             title: title_patch(self.title)?,
             description: clearable(self.description.map(description)),
-            price: clearable(self.price.map(product_listing_price)),
+            price: clearable(self.price.try_map(product_listing_price)?),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
             availability: clearable(self.availability),
@@ -177,7 +178,7 @@ impl UpsertProductListingData {
             source_listing_id: source_listing_id(self.source_listing_id)?,
             title: title_patch(self.title)?,
             description: clearable(self.description.map(description)),
-            price: clearable(self.price.map(product_listing_price)),
+            price: clearable(self.price.try_map(product_listing_price)?),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
             availability: clearable(self.availability),
@@ -212,8 +213,10 @@ fn price(value: PriceData) -> Price {
 
 fn product_listing_price(
     value: ProductListingPriceData,
-) -> product_listing_core::product_listing_price::ProductListingPrice {
-    value.into()
+) -> Result<product_listing_core::product_listing_price::ProductListingPrice, MutationInputError> {
+    value.try_into().map_err(|error: PriceRangeError| {
+        MutationInputError::caused("price", error.to_string(), error)
+    })
 }
 
 fn source_listing_id(value: String) -> Result<SourceListingId, MutationInputError> {
@@ -389,6 +392,57 @@ mod tests {
                 .unwrap_or_else(|| panic!("null auction must fail"))
                 .field
         );
+    }
+
+    #[test]
+    fn should_accept_ascending_price_ranges_and_reject_others_in_partner_writes() {
+        use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
+
+        let listing_source_id = ListingSourceId::new();
+        let create = |price: &str| {
+            serde_json::from_str::<CreateProductListingData>(&format!(
+                r#"{{"sourceListingId":"SKU-1","url":"https://example.com/listing","images":[],"price":{price}}}"#
+            ))
+            .unwrap_or_else(|error| panic!("valid create JSON: {error}"))
+            .into_command(listing_source_id)
+        };
+        let upsert = |price: &str| {
+            serde_json::from_str::<UpsertProductListingData>(&format!(
+                r#"{{"sourceListingId":"SKU-1","price":{price}}}"#
+            ))
+            .unwrap_or_else(|error| panic!("valid upsert JSON: {error}"))
+            .into_command(listing_source_id)
+        };
+
+        let range = r#"{"type":"RANGE","currency":"EUR","min":100000,"max":150000}"#;
+        let expected = ProductListingPrice::Range(
+            PriceRange::from_amounts(money::Currency::Eur, 100_000_u64, 150_000_u64)
+                .unwrap_or_else(|error| panic!("valid range: {error}")),
+        );
+        assert_eq!(
+            Some(expected),
+            create(range)
+                .unwrap_or_else(|error| panic!("valid range: {error}"))
+                .pricing
+                .price
+        );
+        assert!(matches!(
+            upsert(range).map(|command| command.price),
+            Ok(PatchField::Set(price)) if price == expected
+        ));
+        for invalid in [
+            r#"{"type":"RANGE","currency":"EUR","min":150000,"max":100000}"#,
+            r#"{"type":"RANGE","currency":"EUR","min":100000,"max":100000}"#,
+        ] {
+            assert_eq!(
+                "price",
+                create(invalid).err().map_or("", |error| error.field)
+            );
+            assert_eq!(
+                "price",
+                upsert(invalid).err().map_or("", |error| error.field)
+            );
+        }
     }
 
     #[test]

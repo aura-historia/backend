@@ -8,7 +8,7 @@ use localization::Language;
 use money::Currency;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_price::ProductListingPrice;
+use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 use serde::{Deserialize, Serialize};
@@ -180,7 +180,22 @@ pub(crate) enum SourcePriceDocument {
         #[serde(with = "currency")]
         currency: Currency,
     },
+    /// `amount` is the lower bound, so price filters read both kinds through one field.
+    Range {
+        amount: u64,
+        #[serde(rename = "maxAmount")]
+        max_amount: u64,
+        #[serde(with = "currency")]
+        currency: Currency,
+    },
     OnRequest,
+}
+
+impl SourcePriceDocument {
+    /// Whether the price states amounts that a sale observation values.
+    fn has_amounts(self) -> bool {
+        !matches!(self, Self::OnRequest)
+    }
 }
 
 impl From<ProductListingPrice> for SourcePriceDocument {
@@ -190,19 +205,34 @@ impl From<ProductListingPrice> for SourcePriceDocument {
                 amount: u64::from(price.monetary_amount),
                 currency: price.currency,
             },
+            ProductListingPrice::Range(range) => Self::Range {
+                amount: u64::from(range.min().monetary_amount),
+                max_amount: u64::from(range.max().monetary_amount),
+                currency: range.currency(),
+            },
             ProductListingPrice::OnRequest => Self::OnRequest,
         }
     }
 }
 
-impl From<SourcePriceDocument> for ProductListingPrice {
-    fn from(value: SourcePriceDocument) -> Self {
-        match value {
+impl TryFrom<SourcePriceDocument> for ProductListingPrice {
+    type Error = ProductListingDocumentValidationError;
+
+    fn try_from(value: SourcePriceDocument) -> Result<Self, Self::Error> {
+        Ok(match value {
             SourcePriceDocument::Monetary { amount, currency } => {
                 Self::Monetary(money::Price::new(amount.into(), currency))
             }
+            SourcePriceDocument::Range {
+                amount,
+                max_amount,
+                currency,
+            } => Self::Range(
+                PriceRange::from_amounts(currency, amount, max_amount)
+                    .map_err(|_| ProductListingDocumentValidationError::InvalidSourcePriceRange)?,
+            ),
             SourcePriceDocument::OnRequest => Self::OnRequest,
-        }
+        })
     }
 }
 
@@ -252,6 +282,16 @@ pub(crate) struct SalePricesDocument {
 }
 
 impl SalePricesDocument {
+    /// Whether the newer currencies are all present or all absent.
+    fn has_complete_expanded_currencies(&self) -> bool {
+        let expanded = [
+            self.sek, self.dkk, self.nok, self.krw, self.inr, self.twd, self.huf, self.ron,
+            self.mxn, self.thb,
+        ];
+        !((self.ars.is_some() || expanded.iter().any(Option::is_some))
+            && expanded.iter().any(Option::is_none))
+    }
+
     fn amount_in(&self, currency: Currency) -> Option<u64> {
         match currency {
             Currency::Eur => Some(self.eur),
@@ -302,6 +342,10 @@ pub(crate) enum ProductListingDocumentValidationError {
     SalePricesRequireMonetarySourcePrice,
     #[error("a monetary source price with sale metadata requires sale prices")]
     MissingSalePricesForMonetarySaleObservation,
+    #[error("upper-bound sale prices must accompany the sale prices of a source price range")]
+    SaleMaxPricesMismatch,
+    #[error("source price range bounds are invalid")]
+    InvalidSourcePriceRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -392,6 +436,9 @@ pub(crate) struct ProductListingDocument {
     pub(crate) source_price: Option<SourcePriceDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub(crate) sale_prices: Option<SalePricesDocument>,
+    /// The upper bound of a sold source price range, valued like `sale_prices`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub(crate) sale_prices_max: Option<SalePricesDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[serde(rename = "saleObservationFxRateId")]
     pub(crate) sale_observation_fx_rate_id: Option<FxRateId>,
@@ -481,26 +528,28 @@ impl ProductListingDocument {
             check().ok_or(ProductListingDocumentValidationError::InvalidGeography)?;
         }
 
-        if let Some(prices) = &self.sale_prices {
-            let expanded = [
-                prices.sek, prices.dkk, prices.nok, prices.krw, prices.inr, prices.twd, prices.huf,
-                prices.ron, prices.mxn, prices.thb,
-            ];
-            if (prices.ars.is_some() || expanded.iter().any(Option::is_some))
-                && expanded.iter().any(Option::is_none)
-            {
-                return Err(ProductListingDocumentValidationError::PartialExpandedSalePrices);
-            }
+        if [&self.sale_prices, &self.sale_prices_max]
+            .into_iter()
+            .flatten()
+            .any(|prices| !prices.has_complete_expanded_currencies())
+        {
+            return Err(ProductListingDocumentValidationError::PartialExpandedSalePrices);
+        }
+        if let Some(price) = self.source_price {
+            ProductListingPrice::try_from(price)?;
+        }
+        let is_range = matches!(self.source_price, Some(SourcePriceDocument::Range { .. }));
+        if self.sale_prices_max.is_some() != (is_range && self.sale_prices.is_some()) {
+            return Err(ProductListingDocumentValidationError::SaleMaxPricesMismatch);
         }
         let has_sale_metadata = match (self.sale_observation_fx_rate_id, self.sale_observed_at) {
             (None, None) => false,
             (Some(_), Some(_)) => true,
             _ => return Err(ProductListingDocumentValidationError::PartialSaleProjection),
         };
-        let has_monetary_source_price = matches!(
-            self.source_price,
-            Some(SourcePriceDocument::Monetary { .. })
-        );
+        let has_monetary_source_price = self
+            .source_price
+            .is_some_and(SourcePriceDocument::has_amounts);
 
         match (
             has_sale_metadata,
@@ -520,12 +569,21 @@ impl ProductListingDocument {
         }
     }
 
-    pub(crate) fn source_price(&self) -> Option<ProductListingPrice> {
-        self.source_price.map(Into::into)
+    pub(crate) fn source_price(
+        &self,
+    ) -> Result<Option<ProductListingPrice>, ProductListingDocumentValidationError> {
+        self.source_price.map(TryInto::try_into).transpose()
     }
 
     pub(crate) fn sale_price(&self, currency: Currency) -> Option<u64> {
         self.sale_prices
+            .as_ref()
+            .and_then(|prices| prices.amount_in(currency))
+    }
+
+    /// The upper bound of a sold source price range in `currency`.
+    pub(crate) fn sale_price_max(&self, currency: Currency) -> Option<u64> {
+        self.sale_prices_max
             .as_ref()
             .and_then(|prices| prices.amount_in(currency))
     }
@@ -566,6 +624,7 @@ mod tests {
                 currency: Currency::Eur,
             }),
             sale_prices: None,
+            sale_prices_max: None,
             sale_observation_fx_rate_id: None,
             sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
@@ -692,7 +751,48 @@ mod tests {
 
         assert_eq!(
             Some(ProductListingPrice::OnRequest),
-            restored.source_price()
+            restored.source_price()?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_roundtrip_a_source_price_range_with_its_lower_bound_as_amount()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let range = PriceRange::from_amounts(Currency::Eur, 100_000_u64, 150_000_u64)?;
+        let mut document = document()?;
+        document.source_price = Some(ProductListingPrice::Range(range).into());
+
+        let value = serde_json::to_value(&document)?;
+        assert_eq!(
+            serde_json::json!({"type": "RANGE", "amount": 100_000, "maxAmount": 150_000, "currency": "EUR"}),
+            value["sourcePrice"]
+        );
+        let restored = serde_json::from_value::<ProductListingDocument>(value)?;
+        assert_eq!(
+            Some(ProductListingPrice::Range(range)),
+            restored.source_price()?
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::descending(150_000, 100_000)]
+    #[case::equal(100_000, 100_000)]
+    fn should_reject_a_source_price_range_that_does_not_ascend(
+        #[case] amount: u64,
+        #[case] max_amount: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.source_price = Some(SourcePriceDocument::Range {
+            amount,
+            max_amount,
+            currency: Currency::Eur,
+        });
+
+        assert_eq!(
+            Err(ProductListingDocumentValidationError::InvalidSourcePriceRange),
+            document.validate()
         );
         Ok(())
     }
@@ -836,6 +936,9 @@ mod tests {
         true,
         false
     )]
+    #[case::sold_range(Some(RANGE), true, true, true)]
+    #[case::active_range(Some(RANGE), false, false, true)]
+    #[case::sold_range_without_sale_prices(Some(RANGE), true, false, false)]
     fn should_validate_sale_prices_against_source_price_and_sale_metadata(
         #[case] source_price: Option<SourcePriceDocument>,
         #[case] has_sale_metadata: bool,
@@ -846,7 +949,45 @@ mod tests {
         document.source_price = source_price;
         document.sale_observation_fx_rate_id = has_sale_metadata.then(FxRateId::new);
         document.sale_observed_at = has_sale_metadata.then_some(OffsetDateTime::UNIX_EPOCH);
-        document.sale_prices = has_sale_prices.then_some(SalePricesDocument {
+        document.sale_prices = has_sale_prices.then(test_sale_prices);
+        document.sale_prices_max =
+            (has_sale_prices && source_price == Some(RANGE)).then(test_sale_prices);
+
+        assert_eq!(valid, document.validate().is_ok());
+        Ok(())
+    }
+
+    const RANGE: SourcePriceDocument = SourcePriceDocument::Range {
+        amount: 100,
+        max_amount: 200,
+        currency: Currency::Eur,
+    };
+
+    #[rstest]
+    #[case::monetary_with_max(Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }), true, true)]
+    #[case::range_without_max(Some(RANGE), true, false)]
+    #[case::active_range_with_max(Some(RANGE), false, true)]
+    fn should_require_upper_bound_sale_prices_exactly_for_sold_ranges(
+        #[case] source_price: Option<SourcePriceDocument>,
+        #[case] has_sale_prices: bool,
+        #[case] has_sale_prices_max: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.source_price = source_price;
+        document.sale_observation_fx_rate_id = Some(FxRateId::new());
+        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
+        document.sale_prices = has_sale_prices.then(test_sale_prices);
+        document.sale_prices_max = has_sale_prices_max.then(test_sale_prices);
+
+        assert_eq!(
+            Err(ProductListingDocumentValidationError::SaleMaxPricesMismatch),
+            document.validate()
+        );
+        Ok(())
+    }
+
+    fn test_sale_prices() -> SalePricesDocument {
+        SalePricesDocument {
             eur: 100,
             gbp: 100,
             usd: 100,
@@ -877,10 +1018,7 @@ mod tests {
             mxn: Some(100),
             thb: Some(100),
             ars: Some(100),
-        });
-
-        assert_eq!(valid, document.validate().is_ok());
-        Ok(())
+        }
     }
 
     #[test]

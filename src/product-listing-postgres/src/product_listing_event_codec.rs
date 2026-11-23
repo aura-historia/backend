@@ -14,7 +14,7 @@ use product_listing_core::{
         ProductListingEventType, ProductListingImageCount, ProductListingLifecycleChange,
         RehydratedProductListingChanged, RehydratedProductListingDiscovered,
     },
-    product_listing_price::ProductListingPrice,
+    product_listing_price::{PriceRange, ProductListingPrice},
     source_listing_id::SourceListingId,
     title::Title,
 };
@@ -904,7 +904,15 @@ struct PriceDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum ProductListingPriceDto {
-    Monetary { amount: u64, currency: String },
+    Monetary {
+        amount: u64,
+        currency: String,
+    },
+    Range {
+        min: u64,
+        max: u64,
+        currency: String,
+    },
     OnRequest,
 }
 
@@ -914,6 +922,11 @@ impl From<ProductListingPrice> for ProductListingPriceDto {
             ProductListingPrice::Monetary(price) => Self::Monetary {
                 amount: u64::from(price.monetary_amount),
                 currency: price.currency.as_str().to_owned(),
+            },
+            ProductListingPrice::Range(range) => Self::Range {
+                min: u64::from(range.min().monetary_amount),
+                max: u64::from(range.max().monetary_amount),
+                currency: range.currency().as_str().to_owned(),
             },
             ProductListingPrice::OnRequest => Self::OnRequest,
         }
@@ -1151,14 +1164,24 @@ fn parse_price(
 ) -> Result<Option<Price>, ProductListingEventCodecError> {
     value
         .map(|value| {
-            let currency = Currency::from_code(&value.currency)
-                .ok_or_else(|| invalid_field(field, "unknown currency code"))?;
-            if currency.as_str() != value.currency {
-                return Err(ProductListingEventCodecError::NonCanonicalField { field });
-            }
-            Ok(Price::new(MonetaryAmount::from(value.amount), currency))
+            Ok(Price::new(
+                MonetaryAmount::from(value.amount),
+                parse_currency_code(&value.currency, field)?,
+            ))
         })
         .transpose()
+}
+
+fn parse_currency_code(
+    value: &str,
+    field: &'static str,
+) -> Result<Currency, ProductListingEventCodecError> {
+    let currency =
+        Currency::from_code(value).ok_or_else(|| invalid_field(field, "unknown currency code"))?;
+    if currency.as_str() != value {
+        return Err(ProductListingEventCodecError::NonCanonicalField { field });
+    }
+    Ok(currency)
 }
 
 fn parse_product_listing_price(
@@ -1168,15 +1191,15 @@ fn parse_product_listing_price(
     value
         .map(|value| match value {
             ProductListingPriceDto::Monetary { amount, currency } => {
-                let parsed_currency = Currency::from_code(&currency)
-                    .ok_or_else(|| invalid_field(field, "unknown currency code"))?;
-                if parsed_currency.as_str() != currency {
-                    return Err(ProductListingEventCodecError::NonCanonicalField { field });
-                }
                 Ok(ProductListingPrice::Monetary(Price::new(
                     MonetaryAmount::from(amount),
-                    parsed_currency,
+                    parse_currency_code(&currency, field)?,
                 )))
+            }
+            ProductListingPriceDto::Range { min, max, currency } => {
+                PriceRange::from_amounts(parse_currency_code(&currency, field)?, min, max)
+                    .map(ProductListingPrice::Range)
+                    .map_err(|source| invalid_field_source(field, source))
             }
             ProductListingPriceDto::OnRequest => Ok(ProductListingPrice::OnRequest),
         })
@@ -1483,6 +1506,7 @@ fn validate_product_listing_price_shape(
         .ok_or_else(|| missing_field(format!("{field}.type")))?;
     match kind {
         "MONETARY" => require_exact_keys(object, &["type", "amount", "currency"], field),
+        "RANGE" => require_exact_keys(object, &["type", "min", "max", "currency"], field),
         "ON_REQUEST" => require_exact_keys(object, &["type"], field),
         _ => Err(invalid_field(field, "unknown ProductListing price type")),
     }
@@ -2127,6 +2151,44 @@ mod tests {
             "availability": {"previous": null, "current": "AVAILABLE"},
             "lifecycle": {"transition": "RESTORED"}
         });
+
+        let range_changed = json!({
+            "pricing": {"price": {
+                "previous": {"type": "MONETARY", "amount": 120000, "currency": "EUR"},
+                "current": {"type": "RANGE", "min": 100000, "max": 150000, "currency": "EUR"}
+            }}
+        });
+        let decoded_range = decode("PRODUCT_LISTING_CHANGED", 1, &range_changed);
+        assert!(
+            matches!(
+                &decoded_range,
+                Ok(ProductListingEventPayload::Changed(changed))
+                    if changed.price().and_then(|price| *price.current())
+                        == PriceRange::from_amounts(Currency::Eur, 100_000_u64, 150_000_u64)
+                            .ok()
+                            .map(ProductListingPrice::Range)
+            ),
+            "{decoded_range:?}"
+        );
+        if let Ok(payload) = decoded_range {
+            assert_eq!(
+                range_changed,
+                encode(&payload).expect("encode range change")
+            );
+        }
+        for invalid in [
+            json!({"type": "RANGE", "min": 150000, "max": 100000, "currency": "EUR"}),
+            json!({"type": "RANGE", "min": 100000, "max": 100000, "currency": "EUR"}),
+            json!({"type": "RANGE", "min": 100000, "currency": "EUR"}),
+            json!({"type": "RANGE", "min": 1, "max": 2, "amount": 1, "currency": "EUR"}),
+            json!({"type": "RANGE", "min": 1, "max": 2, "currency": "eur"}),
+        ] {
+            let payload = json!({"pricing": {"price": {"previous": null, "current": invalid}}});
+            assert!(
+                decode("PRODUCT_LISTING_CHANGED", 1, &payload).is_err(),
+                "{payload}"
+            );
+        }
 
         for payload in [
             canonical_discovery_value(),

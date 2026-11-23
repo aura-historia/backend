@@ -319,6 +319,9 @@ fn listing_price(
         product_listing_core::product_listing_price::ProductListingPrice::Monetary(value) => {
             json!({"kind": "MONETARY", "price": price(value)})
         }
+        product_listing_core::product_listing_price::ProductListingPrice::Range(value) => {
+            json!({"kind": "RANGE", "min": price(&value.min()), "max": price(&value.max())})
+        }
         product_listing_core::product_listing_price::ProductListingPrice::OnRequest => {
             json!({"kind": "ON_REQUEST"})
         }

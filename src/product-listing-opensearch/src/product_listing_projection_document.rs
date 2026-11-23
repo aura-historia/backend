@@ -48,8 +48,12 @@ pub(crate) fn product_listing_document(
     product: &ProductListingSearchFilterMatchSource,
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<ProductListingDocument, ProductListingProjectionDocumentError> {
-    let (sale_prices, sale_observation_fx_rate_id, sale_observed_at) =
-        sale_projection(product, sale_snapshot)?;
+    let SaleProjection {
+        sale_prices,
+        sale_prices_max,
+        fx_rate_id: sale_observation_fx_rate_id,
+        observed_at: sale_observed_at,
+    } = sale_projection(product, sale_snapshot)?;
     let (title, language) = selected_title(product);
 
     Ok(ProductListingDocument {
@@ -73,6 +77,7 @@ pub(crate) fn product_listing_document(
         title_it: translated_title(product, Language::It),
         source_price: product.pricing.price.map(SourcePriceDocument::from),
         sale_prices,
+        sale_prices_max,
         sale_observation_fx_rate_id,
         sale_observed_at,
         availability: product.availability,
@@ -91,11 +96,15 @@ pub(crate) fn product_listing_document(
     })
 }
 
-type SaleProjection = (
-    Option<SalePricesDocument>,
-    Option<FxRateId>,
-    Option<OffsetDateTime>,
-);
+/// The valuation a sold listing is indexed with: its last advertised price (both bounds of a
+/// range) in every currency, at the FX snapshot its sale observation pins.
+#[derive(Default)]
+struct SaleProjection {
+    sale_prices: Option<SalePricesDocument>,
+    sale_prices_max: Option<SalePricesDocument>,
+    fx_rate_id: Option<FxRateId>,
+    observed_at: Option<OffsetDateTime>,
+}
 
 fn sale_projection(
     product: &ProductListingSearchFilterMatchSource,
@@ -106,46 +115,37 @@ fn sale_projection(
     } else {
         None
     };
-    match (observation, sale_snapshot) {
-        (None, None) => Ok((None, None, None)),
-        (None, Some(_)) => Err(ProductListingProjectionDocumentError::UnexpectedSaleSnapshot),
-        (Some(observation), None)
-            if !matches!(
-                product.pricing.price,
-                Some(ProductListingPrice::Monetary(_))
-            ) =>
-        {
-            Ok((
-                None,
-                Some(observation.fx_rate_id()),
-                Some(observation.observed_at()),
-            ))
-        }
-        (Some(_), None) => Err(ProductListingProjectionDocumentError::MissingSaleSnapshot),
-        (Some(_), Some(_))
-            if !matches!(
-                product.pricing.price,
-                Some(ProductListingPrice::Monetary(_))
-            ) =>
-        {
+    let bounds = product.pricing.price.and_then(ProductListingPrice::bounds);
+    match (observation, sale_snapshot, bounds) {
+        (None, None, _) => Ok(SaleProjection::default()),
+        (None, Some(_), _) => Err(ProductListingProjectionDocumentError::UnexpectedSaleSnapshot),
+        (Some(observation), None, None) => Ok(SaleProjection {
+            fx_rate_id: Some(observation.fx_rate_id()),
+            observed_at: Some(observation.observed_at()),
+            ..SaleProjection::default()
+        }),
+        (Some(_), None, Some(_)) => Err(ProductListingProjectionDocumentError::MissingSaleSnapshot),
+        (Some(_), Some(_), None) => {
             Err(ProductListingProjectionDocumentError::UnexpectedSaleSnapshot)
         }
-        (Some(observation), Some(snapshot)) if observation.fx_rate_id() != snapshot.id() => Err(
-            ProductListingProjectionDocumentError::SaleSnapshotMismatch {
-                valuation_fx_rate_id: observation.fx_rate_id(),
-                snapshot_fx_rate_id: snapshot.id(),
-            },
-        ),
-        (Some(observation), Some(snapshot)) => {
-            let Some(ProductListingPrice::Monetary(source_price)) = product.pricing.price else {
-                return Err(ProductListingProjectionDocumentError::MissingSaleSnapshot);
-            };
-            Ok((
-                Some(sale_prices(snapshot, source_price)?),
-                Some(observation.fx_rate_id()),
-                Some(observation.observed_at()),
-            ))
+        (Some(observation), Some(snapshot), Some(_))
+            if observation.fx_rate_id() != snapshot.id() =>
+        {
+            Err(
+                ProductListingProjectionDocumentError::SaleSnapshotMismatch {
+                    valuation_fx_rate_id: observation.fx_rate_id(),
+                    snapshot_fx_rate_id: snapshot.id(),
+                },
+            )
         }
+        (Some(observation), Some(snapshot), Some((min, max))) => Ok(SaleProjection {
+            sale_prices: Some(sale_prices(snapshot, min)?),
+            sale_prices_max: matches!(product.pricing.price, Some(ProductListingPrice::Range(_)))
+                .then(|| sale_prices(snapshot, max))
+                .transpose()?,
+            fx_rate_id: Some(observation.fx_rate_id()),
+            observed_at: Some(observation.observed_at()),
+        }),
     }
 }
 
@@ -360,10 +360,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn should_project_sale_prices_from_the_pinned_snapshot()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let snapshot = NewFxRateSnapshot::capture_eur(
+    fn pinned_snapshot() -> Result<FxRateSnapshot, Box<dyn std::error::Error>> {
+        Ok(NewFxRateSnapshot::capture_eur(
             FxRateId::new(),
             OffsetDateTime::UNIX_EPOCH,
             FxRateSource::FxRatesApi,
@@ -381,7 +379,13 @@ mod tests {
                 )
             }),
         )?
-        .into_persisted(FxRateGeneration::try_from(1)?);
+        .into_persisted(FxRateGeneration::try_from(1)?))
+    }
+
+    #[test]
+    fn should_project_sale_prices_from_the_pinned_snapshot()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = pinned_snapshot()?;
         let mut product = source()?;
         let source_price = money::Price::new(12_500_u64.into(), Currency::Gbp);
         product.pricing.price = Some(source_price.into());
@@ -392,11 +396,47 @@ mod tests {
         product.availability = Some(ListingAvailability::SoldOut);
         let document = product_listing_document(&product, Some(&snapshot))?;
         document.validate()?;
+        assert!(document.sale_prices_max.is_none());
         for currency in Currency::iter() {
             let expected = snapshot.convert(source_price, currency, RoundingMode::HalfUp)?;
             assert_eq!(
                 Some(u64::from(expected.monetary_amount)),
                 document.sale_price(currency),
+                "{currency:?}",
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_project_both_bounds_of_a_sold_price_range_from_the_pinned_snapshot()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = pinned_snapshot()?;
+        let mut product = source()?;
+        let range = product_listing_core::product_listing_price::PriceRange::from_amounts(
+            Currency::Gbp,
+            12_500_u64,
+            20_000_u64,
+        )?;
+        product.pricing.price = Some(range.into());
+        product.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            snapshot.id(),
+        ));
+        product.availability = Some(ListingAvailability::SoldOut);
+        let document = product_listing_document(&product, Some(&snapshot))?;
+        document.validate()?;
+        for currency in Currency::iter() {
+            let min = snapshot.convert(range.min(), currency, RoundingMode::HalfUp)?;
+            let max = snapshot.convert(range.max(), currency, RoundingMode::HalfUp)?;
+            assert_eq!(
+                Some(u64::from(min.monetary_amount)),
+                document.sale_price(currency),
+                "{currency:?}",
+            );
+            assert_eq!(
+                Some(u64::from(max.monetary_amount)),
+                document.sale_price_max(currency),
                 "{currency:?}",
             );
         }

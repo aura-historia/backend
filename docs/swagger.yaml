@@ -3900,8 +3900,10 @@ paths:
 
         Price snapshots preserve stored source amounts and currencies. Sale observations retain
         their immutable source provenance. Without `currency`, the response is unchanged.
-        With `currency`, each monetary discovery price/estimate and each previous/current price/estimate
-        change value may include `display` with `currency`, `amount`, `fxRateId` and `capturedAt`.
+        With `currency`, each monetary or range discovery price, each estimate and each previous/current
+        price/estimate change value may include `display`: the value in the requested currency in the
+        source's shape (`type`, `currency` and `amount`, or `min` and `max` for a range; estimates have no
+        `type`), with `fxRateId` and `capturedAt`.
         The snapshot is the latest persisted capture at or before this entry's `timestamp`, including
         an exact capture-time match. Both sides of a change use that entry's snapshot, even if the
         source currency changed. Conversion uses HalfUp rounding and the requested currency's minor-unit
@@ -4292,7 +4294,8 @@ paths:
             "Optional price range filter in minor currency units (e.g. cents for most supported currencies, whole
             yen for JPY).
 
-            Use `price[min]` and/or `price[max]` to specify the range bounds.
+            Use `price[min]` and/or `price[max]` to specify the range bounds. A listing whose asking price is a
+            range matches when that range overlaps the filter.
 
             "
           style: deepObject
@@ -22603,6 +22606,15 @@ components:
             amount: { type: integer, minimum: 0, maximum: 9223372036854775807 }
         - type: object
           additionalProperties: false
+          required: [type, currency, min, max]
+          description: A range; `min` must be below `max`, otherwise the request is rejected with 400.
+          properties:
+            type: { type: string, enum: [RANGE] }
+            currency: { $ref: "#/components/schemas/CurrencyData" }
+            min: { type: integer, minimum: 0, maximum: 9223372036854775807 }
+            max: { type: integer, minimum: 1, maximum: 9223372036854775807 }
+        - type: object
+          additionalProperties: false
           required: [type]
           properties:
             type: { type: string, enum: [ON_REQUEST] }
@@ -23332,6 +23344,9 @@ components:
           minimum: 0
           example: 2999
     ProductListingPriceData:
+      description: An asking price of one amount (`MONETARY`), a range between two amounts (`RANGE`), or on
+        request (`ON_REQUEST`). A range's `min` is below its `max` and both share `currency`; a write with
+        another range is rejected with 400.
       oneOf:
         - type: object
           required:
@@ -23348,6 +23363,7 @@ components:
             amount:
               type: integer
               minimum: 0
+        - $ref: "#/components/schemas/ProductListingPriceRangeData"
         - type: object
           required:
             - type
@@ -23356,6 +23372,33 @@ components:
             type:
               type: string
               enum: [ON_REQUEST]
+    ProductListingPriceRangeData:
+      type: object
+      description: An asking price between two amounts of one currency, in minor currency units.
+      required:
+        - type
+        - currency
+        - min
+        - max
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [RANGE]
+        currency:
+          $ref: "#/components/schemas/CurrencyData"
+        min:
+          type: integer
+          minimum: 0
+          maximum: 9223372036854775807
+          description: Lower bound, below `max`.
+          example: 100000
+        max:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+          description: Upper bound, above `min`.
+          example: 150000
     ProductListingHistoryPriceDisplayData:
       allOf:
         - $ref: "#/components/schemas/PriceData"
@@ -23380,6 +23423,38 @@ components:
             display:
               $ref: "#/components/schemas/ProductListingHistoryPriceDisplayData"
       description: Unchanged source estimate with optional historical display projection.
+    ProductListingHistoryMainPriceDisplayData:
+      allOf:
+        - oneOf:
+            - type: object
+              required: [type, currency, amount]
+              properties:
+                type: { type: string, enum: [MONETARY] }
+                currency: { $ref: "#/components/schemas/CurrencyData" }
+                amount: { type: integer, minimum: 0 }
+            - type: object
+              required: [type, currency, min, max]
+              properties:
+                type: { type: string, enum: [RANGE] }
+                currency: { $ref: "#/components/schemas/CurrencyData" }
+                min: { type: integer, minimum: 0 }
+                max: { type: integer, minimum: 0 }
+        - type: object
+          required:
+            - fxRateId
+            - capturedAt
+          properties:
+            fxRateId:
+              type: string
+              description: Immutable FX snapshot selected at or before the entry timestamp.
+            capturedAt:
+              type: string
+              format: date-time
+              description: Capture time of that snapshot, never after the history entry timestamp.
+      description: The source price in the requested currency, in the source's shape. Each amount is converted
+        with HalfUp rounding in requested currency minor units (JPY/KRW 0 decimals, others 2); a range whose
+        bounds round to one amount is shown as `MONETARY`. Omitted when the snapshot or a required quote is
+        unavailable, including in a complete legacy 19-currency snapshot.
     ProductListingHistoryMainPriceData:
       oneOf:
         - type: object
@@ -23398,7 +23473,28 @@ components:
               type: integer
               minimum: 0
             display:
-              $ref: "#/components/schemas/ProductListingHistoryPriceDisplayData"
+              $ref: "#/components/schemas/ProductListingHistoryMainPriceDisplayData"
+        - type: object
+          required:
+            - type
+            - currency
+            - min
+            - max
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              enum: [RANGE]
+            currency:
+              $ref: "#/components/schemas/CurrencyData"
+            min:
+              type: integer
+              minimum: 0
+            max:
+              type: integer
+              minimum: 1
+            display:
+              $ref: "#/components/schemas/ProductListingHistoryMainPriceDisplayData"
         - type: object
           required:
             - type
@@ -23407,7 +23503,7 @@ components:
             type:
               type: string
               enum: [ON_REQUEST]
-      description: Unchanged source main price; only monetary values can have historical display projections.
+      description: Unchanged source main price; only monetary prices and ranges can have historical display projections.
     ProductListingHistoryPricingData:
       type: object
       properties:

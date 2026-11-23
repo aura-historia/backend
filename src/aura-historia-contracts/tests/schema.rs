@@ -179,8 +179,33 @@ fn should_describe_tagged_prices_and_existing_unknown_member_behavior() {
         (json!({"type": "UNKNOWN"}), false),
         (json!({}), false),
         (json!(null), false),
+        (
+            json!({"type": "RANGE", "currency": "EUR", "min": 0, "max": i64::MAX}),
+            true,
+        ),
+        (
+            json!({"type": "RANGE", "currency": "EUR", "min": 1, "max": (i64::MAX as u64) + 1}),
+            false,
+        ),
+        (json!({"type": "RANGE", "currency": "EUR", "min": 1}), false),
+        (
+            json!({"type": "RANGE", "currency": "EUR", "min": 1, "max": 2, "amount": 1}),
+            false,
+        ),
+        (
+            json!({"type": "RANGE", "currency": "EUR", "min": -1, "max": 2}),
+            false,
+        ),
     ]);
     assert_input_agreement::<ProductListingPriceData>(samples);
+    assert_eq!(
+        json!({"type": "RANGE", "currency": "EUR", "min": 100, "max": 150}),
+        assert_output(&ProductListingPriceData::Range {
+            currency: Currency::Eur,
+            min: 100,
+            max: 150,
+        })
+    );
     assert_eq!(
         json!({"type": "ON_REQUEST"}),
         assert_output(&ProductListingPriceData::OnRequest)

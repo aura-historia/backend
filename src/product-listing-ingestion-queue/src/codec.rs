@@ -18,7 +18,7 @@ use product_listing_core::{
     product_listing::{CataloguePosition, LotNumber, ProductListingPricing},
     product_listing_id::ProductListingKey,
     product_listing_image::ProductListingImage,
-    product_listing_price::ProductListingPrice,
+    product_listing_price::{PriceRange, ProductListingPrice},
     source_listing_id::SourceListingId,
     title::Title,
 };
@@ -441,7 +441,15 @@ struct WirePrice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum WirePriceAssertion {
-    Monetary { currency: String, amount: u64 },
+    Monetary {
+        currency: String,
+        amount: u64,
+    },
+    Range {
+        currency: String,
+        min: u64,
+        max: u64,
+    },
     OnRequest,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -578,6 +586,13 @@ fn price_assertion(p: WirePriceAssertion) -> Result<ProductListingPrice> {
                 amount,
             })?))
         }
+        WirePriceAssertion::Range { currency, min, max } => PriceRange::from_amounts(
+            Currency::from_code(&currency).ok_or(CodecError::Invalid)?,
+            min,
+            max,
+        )
+        .map(ProductListingPrice::Range)
+        .map_err(|_| CodecError::Invalid),
         WirePriceAssertion::OnRequest => Ok(ProductListingPrice::OnRequest),
     }
 }
@@ -688,6 +703,11 @@ fn wire_assertion(p: ProductListingPrice) -> WirePriceAssertion {
         ProductListingPrice::Monetary(p) => WirePriceAssertion::Monetary {
             currency: p.currency.as_str().into(),
             amount: *p.monetary_amount,
+        },
+        ProductListingPrice::Range(range) => WirePriceAssertion::Range {
+            currency: range.currency().as_str().into(),
+            min: *range.min().monetary_amount,
+            max: *range.max().monetary_amount,
         },
         ProductListingPrice::OnRequest => WirePriceAssertion::OnRequest,
     }
@@ -1350,6 +1370,10 @@ mod tests {
         for (field, replacement) in [
             ("price", json!({"state": "CLEAR"})),
             (
+                "price",
+                json!({"state": "SET", "value": {"kind": "RANGE", "currency": "EUR", "min": 100, "max": 200}}),
+            ),
+            (
                 "priceEstimateMin",
                 json!({"state": "SET", "value": {"currency": "EUR", "amount": 0}}),
             ),
@@ -1376,6 +1400,23 @@ mod tests {
                 semantic_fingerprint(&changed),
                 "{field}"
             );
+        }
+    }
+
+    #[test]
+    fn price_ranges_that_do_not_ascend_fail_closed() {
+        for range in [
+            json!({"kind": "RANGE", "currency": "EUR", "min": 200, "max": 100}),
+            json!({"kind": "RANGE", "currency": "EUR", "min": 100, "max": 100}),
+            json!({"kind": "RANGE", "currency": "XXX", "min": 100, "max": 200}),
+        ] {
+            let mut changed = golden_fixtures()[1].clone();
+            changed["payload"]["command"]["price"] = json!({"state": "SET", "value": range});
+            let decoded = fingerprinted_value(&changed)
+                .ok()
+                .and_then(|value| decode(&value.to_string()).ok())
+                .and_then(|envelope| envelope.into_intent().ok());
+            assert!(decoded.is_none(), "{range}");
         }
     }
 

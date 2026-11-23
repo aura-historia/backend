@@ -36,6 +36,14 @@ fn should_describe_complete_management_patch_with_identical_semantic_acceptance(
             true,
         ),
         (
+            json!({"expectedVersion":1,"price":{"type":"RANGE","currency":"EUR","min":100000,"max":150000}}),
+            true,
+        ),
+        (
+            json!({"expectedVersion":1,"price":{"type":"RANGE","currency":"EUR","min":1,"max":(i64::MAX as u64) + 1}}),
+            false,
+        ),
+        (
             json!({"expectedVersion":1,"price":null,"availability":null,"images":[]}),
             true,
         ),
@@ -71,6 +79,20 @@ fn should_describe_complete_management_patch_with_identical_semantic_acceptance(
             .is_some();
         assert_eq!(accepted, decoded, "validation: {body}");
         assert_eq!(accepted, validator.is_valid(&body), "schema: {body}");
+    }
+}
+#[test]
+fn should_reject_admin_price_ranges_that_do_not_ascend() {
+    for price in [
+        json!({"type":"RANGE","currency":"EUR","min":150000,"max":100000}),
+        json!({"type":"RANGE","currency":"EUR","min":100000,"max":100000}),
+    ] {
+        let error =
+            serde_json::from_value::<UpdateData>(json!({"expectedVersion":1,"price":price}))
+                .expect("schema-valid body")
+                .into_command(ProductListingId::new())
+                .expect_err("a range must ascend");
+        assert_eq!("price", error.field, "{price}");
     }
 }
 #[test]

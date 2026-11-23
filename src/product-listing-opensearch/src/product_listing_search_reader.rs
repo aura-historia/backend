@@ -10,6 +10,7 @@ use localization::{Language, Localized};
 use money::Currency;
 use platform_opensearch::search_response::{SearchHit, SearchResponse};
 
+use fxrate_core::RoundingMode;
 use money::Price;
 use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
@@ -17,7 +18,7 @@ use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
-use product_listing_core::product_listing_price::ProductListingPrice;
+use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
 use product_listing_core::product_listing_search::{
     ListingAvailabilityQuery, ProductListingSearch,
 };
@@ -315,40 +316,42 @@ fn resolve_price(
     price_filter: &ProductListingPriceFilterPlan,
 ) -> Result<Option<ProductListingPrice>, ProductListingSearchReadError> {
     document.validate().map_err(read_model_invalid)?;
+    let target = price_filter.target_currency;
+    let source_price = document.source_price().map_err(read_model_invalid)?;
 
     if document.has_sale_observation() {
-        return match document.source_price() {
-            None => Ok(None),
-            Some(ProductListingPrice::OnRequest) => Ok(Some(ProductListingPrice::OnRequest)),
-            Some(ProductListingPrice::Monetary(_)) => document
-                .sale_price(price_filter.target_currency)
-                .map(|amount| {
-                    Some(ProductListingPrice::Monetary(Price::new(
-                        amount.into(),
-                        price_filter.target_currency,
-                    )))
-                })
+        let sale_price = |amount: Option<u64>| {
+            amount
+                .map(|amount| Price::new(amount.into(), target))
                 .ok_or_else(|| {
                     read_model_invalid(static_error(
                         "sale observation lacks a price in the target currency",
                     ))
-                }),
+                })
+        };
+        return match source_price {
+            None => Ok(None),
+            Some(ProductListingPrice::OnRequest) => Ok(Some(ProductListingPrice::OnRequest)),
+            Some(ProductListingPrice::Monetary(_)) => Ok(Some(ProductListingPrice::Monetary(
+                sale_price(document.sale_price(target))?,
+            ))),
+            Some(ProductListingPrice::Range(_)) => {
+                let min = sale_price(document.sale_price(target))?;
+                let max = sale_price(document.sale_price_max(target))?;
+                if min == max {
+                    return Ok(Some(ProductListingPrice::Monetary(min)));
+                }
+                PriceRange::new(min, max)
+                    .map(|range| Some(ProductListingPrice::Range(range)))
+                    .map_err(read_model_invalid)
+            }
         };
     }
 
-    match document.source_price() {
-        None => Ok(None),
-        Some(ProductListingPrice::OnRequest) => Ok(Some(ProductListingPrice::OnRequest)),
-        Some(ProductListingPrice::Monetary(price)) => price_filter
-            .convert_active_source_amount(price.currency, u64::from(price.monetary_amount))
-            .map(|amount| {
-                Some(ProductListingPrice::Monetary(Price::new(
-                    amount.into(),
-                    price_filter.target_currency,
-                )))
-            })
-            .map_err(read_model_invalid),
-    }
+    source_price
+        .map(|price| price.convert(price_filter.snapshot(), target, RoundingMode::HalfUp))
+        .transpose()
+        .map_err(read_model_invalid)
 }
 
 fn map_hybrid_search_response(
@@ -752,6 +755,8 @@ pub(crate) fn build_product_index_price_clause(
         return None;
     }
 
+    // A source currency no single native amount converts into the filter window has no native
+    // range, so a source range spanning a window narrower than one minor unit is not matched.
     let active_ranges = price_filter
         .active_native_ranges
         .iter()
@@ -760,7 +765,12 @@ pub(crate) fn build_product_index_price_clause(
                 "bool": {
                     "filter": [
                         { "term": { "sourcePrice.currency": currency_code(range.source_currency) } },
-                        { "range": { "sourcePrice.amount": range_query(range.lower, range.upper) } }
+                        overlap_query(
+                            "sourcePrice.amount",
+                            "sourcePrice.maxAmount",
+                            Some(range.lower),
+                            range.upper,
+                        )
                     ]
                 }
             })
@@ -783,9 +793,12 @@ pub(crate) fn build_product_index_price_clause(
         "bool": {
             "filter": [
                 { "exists": { "field": "saleObservationFxRateId" } },
-                { "range": {
-                    sale_price_field_for(price_filter.target_currency): display_range_query(price_filter)
-                } }
+                overlap_query(
+                    &sale_price_field_for("salePrices", price_filter.target_currency),
+                    &sale_price_field_for("salePricesMax", price_filter.target_currency),
+                    price_filter.sold_display_range.min.map(u64::from),
+                    price_filter.sold_display_range.max.map(u64::from),
+                )
             ]
         }
     });
@@ -799,30 +812,45 @@ pub(crate) fn build_product_index_price_clause(
     }))
 }
 
-fn range_query(lower: u64, upper: Option<u64>) -> serde_json::Value {
-    match upper {
-        Some(upper) => json!({ "gte": lower, "lte": upper }),
-        None => json!({ "gte": lower }),
-    }
-}
-
-fn display_range_query(price_filter: &ProductListingPriceFilterPlan) -> serde_json::Value {
-    let mut range = serde_json::Map::new();
-    if let Some(lower) = price_filter.sold_display_range.min {
-        range.insert("gte".to_owned(), json!(u64::from(lower)));
-    }
-    if let Some(upper) = price_filter.sold_display_range.max {
-        range.insert("lte".to_owned(), json!(u64::from(upper)));
-    }
-    serde_json::Value::Object(range)
+/// Matches a price that overlaps `[lower, upper]`: a single amount within it, or a range whose
+/// lower bound is at most `upper` and whose upper bound is at least `lower`. Only a range has
+/// an upper-bound field, so a single amount never matches through the second branch.
+fn overlap_query(
+    amount_field: &str,
+    max_amount_field: &str,
+    lower: Option<u64>,
+    upper: Option<u64>,
+) -> serde_json::Value {
+    let bounded = |gte: Option<u64>, lte: Option<u64>| {
+        let mut range = serde_json::Map::new();
+        if let Some(gte) = gte {
+            range.insert("gte".to_owned(), json!(gte));
+        }
+        if let Some(lte) = lte {
+            range.insert("lte".to_owned(), json!(lte));
+        }
+        serde_json::Value::Object(range)
+    };
+    json!({
+        "bool": {
+            "should": [
+                { "range": { amount_field: bounded(lower, upper) } },
+                { "bool": { "filter": [
+                    { "range": { amount_field: bounded(None, upper) } },
+                    { "range": { max_amount_field: bounded(lower, None) } }
+                ] } }
+            ],
+            "minimum_should_match": 1
+        }
+    })
 }
 
 fn currency_code(currency: Currency) -> &'static str {
     currency.as_str()
 }
 
-fn sale_price_field_for(currency: Currency) -> String {
-    format!("salePrices.{}", currency.as_str().to_ascii_lowercase())
+fn sale_price_field_for(object: &str, currency: Currency) -> String {
+    format!("{object}.{}", currency.as_str().to_ascii_lowercase())
 }
 
 fn apply_availability_filter(
@@ -1071,6 +1099,7 @@ mod tests {
                 currency: Currency::Eur,
             }),
             sale_prices: None,
+            sale_prices_max: None,
             sale_observation_fx_rate_id: None,
             sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
@@ -1616,34 +1645,97 @@ mod tests {
         Ok(())
     }
 
+    /// Evaluates the bool, term, range and exists clauses a price clause renders against a
+    /// document, so tests assert which listings match rather than the clause's layout.
+    fn matches_clause(clause: &serde_json::Value, document: &serde_json::Value) -> bool {
+        let field = |path: &str| {
+            path.split('.')
+                .try_fold(document, |value, key| value.get(key))
+                .filter(|value| !value.is_null())
+        };
+        let object = clause.as_object().expect("clause object");
+        let (kind, body) = object.iter().next().expect("one clause kind");
+        match kind.as_str() {
+            "bool" => {
+                let all = |key: &str| {
+                    body.get(key)
+                        .and_then(serde_json::Value::as_array)
+                        .is_none_or(|clauses| clauses.iter().all(|c| matches_clause(c, document)))
+                };
+                let none = body
+                    .get("must_not")
+                    .and_then(serde_json::Value::as_array)
+                    .is_none_or(|clauses| !clauses.iter().any(|c| matches_clause(c, document)));
+                let should = body
+                    .get("should")
+                    .and_then(serde_json::Value::as_array)
+                    .is_none_or(|clauses| clauses.iter().any(|c| matches_clause(c, document)));
+                all("filter") && all("must") && none && should
+            }
+            "term" => {
+                let (path, expected) = body.as_object().unwrap().iter().next().unwrap();
+                field(path) == Some(expected)
+            }
+            "exists" => field(body["field"].as_str().unwrap()).is_some(),
+            "range" => {
+                let (path, bounds) = body.as_object().unwrap().iter().next().unwrap();
+                field(path)
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some_and(|value| {
+                        bounds["gte"].as_u64().is_none_or(|gte| value >= gte)
+                            && bounds["lte"].as_u64().is_none_or(|lte| value <= lte)
+                    })
+            }
+            other => panic!("unsupported clause {other}"),
+        }
+    }
+
+    fn active_price(source_price: serde_json::Value) -> serde_json::Value {
+        json!({ "sourcePrice": source_price })
+    }
+
+    fn sold_price(min: u64, max: Option<u64>) -> serde_json::Value {
+        json!({
+            "saleObservationFxRateId": "fx",
+            "sourcePrice": { "type": if max.is_some() { "RANGE" } else { "MONETARY" } },
+            "salePrices": { "usd": min },
+            "salePricesMax": max.map(|max| json!({ "usd": max })),
+        })
+    }
+
     #[test]
-    fn should_render_active_and_sold_price_branches_from_plan()
+    fn should_match_prices_and_overlapping_ranges_in_active_and_sold_branches()
     -> Result<(), Box<dyn std::error::Error>> {
+        // A filter of exactly USD 1.10, which is EUR 1.00 in the plan.
         let clause = build_product_index_price_clause(&price_filter(Currency::Usd, Some(110))?)
             .ok_or("missing price clause")?;
+        let eur = |amount: u64| {
+            active_price(json!({"type": "MONETARY", "amount": amount, "currency": "EUR"}))
+        };
+        let eur_range = |min: u64, max: u64| {
+            active_price(
+                json!({"type": "RANGE", "amount": min, "maxAmount": max, "currency": "EUR"}),
+            )
+        };
 
-        assert_eq!(
-            clause.pointer("/bool/should/0/bool/must_not/0/exists/field"),
-            Some(&json!("saleObservationFxRateId"))
-        );
-        assert_eq!(
-            clause.pointer(
-                "/bool/should/0/bool/filter/0/bool/should/0/bool/filter/0/term/sourcePrice.currency"
-            ),
-            Some(&json!("EUR"))
-        );
-        assert_eq!(
-            clause.pointer("/bool/should/0/bool/filter/0/bool/should/0/bool/filter/1/range/sourcePrice.amount/gte"),
-            Some(&json!(100))
-        );
-        assert_eq!(
-            clause.pointer("/bool/should/1/bool/filter/0/exists/field"),
-            Some(&json!("saleObservationFxRateId"))
-        );
-        assert_eq!(
-            clause.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte"),
-            Some(&json!(110))
-        );
+        for (document, expected) in [
+            (eur(100), true),
+            (eur(101), false),
+            (eur_range(50, 200), true),
+            (eur_range(100, 200), true),
+            (eur_range(50, 100), true),
+            (eur_range(101, 200), false),
+            (eur_range(20, 99), false),
+            (active_price(json!({"type": "ON_REQUEST"})), false),
+            (json!({}), false),
+            (sold_price(110, None), true),
+            (sold_price(111, None), false),
+            (sold_price(100, Some(200)), true),
+            (sold_price(120, Some(200)), false),
+            (sold_price(50, Some(100)), false),
+        ] {
+            assert_eq!(expected, matches_clause(&clause, &document), "{document}");
+        }
         Ok(())
     }
 
@@ -1700,25 +1792,8 @@ mod tests {
                 )?;
                 let clause =
                     build_product_index_price_clause(&plan).ok_or("missing price clause")?;
-                let branches = clause
-                    .pointer("/bool/should")
-                    .and_then(serde_json::Value::as_array)
-                    .ok_or("missing price branches")?;
                 for source_currency in Currency::iter() {
                     covered_pairs += 1;
-                    let currency = json!(source_currency.as_str());
-                    let bounds = branches.iter().find_map(|branch| {
-                        branch
-                            .pointer("/bool/filter/0/bool/should")?
-                            .as_array()?
-                            .iter()
-                            .find_map(|native| {
-                                (native.pointer("/bool/filter/0/term/sourcePrice.currency")
-                                    == Some(&currency))
-                                .then(|| native.pointer("/bool/filter/1/range/sourcePrice.amount"))
-                                .flatten()
-                            })
-                    });
                     let native = plan
                         .active_native_ranges
                         .iter()
@@ -1745,26 +1820,24 @@ mod tests {
                             amounts
                         },
                     );
-                    for amount in amounts {
-                        let rendered_membership = bounds.is_some_and(|bounds| {
-                            bounds
-                                .get("gte")
-                                .and_then(serde_json::Value::as_u64)
-                                .is_none_or(|minimum| amount >= minimum)
-                                && bounds
-                                    .get("lte")
-                                    .and_then(serde_json::Value::as_u64)
-                                    .is_none_or(|maximum| amount <= maximum)
-                        });
-                        let display_amount = u64::from(
-                            snapshot
-                                .convert(
-                                    Price::new(amount.into(), source_currency),
-                                    target_currency,
-                                    RoundingMode::HalfUp,
-                                )?
-                                .monetary_amount,
+                    let display = |amount: u64| {
+                        snapshot
+                            .convert(
+                                Price::new(amount.into(), source_currency),
+                                target_currency,
+                                RoundingMode::HalfUp,
+                            )
+                            .map(|price| u64::from(price.monetary_amount))
+                    };
+                    let currency = source_currency.as_str();
+                    for &amount in &amounts {
+                        let rendered_membership = matches_clause(
+                            &clause,
+                            &active_price(
+                                json!({"type": "MONETARY", "amount": amount, "currency": currency}),
+                            ),
                         );
+                        let display_amount = display(amount)?;
                         let display_membership =
                             range.min.is_none_or(|min| display_amount >= u64::from(min))
                                 && range.max.is_none_or(|max| display_amount <= u64::from(max));
@@ -1772,6 +1845,30 @@ mod tests {
                             rendered_membership, display_membership,
                             "{source_currency:?} -> {target_currency:?}, amount {amount}, range {range:?}"
                         );
+                    }
+                    // A range matches when its displayed bounds overlap the filter. A filter
+                    // window that no single native amount converts into excludes the currency.
+                    if native.is_none() {
+                        continue;
+                    }
+                    for (index, &min) in amounts.iter().enumerate() {
+                        for &max in &amounts[index + 1..] {
+                            let rendered_membership = matches_clause(
+                                &clause,
+                                &active_price(
+                                    json!({"type": "RANGE", "amount": min, "maxAmount": max, "currency": currency}),
+                                ),
+                            );
+                            let display_membership = range.max.is_none_or(|upper| {
+                                display(min).is_ok_and(|min| min <= u64::from(upper))
+                            }) && range.min.is_none_or(|lower| {
+                                display(max).is_ok_and(|max| max >= u64::from(lower))
+                            });
+                            assert_eq!(
+                                rendered_membership, display_membership,
+                                "{source_currency:?} -> {target_currency:?}, range {min}..{max}, filter {range:?}"
+                            );
+                        }
                     }
                 }
             }
@@ -1810,24 +1907,26 @@ mod tests {
         )?)
         .ok_or("missing min-only clause")?;
 
-        assert!(
-            max_only
-                .pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/gte")
-                .is_none()
-        );
-        assert_eq!(
-            Some(&json!(110)),
-            max_only.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte")
-        );
-        assert_eq!(
-            Some(&json!(110)),
-            min_only.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/gte")
-        );
-        assert!(
-            min_only
-                .pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte")
-                .is_none()
-        );
+        for (min, max, expected_max_only, expected_min_only) in [
+            (0, None, true, false),
+            (110, None, true, true),
+            (u64::MAX, None, false, true),
+            (0, Some(u64::MAX), true, true),
+            (111, Some(u64::MAX), false, true),
+            (0, Some(109), true, false),
+        ] {
+            let document = sold_price(min, max);
+            assert_eq!(
+                expected_max_only,
+                matches_clause(&max_only, &document),
+                "{document}"
+            );
+            assert_eq!(
+                expected_min_only,
+                matches_clause(&min_only, &document),
+                "{document}"
+            );
+        }
         Ok(())
     }
 
@@ -1854,6 +1953,56 @@ mod tests {
         let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?)?;
 
         assert_eq!(Some(ProductListingPrice::OnRequest), price);
+        Ok(())
+    }
+
+    fn usd_range(min: u64, max: u64) -> Result<ProductListingPrice, Box<dyn std::error::Error>> {
+        Ok(ProductListingPrice::Range(PriceRange::from_amounts(
+            Currency::Usd,
+            min,
+            max,
+        )?))
+    }
+
+    #[test]
+    fn should_convert_both_bounds_of_an_active_price_range()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.source_price = Some(SourcePriceDocument::Range {
+            amount: 100,
+            max_amount: 200,
+            currency: Currency::Eur,
+        });
+
+        let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?)?;
+
+        assert_eq!(Some(usd_range(110, 220)?), price);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::range(777, 999, Ok(Some(usd_range(777, 999).unwrap())))]
+    #[case::bounds_valued_alike(777, 777, Ok(Some(ProductListingPrice::Monetary(Price::new(777_u64.into(), Currency::Usd)))))]
+    #[case::descending(999, 777, Err(()))]
+    fn should_read_both_sale_prices_of_a_sold_price_range(
+        #[case] min: u64,
+        #[case] max: u64,
+        #[case] expected: Result<Option<ProductListingPrice>, ()>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.source_price = Some(SourcePriceDocument::Range {
+            amount: 100,
+            max_amount: 200,
+            currency: Currency::Eur,
+        });
+        document.sale_prices = Some(sale_prices(min));
+        document.sale_prices_max = Some(sale_prices(max));
+        document.sale_observation_fx_rate_id = Some(FxRateId::new());
+        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?);
+
+        assert_eq!(expected, price.map_err(|_| ()));
         Ok(())
     }
 

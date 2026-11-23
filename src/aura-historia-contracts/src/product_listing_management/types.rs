@@ -7,6 +7,7 @@ use crate::{
 use application::patch_field::PatchField;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_price::PriceRangeError,
 };
 use product_listing_service::{
     ports::{ProductListingStorageVersion, admin_product_listing_reader::*},
@@ -56,20 +57,41 @@ enum AdminPriceData {
         #[serde(with = "crate::wire::currency")]
         #[schemars(schema_with = "crate::wire::currency::schema")]
         currency: money::Currency,
-        #[serde(deserialize_with = "storage_amount")]
+        #[serde(deserialize_with = "crate::wire::storage_amount")]
         #[schemars(range(max = i64::MAX as u64))]
         amount: u64,
     },
+    Range {
+        #[serde(with = "crate::wire::currency")]
+        #[schemars(schema_with = "crate::wire::currency::schema")]
+        currency: money::Currency,
+        /// Lower bound in the currency's minor units, below `max`.
+        #[serde(deserialize_with = "crate::wire::storage_amount")]
+        #[schemars(range(max = i64::MAX as u64))]
+        min: u64,
+        /// Upper bound in the currency's minor units, above `min`.
+        #[serde(deserialize_with = "crate::wire::storage_amount")]
+        #[schemars(range(min = 1, max = i64::MAX as u64))]
+        max: u64,
+    },
     OnRequest {},
 }
-impl From<AdminPriceData> for product_listing_core::product_listing_price::ProductListingPrice {
-    fn from(value: AdminPriceData) -> Self {
+impl TryFrom<AdminPriceData> for product_listing_core::product_listing_price::ProductListingPrice {
+    type Error = MutationInputError;
+
+    fn try_from(value: AdminPriceData) -> Result<Self, Self::Error> {
         match value {
             AdminPriceData::Monetary { currency, amount } => {
-                ProductListingPriceData::Monetary { currency, amount }.into()
+                ProductListingPriceData::Monetary { currency, amount }.try_into()
             }
-            AdminPriceData::OnRequest {} => ProductListingPriceData::OnRequest.into(),
+            AdminPriceData::Range { currency, min, max } => {
+                ProductListingPriceData::Range { currency, min, max }.try_into()
+            }
+            AdminPriceData::OnRequest {} => ProductListingPriceData::OnRequest.try_into(),
         }
+        .map_err(|error: PriceRangeError| {
+            MutationInputError::caused("price", error.to_string(), error)
+        })
     }
 }
 
@@ -79,7 +101,7 @@ struct MonetaryPriceData {
     #[serde(with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
     currency: money::Currency,
-    #[serde(deserialize_with = "storage_amount")]
+    #[serde(deserialize_with = "crate::wire::storage_amount")]
     #[schemars(range(max = i64::MAX as u64))]
     amount: u64,
 }
@@ -87,12 +109,6 @@ impl From<MonetaryPriceData> for money::Price {
     fn from(value: MonetaryPriceData) -> Self {
         Self::new(value.amount.into(), value.currency)
     }
-}
-fn storage_amount<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    let value = u64::deserialize(deserializer)?;
-    i64::try_from(value)
-        .map_err(|_| serde::de::Error::custom("amount exceeds the supported storage range"))?;
-    Ok(value)
 }
 
 impl UpdateData {
@@ -106,7 +122,7 @@ impl UpdateData {
             patch: UpdateProductListingCommand {
                 title: crate::product_listing_fields::title_patch(self.title)?,
                 description: clearable(self.description.map(LocalizedTextData::into_localized)),
-                price: clearable(self.price.map(Into::into)),
+                price: clearable(self.price.try_map(TryInto::try_into)?),
                 price_estimate_min: clearable(self.price_estimate_min.map(Into::into)),
                 price_estimate_max: clearable(self.price_estimate_max.map(Into::into)),
                 availability: clearable(self.availability),

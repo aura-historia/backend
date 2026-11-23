@@ -27,6 +27,14 @@ impl<T> PatchValue<T> {
             Self::Value(value) => PatchValue::Value(map(value)),
         }
     }
+
+    pub fn try_map<U, E>(self, map: impl FnOnce(T) -> Result<U, E>) -> Result<PatchValue<U>, E> {
+        Ok(match self {
+            Self::Omitted => PatchValue::Omitted,
+            Self::Null => PatchValue::Null,
+            Self::Value(value) => PatchValue::Value(map(value)?),
+        })
+    }
 }
 
 impl<'de, T> Deserialize<'de> for PatchValue<T>

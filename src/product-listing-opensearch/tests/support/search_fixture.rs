@@ -96,6 +96,8 @@ pub(super) struct ProductListingSeed {
     product_listing_title_slug_id: ProductListingSlugId,
     source_price: Option<u64>,
     sale_price: Option<u64>,
+    /// The upper bound that turns the source price (and a sale price) into a range.
+    max_price: Option<u64>,
     has_sale_observation: bool,
 }
 
@@ -109,6 +111,7 @@ impl ProductListingSeed {
             .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: Some(source_price),
             sale_price: None,
+            max_price: None,
             has_sale_observation: false,
         }
     }
@@ -122,6 +125,7 @@ impl ProductListingSeed {
             .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: Some(sale_price),
             sale_price: Some(sale_price),
+            max_price: None,
             has_sale_observation: true,
         }
     }
@@ -135,8 +139,17 @@ impl ProductListingSeed {
             .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: None,
             sale_price: None,
+            max_price: None,
             has_sale_observation: true,
         }
+    }
+}
+
+impl ProductListingSeed {
+    /// Turns the price into a range up to `max_price`, valued alike in every currency.
+    pub(super) fn up_to(mut self, max_price: u64) -> Self {
+        self.max_price = Some(max_price);
+        self
     }
 }
 
@@ -147,7 +160,7 @@ pub(super) struct IndexedProductListing {
 pub(super) fn product_listing_document(
     seed: ProductListingSeed,
 ) -> Result<IndexedProductListing, time::error::Format> {
-    let sale_prices = seed.sale_price.map(|amount| {
+    let all_currencies = |amount: u64| {
         json!({
             "eur": amount, "gbp": amount, "usd": amount, "aud": amount,
             "cad": amount, "nzd": amount, "cny": amount, "brl": amount,
@@ -155,7 +168,9 @@ pub(super) fn product_listing_document(
             "rub": amount, "aed": amount, "sar": amount, "hkd": amount,
             "sgd": amount, "chf": amount, "zar": amount, "sek": amount, "dkk": amount, "nok": amount, "krw": amount, "inr": amount, "twd": amount, "huf": amount, "ron": amount, "mxn": amount, "thb": amount, "ars": amount
         })
-    });
+    };
+    let sale_prices = seed.sale_price.map(all_currencies);
+    let sale_prices_max = seed.sale_price.and(seed.max_price).map(all_currencies);
     let sale_observed_at = seed
         .has_sale_observation
         .then(|| OffsetDateTime::UNIX_EPOCH.format(&Rfc3339))
@@ -169,12 +184,14 @@ pub(super) fn product_listing_document(
         "eventId": EventId::new(),
         "title": { "text": "Blue vase", "language": "EN" },
         "titleEn": "Blue vase",
-        "sourcePrice": seed.source_price.map(|amount| json!({
-                    "type": "MONETARY",
-                    "amount": amount,
-                    "currency": "EUR"
-                })),
+        "sourcePrice": seed.source_price.map(|amount| match seed.max_price {
+                    None => json!({ "type": "MONETARY", "amount": amount, "currency": "EUR" }),
+                    Some(max) => json!({
+                        "type": "RANGE", "amount": amount, "maxAmount": max, "currency": "EUR"
+                    }),
+                }),
         "salePrices": sale_prices,
+        "salePricesMax": sale_prices_max,
         "saleObservationFxRateId": seed.has_sale_observation.then(FxRateId::new),
         "saleObservedAt": sale_observed_at,
 

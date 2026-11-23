@@ -177,14 +177,15 @@ struct ProductListingHistoryPriceData<T> {
     #[serde(flatten)]
     source: T,
     #[serde(skip_serializing_if = "Option::is_none")]
-    display: Option<ProductListingHistoryPriceDisplayData>,
+    display: Option<ProductListingHistoryPriceDisplayData<T>>,
 }
 
+/// The source value in the requested currency, in the shape of the source value.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-struct ProductListingHistoryPriceDisplayData {
+struct ProductListingHistoryPriceDisplayData<T> {
     #[serde(flatten)]
-    price: PriceData,
+    price: T,
     #[schemars(schema_with = "crate::wire::schema::fx_rate_id")]
     fx_rate_id: FxRateId,
     #[serde(with = "time::serde::rfc3339")]
@@ -201,8 +202,10 @@ impl<T, D: From<T>> From<ProductListingHistoryPrice<T>> for ProductListingHistor
     }
 }
 
-impl From<ProductListingHistoryPriceDisplay> for ProductListingHistoryPriceDisplayData {
-    fn from(display: ProductListingHistoryPriceDisplay) -> Self {
+impl<T, D: From<T>> From<ProductListingHistoryPriceDisplay<T>>
+    for ProductListingHistoryPriceDisplayData<D>
+{
+    fn from(display: ProductListingHistoryPriceDisplay<T>) -> Self {
         Self {
             price: display.price.into(),
             fx_rate_id: display.fx_rate_id,
@@ -384,13 +387,42 @@ mod tests {
             ))
             .unwrap()
         );
+        let main_display = ProductListingHistoryPriceDisplay {
+            price: ProductListingPrice::Monetary(display.price),
+            fx_rate_id: display.fx_rate_id,
+            captured_at: display.captured_at,
+        };
+        let expected_main_display = json!({"type":"MONETARY", "currency":"USD", "amount":5, "fxRateId": display.fx_rate_id, "capturedAt":"1970-01-01T00:00:00Z"});
         assert_eq!(
-            json!({"type":"MONETARY", "currency":"EUR", "amount":3, "display":expected_display}),
+            json!({"type":"MONETARY", "currency":"EUR", "amount":3, "display":expected_main_display}),
             checked_output(
                 ProductListingHistoryPriceData::<ProductListingPriceData>::from(
                     ProductListingHistoryPrice {
                         source: ProductListingPrice::Monetary(source),
-                        display: Some(display)
+                        display: Some(main_display)
+                    }
+                )
+            )
+            .unwrap()
+        );
+        let range = |currency, min: u64, max: u64| {
+            ProductListingPrice::Range(
+                product_listing_core::product_listing_price::PriceRange::from_amounts(
+                    currency, min, max,
+                )
+                .unwrap(),
+            )
+        };
+        assert_eq!(
+            json!({"type":"RANGE", "currency":"EUR", "min":3, "max":4, "display":{"type":"RANGE", "currency":"USD", "min":5, "max":7, "fxRateId": display.fx_rate_id, "capturedAt":"1970-01-01T00:00:00Z"}}),
+            checked_output(
+                ProductListingHistoryPriceData::<ProductListingPriceData>::from(
+                    ProductListingHistoryPrice {
+                        source: range(Currency::Eur, 3, 4),
+                        display: Some(ProductListingHistoryPriceDisplay {
+                            price: range(Currency::Usd, 5, 7),
+                            ..main_display
+                        })
                     }
                 )
             )
@@ -420,7 +452,7 @@ mod tests {
             baseline
         );
         let mut projected_pricing = ProductListingHistoryPricing::from(pricing);
-        projected_pricing.price.as_mut().unwrap().display = Some(display);
+        projected_pricing.price.as_mut().unwrap().display = Some(main_display);
         projected_pricing
             .price_estimate_min
             .as_mut()
@@ -432,8 +464,11 @@ mod tests {
             .unwrap()
             .display = Some(display);
         let projected = checked_output(ProductListingPricingData::from(projected_pricing)).unwrap();
+        assert_eq!(expected_main_display, projected["price"]["display"]);
         for key in ["price", "priceEstimateMin", "priceEstimateMax"] {
-            assert_eq!(expected_display, projected[key]["display"]);
+            if key != "price" {
+                assert_eq!(expected_display, projected[key]["display"]);
+            }
             assert_eq!(baseline[key]["amount"], projected[key]["amount"]);
             assert_eq!(baseline[key]["currency"], projected[key]["currency"]);
         }

@@ -1,7 +1,9 @@
 use listing_source_core::ViewLink;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
-use product_listing_core::product_listing_price::ProductListingPrice;
+use product_listing_core::product_listing_price::{
+    PriceRange, PriceRangeError, ProductListingPrice,
+};
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +70,20 @@ pub enum ProductListingPriceData {
         #[schemars(range(max = u64::MAX))]
         amount: u64,
     },
+    /// An asking price between two amounts of one currency.
+    Range {
+        #[serde(with = "crate::wire::currency")]
+        #[schemars(schema_with = "crate::wire::currency::schema")]
+        currency: Currency,
+        /// Lower bound in the currency's minor units, below `max`.
+        #[serde(deserialize_with = "crate::wire::storage_amount")]
+        #[schemars(range(max = i64::MAX))]
+        min: u64,
+        /// Upper bound in the currency's minor units, above `min`.
+        #[serde(deserialize_with = "crate::wire::storage_amount")]
+        #[schemars(range(min = 1, max = i64::MAX))]
+        max: u64,
+    },
     #[schemars(transform = allow_unit_variant_unknown_members)]
     OnRequest,
 }
@@ -78,14 +94,20 @@ fn allow_unit_variant_unknown_members(schema: &mut Schema) {
     schema.remove("additionalProperties");
 }
 
-impl From<ProductListingPriceData> for ProductListingPrice {
-    fn from(value: ProductListingPriceData) -> Self {
-        match value {
+/// A range must hold one currency, ascend and fit the storable minor units.
+impl TryFrom<ProductListingPriceData> for ProductListingPrice {
+    type Error = PriceRangeError;
+
+    fn try_from(value: ProductListingPriceData) -> Result<Self, Self::Error> {
+        Ok(match value {
             ProductListingPriceData::Monetary { currency, amount } => {
                 Self::Monetary(Price::new(MonetaryAmount::from(amount), currency))
             }
+            ProductListingPriceData::Range { currency, min, max } => {
+                Self::Range(PriceRange::from_amounts(currency, min, max)?)
+            }
             ProductListingPriceData::OnRequest => Self::OnRequest,
-        }
+        })
     }
 }
 
@@ -95,6 +117,11 @@ impl From<ProductListingPrice> for ProductListingPriceData {
             ProductListingPrice::Monetary(price) => Self::Monetary {
                 currency: price.currency,
                 amount: price.monetary_amount.into(),
+            },
+            ProductListingPrice::Range(range) => Self::Range {
+                currency: range.currency(),
+                min: range.min().monetary_amount.into(),
+                max: range.max().monetary_amount.into(),
             },
             ProductListingPrice::OnRequest => Self::OnRequest,
         }

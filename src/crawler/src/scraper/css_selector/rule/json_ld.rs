@@ -25,7 +25,9 @@ pub enum JsonLdOfferProperty {
     /// offer states rather than the source's fallback currency. A price of zero digits only
     /// is no value: templates publish it for price-on-request items, never for a sale. A price
     /// with exactly three decimals is written so the worker reads it as schema.org means it,
-    /// or is no value when that meaning is in doubt (see [`offer_price`]).
+    /// or is no value when that meaning is in doubt (see [`offer_price`]). An `AggregateOffer`
+    /// whose `highPrice` exceeds its `lowPrice` states a range, written `low - high` (see
+    /// [`aggregate_offer_price`]).
     Price,
 }
 
@@ -123,6 +125,11 @@ fn offer_property(
         JsonLdOfferProperty::Availability => scalar(value),
         JsonLdOfferProperty::Price => {
             let price = offer_price(value).filter(|price| !has_only_zero_digits(price))?;
+            let price = if offer.get("price").and_then(scalar).is_some() {
+                price
+            } else {
+                aggregate_offer_price(price, offer.get("highPrice"))?
+            };
             Some(
                 match offer
                     .get("priceCurrency")
@@ -168,6 +175,47 @@ fn offer_price(value: &Value) -> Option<String> {
         3 => format!("{whole}.{decimals}0"),
         _ => format!("{whole}.{decimals}"),
     })
+}
+
+/// The price of an `AggregateOffer` read from its `lowPrice`: a range `low - high` when its
+/// `highPrice` is a greater decimal, which the worker reads as an asking-price range, or the low
+/// price alone when the high price is absent or equal. A high price that cannot be compared with
+/// the low one, or that is lower, is no value: reading the low price alone would turn a stated
+/// range into one of its bounds.
+fn aggregate_offer_price(low: String, high: Option<&Value>) -> Option<String> {
+    let Some(high) = high.filter(|high| scalar(high).is_some()) else {
+        return Some(low);
+    };
+    let high = offer_price(high)?;
+    match compare_decimals(&low, &high)? {
+        std::cmp::Ordering::Less => Some(format!("{low} - {high}")),
+        std::cmp::Ordering::Equal => Some(low),
+        std::cmp::Ordering::Greater => None,
+    }
+}
+
+/// Orders two unsigned decimals written as schema.org writes them (`1250`, `1250.50`); `None`
+/// when either is written any other way, such as with a sign or grouped thousands.
+fn compare_decimals(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    fn parts(value: &str) -> Option<(&str, &str)> {
+        let (whole, decimals) = value.split_once('.').unwrap_or((value, ""));
+        let digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
+        (!whole.is_empty() && digits(whole) && digits(decimals) && !value.ends_with('.')).then(
+            || {
+                let whole = whole.trim_start_matches('0');
+                (whole, decimals.trim_end_matches('0'))
+            },
+        )
+    }
+    let (left_whole, left_decimals) = parts(left)?;
+    let (right_whole, right_decimals) = parts(right)?;
+    Some(
+        left_whole
+            .len()
+            .cmp(&right_whole.len())
+            .then_with(|| left_whole.cmp(right_whole))
+            .then_with(|| left_decimals.cmp(right_decimals)),
+    )
 }
 
 /// Whether `value` holds digits and every one of them is a zero, such as `0` or `0.00`.
@@ -315,6 +363,69 @@ mod tests {
             offer_value(&json, JsonLdOfferProperty::Price).as_deref(),
             expected,
             "{price}"
+        );
+    }
+
+    #[rstest]
+    #[case::range_with_currency(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"1000.00","highPrice":"1500.00","priceCurrency":"EUR"}}"#,
+        Some("1000.00 - 1500.00 EUR")
+    )]
+    #[case::range_of_numbers(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":40,"highPrice":95.5}}"#,
+        Some("40 - 95.5")
+    )]
+    #[case::range_of_three_decimal_numbers(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":12.5,"highPrice":1250.000}}"#,
+        Some("12.5 - 1250.0")
+    )]
+    #[case::equal_bounds_are_one_price(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"40.00","highPrice":"40","priceCurrency":"USD"}}"#,
+        Some("40.00 USD")
+    )]
+    #[case::blank_high_price_is_absent(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"40","highPrice":" "}}"#,
+        Some("40")
+    )]
+    #[case::inverted_bounds(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"1500","highPrice":"1000"}}"#,
+        None
+    )]
+    #[case::high_price_not_a_decimal(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"40","highPrice":"ninety"}}"#,
+        None
+    )]
+    #[case::high_price_with_a_sign(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"40","highPrice":"-90"}}"#,
+        None
+    )]
+    #[case::low_price_with_grouped_thousands(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"1,250.00","highPrice":"1500.00"}}"#,
+        None
+    )]
+    #[case::ambiguous_high_price(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"9.50","highPrice":"12.500"}}"#,
+        None
+    )]
+    #[case::zero_low_price_is_price_on_request(
+        r#"{"offers":{"@type":"AggregateOffer","lowPrice":"0","highPrice":"1500"}}"#,
+        None
+    )]
+    #[case::blank_price_reads_low_and_high(
+        r#"{"offers":{"@type":"AggregateOffer","price":"","lowPrice":"1000","highPrice":"1500"}}"#,
+        Some("1000 - 1500")
+    )]
+    #[case::price_wins_over_low_and_high(
+        r#"{"offers":{"@type":"AggregateOffer","price":"1200","lowPrice":"1000","highPrice":"1500"}}"#,
+        Some("1200")
+    )]
+    fn should_read_an_aggregate_offer_range_when_its_high_price_exceeds_its_low_price(
+        #[case] json: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(
+            offer_value(json, JsonLdOfferProperty::Price).as_deref(),
+            expected
         );
     }
 
