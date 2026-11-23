@@ -6,7 +6,9 @@
 //! captured, cannot show. The [approval guard](crate::review::approval_guard) refuses it; the
 //! contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, SchemaExtraction};
+use crate::scraper::css_selector::product_schema::{
+    ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
+};
 use crate::scraper::plausibility::{
     PlausibilityFindings, capturable_identity, is_link_or_path_identity,
 };
@@ -76,12 +78,16 @@ impl CapturedIdentitySample {
                 .map(|sampled| CapturedIdentityPage {
                     url: sampled.page.url.to_string(),
                     captured_identity: sampled.page.captured_identity.clone(),
-                    outcome: sampled
-                        .html
-                        .as_deref()
-                        .map_or(CapturedIdentityOutcome::NotFetched, |html| {
-                            outcome_on(schemas, html, &sampled.page.captured_identity)
-                        }),
+                    outcome: sampled.html.as_deref().map_or(
+                        CapturedIdentityOutcome::NotFetched,
+                        |raw_html| {
+                            let html = Html::parse_document(raw_html);
+                            identity_outcome(
+                                &plausible_extractions(schemas, &html),
+                                &sampled.page.captured_identity,
+                            )
+                        },
+                    ),
                 })
                 .collect(),
         }
@@ -123,22 +129,32 @@ impl CapturedIdentitySample {
     }
 }
 
-fn outcome_on(
+/// What each of `schemas` that runtime selection could use extracts from `html`, in schema order:
+/// an extraction a rejecting plausibility finding withdraws is left out.
+fn plausible_extractions(
     schemas: &[ProductCssSelectorSchema],
-    raw_html: &str,
-    captured_identity: &str,
-) -> CapturedIdentityOutcome {
-    let html = Html::parse_document(raw_html);
-    let identities: Vec<String> = schemas
+    html: &Html,
+) -> Vec<RawExtractedProduct> {
+    schemas
         .iter()
-        .filter_map(|schema| match schema.extract(&html) {
+        .filter_map(|schema| match schema.extract(html) {
             Ok(SchemaExtraction { raw, .. })
                 if PlausibilityFindings::of(&raw).rejection_reason().is_none() =>
             {
-                capturable_identity(&raw.source_listing_id)
+                Some(raw)
             }
             _ => None,
         })
+        .collect()
+}
+
+fn identity_outcome(
+    extractions: &[RawExtractedProduct],
+    captured_identity: &str,
+) -> CapturedIdentityOutcome {
+    let identities: Vec<String> = extractions
+        .iter()
+        .filter_map(|raw| capturable_identity(&raw.source_listing_id))
         .collect();
     let mut differing: Vec<String> = Vec::new();
     for identity in &identities {
