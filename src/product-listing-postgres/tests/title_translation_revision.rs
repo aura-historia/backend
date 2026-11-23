@@ -165,7 +165,7 @@ async fn should_translate_again_when_a_description_change_follows_an_untranslate
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_discard_translations_and_leave_work_when_the_title_changes() {
+async fn should_discard_translations_and_translate_again_when_the_title_changes() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());

@@ -318,6 +318,8 @@ replaced revision is translated, its translations are re-stamped and its transla
 is copied for the new revision; the copy becomes the listing's current event, so it drives the search
 projection and the new revision's translation job completes as `duplicate` without a model call.
 Translation work still pending, in a batch or parked for the replaced revision moves along unchanged.
+Only a result a round already read for the replaced revision is dropped as stale and translated
+again.
 Only the replaced revision is carried: translations of any older revision are stale and dropped, so a
 description change that follows a title change whose translation has not landed still translates
 that title.

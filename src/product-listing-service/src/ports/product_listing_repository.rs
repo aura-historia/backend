@@ -20,7 +20,7 @@ pub struct ProductListingWriteEffects {
 }
 
 /// How a write moves the content revision that content assessment and title translation work on
-/// (docs/product-listing.md#content-revision).
+/// (docs/product-listing.md#title-translation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProductListingContentSourceEffect {
     /// Neither title nor description changed.
