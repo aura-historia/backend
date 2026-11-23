@@ -3,17 +3,18 @@
 //! language directory, and the product identity both pages show is part of what the URLs share. A
 //! language code before the path is already a spelling
 //! ([`product_spelling`](super::product_spelling)); this rule covers a language directory at any
-//! depth. A directory inserted or dropped shows a language version by itself; a directory swapped
-//! for another one does only when the two titles are written in different writing systems, since
-//! the words and codes that name languages also name origins, sections and dealers.
+//! depth. A language code inserted or dropped shows a language version by itself; a language named
+//! in words inserted or dropped, and any directory swapped for another one, do only when the two
+//! titles are written in different writing systems, since the words and codes that name languages
+//! also name origins, sections and dealers.
 
 use super::language_codes::is_language_code;
 use url::Url;
 
 /// Languages named in words, in English and in the language itself without diacritics, as a shop
 /// names the directory of a language version (`/english/…`, `/deutsch/…`). The same words name
-/// an antique's origin (`/chinese/` porcelain, `/english/` furniture), so a swap between such a
-/// directory and another one shows a language version only with titles in two writing systems.
+/// an antique's origin (`/chinese/` porcelain, `/english/` furniture), so such a directory, inserted
+/// or swapped for another one, shows a language version only with titles in two writing systems.
 const LANGUAGE_NAMES: &[&str] = &[
     "english",
     "german",
@@ -68,8 +69,8 @@ pub(super) struct VersionedPage<'a> {
 
 /// Whether `page` and `other` name one page in two language versions: on one origin, with one
 /// query and one page name, their directories differ in one language directory
-/// ([`LanguageDifference`]), a swapped directory only with titles in two writing systems
-/// ([`are_in_different_writing_systems`]), and `identity` is a whole query value, a directory both
+/// ([`LanguageDifference`]), a language named in words or a swapped directory only with titles in
+/// two writing systems ([`are_in_different_writing_systems`]), and `identity` is a whole query value, a directory both
 /// keep or the page name, so the URLs themselves name the product the shared identity stands for.
 /// A language directory is never the identity's token.
 pub(super) fn are_language_versions(
@@ -91,13 +92,14 @@ pub(super) fn are_language_versions(
     if path.name != other_path.name {
         return false;
     }
+    let titles_differ = || are_in_different_writing_systems(page.title, other.title);
     let shared = match path.language_difference(&other_path) {
-        Some(LanguageDifference::Inserted { shared }) => shared,
-        Some(LanguageDifference::Swapped { shared })
-            if are_in_different_writing_systems(page.title, other.title) =>
+        Some(LanguageDifference::Inserted { shared, directory })
+            if is_language_code(directory) || titles_differ() =>
         {
             shared
         }
+        Some(LanguageDifference::Swapped { shared }) if titles_differ() => shared,
         _ => return false,
     };
     path.name == identity
@@ -115,9 +117,12 @@ struct PagePath<'a> {
 /// directories both keep, in order.
 #[derive(Debug, PartialEq, Eq)]
 enum LanguageDifference<'a> {
-    /// A language directory ([`is_language_directory`]) inserted into, or dropped from, otherwise
-    /// equal directories (`/shop/de/item` and `/shop/item`).
-    Inserted { shared: Vec<&'a str> },
+    /// A language `directory` ([`is_language_directory`]) inserted into, or dropped from,
+    /// otherwise equal directories (`/shop/de/item` and `/shop/item`).
+    Inserted {
+        shared: Vec<&'a str>,
+        directory: &'a str,
+    },
     /// One directory swapped for another at the same place, at least one of them a language
     /// directory (`/ukiyoe/detail` and `/english/detail`).
     Swapped { shared: Vec<&'a str> },
@@ -163,6 +168,7 @@ impl<'a> PagePath<'a> {
         (is_language_directory(longer[index]) && longer[index + 1..] == shorter[index..]).then(
             || LanguageDifference::Inserted {
                 shared: shorter.clone(),
+                directory: longer[index],
             },
         )
     }
@@ -238,7 +244,7 @@ impl WritingSystem {
     }
 
     /// The writing system most of `title`'s letters are in; `None` for a title without letters
-    /// of a known system, such as a bare number.
+    /// of a known system, such as a bare number, and for a tie between two systems.
     fn main_of(title: &str) -> Option<Self> {
         let mut counts = [0_usize; Self::ALL.len()];
         for system in title.chars().filter_map(Self::of) {
@@ -246,8 +252,12 @@ impl WritingSystem {
                 counts[index] += 1;
             }
         }
-        let (index, count) = counts.iter().enumerate().max_by_key(|(_, count)| **count)?;
-        (*count > 0).then_some(Self::ALL[index])
+        let most = counts.iter().copied().max()?;
+        let mut leading = (0..counts.len()).filter(|&index| counts[index] == most);
+        match (leading.next(), leading.next()) {
+            (Some(index), None) if most > 0 => Some(Self::ALL[index]),
+            _ => None,
+        }
     }
 }
 
@@ -325,9 +335,9 @@ mod tests {
         ("https://shop.example/catalogue/print/88", Some("Imari charger")),
         "88"
     )]
-    #[case::name_inserted_inside_the_path(
-        ("https://shop.example/catalogue/english/print.php?id=88", None),
-        ("https://shop.example/catalogue/print.php?id=88", None),
+    #[case::name_inserted_with_titles_in_two_writing_systems(
+        ("https://shop.example/catalogue/english/print.php?id=88", ENGLISH),
+        ("https://shop.example/catalogue/print.php?id=88", JAPANESE),
         "88"
     )]
     #[case::code_inserted_before_the_path(
@@ -336,7 +346,7 @@ mod tests {
         "88"
     )]
     #[case::identity_as_the_page_name(
-        ("https://shop.example/english/prints/hiroshige-88", None),
+        ("https://shop.example/ja/prints/hiroshige-88", None),
         ("https://shop.example/prints/hiroshige-88", None),
         "hiroshige-88"
     )]
@@ -381,6 +391,21 @@ mod tests {
         ("https://shop.example/stock/ny/item?id=5", Some("Tiffany lamp")),
         ("https://shop.example/stock/la/item?id=5", Some("Art deco mirror")),
         "5"
+    )]
+    #[case::origin_category_inserted(
+        ("https://shop.example/prints/japanese/detail.php?id=5", Some("Imari dish")),
+        ("https://shop.example/prints/detail.php?id=5", Some("Kuniyoshi warrior print")),
+        "5"
+    )]
+    #[case::origin_category_inserted_before_the_path(
+        ("https://shop.example/chinese/item.php?id=12", Some("Famille rose vase")),
+        ("https://shop.example/item.php?id=12", Some("Oak coffer")),
+        "12"
+    )]
+    #[case::name_inserted_without_titles(
+        ("https://shop.example/catalogue/english/print.php?id=88", None),
+        ("https://shop.example/catalogue/print.php?id=88", None),
+        "88"
     )]
     #[case::swap_with_a_missing_title(
         ("https://hara.example/ukiyoe/ukiyoe_detail.php?print_id=24689", JAPANESE),
@@ -503,6 +528,7 @@ mod tests {
         Some(WritingSystem::HanAndKana)
     )]
     #[case::bare_number("1893", None)]
+    #[case::tie_between_two_systems("Hara 原書房画", None)]
     fn should_tell_the_main_writing_system_of_a_title(
         #[case] title: &str,
         #[case] system: Option<WritingSystem>,
