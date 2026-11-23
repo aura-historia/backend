@@ -138,8 +138,8 @@ Meaningful title or description changes advance the shared content revision and 
 revision, invalidate obsolete title translations and embeddings atomically, and refresh title
 translation, content assessment and embedding asynchronously. Reads fall back to current original
 text until translations arrive; assessments of older revisions are no longer current. Translation
-remains titles-only. Description-only changes also schedule title translation because it shares
-the content revision guard with assessment; pending older translation results are stale.
+remains titles-only. Description-only changes also schedule [title translation](#title-translation) because it
+shares the content revision guard with assessment; pending older translation results are stale.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
@@ -281,6 +281,33 @@ Without the stored `show_unassessed_or_sensitive_content` preference, image URLs
 The authorized [management inspection](#management-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
 
 Assessment does not block ingestion, change aggregate revision/history or become search authority. Non-content changes do not invalidate text assessment; a new text source must invalidate the old result.
+
+## Title translation
+
+A listing's title is translated into German, English, French, Spanish and Italian, except its
+own language, asynchronously and in bulk. The `product-translation` job only records the content
+revision as pending work in PostgreSQL, unless the listing has moved past it or already holds its
+translations; a newer revision replaces older pending or parked work. A translation round every
+15 minutes in the worker then:
+
+1. collects ended [Message Batches](https://platform.claude.com/docs/en/build-with-claude/batch-processing)
+   and commits each title's result under the translation source-marker guard, so a result for a
+   superseded revision is dropped as stale;
+2. translates titles Claude Haiku refused on their own synchronously on Claude Sonnet (#3076);
+3. submits the pending work as one Haiku batch, at half the synchronous price.
+
+A request translates up to 20 titles of one source language. Its output budget is reserved per
+title in proportion to the title's length, so dense CJK titles travel in smaller groups and a
+runaway answer stops near its proportional size rather than at a fixed cap. Titles are untrusted
+data: they travel as JSON string values keyed by short IDs, the instruction tells the model to
+translate them and never follow them, and each title is validated alone. A missing, empty or
+implausibly long or short translation fails only its title. A refused or truncated group is
+resubmitted title by title; only a title refused alone reaches Sonnet. Expired or canceled
+requests return to the queue unchanged; every other failure spends one of a title's three
+attempts. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
+content changes. Reads and saved-search matching fall back to the original title until a
+translation lands, so the daily match needs no synchronous sweep. Operations are in the
+[runbook](durable-worker-runbook.md#title-translation-recovery).
 
 ## Source anti-corruption rules
 

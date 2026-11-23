@@ -1,4 +1,4 @@
-use aura_historia_worker::{compose_handlers, config::WorkerConfig, run};
+use aura_historia_worker::{compose_background_tasks, compose_handlers, config::WorkerConfig, run};
 use platform_observability::{LoggingConfig, init};
 use platform_process::{
     Shutdown,
@@ -60,8 +60,18 @@ async fn start() -> Result<(), &'static str> {
         );
         "composition"
     })?;
+    let background = compose_background_tasks(&config, &pool)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                event = "worker.composition.failed",
+                job_scope = %error.scope,
+                config_error = find_config_error(&error).map(tracing::field::display),
+            );
+            "composition"
+        })?;
     tracing::info!(event = "worker.started", scopes = handlers.len());
-    run(pool, config, handlers, shutdown.into_token())
+    run(pool, config, handlers, background, shutdown.into_token())
         .await
         .map_err(|_| "task_stopped")?;
     tracing::info!(event = "worker.stopped");

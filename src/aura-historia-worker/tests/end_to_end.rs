@@ -3,6 +3,8 @@
 //! → outbox → dispatcher → enrichment workers → OpenSearch projection. Only the external language
 //! and embedding models are fakes.
 
+mod support;
+
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aura_historia_jobs::WorkerScope;
 use aura_historia_worker::{
@@ -19,18 +21,15 @@ use aura_historia_worker::{
             ProductListingNormalizationJobs, compose_normalization_use_case,
         },
         product_listing_opensearch::{ProductListingOpenSearchJobs, compose_projection_use_case},
-        product_translation::{
-            ProductTranslationJobs, compose_product_translation_use_case_with_models,
-        },
+        product_translation::{ProductTranslationJobs, compose_product_translation_use_case},
         watchlist_notification,
     },
+    translation_batches::compose_round_use_case,
+    translation_rounds,
 };
 use embedding::{
     EMBEDDING_DIMENSIONS, EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText,
     EmbeddingVector,
-};
-use large_language_model::{
-    LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
 use listing_source_core::ListingSourceId;
 use opensearch::GetParts;
@@ -75,26 +74,8 @@ const DEADLINE: Duration = Duration::from_secs(240);
 const SOURCE_RECORD_KEY: &str = "end-to-end-1";
 
 /// Translates every title into every catalogue language.
-struct Translator;
-
-#[async_trait::async_trait]
-impl LargeLanguageModel for Translator {
-    async fn generate<Output>(
-        &self,
-        _: StructuredGenerationRequest,
-    ) -> Result<Output, LargeLanguageModelError>
-    where
-        Output: serde::de::DeserializeOwned + Send,
-    {
-        serde_json::from_value(json!({"titles": {
-            "de": "Eine antike Keramikvase", "en": "An antique ceramic vase",
-            "fr": "Un vase ancien en céramique", "es": "Un jarrón antiguo de cerámica",
-            "it": "Un vaso antico in ceramica"
-        }}))
-        .map_err(|source| LargeLanguageModelError::InvalidResponse {
-            source: application::error::box_error(source),
-        })
-    }
+fn translation(_: &str) -> String {
+    "An antique ceramic vase".to_owned()
 }
 
 struct Embeddings;
@@ -251,6 +232,14 @@ async fn enqueue_ingestion_command(pool: &PgPool, source: ListingSourceId) {
     ));
 }
 
+/// Title translation work the background rounds have not committed yet.
+async fn pending_translations(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM product_listing_title_translation_work")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 async fn handlers(pool: &PgPool) -> Vec<(ConsumedScope, Arc<dyn JobHandler>)> {
     let index = test_api::TestContext::current()
         .expect("active end-to-end test")
@@ -278,11 +267,7 @@ async fn handlers(pool: &PgPool) -> Vec<(ConsumedScope, Arc<dyn JobHandler>)> {
         (
             ConsumedScope::Worker(WorkerScope::ProductListingTranslation),
             Arc::new(ProductTranslationJobs::new(
-                compose_product_translation_use_case_with_models(
-                    pool.clone(),
-                    Translator,
-                    Translator,
-                ),
+                compose_product_translation_use_case(pool.clone()),
             )),
         ),
         (
@@ -412,10 +397,19 @@ async fn should_carry_one_ingested_listing_through_every_stage_into_opensearch()
         .map(|scope| scope.job_scope().name().as_str().to_owned())
         .collect();
     let shutdown = CancellationToken::new();
+    let translation_task = translation_rounds(
+        compose_round_use_case(
+            pool.clone(),
+            support::FakeBatches::new(translation),
+            support::FakeFallback::new(translation),
+        ),
+        POLL,
+    );
     let worker = tokio::spawn(run(
         pool.clone(),
         config(&scopes),
         handlers,
+        vec![translation_task],
         shutdown.clone(),
     ));
 
@@ -433,6 +427,7 @@ async fn should_carry_one_ingested_listing_through_every_stage_into_opensearch()
             if let Some(listing) = listing
                 && let Some(document) = projected_document(&index, listing).await
                 && backlog(&pool, &scope_names).await == (0, 0, 0)
+                && pending_translations(&pool).await == 0
             {
                 return (listing, document);
             }

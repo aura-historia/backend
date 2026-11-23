@@ -1,15 +1,17 @@
+//! Schedules title translation for a listing's content revision. Translation itself runs in
+//! provider batches ([`super::translate_product_listing_title_batches`]); this use case only
+//! records the revision as pending work.
+
 use crate::ports::{
-    ProductListingTitleTranslationError, ProductListingTitleTranslator,
-    ProductListingTranslationSourceEvent, ProductListingTranslationSourceReadError,
-    ProductListingTranslationSourceReader, ProductListingTranslationWrite,
-    ProductListingTranslationWriteError, ProductListingTranslationWriteOutcome,
-    ProductListingTranslationWriter, ProductListingTranslationWriterFactory,
+    ProductListingTitleTranslationQueue, ProductListingTitleTranslationQueueError,
+    ProductListingTitleTranslationQueueFactory, ProductListingTranslationSourceEvent,
+    ProductListingTranslationSourceReadError, ProductListingTranslationSourceReader,
+    TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
-use localization::Language;
 use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,7 +22,9 @@ pub struct TranslateProductListingCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TranslateProductListingEventOutcome {
-    Applied,
+    /// The revision waits for the next translation batch.
+    Scheduled,
+    /// Translations of the revision are already committed.
     Duplicate,
     Stale,
     ProductListingNotFound,
@@ -44,18 +48,13 @@ pub enum TranslateProductListingEventError {
         #[source]
         source: BoxError,
     },
-    #[error("product title translation failed")]
-    TranslationFailed {
-        #[source]
-        source: BoxError,
-    },
     #[error("failed to begin product translation transaction")]
     BeginTransactionFailed {
         #[source]
         source: BoxError,
     },
-    #[error("failed to persist product translations")]
-    TranslationWriteFailed {
+    #[error("failed to schedule product title translation")]
+    ScheduleFailed {
         #[source]
         source: BoxError,
     },
@@ -75,32 +74,28 @@ pub trait TranslateProductListingEventUseCase: Send + Sync {
     ) -> Result<TranslateProductListingEventResult, TranslateProductListingEventError>;
 }
 
-pub struct TranslateProductListingEventHandler<S, T, U, W> {
+pub struct TranslateProductListingEventHandler<S, U, Q> {
     sources: S,
-    translator: T,
     unit_of_work: U,
-    translations: W,
+    queue: Q,
 }
 
-impl<S, T, U, W> TranslateProductListingEventHandler<S, T, U, W> {
-    pub fn new(sources: S, translator: T, unit_of_work: U, translations: W) -> Self {
+impl<S, U, Q> TranslateProductListingEventHandler<S, U, Q> {
+    pub fn new(sources: S, unit_of_work: U, queue: Q) -> Self {
         Self {
             sources,
-            translator,
             unit_of_work,
-            translations,
+            queue,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<S, T, U, W> TranslateProductListingEventUseCase
-    for TranslateProductListingEventHandler<S, T, U, W>
+impl<S, U, Q> TranslateProductListingEventUseCase for TranslateProductListingEventHandler<S, U, Q>
 where
     S: ProductListingTranslationSourceReader,
-    T: ProductListingTitleTranslator,
     U: UnitOfWork,
-    W: ProductListingTranslationWriterFactory<U::Tx>,
+    Q: ProductListingTitleTranslationQueueFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "translate_product_event",
@@ -130,12 +125,7 @@ where
         let Some(source) = self
             .sources
             .find_source(command.event_id, command.product_listing_id)
-            .await
-            .map_err(
-                |source| TranslateProductListingEventError::SourceReadFailed {
-                    source: box_error(source),
-                },
-            )?
+            .await?
         else {
             return Ok(result(
                 TranslateProductListingEventOutcome::ProductListingNotFound,
@@ -155,25 +145,14 @@ where
         let Some(title) = source.title else {
             return Ok(result(TranslateProductListingEventOutcome::MissingTitle));
         };
-        let Some(source_language) = source.title_language else {
+        if source.title_language.is_none() {
             return Ok(result(
                 TranslateProductListingEventOutcome::MissingTitleLanguage,
             ));
-        };
+        }
         if title.as_ref().is_empty() {
             return Ok(result(TranslateProductListingEventOutcome::EmptyTitle));
         }
-
-        let target_languages = translation_targets(source_language);
-        let titles = self
-            .translator
-            .translate(&title, source_language, &target_languages)
-            .await
-            .map_err(
-                |source| TranslateProductListingEventError::TranslationFailed {
-                    source: box_error(source),
-                },
-            )?;
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             TranslateProductListingEventError::BeginTransactionFailed {
@@ -181,69 +160,35 @@ where
             }
         })?;
         let outcome = self
-            .translations
+            .queue
             .in_transaction(&mut tx)
-            .apply(&ProductListingTranslationWrite {
+            .schedule(TitleTranslationWorkRef {
                 product_listing_id: command.product_listing_id,
                 source_event_id: command.event_id,
-                enrichment_event_id: EventId::new(),
-                source_language,
-                titles,
             })
-            .await
-            .map_err(
-                |source| TranslateProductListingEventError::TranslationWriteFailed {
-                    source: box_error(source),
-                },
-            )?;
+            .await?;
         tx.commit().await.map_err(|source| {
             TranslateProductListingEventError::CommitTransactionFailed {
                 source: box_error(source),
             }
         })?;
 
-        let outcome = match outcome {
-            ProductListingTranslationWriteOutcome::Applied => {
-                TranslateProductListingEventOutcome::Applied
+        Ok(result(match outcome {
+            TitleTranslationScheduleOutcome::Scheduled => {
+                TranslateProductListingEventOutcome::Scheduled
             }
-            ProductListingTranslationWriteOutcome::Duplicate => {
+            TitleTranslationScheduleOutcome::AlreadyTranslated => {
                 TranslateProductListingEventOutcome::Duplicate
             }
-            ProductListingTranslationWriteOutcome::Stale => {
+            TitleTranslationScheduleOutcome::Superseded => {
                 TranslateProductListingEventOutcome::Stale
             }
-            ProductListingTranslationWriteOutcome::ProductListingNotFound => {
-                TranslateProductListingEventOutcome::ProductListingNotFound
-            }
-        };
-        if outcome == TranslateProductListingEventOutcome::Applied {
-            tracing::info!(
-                event = "product.translated",
-                actor_type = context.principal.kind(),
-                product_listing_id = %command.product_listing_id,
-                source_event_id = %command.event_id,
-                outcome = "success",
-            );
-        }
-        Ok(result(outcome))
+        }))
     }
 }
 
 fn result(outcome: TranslateProductListingEventOutcome) -> TranslateProductListingEventResult {
     TranslateProductListingEventResult { outcome }
-}
-
-fn translation_targets(source_language: Language) -> Vec<Language> {
-    [
-        Language::De,
-        Language::En,
-        Language::Fr,
-        Language::Es,
-        Language::It,
-    ]
-    .into_iter()
-    .filter(|language| *language != source_language)
-    .collect()
 }
 
 impl From<OperationAuthorizationError> for TranslateProductListingEventError {
@@ -260,17 +205,9 @@ impl From<ProductListingTranslationSourceReadError> for TranslateProductListingE
     }
 }
 
-impl From<ProductListingTitleTranslationError> for TranslateProductListingEventError {
-    fn from(source: ProductListingTitleTranslationError) -> Self {
-        Self::TranslationFailed {
-            source: box_error(source),
-        }
-    }
-}
-
-impl From<ProductListingTranslationWriteError> for TranslateProductListingEventError {
-    fn from(source: ProductListingTranslationWriteError) -> Self {
-        Self::TranslationWriteFailed {
+impl From<ProductListingTitleTranslationQueueError> for TranslateProductListingEventError {
+    fn from(source: ProductListingTitleTranslationQueueError) -> Self {
+        Self::ScheduleFailed {
             source: box_error(source),
         }
     }
@@ -279,38 +216,22 @@ impl From<ProductListingTranslationWriteError> for TranslateProductListingEventE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{
+        PendingTitleTranslation, ProductListingTranslationSource, TitleTranslationAssignment,
+        TitleTranslationBatchId, TitleTranslationBatchKey, TitleTranslationMode,
+    };
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use indexmap::IndexMap;
+    use localization::Language;
     use product_listing_core::title::Title;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     struct State {
-        source: Option<crate::ports::ProductListingTranslationSource>,
-        source_error: bool,
-        translation_error: bool,
-        write_outcome: ProductListingTranslationWriteOutcome,
-        begin_error: bool,
-        commit_error: bool,
-        translations: Vec<(Language, String)>,
-        begins: usize,
+        source: Option<ProductListingTranslationSource>,
+        schedule_outcome: TitleTranslationScheduleOutcome,
+        scheduled: Vec<TitleTranslationWorkRef>,
         commits: usize,
-    }
-
-    impl Default for State {
-        fn default() -> Self {
-            Self {
-                source: None,
-                source_error: false,
-                translation_error: false,
-                write_outcome: ProductListingTranslationWriteOutcome::Applied,
-                begin_error: false,
-                commit_error: false,
-                translations: Vec::new(),
-                begins: 0,
-                commits: 0,
-            }
-        }
     }
 
     type SharedState = Arc<Mutex<State>>;
@@ -318,13 +239,11 @@ mod tests {
     #[derive(Clone)]
     struct Sources(SharedState);
     #[derive(Clone)]
-    struct Translator(SharedState);
-    #[derive(Clone)]
     struct UnitOfWorkFake(SharedState);
     #[derive(Clone)]
-    struct WriterFactory(SharedState);
+    struct QueueFactory(SharedState);
     struct Tx(SharedState);
-    struct Writer(SharedState);
+    struct Queue(SharedState);
 
     fn lock(state: &SharedState) -> std::sync::MutexGuard<'_, State> {
         state
@@ -338,52 +257,9 @@ mod tests {
             &self,
             _event_id: EventId,
             _product_listing_id: ProductListingId,
-        ) -> Result<
-            Option<crate::ports::ProductListingTranslationSource>,
-            ProductListingTranslationSourceReadError,
-        > {
-            let state = lock(&self.0);
-            if state.source_error {
-                return Err(ProductListingTranslationSourceReadError::QueryFailed {
-                    source: box_error(std::io::Error::other("source failed")),
-                });
-            }
-            Ok(state.source.clone())
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ProductListingTitleTranslator for Translator {
-        async fn translate(
-            &self,
-            _title: &product_listing_core::title::Title,
-            _source_language: Language,
-            target_languages: &[Language],
-        ) -> Result<
-            IndexMap<Language, product_listing_core::title::Title>,
-            ProductListingTitleTranslationError,
-        > {
-            let mut state = lock(&self.0);
-            if state.translation_error {
-                return Err(
-                    ProductListingTitleTranslationError::TemporarilyUnavailable {
-                        source: box_error(std::io::Error::other("translation failed")),
-                    },
-                );
-            }
-            state.translations = target_languages
-                .iter()
-                .map(|language| (*language, format!("{} title", language.as_str())))
-                .collect();
-            Ok(target_languages
-                .iter()
-                .map(|language| {
-                    (
-                        *language,
-                        Title::from(format!("{} title", language.as_str())),
-                    )
-                })
-                .collect())
+        ) -> Result<Option<ProductListingTranslationSource>, ProductListingTranslationSourceReadError>
+        {
+            Ok(lock(&self.0).source.clone())
         }
     }
 
@@ -392,67 +268,104 @@ mod tests {
         type Tx = Tx;
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            let mut state = lock(&self.0);
-            state.begins += 1;
-            if state.begin_error {
-                Err(TransactionError::BeginFailed(
-                    application::error::static_error("test transaction failure"),
-                ))
-            } else {
-                Ok(Tx(Arc::clone(&self.0)))
-            }
+            Ok(Tx(Arc::clone(&self.0)))
         }
     }
 
     #[async_trait::async_trait]
     impl Transaction for Tx {
         async fn commit(self) -> Result<(), TransactionError> {
-            let mut state = lock(&self.0);
-            state.commits += 1;
-            if state.commit_error {
-                Err(TransactionError::CommitFailed(
-                    application::error::static_error("test transaction failure"),
-                ))
-            } else {
-                Ok(())
-            }
+            lock(&self.0).commits += 1;
+            Ok(())
         }
     }
 
-    impl ProductListingTranslationWriterFactory<Tx> for WriterFactory {
+    impl ProductListingTitleTranslationQueueFactory<Tx> for QueueFactory {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut Tx,
-        ) -> impl ProductListingTranslationWriter + 'tx {
-            Writer(Arc::clone(&self.0))
+        ) -> impl ProductListingTitleTranslationQueue + 'tx {
+            Queue(Arc::clone(&self.0))
         }
     }
 
+    type QueueResult<T> = Result<T, ProductListingTitleTranslationQueueError>;
+
     #[async_trait::async_trait]
-    impl ProductListingTranslationWriter for Writer {
-        async fn apply(
+    impl ProductListingTitleTranslationQueue for Queue {
+        async fn schedule(
             &mut self,
-            _write: &ProductListingTranslationWrite,
-        ) -> Result<ProductListingTranslationWriteOutcome, ProductListingTranslationWriteError>
-        {
-            Ok(lock(&self.0).write_outcome)
+            work: TitleTranslationWorkRef,
+        ) -> QueueResult<TitleTranslationScheduleOutcome> {
+            let mut state = lock(&self.0);
+            state.scheduled.push(work);
+            Ok(state.schedule_outcome)
+        }
+
+        async fn discard_superseded(&mut self) -> QueueResult<u64> {
+            unreachable!()
+        }
+
+        async fn lock_pending(&mut self, _: u32) -> QueueResult<Vec<PendingTitleTranslation>> {
+            unreachable!()
+        }
+
+        async fn create_batch(
+            &mut self,
+            _: TitleTranslationBatchKey,
+            _: &[TitleTranslationAssignment],
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+
+        async fn record_submission(
+            &mut self,
+            _: TitleTranslationBatchKey,
+            _: &TitleTranslationBatchId,
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+
+        async fn close_batch(&mut self, _: TitleTranslationBatchKey) -> QueueResult<()> {
+            unreachable!()
+        }
+
+        async fn close_abandoned_submissions(&mut self, _: Duration) -> QueueResult<u64> {
+            unreachable!()
+        }
+
+        async fn complete(&mut self, _: TitleTranslationWorkRef) -> QueueResult<()> {
+            unreachable!()
+        }
+
+        async fn requeue(
+            &mut self,
+            _: TitleTranslationWorkRef,
+            _: TitleTranslationMode,
+            _: u16,
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+
+        async fn park(&mut self, _: TitleTranslationWorkRef, _: u16) -> QueueResult<()> {
+            unreachable!()
         }
     }
 
     fn state_with_source() -> SharedState {
-        let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
         Arc::new(Mutex::new(State {
-            source: Some(crate::ports::ProductListingTranslationSource {
-                product_listing_id,
+            source: Some(ProductListingTranslationSource {
+                product_listing_id: ProductListingId::new(),
                 event_id,
                 content_source_event_id: event_id,
                 event: ProductListingTranslationSourceEvent::Discovered,
                 title: Some(Title::from("Ancient vase")),
                 title_language: Some(Language::De),
             }),
-            write_outcome: ProductListingTranslationWriteOutcome::Applied,
-            ..Default::default()
+            schedule_outcome: TitleTranslationScheduleOutcome::Scheduled,
+            scheduled: Vec::new(),
+            commits: 0,
         }))
     }
 
@@ -464,235 +377,129 @@ mod tests {
         }
     }
 
-    fn handler(
-        state: &SharedState,
-    ) -> TranslateProductListingEventHandler<Sources, Translator, UnitOfWorkFake, WriterFactory>
-    {
-        TranslateProductListingEventHandler::new(
-            Sources(Arc::clone(state)),
-            Translator(Arc::clone(state)),
-            UnitOfWorkFake(Arc::clone(state)),
-            WriterFactory(Arc::clone(state)),
+    fn command(state: &SharedState) -> TranslateProductListingCommand {
+        lock(state).source.as_ref().map_or(
+            TranslateProductListingCommand {
+                event_id: EventId::new(),
+                product_listing_id: ProductListingId::new(),
+            },
+            |source| TranslateProductListingCommand {
+                event_id: source.event_id,
+                product_listing_id: source.product_listing_id,
+            },
         )
     }
 
-    fn command(state: &SharedState) -> TranslateProductListingCommand {
-        let source = lock(state).source.clone().expect("source exists");
-        TranslateProductListingCommand {
-            event_id: source.event_id,
-            product_listing_id: source.product_listing_id,
+    async fn execute(
+        state: &SharedState,
+        principal: Principal,
+    ) -> Result<TranslateProductListingEventOutcome, TranslateProductListingEventError> {
+        TranslateProductListingEventHandler::new(
+            Sources(Arc::clone(state)),
+            UnitOfWorkFake(Arc::clone(state)),
+            QueueFactory(Arc::clone(state)),
+        )
+        .execute(&context(principal), command(state))
+        .await
+        .map(|result| result.outcome)
+    }
+
+    #[tokio::test]
+    async fn should_schedule_the_current_text_revision_of_a_titled_listing() {
+        for event in [
+            ProductListingTranslationSourceEvent::Discovered,
+            ProductListingTranslationSourceEvent::ChangedText,
+        ] {
+            let state = state_with_source();
+            lock(&state).source.as_mut().unwrap().event = event;
+            let command = command(&state);
+
+            let outcome = execute(&state, Principal::System).await.unwrap();
+
+            assert_eq!(TranslateProductListingEventOutcome::Scheduled, outcome);
+            let state = lock(&state);
+            assert_eq!(
+                vec![TitleTranslationWorkRef {
+                    product_listing_id: command.product_listing_id,
+                    source_event_id: command.event_id,
+                }],
+                state.scheduled
+            );
+            assert_eq!(1, state.commits);
         }
     }
 
     #[tokio::test]
-    async fn should_translate_current_text_revision_and_skip_a_cleared_title() {
+    async fn should_report_what_the_guarded_schedule_found() {
+        for (found, expected) in [
+            (
+                TitleTranslationScheduleOutcome::AlreadyTranslated,
+                TranslateProductListingEventOutcome::Duplicate,
+            ),
+            (
+                TitleTranslationScheduleOutcome::Superseded,
+                TranslateProductListingEventOutcome::Stale,
+            ),
+        ] {
+            let state = state_with_source();
+            lock(&state).schedule_outcome = found;
+
+            assert_eq!(expected, execute(&state, Principal::System).await.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn should_schedule_nothing_for_revisions_without_a_translatable_title() {
+        type Change = fn(&mut ProductListingTranslationSource);
+        let cases: [(Change, TranslateProductListingEventOutcome); 5] = [
+            (
+                |source| source.content_source_event_id = EventId::new(),
+                TranslateProductListingEventOutcome::Stale,
+            ),
+            (
+                |source| source.event = ProductListingTranslationSourceEvent::Other,
+                TranslateProductListingEventOutcome::IgnoredEvent,
+            ),
+            (
+                |source| source.title = None,
+                TranslateProductListingEventOutcome::MissingTitle,
+            ),
+            (
+                |source| source.title_language = None,
+                TranslateProductListingEventOutcome::MissingTitleLanguage,
+            ),
+            (
+                |source| source.title = Some(Title::from("")),
+                TranslateProductListingEventOutcome::EmptyTitle,
+            ),
+        ];
+        for (change, expected) in cases {
+            let state = state_with_source();
+            change(lock(&state).source.as_mut().unwrap());
+
+            assert_eq!(expected, execute(&state, Principal::System).await.unwrap());
+            assert!(lock(&state).scheduled.is_empty());
+            assert_eq!(0, lock(&state).commits);
+        }
+
         let state = state_with_source();
-        lock(&state).source.as_mut().unwrap().event =
-            ProductListingTranslationSourceEvent::ChangedText;
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await
-            .unwrap();
-        assert_eq!(result.outcome, TranslateProductListingEventOutcome::Applied);
-        assert_eq!(lock(&state).commits, 1);
-        lock(&state).translations.clear();
-        lock(&state).source.as_mut().unwrap().title = None;
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await
-            .unwrap();
+        lock(&state).source = None;
         assert_eq!(
-            result.outcome,
-            TranslateProductListingEventOutcome::MissingTitle
+            TranslateProductListingEventOutcome::ProductListingNotFound,
+            execute(&state, Principal::System).await.unwrap()
         );
-        assert!(lock(&state).translations.is_empty());
-        assert_eq!(lock(&state).commits, 1);
-    }
-
-    #[tokio::test]
-    async fn should_translate_all_supported_target_languages_and_commit() {
-        let state = state_with_source();
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::Applied
-            })
-        ));
-        let state = lock(&state);
-        assert_eq!(4, state.translations.len());
-        assert!(
-            !state
-                .translations
-                .iter()
-                .any(|(language, _)| *language == Language::De)
-        );
-        assert_eq!(1, state.commits);
-    }
-
-    #[tokio::test]
-    async fn should_skip_stale_event_without_translating_or_starting_transaction() {
-        let state = state_with_source();
-        lock(&state)
-            .source
-            .as_mut()
-            .expect("source exists")
-            .content_source_event_id = EventId::new();
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::Stale
-            })
-        ));
-        let state = lock(&state);
-        assert!(state.translations.is_empty());
-        assert_eq!(0, state.commits);
-    }
-
-    #[tokio::test]
-    async fn should_skip_non_embedded_event_without_side_effect() {
-        let state = state_with_source();
-        lock(&state).source.as_mut().expect("source exists").event =
-            ProductListingTranslationSourceEvent::Other;
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::IgnoredEvent
-            })
-        ));
-        assert_eq!(0, lock(&state).commits);
-    }
-
-    #[tokio::test]
-    async fn should_return_duplicate_after_target_write_reports_duplicate() {
-        let state = state_with_source();
-        lock(&state).write_outcome = ProductListingTranslationWriteOutcome::Duplicate;
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::Duplicate
-            })
-        ));
-        assert_eq!(1, lock(&state).commits);
-    }
-
-    #[tokio::test]
-    async fn should_skip_source_without_title() {
-        let state = state_with_source();
-        lock(&state).source.as_mut().expect("source exists").title = None;
-        lock(&state)
-            .source
-            .as_mut()
-            .expect("source exists")
-            .title_language = None;
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::MissingTitle
-            })
-        ));
-        assert_eq!(0, lock(&state).commits);
-    }
-
-    #[tokio::test]
-    async fn should_skip_source_without_title_language() {
-        let state = state_with_source();
-        lock(&state)
-            .source
-            .as_mut()
-            .expect("source exists")
-            .title_language = None;
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::MissingTitleLanguage
-            })
-        ));
-        assert_eq!(0, lock(&state).commits);
-    }
-
-    #[tokio::test]
-    async fn should_skip_empty_title_without_translating() {
-        let state = state_with_source();
-        lock(&state).source.as_mut().expect("source exists").title = Some(Title::from(""));
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(TranslateProductListingEventResult {
-                outcome: TranslateProductListingEventOutcome::EmptyTitle
-            })
-        ));
-        assert_eq!(0, lock(&state).commits);
-    }
-
-    #[tokio::test]
-    async fn should_not_begin_transaction_when_translation_fails() {
-        let state = state_with_source();
-        lock(&state).translation_error = true;
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(TranslateProductListingEventError::TranslationFailed { .. })
-        ));
-        let state = lock(&state);
-        assert_eq!(0, state.begins);
-        assert_eq!(0, state.commits);
     }
 
     #[tokio::test]
     async fn should_reject_user_principal() {
         let state = state_with_source();
 
-        let result = handler(&state)
-            .execute(
-                &context(application::operation_context::Principal::User(
-                    user_core::user_id::UserId::new(),
-                )),
-                command(&state),
-            )
-            .await;
+        let result = execute(&state, Principal::User(user_core::user_id::UserId::new())).await;
 
         assert!(matches!(
             result,
             Err(TranslateProductListingEventError::ServiceOrSystemPrincipalRequired)
         ));
-        assert_eq!(0, lock(&state).commits);
+        assert!(lock(&state).scheduled.is_empty());
     }
 }

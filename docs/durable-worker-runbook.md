@@ -197,6 +197,31 @@ enqueued again, and the projector completes the ones already current as stale. W
 Index reset, the queue and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
 
+## Title translation recovery
+
+[Title translation](product-listing.md#title-translation) owns the contract. A
+`product-translation` job only records work, so its custody means the work was never recorded:
+redrive it once PostgreSQL is healthy. Every worker consuming that scope also runs the
+translation rounds with `ANTHROPIC_API_KEY`; work waits in
+`product_listing_title_translation_work` and batches in
+`product_listing_title_translation_batches`, neither of which is ever purged except by settlement.
+
+- Each round logs `product.translation.round.completed` with its counts, or
+  `product.translation.round.failed` with the failed stage and safe categories; the next round
+  continues from the durable state. `LLM_BATCH` events log each batch's ID, size, outcome counts
+  and token usage when it is submitted and when its results are read.
+- Pending work older than a day, or batches submitted more than 24 hours ago, mean the rounds
+  are not running or Anthropic is failing: check the worker logs and the batch in the Anthropic
+  Console by its ID.
+- A batch whose submission was not recorded within 10 minutes is closed and its work returns to
+  the queue. If Anthropic accepted it anyway, it runs unread and is billed once more.
+- Results stay downloadable for 29 days. A batch whose results the provider no longer serves
+  fails each of its titles once, and they are submitted again.
+- Parked work (`parked IS NOT NULL`) spent three attempts or was refused by the fallback model.
+  It waits for a content change. To retry it after fixing a cause, set `parked` to `NULL`,
+  `attempts` to `0` and `mode` to `'GROUPED'` for the selected listings; never delete work to
+  silence it.
+
 ## Listing shipping recovery
 
 [Shipping](shipping.md#effective-shipping-discovery-projection) owns the conservative

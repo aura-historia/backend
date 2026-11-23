@@ -15,8 +15,15 @@ pub enum ProductListingTitleTranslationError {
         #[source]
         source: BoxError,
     },
+    /// The model declined to translate. It repeats for the same request and model.
+    #[error("product title translation was refused")]
+    Refused {
+        #[source]
+        source: BoxError,
+    },
 }
 
+/// Translates one title synchronously.
 #[async_trait::async_trait]
 pub trait ProductListingTitleTranslator: Send + Sync {
     async fn translate(
