@@ -377,7 +377,7 @@ mod tests {
     )]
     #[case::range_of_three_decimal_numbers(
         r#"{"offers":{"@type":"AggregateOffer","lowPrice":12.5,"highPrice":1250.000}}"#,
-        Some("12.5 - 1250")
+        Some("12.5 - 1250.0")
     )]
     #[case::equal_bounds_are_one_price(
         r#"{"offers":{"@type":"AggregateOffer","lowPrice":"40.00","highPrice":"40","priceCurrency":"USD"}}"#,

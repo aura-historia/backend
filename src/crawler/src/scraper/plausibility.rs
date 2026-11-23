@@ -678,8 +678,8 @@ fn resolves_to_availability(text: &str) -> bool {
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113",
-/// "Sold for £500" or a range such as "1.000 bis 1.500 €": the amount detector of the `state` check, which the review's page signals
-/// reuse to tell that a page shows a price. Unlike the `state` check it ignores status labels,
+/// "Sold for £500" or a range such as "1.000 bis 1.500 €": the amount detector of the `state`
+/// check, which the review's page signals reuse to tell that a page shows a price. Unlike the `state` check it ignores status labels,
 /// because a price element that says "Sold for £500" still shows a price.
 pub(crate) fn is_price_text(text: &str) -> bool {
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");

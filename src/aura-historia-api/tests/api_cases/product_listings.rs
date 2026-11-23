@@ -773,15 +773,17 @@ async fn should_project_history_using_persisted_historical_snapshot() {
                 .unwrap()
                 .remove("display")
                 .unwrap();
-            assert_eq!(
-                json!({
-                    "currency": currency,
-                    "amount": amount,
-                    "fxRateId": FxRateId::try_from(fx_rate_id).unwrap(),
-                    "capturedAt": captured_at.format(&time::format_description::well_known::Rfc3339).unwrap()
-                }),
-                display
-            );
+            let mut expected = json!({
+                "currency": currency,
+                "amount": amount,
+                "fxRateId": FxRateId::try_from(fx_rate_id).unwrap(),
+                "capturedAt": captured_at.format(&time::format_description::well_known::Rfc3339).unwrap()
+            });
+            // The main price's display keeps the source's shape, including its kind.
+            if key == "price" {
+                expected["type"] = json!("MONETARY");
+            }
+            assert_eq!(expected, display);
         }
         assert_eq!(baseline, projected);
     }
