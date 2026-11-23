@@ -24,7 +24,7 @@ pub(crate) struct GroupResponse {
 
 impl GroupResponse {
     /// Fails closed unless the entry of `position` holds a plausible, non-empty translation of
-    /// `source` for every target.
+    /// `source` for every target that keeps the source's runs of question marks.
     pub(crate) fn translated_title(
         &self,
         position: u32,
@@ -37,6 +37,7 @@ impl GroupResponse {
             .and_then(serde_json::Value::as_object)
             .ok_or_else(|| invalid("product title translation response omitted a title"))?;
         let source_chars = source.as_ref().chars().count();
+        let source_question_mark_runs = source.question_mark_runs();
         let mut translated = IndexMap::with_capacity(target_languages.len());
         for language in target_languages {
             let raw = entry
@@ -54,6 +55,11 @@ impl GroupResponse {
             if title.as_ref().is_empty() {
                 return Err(invalid(
                     "product title translation response contains an empty title",
+                ));
+            }
+            if title.question_mark_runs() != source_question_mark_runs {
+                return Err(invalid(
+                    "product title translation changed the runs of question marks of its source",
                 ));
             }
             translated.insert(*language, title);
@@ -117,6 +123,38 @@ mod tests {
         let source = Title::from("宋代青瓷碗");
         let response = response(serde_json::json!({
             "1": {"en": "Song dynasty celadon bowl", "fr": "Bol en céladon de la dynastie Song"},
+        }));
+
+        assert!(response.translated_title(1, &source, &TARGETS).is_ok());
+    }
+
+    #[test]
+    fn should_require_the_runs_of_question_marks_of_the_source() {
+        let source = Title::from("Akuma to Duet (????????) ???");
+        let response = response(serde_json::json!({
+            "1": {"en": "Akuma to Duet (????????) ???", "fr": "Akuma to Duet (????????) ???"},
+            "2": {"en": "Akuma to Duet (Devil Duet) ???", "fr": "Akuma to Duet (????????) ???"},
+            "3": {"en": "Akuma to Duet (????????)", "fr": "Akuma to Duet (????????) ???"},
+            "4": {"en": "Akuma to Duet (????????) ??? ?", "fr": "Akuma to Duet (????????) ???"},
+        }));
+
+        assert!(response.translated_title(1, &source, &TARGETS).is_ok());
+        for position in 2..=4 {
+            assert!(
+                matches!(
+                    response.translated_title(position, &source, &TARGETS),
+                    Err(ProductListingTitleTranslationError::InvalidResponse { .. })
+                ),
+                "title {position} should fail"
+            );
+        }
+    }
+
+    #[test]
+    fn should_accept_a_fullwidth_question_mark_translated_as_ascii() {
+        let source = Title::from("これは誰？");
+        let response = response(serde_json::json!({
+            "1": {"en": "Who is this?", "fr": "Qui est-ce ?"},
         }));
 
         assert!(response.translated_title(1, &source, &TARGETS).is_ok());

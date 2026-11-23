@@ -20,6 +20,48 @@ impl Title {
     pub fn has_canonical_structure(text: &str) -> bool {
         truncate(capitalize(strip_sentence_periods(text))) == text
     }
+
+    /// Counts the runs of consecutive question marks, ASCII or fullwidth.
+    ///
+    /// Some shops serve titles whose non-Latin characters were already replaced with `?`, while
+    /// many titles use `???` deliberately, as in *Die drei ???* or `Modell ???`. Either way, a
+    /// translation must carry the same runs, because it cannot know what a lost run stood for.
+    pub fn question_mark_runs(&self) -> usize {
+        let mut runs = 0;
+        let mut in_run = false;
+        for c in self.0.chars() {
+            let question_mark = is_question_mark(c);
+            if question_mark && !in_run {
+                runs += 1;
+            }
+            in_run = question_mark;
+        }
+        runs
+    }
+
+    /// Returns whether question marks replaced most of the title's letters: it contains a
+    /// question mark, and letters make up less than half of its non-space characters.
+    ///
+    /// Such a title has too little text left to translate or to tell its language. Titles
+    /// without question marks, such as a bare date, are never reported.
+    pub fn is_mostly_question_marks(&self) -> bool {
+        let mut question_marks = 0;
+        let mut letters = 0;
+        let mut visible = 0;
+        for c in self.0.chars().filter(|c| !c.is_whitespace()) {
+            visible += 1;
+            if is_question_mark(c) {
+                question_marks += 1;
+            } else if c.is_alphabetic() {
+                letters += 1;
+            }
+        }
+        question_marks > 0 && letters * 2 < visible
+    }
+}
+
+fn is_question_mark(c: char) -> bool {
+    matches!(c, '?' | '？')
 }
 
 impl From<&str> for Title {
@@ -316,5 +358,32 @@ mod tests {
         ] {
             assert!(!Title::has_canonical_structure(&text), "{text:?}");
         }
+    }
+
+    #[rstest::rstest]
+    #[case::none("Antiker Eichenstuhl", 0)]
+    #[case::deliberate("Die drei ???", 1)]
+    #[case::attached("Form??? MODELL???", 2)]
+    #[case::lost("?????? 5 ??????? 1958", 2)]
+    #[case::fullwidth("誰？ ?", 2)]
+    fn should_count_question_mark_runs(#[case] text: &str, #[case] expected: usize) {
+        assert_eq!(expected, Title::from(text).question_mark_runs());
+    }
+
+    #[rstest::rstest]
+    #[case::digits_and_marks("?????? 5 ??????? 1958", true)]
+    #[case::name_left("?????? ?????? ????? - Leonid Kogan", true)]
+    #[case::only_marks("???", true)]
+    #[case::partial_loss("Akuma to Duet (????????)", false)]
+    #[case::deliberate_series("Die drei ???", false)]
+    #[case::unknown_place("Ort ???", false)]
+    #[case::unknown_model("Form???", false)]
+    #[case::date_without_marks("1920 - 1930", false)]
+    #[case::cjk("宋代青瓷碗？", false)]
+    fn should_tell_titles_mostly_lost_to_question_marks(
+        #[case] text: &str,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(expected, Title::from(text).is_mostly_question_marks());
     }
 }
