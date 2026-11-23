@@ -95,42 +95,19 @@ pub(super) struct ProductListingSeed {
     product_listing_id: ProductListingId,
     product_listing_title_slug_id: ProductListingSlugId,
     source_price: Option<u64>,
-    sale_price: Option<u64>,
-    /// The upper bound that turns the source price (and a sale price) into a range.
+    /// The upper bound that turns the source price into a range.
     max_price: Option<u64>,
-    has_sale_observation: bool,
 }
 
 impl ProductListingSeed {
     pub(super) fn active(slug: &str, source_price: u64) -> Self {
         Self {
-            product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
-                slug, "a1b2c3",
-            )
-            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: Some(source_price),
-            sale_price: None,
-            max_price: None,
-            has_sale_observation: false,
+            ..Self::without_main_price(slug)
         }
     }
 
-    pub(super) fn sold(slug: &str, sale_price: u64) -> Self {
-        Self {
-            product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
-                slug, "a1b2c3",
-            )
-            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
-            source_price: Some(sale_price),
-            sale_price: Some(sale_price),
-            max_price: None,
-            has_sale_observation: true,
-        }
-    }
-
-    pub(super) fn sold_without_main_price(slug: &str) -> Self {
+    pub(super) fn without_main_price(slug: &str) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
@@ -138,9 +115,7 @@ impl ProductListingSeed {
             )
             .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: None,
-            sale_price: None,
             max_price: None,
-            has_sale_observation: true,
         }
     }
 }
@@ -160,21 +135,6 @@ pub(super) struct IndexedProductListing {
 pub(super) fn product_listing_document(
     seed: ProductListingSeed,
 ) -> Result<IndexedProductListing, time::error::Format> {
-    let all_currencies = |amount: u64| {
-        json!({
-            "eur": amount, "gbp": amount, "usd": amount, "aud": amount,
-            "cad": amount, "nzd": amount, "cny": amount, "brl": amount,
-            "pln": amount, "try": amount, "jpy": amount, "czk": amount,
-            "rub": amount, "aed": amount, "sar": amount, "hkd": amount,
-            "sgd": amount, "chf": amount, "zar": amount, "sek": amount, "dkk": amount, "nok": amount, "krw": amount, "inr": amount, "twd": amount, "huf": amount, "ron": amount, "mxn": amount, "thb": amount, "ars": amount
-        })
-    };
-    let sale_prices = seed.sale_price.map(all_currencies);
-    let sale_prices_max = seed.sale_price.and(seed.max_price).map(all_currencies);
-    let sale_observed_at = seed
-        .has_sale_observation
-        .then(|| OffsetDateTime::UNIX_EPOCH.format(&Rfc3339))
-        .transpose()?;
     let document = json!({
         "productListingId": seed.product_listing_id,
         "productListingTitleSlugId": seed.product_listing_title_slug_id,
@@ -190,10 +150,6 @@ pub(super) fn product_listing_document(
                         "type": "RANGE", "amount": amount, "maxAmount": max, "currency": "EUR"
                     }),
                 }),
-        "salePrices": sale_prices,
-        "salePricesMax": sale_prices_max,
-        "saleObservationFxRateId": seed.has_sale_observation.then(FxRateId::new),
-        "saleObservedAt": sale_observed_at,
 
         "url": format!("https://shop.example/product_listings/{}", seed.product_listing_title_slug_id),
         "created": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?,

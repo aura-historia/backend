@@ -1268,58 +1268,6 @@ async fn should_keep_search_cursor_fx_pinned_after_cached_latest_selection_refre
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_keep_sold_display_when_fx_snapshot_changes() {
-    let captured_at = OffsetDateTime::now_utc() + Duration::days(730);
-    let sale_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
-    let (product_listing_id, mut document) = search_document(
-        "Immutable sold cabinet",
-        1_000,
-        "SOLD_OUT",
-        "Sold FX Listing Source",
-        "2025-01-01T00:00:00Z",
-    );
-    document["salePrices"] = json!({
-        "eur": 40, "gbp": 40, "usd": 40, "aud": 40,
-        "cad": 40, "nzd": 40, "cny": 40, "brl": 40,
-        "pln": 40, "try": 40, "jpy": 40, "czk": 40,
-        "rub": 40, "aed": 40, "sar": 40, "hkd": 40,
-        "sgd": 40, "chf": 40, "zar": 40, "sek": 40, "dkk": 40, "nok": 40, "krw": 40, "inr": 40, "twd": 40, "huf": 40, "ron": 40, "mxn": 40, "thb": 40, "ars": 40
-    });
-    document["saleObservationFxRateId"] = json!(sale_fx_rate_id.to_string());
-    document["saleObservedAt"] = json!("2025-01-01T00:00:00Z");
-    index_search_documents([document]).await;
-
-    let path = "/v1/product-listings?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
-    let (before_response, _) = get_json(path.clone()).await;
-    let (before_status, before_body) = json_response(before_response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, before_status);
-    assert_eq!(
-        vec![product_listing_id.clone()],
-        product_listing_ids(&before_body)
-    );
-    assert_eq!(
-        json!("SOLD_OUT"),
-        before_body["items"][0]["item"]["availability"]
-    );
-    assert_eq!(
-        json!({ "type": "MONETARY", "amount": 40, "currency": "EUR" }),
-        before_body["items"][0]["item"]["displayPrice"]
-    );
-
-    capture_fx_snapshot(captured_at + Duration::days(1), 1_000_000).await;
-    let (after_response, _) = get_json(path).await;
-    let (after_status, after_body) = json_response(after_response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, after_status);
-    assert_eq!(vec![product_listing_id], product_listing_ids(&after_body));
-    assert_eq!(
-        json!({ "type": "MONETARY", "amount": 40, "currency": "EUR" }),
-        after_body["items"][0]["item"]["displayPrice"]
-    );
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_matching_product_search_summary() {
     let target = search_document(
         "Renaissance walnut cabinet",
@@ -1447,7 +1395,7 @@ async fn should_intersect_product_search_filters() {
     let wrong_availability = search_document_with_source(
         "Filter cabinet",
         550,
-        "OUT_OF_STOCK",
+        "RESERVED",
         "Imperial Antiques",
         "imperial-antiques",
         "2025-01-01T00:00:00Z",

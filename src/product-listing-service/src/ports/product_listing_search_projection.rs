@@ -1,6 +1,5 @@
 use crate::ports::ProductListingSearchFilterMatchSource;
 use application::error::BoxError;
-use fxrate_core::FxRateSnapshot;
 use product_listing_core::product_listing_id::ProductListingId;
 
 /// Writes the rebuildable ProductListing search projection. PostgreSQL remains authoritative.
@@ -10,9 +9,11 @@ pub trait ProductListingSearchProjection: Send + Sync {
     async fn upsert(
         &self,
         source: &ProductListingSearchFilterMatchSource,
-        sale_snapshot: Option<&FxRateSnapshot>,
     ) -> Result<ProductListingSearchProjectionWriteOutcome, ProductListingSearchProjectionWriteError>;
 
+    /// Replaces the document with a content-free tombstone at `source_version`. An equal
+    /// version replaces a document because one source version only changes search eligibility
+    /// through a changed projection rule, which reprojection must be able to apply.
     async fn delete(
         &self,
         product_listing_id: ProductListingId,
@@ -24,7 +25,7 @@ pub trait ProductListingSearchProjection: Send + Sync {
 pub enum ProductListingSearchProjectionWriteOutcome {
     /// The target accepted the write; search visibility may still lag.
     Applied,
-    /// An equal or newer external version already won.
+    /// A newer external version already won, or an equal one for an upsert.
     Stale,
 }
 

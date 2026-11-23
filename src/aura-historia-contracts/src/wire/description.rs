@@ -44,8 +44,8 @@ pub const PRICE_MIN: &str =
     "Lowest price to include, as an integer amount in the currency's minor unit.";
 pub const PRICE_MAX: &str =
     "Highest price to include, as an integer amount in the currency's minor unit.";
-pub const AVAILABILITY: &str = "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both.";
-pub const ORDERABILITY: &str = "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both.";
+pub const AVAILABILITY: &str = "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing.";
+pub const ORDERABILITY: &str = "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones.";
 pub const INCLUDE_UNSPECIFIED_AVAILABILITY: &str =
     "Also include listings that state no availability (default false).";
 pub const CREATED: &str = "Range on the listing's creation time, as ISO 8601 date-times with offset; both bounds inclusive.";

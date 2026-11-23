@@ -2656,8 +2656,9 @@ mod tests {
             state.read_requests.as_slice(),
             [request] if request.compiled_search.price_filter_plan.fx_rate_id == snapshot.id()
                 && request.compiled_search.price_filter_plan.target_currency == Currency::Eur
-                && request.compiled_search.price_filter_plan.sold_display_range.min == Some(100_u64.into())
-                && request.compiled_search.price_filter_plan.sold_display_range.max == Some(200_u64.into())
+                && request.compiled_search.price_filter_plan.has_price_filter()
+                && request.compiled_search.price_filter_plan.active_native_ranges.iter().any(|range|
+                    range.source_currency == Currency::Eur && range.lower == 100 && range.upper == Some(200))
                 && request.compiled_search.search.price_query.is_some()
         ));
         Ok(())
