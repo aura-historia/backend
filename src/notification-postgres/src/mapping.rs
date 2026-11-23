@@ -14,9 +14,12 @@ use notification_core::{
 use partnership_core::partnership_application_id::PartnershipApplicationId;
 use party_core::party_name::PartyName;
 use product_listing_core::{
-    content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
-    product_listing_id::ProductListingId, product_listing_price::ProductListingPrice,
-    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    content_policy::ContentPolicyDecision,
+    listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId,
+    product_listing_price::{PriceRange, ProductListingPrice},
+    product_listing_slug_id::ProductListingSlugId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use search_filter_core::{
@@ -140,6 +143,11 @@ enum PersistedProductListingPrice {
     Monetary {
         currency: PersistedCurrency,
         amount: u64,
+    },
+    Range {
+        currency: PersistedCurrency,
+        min: u64,
+        max: u64,
     },
     OnRequest,
 }
@@ -397,15 +405,17 @@ impl From<&NotificationWatchlistChange> for NotificationWatchlistChangeV1 {
     }
 }
 
-impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
-    fn from(change: NotificationWatchlistChangeV1) -> Self {
-        match change {
+impl TryFrom<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
+    type Error = NotificationMappingError;
+
+    fn try_from(change: NotificationWatchlistChangeV1) -> Result<Self, Self::Error> {
+        Ok(match change {
             NotificationWatchlistChangeV1::PriceChange {
                 old_price,
                 new_price,
             } => Self::PriceChange {
-                old_price: old_price.map(price_from_data),
-                new_price: new_price.map(price_from_data),
+                old_price: old_price.map(price_from_data).transpose()?,
+                new_price: new_price.map(price_from_data).transpose()?,
             },
             NotificationWatchlistChangeV1::AvailabilityChange {
                 old_availability,
@@ -414,7 +424,7 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
                 old_availability,
                 new_availability,
             },
-        }
+        })
     }
 }
 
@@ -559,7 +569,7 @@ impl TryFrom<NotificationRow> for Notification {
                 None,
                 None,
             ) => {
-                let change: NotificationWatchlistChange = change.into();
+                let change = NotificationWatchlistChange::try_from(change)?;
                 if change_kind(&change) != kind {
                     return Err(NotificationMappingError::KindPayloadMismatch);
                 }
@@ -631,10 +641,40 @@ impl TryFrom<NotificationRow> for Notification {
 }
 
 fn price_data_from_price(price: ProductListingPrice) -> PersistedProductListingPrice {
-    let ProductListingPrice::Monetary(price) = price else {
-        return PersistedProductListingPrice::OnRequest;
-    };
-    let currency = match price.currency {
+    match price {
+        ProductListingPrice::Monetary(price) => PersistedProductListingPrice::Monetary {
+            currency: persisted_currency(price.currency),
+            amount: price.monetary_amount.into(),
+        },
+        ProductListingPrice::Range(range) => PersistedProductListingPrice::Range {
+            currency: persisted_currency(range.currency()),
+            min: range.min().monetary_amount.into(),
+            max: range.max().monetary_amount.into(),
+        },
+        ProductListingPrice::OnRequest => PersistedProductListingPrice::OnRequest,
+    }
+}
+
+fn price_from_data(
+    price: PersistedProductListingPrice,
+) -> Result<ProductListingPrice, NotificationMappingError> {
+    Ok(match price {
+        PersistedProductListingPrice::Monetary { currency, amount } => {
+            ProductListingPrice::Monetary(Price::new(
+                MonetaryAmount::from(amount),
+                domain_currency(currency),
+            ))
+        }
+        PersistedProductListingPrice::Range { currency, min, max } => ProductListingPrice::Range(
+            PriceRange::from_amounts(domain_currency(currency), min, max)
+                .map_err(|_| NotificationMappingError::InvalidPayloadValue)?,
+        ),
+        PersistedProductListingPrice::OnRequest => ProductListingPrice::OnRequest,
+    })
+}
+
+fn persisted_currency(currency: Currency) -> PersistedCurrency {
+    match currency {
         Currency::Eur => PersistedCurrency::Eur,
         Currency::Gbp => PersistedCurrency::Gbp,
         Currency::Usd => PersistedCurrency::Usd,
@@ -665,18 +705,11 @@ fn price_data_from_price(price: ProductListingPrice) -> PersistedProductListingP
         Currency::Mxn => PersistedCurrency::Mxn,
         Currency::Thb => PersistedCurrency::Thb,
         Currency::Ars => PersistedCurrency::Ars,
-    };
-    PersistedProductListingPrice::Monetary {
-        currency,
-        amount: price.monetary_amount.into(),
     }
 }
 
-fn price_from_data(price: PersistedProductListingPrice) -> ProductListingPrice {
-    let PersistedProductListingPrice::Monetary { currency, amount } = price else {
-        return ProductListingPrice::OnRequest;
-    };
-    let currency = match currency {
+fn domain_currency(currency: PersistedCurrency) -> Currency {
+    match currency {
         PersistedCurrency::Eur => Currency::Eur,
         PersistedCurrency::Gbp => Currency::Gbp,
         PersistedCurrency::Usd => Currency::Usd,
@@ -707,8 +740,7 @@ fn price_from_data(price: PersistedProductListingPrice) -> ProductListingPrice {
         PersistedCurrency::Mxn => Currency::Mxn,
         PersistedCurrency::Thb => Currency::Thb,
         PersistedCurrency::Ars => Currency::Ars,
-    };
-    ProductListingPrice::Monetary(Price::new(MonetaryAmount::from(amount), currency))
+    }
 }
 
 fn serialize_optional_listing_availability<S>(
@@ -1167,7 +1199,35 @@ mod tests {
             serde_json::json!({"type": "MONETARY", "currency": "ARS", "amount": 75_000_000}),
             json
         );
-        assert_eq!(price, price_from_data(serde_json::from_value(json)?));
+        assert_eq!(price, price_from_data(serde_json::from_value(json)?)?);
+        Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_watchlist_price_ranges() -> Result<(), Box<dyn std::error::Error>> {
+        let range: ProductListingPrice =
+            PriceRange::from_amounts(Currency::Eur, 100_000_u64, 150_000_u64)?.into();
+        let json = serde_json::to_value(price_data_from_price(range))?;
+
+        assert_eq!(
+            serde_json::json!({"type": "RANGE", "currency": "EUR", "min": 100_000, "max": 150_000}),
+            json
+        );
+        assert_eq!(range, price_from_data(serde_json::from_value(json)?)?);
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_persisted_price_ranges_that_do_not_ascend()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let persisted = serde_json::from_value(
+            serde_json::json!({"type": "RANGE", "currency": "EUR", "min": 150_000, "max": 100_000}),
+        )?;
+
+        assert!(matches!(
+            price_from_data(persisted),
+            Err(NotificationMappingError::InvalidPayloadValue)
+        ));
         Ok(())
     }
 
@@ -1190,7 +1250,7 @@ mod tests {
             value
         );
         assert!(matches!(
-            NotificationWatchlistChange::from(persisted),
+            NotificationWatchlistChange::try_from(persisted)?,
             NotificationWatchlistChange::PriceChange {
                 old_price: Some(ProductListingPrice::OnRequest),
                 new_price: None,

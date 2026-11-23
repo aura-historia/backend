@@ -174,10 +174,10 @@ mod tests {
                         Currency::Eur,
                     )),
                     display: Some(ProductListingHistoryPriceDisplay {
-                        price: Price::new(
+                        price: ProductListingPrice::Monetary(Price::new(
                             MonetaryAmount::from(if index < 2 { 200_u64 } else { 400_u64 }),
                             Currency::Usd,
-                        ),
+                        )),
                         fx_rate_id: if index < 2 { first_fx } else { later_fx },
                         captured_at,
                     }),

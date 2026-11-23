@@ -119,17 +119,13 @@ pub fn present_product_pricing(
                 |source| ProductListingPricingPresentationError::PriceConversionFailed { source },
             )
     };
-    let price = match source.price {
-        None => None,
-        Some(ProductListingPrice::OnRequest) => Some(ProductListingPrice::OnRequest),
-        Some(ProductListingPrice::Monetary(price)) => Some(ProductListingPrice::Monetary(
-            snapshot
-                .convert(price, display_currency, RoundingMode::HalfUp)
-                .map_err(|source| {
-                    ProductListingPricingPresentationError::PriceConversionFailed { source }
-                })?,
-        )),
-    };
+    let price = source
+        .price
+        .map(|price| price.convert(snapshot, display_currency, RoundingMode::HalfUp))
+        .transpose()
+        .map_err(
+            |source| ProductListingPricingPresentationError::PriceConversionFailed { source },
+        )?;
     let display = DisplayProductListingPricing {
         price,
         price_estimate_min: convert(source.price_estimate_min)?,

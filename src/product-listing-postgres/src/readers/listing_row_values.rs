@@ -11,7 +11,7 @@ use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_price::ProductListingPrice;
+use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
 use product_listing_core::title::Title;
 use serde::Deserialize;
 use url::Url;
@@ -76,17 +76,27 @@ pub(super) fn localized_title(
 pub(super) fn product_listing_price(
     kind: Option<String>,
     amount: Option<i64>,
+    max_amount: Option<i64>,
     currency: Option<String>,
 ) -> Decoded<Option<ProductListingPrice>> {
-    match (kind.as_deref(), amount, currency) {
-        (None, None, None) => Ok(None),
-        (Some("MONETARY"), Some(amount), Some(currency)) => Ok(Some(
+    match (kind.as_deref(), amount, max_amount, currency) {
+        (None, None, None, None) => Ok(None),
+        (Some("MONETARY"), Some(amount), None, Some(currency)) => Ok(Some(
             ProductListingPrice::Monetary(monetary("price", amount, &currency)?),
         )),
-        (Some("ON_REQUEST"), None, None) => Ok(Some(ProductListingPrice::OnRequest)),
+        (Some("RANGE"), Some(min), Some(max), Some(currency)) => {
+            Ok(Some(ProductListingPrice::Range(
+                PriceRange::new(
+                    monetary("price", min, &currency)?,
+                    monetary("price", max, &currency)?,
+                )
+                .map_err(InvalidListingRowValue::of("price"))?,
+            )))
+        }
+        (Some("ON_REQUEST"), None, None, None) => Ok(Some(ProductListingPrice::OnRequest)),
         _ => Err(InvalidListingRowValue::rejected(
             "price",
-            "kind, amount and currency do not form a price",
+            "kind, amounts and currency do not form a price",
         )),
     }
 }

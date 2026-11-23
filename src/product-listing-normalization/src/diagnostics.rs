@@ -142,6 +142,7 @@ pub enum NormalizationIssueReason {
     PriceParseFailed,
     PriceNegative,
     PriceExcessPrecision,
+    PriceRangeInvalid,
     MachineDecimalFallbackCurrencyRequired,
     AvailabilityTextTooLong,
     AvailabilityEmbeddedNul,
@@ -384,6 +385,9 @@ impl NormalizationIssue {
                 rejected,
                 none,
             ),
+            NormalizationError::PriceRangeInvalid { field } => {
+                Self::field((*field).into(), Reason::PriceRangeInvalid, rejected, none)
+            }
             NormalizationError::PriceMachineDecimalFallbackCurrencyRequired { field } => {
                 Self::field(
                     (*field).into(),
@@ -537,6 +541,7 @@ pub fn price_normalization_error(
         PriceNormalizationError::ExcessPrecision => {
             NormalizationError::PriceExcessPrecision { field }
         }
+        PriceNormalizationError::InvalidRange => NormalizationError::PriceRangeInvalid { field },
     }
 }
 

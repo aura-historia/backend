@@ -2,6 +2,15 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-23 — Asking-price ranges (#3107)
+
+- **New price kind:** `ProductListingPriceData` gains `{"type":"RANGE","currency","min","max"}`, an asking price between two amounts in minor units. It appears wherever a listing price does: listing detail, search, similar listings, watchlist, saved-search matches, auction catalogues, notifications, admin and partner management reads, and the matching MCP tools. Clients that switch on `type` must handle `RANGE` (for example render `€1,000.00 – €1,500.00`). Converted display prices of a range keep its shape; a range whose bounds round to one amount in the display currency is shown as `MONETARY`.
+- **Writes:** partner create/update/upsert (synchronous and async) and admin `PATCH /v1/admin/product-listings/{productListingId}` accept `RANGE`. `min` must be below `max`, both at most 9223372036854775807; otherwise the request returns `400 BAD_BODY_VALUE` (the admin route names `source.field` `price`).
+- **Search and saved searches:** a `price[min]`/`price[max]` filter matches a range listing when the range overlaps the filter. Single prices match as before.
+- **History:** a main-price `display` now carries the source's `type` (`MONETARY` or `RANGE`) and, for a range, `min` and `max` instead of `amount`. Estimate displays are unchanged.
+- **Notifications:** `WATCHLIST_PRICE_CHANGED` fires for any change of the asking price, including a range bound or a transition between kinds; `oldPrice`/`newPrice` may be `RANGE`.
+- **Crawled prices:** listings whose source states a range (`€ 1.000 – 1.500`, `from £1,200 to £1,500`) now store that range instead of one bound or failing; text that looks like a range but cannot be one is rejected with the persisted diagnostic `PRICE_RANGE_INVALID`.
+
 ## 2026-11-20 — Bounded Shopify trigger time (#3080)
 
 - **Behavior change:** `POST /v1/webhooks/shopify` rejects a forwarded delivery for a shop with a Shopify ListingSource whose `X-Shopify-Triggered-At` is more than five minutes in the future or more than six hours old with `400 BAD_HEADER_VALUE` and `source.field` `X-Shopify-Triggered-At`. The HMAC covers only the body, so the header is unauthenticated; the bound keeps a replayed body from ordering an observation, such as a removal, at a time Shopify would never send. A trigger time that is not RFC 3339 now also returns `400 BAD_HEADER_VALUE` instead of `BAD_BODY_VALUE`. Shopify's own deliveries and retries fall inside the bound.

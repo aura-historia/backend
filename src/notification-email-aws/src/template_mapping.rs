@@ -517,6 +517,11 @@ fn product_template_data(
 fn price_text(price: Option<ProductListingPrice>, language: EmailLanguage) -> Option<String> {
     price.map(|price| match price {
         ProductListingPrice::Monetary(price) => price.format_human_readable(),
+        ProductListingPrice::Range(range) => format!(
+            "{} – {}",
+            range.min().format_human_readable(),
+            range.max().format_human_readable()
+        ),
         ProductListingPrice::OnRequest => match language {
             EmailLanguage::De => "Preis auf Anfrage",
             EmailLanguage::En => "Price on request",
@@ -1127,6 +1132,34 @@ mod tests {
 
         assert!(data["old_price"].is_null());
         assert_eq!(Some(expected), data["new_price"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_render_both_bounds_of_a_watchlist_price_range()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let NotificationContent::Watchlist { change, .. } = &mut source.content else {
+            return Err(
+                std::io::Error::other("test source is not a watchlist notification").into(),
+            );
+        };
+        *change = NotificationWatchlistChange::PriceChange {
+            old_price: Some(Price::new(MonetaryAmount::from(120_000_u64), Currency::Eur).into()),
+            new_price: Some(
+                product_listing_core::product_listing_price::PriceRange::from_amounts(
+                    Currency::Eur,
+                    100_000_u64,
+                    150_000_u64,
+                )?
+                .into(),
+            ),
+        };
+
+        let data = template_data(&source, EmailLanguage::De, None, links(EmailLanguage::De));
+
+        assert_eq!(Some("1200,00 €"), data["old_price"].as_str());
+        assert_eq!(Some("1000,00 € – 1500,00 €"), data["new_price"].as_str());
         Ok(())
     }
 

@@ -158,12 +158,50 @@
                     "amount": {
                         "type": "unsigned_long"
                     },
+                    "maxAmount": {
+                        "type": "unsigned_long"
+                    },
                     "currency": {
                         "type": "keyword"
                     }
                 }
             },
             "salePrices": {
+                "type": "object",
+                "properties": {
+                    "eur": { "type": "unsigned_long" },
+                    "gbp": { "type": "unsigned_long" },
+                    "usd": { "type": "unsigned_long" },
+                    "aud": { "type": "unsigned_long" },
+                    "cad": { "type": "unsigned_long" },
+                    "nzd": { "type": "unsigned_long" },
+                    "cny": { "type": "unsigned_long" },
+                    "brl": { "type": "unsigned_long" },
+                    "pln": { "type": "unsigned_long" },
+                    "try": { "type": "unsigned_long" },
+                    "jpy": { "type": "unsigned_long" },
+                    "czk": { "type": "unsigned_long" },
+                    "rub": { "type": "unsigned_long" },
+                    "aed": { "type": "unsigned_long" },
+                    "sar": { "type": "unsigned_long" },
+                    "hkd": { "type": "unsigned_long" },
+                    "sgd": { "type": "unsigned_long" },
+                    "chf": { "type": "unsigned_long" },
+                    "zar": { "type": "unsigned_long" },
+                    "sek": { "type": "unsigned_long" },
+                    "dkk": { "type": "unsigned_long" },
+                    "nok": { "type": "unsigned_long" },
+                    "krw": { "type": "unsigned_long" },
+                    "inr": { "type": "unsigned_long" },
+                    "twd": { "type": "unsigned_long" },
+                    "huf": { "type": "unsigned_long" },
+                    "ron": { "type": "unsigned_long" },
+                    "mxn": { "type": "unsigned_long" },
+                    "thb": { "type": "unsigned_long" },
+                    "ars": { "type": "unsigned_long" }
+                }
+            },
+            "salePricesMax": {
                 "type": "object",
                 "properties": {
                     "eur": { "type": "unsigned_long" },

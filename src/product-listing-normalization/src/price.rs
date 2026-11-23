@@ -1,5 +1,6 @@
 mod currency_marker;
 mod display_number;
+mod range;
 
 #[cfg(test)]
 use currency_marker::currency_marker_spans;
@@ -10,7 +11,8 @@ use display_number::{
     price_number_candidate_quality, stands_alone,
 };
 use money::{Currency, MonetaryAmount, Price};
-use product_listing_core::product_listing_price::ProductListingPrice;
+use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
+use range::display_range;
 use regex::regex;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -31,6 +33,9 @@ pub enum PriceNormalizationError {
     NegativeAmount,
     /// The selected amount has nonzero digits beyond the currency's minor unit.
     ExcessPrecision,
+    /// The text states a range layout that cannot be one range: mixed currencies, a lower
+    /// bound that is not below the upper one, several ranges, or a range next to another price.
+    InvalidRange,
 }
 
 pub type PriceError = PriceNormalizationError;
@@ -207,11 +212,21 @@ fn euro_sign_decimal_number(raw: &str) -> Option<String> {
 // Public field-level helper
 // ---------------------------------------------------------------------------
 
+/// Which bound of a stated range a single-amount field reads, such as an auction estimate
+/// written as `€ 1.000 – 1.500`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeBound {
+    Lower,
+    Upper,
+}
+
 /// Parses an optional raw monetary price with explicit fallback currency context.
-/// Blank values and deliberate price-on-request markers produce no monetary assertion.
+/// Blank values and deliberate price-on-request markers produce no monetary assertion. A stated
+/// range yields its `range_bound`.
 pub fn normalize_price(
     raw: Option<&str>,
     fallback_currency: Option<Currency>,
+    range_bound: RangeBound,
 ) -> Result<Option<Price>, PriceNormalizationError> {
     let Some(raw) = raw else { return Ok(None) };
     let trimmed = raw.trim();
@@ -224,7 +239,7 @@ pub fn normalize_price(
     let request_evidence = price_on_request_evidence(trimmed);
     match parse_display_price(trimmed, fallback_currency) {
         Ok(_) if request_evidence == PriceOnRequestEvidence::Explicit => Ok(None),
-        Ok(parsed) => Ok(Some(parsed.price)),
+        Ok(parsed) => Ok(Some(parsed.amount.bound(range_bound))),
         Err(_) if request_evidence == PriceOnRequestEvidence::Explicit => Ok(None),
         Err(error) => Err(error),
     }
@@ -232,8 +247,9 @@ pub fn normalize_price(
 
 /// Parses the main ProductListing asking-price assertion.
 ///
-/// A valid monetary price takes precedence over generic contact wording. Price-on-request
-/// markers become an explicit ProductListing domain assertion rather than an absence.
+/// A valid monetary price or range takes precedence over generic contact wording.
+/// Price-on-request markers become an explicit ProductListing domain assertion rather than an
+/// absence.
 pub fn normalize_product_listing_price(
     raw: Option<&str>,
     fallback_currency: Option<Currency>,
@@ -258,7 +274,7 @@ pub fn normalize_product_listing_price(
         Ok(_) if request_evidence == PriceOnRequestEvidence::Explicit => {
             Err(PriceNormalizationError::ParseFailure)
         }
-        Ok(parsed) => Ok(Some(ProductListingPrice::Monetary(parsed.price))),
+        Ok(parsed) => Ok(Some(parsed.amount.into())),
         Err(error) if has_explicit_monetary_evidence => Err(error),
         Err(_) if request_evidence != PriceOnRequestEvidence::None => {
             Ok(Some(ProductListingPrice::OnRequest))
@@ -295,8 +311,34 @@ enum PriceCurrencyEvidence {
     Fallback,
 }
 
+/// The amount or range a display text states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisplayAmount {
+    Single(Price),
+    Range(PriceRange),
+}
+
+impl DisplayAmount {
+    fn bound(self, bound: RangeBound) -> Price {
+        match (self, bound) {
+            (Self::Single(price), _) => price,
+            (Self::Range(range), RangeBound::Lower) => range.min(),
+            (Self::Range(range), RangeBound::Upper) => range.max(),
+        }
+    }
+}
+
+impl From<DisplayAmount> for ProductListingPrice {
+    fn from(value: DisplayAmount) -> Self {
+        match value {
+            DisplayAmount::Single(price) => Self::Monetary(price),
+            DisplayAmount::Range(range) => Self::Range(range),
+        }
+    }
+}
+
 struct ParsedDisplayPrice {
-    price: Price,
+    amount: DisplayAmount,
     currency_evidence: PriceCurrencyEvidence,
 }
 
@@ -304,9 +346,19 @@ fn parse_display_price(
     raw: &str,
     fallback_currency: Option<Currency>,
 ) -> Result<ParsedDisplayPrice, PriceNormalizationError> {
+    if let Some(range) = display_range(raw, fallback_currency)? {
+        return Ok(ParsedDisplayPrice {
+            amount: DisplayAmount::Range(range.range),
+            currency_evidence: if range.explicit_currency {
+                PriceCurrencyEvidence::ExplicitMarker
+            } else {
+                PriceCurrencyEvidence::Fallback
+            },
+        });
+    }
     let (amount, currency) = parse_price(raw, fallback_currency)?;
     Ok(ParsedDisplayPrice {
-        price: Price::new(amount, currency),
+        amount: DisplayAmount::Single(Price::new(amount, currency)),
         currency_evidence: if price_currency_pairs(raw).is_empty() {
             PriceCurrencyEvidence::Fallback
         } else {
@@ -662,9 +714,9 @@ mod tests {
 
     use super::currency_marker::{CURRENCY_SYMBOLS, currency_marker_spans};
     use super::{
-        PriceError, PriceOnRequestEvidence, detect_currency, extract_price_number_candidate,
-        normalize_machine_decimal_price, normalize_price, normalize_product_listing_price,
-        parse_price, price_on_request_evidence,
+        PriceError, PriceOnRequestEvidence, RangeBound, detect_currency,
+        extract_price_number_candidate, normalize_machine_decimal_price, normalize_price,
+        normalize_product_listing_price, parse_price, price_on_request_evidence,
     };
 
     // -----------------------------------------------------------------------
@@ -839,7 +891,7 @@ mod tests {
         for fallback in [None, Some(Currency::Chf)] {
             assert_eq!(
                 Ok(Some(Price::new(expected_minor.into(), expected_currency))),
-                normalize_price(Some(raw), fallback),
+                normalize_price(Some(raw), fallback, RangeBound::Lower),
                 "{raw}"
             );
         }
@@ -890,7 +942,7 @@ mod tests {
         for fallback in [None, Some(Currency::Eur)] {
             assert_eq!(
                 Err(PriceError::ParseFailure),
-                normalize_price(Some(raw), fallback),
+                normalize_price(Some(raw), fallback, RangeBound::Lower),
                 "{raw}"
             );
         }
@@ -932,7 +984,7 @@ mod tests {
         for fallback in [None, Some(Currency::Jpy)] {
             assert_eq!(
                 Ok(Some(Price::new(expected_minor.into(), expected_currency))),
-                normalize_price(Some(raw), fallback),
+                normalize_price(Some(raw), fallback, RangeBound::Lower),
                 "{raw}"
             );
         }
@@ -942,7 +994,11 @@ mod tests {
     fn should_read_a_swiss_apostrophe_amount_with_the_fallback_currency() {
         assert_eq!(
             Ok(Some(Price::new(125_000_u64.into(), Currency::Chf))),
-            normalize_price(Some("Fr. 1\u{2019}250.00"), Some(Currency::Chf))
+            normalize_price(
+                Some("Fr. 1\u{2019}250.00"),
+                Some(Currency::Chf),
+                RangeBound::Lower
+            )
         );
     }
 
@@ -957,7 +1013,7 @@ mod tests {
     ) {
         assert_eq!(
             Err(PriceError::ParseFailure),
-            normalize_price(Some(raw), Some(fallback)),
+            normalize_price(Some(raw), Some(fallback), RangeBound::Lower),
             "{raw}"
         );
     }
@@ -966,7 +1022,11 @@ mod tests {
     fn should_read_an_amount_without_a_paired_currency_in_the_stated_fallback_currency() {
         assert_eq!(
             Ok(Some(Price::new(125_000_u64.into(), Currency::Eur))),
-            normalize_price(Some("Preis in EUR: 1.250"), Some(Currency::Eur))
+            normalize_price(
+                Some("Preis in EUR: 1.250"),
+                Some(Currency::Eur),
+                RangeBound::Lower
+            )
         );
     }
 
@@ -975,7 +1035,7 @@ mod tests {
         let overlong = "€1 ".repeat(100);
         assert_eq!(
             Err(PriceError::ParseFailure),
-            normalize_price(Some(&overlong), Some(Currency::Eur))
+            normalize_price(Some(&overlong), Some(Currency::Eur), RangeBound::Lower)
         );
         assert_eq!(
             Err(PriceError::ParseFailure),
@@ -991,7 +1051,11 @@ mod tests {
         // The bound counts characters, so a label in a script of multi-byte characters fits.
         assert_eq!(
             Ok(Some(Price::new(2_160_u64.into(), Currency::Jpy))),
-            normalize_price(Some(&format!("{}2,160 円", "税込価格・".repeat(40))), None)
+            normalize_price(
+                Some(&format!("{}2,160 円", "税込価格・".repeat(40))),
+                None,
+                RangeBound::Lower
+            )
         );
     }
 
@@ -1121,7 +1185,7 @@ mod tests {
     ) {
         assert_eq!(
             Ok(Some(Price::new(expected_minor.into(), Currency::Eur))),
-            normalize_price(Some(raw), None),
+            normalize_price(Some(raw), None, RangeBound::Lower),
             "{raw}"
         );
     }
@@ -1143,7 +1207,7 @@ mod tests {
     fn should_not_infer_a_currency_from_a_zero_cents_dash() {
         assert_eq!(
             Err(PriceError::UnknownCurrency),
-            normalize_price(Some("195,-"), None)
+            normalize_price(Some("195,-"), None, RangeBound::Lower)
         );
     }
 
@@ -1290,7 +1354,7 @@ mod tests {
         ));
         assert_eq!(
             Err(PriceError::NegativeAmount),
-            normalize_price(Some(raw), Some(Currency::Eur))
+            normalize_price(Some(raw), Some(Currency::Eur), RangeBound::Lower)
         );
     }
 
@@ -1375,7 +1439,10 @@ mod tests {
 
     #[test]
     fn should_clear_monetary_only_price_when_display_text_is_request_marker() {
-        assert_eq!(Ok(None), normalize_price(Some("Price on request"), None));
+        assert_eq!(
+            Ok(None),
+            normalize_price(Some("Price on request"), None, RangeBound::Lower)
+        );
     }
 
     #[rstest]
@@ -1445,7 +1512,10 @@ mod tests {
             )),
             normalize_product_listing_price(Some(raw), Some(Currency::Eur))
         );
-        assert_eq!(Ok(None), normalize_price(Some(raw), Some(Currency::Eur)));
+        assert_eq!(
+            Ok(None),
+            normalize_price(Some(raw), Some(Currency::Eur), RangeBound::Lower)
+        );
     }
 
     #[test]
@@ -1478,6 +1548,167 @@ mod tests {
             normalize_product_listing_price(Some("USD 100 / EUR 90 — price on request"), None)
         );
     }
+    // -----------------------------------------------------------------------
+    // ranges
+    // -----------------------------------------------------------------------
+
+    fn eur_range(
+        min: u64,
+        max: u64,
+    ) -> product_listing_core::product_listing_price::ProductListingPrice {
+        product_listing_core::product_listing_price::PriceRange::from_amounts(
+            Currency::Eur,
+            min,
+            max,
+        )
+        .expect("valid test range")
+        .into()
+    }
+
+    #[rstest]
+    // Issue #3107: one bound or a failure before.
+    #[case("€ 1.000 - 1.500")]
+    #[case("1.000 - 1.500 EUR")]
+    #[case("€1.000 - €1.500")]
+    #[case("1.000 bis 1.500 €")]
+    // Two zero-cents dashes, which the single-price rule leaves alone.
+    #[case("1.000,- – 1.500,- €")]
+    #[case("Preis: 1.000,– bis 1.500,– € inkl. 19% MwSt.")]
+    fn should_read_a_stated_range_as_the_asking_price(#[case] raw: &str) {
+        for fallback in [None, Some(Currency::Eur), Some(Currency::Chf)] {
+            assert_eq!(
+                Ok(Some(eur_range(100_000, 150_000))),
+                normalize_product_listing_price(Some(raw), fallback),
+                "{raw} with {fallback:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_read_a_whole_text_range_in_the_fallback_currency() {
+        assert_eq!(
+            Ok(Some(eur_range(100_000, 150_000))),
+            normalize_product_listing_price(Some("1.000 - 1.500"), Some(Currency::Eur))
+        );
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            normalize_product_listing_price(Some("Lieferzeit 1 bis 2 Wochen"), Some(Currency::Eur))
+        );
+    }
+
+    #[rstest]
+    #[case("€ 1.000 - 1.500 CHF", PriceError::InvalidRange)]
+    #[case("€ 1.500 - 1.000", PriceError::InvalidRange)]
+    #[case("€ 1.000 – 1.000", PriceError::InvalidRange)]
+    #[case("€ 100 - 200, € 300 - 400", PriceError::InvalidRange)]
+    #[case("Was € 2.000 Now € 1.000 - 1.500", PriceError::InvalidRange)]
+    #[case("€ 1.000 -1.500", PriceError::NegativeAmount)]
+    // A sign or zero-cents dash keeps its meaning.
+    #[case("100,-200 €", PriceError::NegativeAmount)]
+    fn should_fail_closed_when_the_range_cannot_be_one(
+        #[case] raw: &str,
+        #[case] expected: PriceError,
+    ) {
+        assert_eq!(
+            Err(expected),
+            normalize_product_listing_price(Some(raw), None),
+            "{raw}"
+        );
+    }
+
+    #[rstest]
+    #[case("€ -100 - 200")]
+    #[case("€ 1.000 - −1.500")]
+    fn should_never_read_a_signed_range_as_a_price(#[case] raw: &str) {
+        assert!(
+            normalize_product_listing_price(Some(raw), Some(Currency::Eur)).is_err(),
+            "{raw}"
+        );
+    }
+
+    #[rstest]
+    #[case("2490,- €", 249_000)]
+    #[case("€12,500 – contact us to buy", 1_250_000)]
+    #[case("Vase - €100", 10_000)]
+    #[case("1.250 € - 3 Stück", 125_000)]
+    fn should_keep_single_prices_next_to_a_dash(#[case] raw: &str, #[case] minor: u64) {
+        assert_eq!(
+            Ok(Some(Price::new(minor.into(), Currency::Eur).into())),
+            normalize_product_listing_price(Some(raw), None),
+            "{raw}"
+        );
+    }
+
+    #[test]
+    fn should_prefer_explicit_request_wording_over_a_fallback_currency_range() {
+        assert_eq!(
+            Ok(Some(
+                product_listing_core::product_listing_price::ProductListingPrice::OnRequest
+            )),
+            normalize_product_listing_price(
+                Some("Price on request 100 - 200"),
+                Some(Currency::Eur)
+            )
+        );
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            normalize_product_listing_price(Some("€ 100 - 200 price on request"), None)
+        );
+    }
+
+    #[test]
+    fn should_never_panic_on_combinations_of_range_tokens() {
+        const TOKENS: &[&str] = &[
+            "1.000", "1 500", "2,50", "€", "円", "CHF", "-", "–", "～", " ", "\u{202f}", "bis",
+            " to ", "entre ", " et ", ",-", "−", "%", ":", "ü",
+        ];
+        let mut text = String::new();
+        for prefix in ["", "€ 1.000 "] {
+            for a in TOKENS {
+                for b in TOKENS {
+                    for c in TOKENS {
+                        text.clear();
+                        text.push_str(prefix);
+                        for token in [a, b, c] {
+                            text.push_str(token);
+                        }
+                        for fallback in [None, Some(Currency::Eur)] {
+                            let price = normalize_product_listing_price(Some(&text), fallback);
+                            if let Ok(Some(price)) = price
+                                && let Some((min, max)) = price.bounds()
+                            {
+                                assert!(min.monetary_amount <= max.monetary_amount, "{text}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[rstest]
+    #[case(RangeBound::Lower, 100_000)]
+    #[case(RangeBound::Upper, 150_000)]
+    fn should_read_the_requested_bound_of_a_range_in_a_single_amount_field(
+        #[case] bound: RangeBound,
+        #[case] minor: u64,
+    ) {
+        assert_eq!(
+            Ok(Some(Price::new(minor.into(), Currency::Eur))),
+            normalize_price(Some("€ 1.000 – 1.500"), None, bound)
+        );
+        for bound in [RangeBound::Lower, RangeBound::Upper] {
+            assert_eq!(
+                Ok(Some(Price::new(120_000_u64.into(), Currency::Eur))),
+                normalize_price(Some("€ 1.200"), None, bound)
+            );
+        }
+        assert_eq!(
+            Err(PriceError::InvalidRange),
+            normalize_price(Some("€ 1.500 – 1.000"), None, bound)
+        );
+    }
+
     #[test]
     fn should_parse_added_currency_codes_and_safe_aliases() {
         for (code, currency, amount) in [

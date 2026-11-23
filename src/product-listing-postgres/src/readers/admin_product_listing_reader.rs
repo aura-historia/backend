@@ -39,7 +39,7 @@ impl SqlxAdminProductListingReader {
 }
 
 // No translated text, FX conversion, personalization, assessment dependency, or lifecycle exclusion.
-const SUMMARY_COLUMNS: &str = "p.product_listing_id, p.product_listing_title_slug_id, p.listing_source_id, p.source_listing_id, s.name AS source_name, s.listing_source_slug_id AS source_slug_id, source_operator.name AS source_operator_name, source_operator_partnership.partnership_id IS NOT NULL AS source_operator_partner, p.title_text, p.title_language, p.price_kind, p.price_amount, p.price_currency, p.price_estimate_min_amount, p.price_estimate_min_currency, p.price_estimate_max_amount, p.price_estimate_max_currency, p.availability, p.lifecycle, p.auction_id, p.version, p.created, p.updated";
+const SUMMARY_COLUMNS: &str = "p.product_listing_id, p.product_listing_title_slug_id, p.listing_source_id, p.source_listing_id, s.name AS source_name, s.listing_source_slug_id AS source_slug_id, source_operator.name AS source_operator_name, source_operator_partnership.partnership_id IS NOT NULL AS source_operator_partner, p.title_text, p.title_language, p.price_kind, p.price_amount, p.price_max_amount, p.price_currency, p.price_estimate_min_amount, p.price_estimate_min_currency, p.price_estimate_max_amount, p.price_estimate_max_currency, p.availability, p.lifecycle, p.auction_id, p.version, p.created, p.updated";
 const FROM: &str = " FROM product_listings p JOIN listing_sources s ON s.listing_source_id = p.listing_source_id JOIN parties source_operator ON source_operator.party_id = s.operator_party_id LEFT JOIN partnerships source_operator_partnership ON source_operator_partnership.party_id = s.operator_party_id AND source_operator_partnership.business_state = 'ACTIVE'";
 
 #[derive(sqlx::FromRow)]
@@ -56,6 +56,7 @@ struct SummaryRow {
     title_language: Option<String>,
     price_kind: Option<String>,
     price_amount: Option<i64>,
+    price_max_amount: Option<i64>,
     price_currency: Option<String>,
     price_estimate_min_amount: Option<i64>,
     price_estimate_min_currency: Option<String>,
@@ -245,6 +246,7 @@ fn map_summary(row: SummaryRow) -> Result<AdminProductListingSummary, BoxError> 
         price: product_listing_price_from_parts(
             row.price_kind,
             row.price_amount,
+            row.price_max_amount,
             row.price_currency,
         )
         .map_err(box_error)?,

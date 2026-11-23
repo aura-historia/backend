@@ -13,7 +13,7 @@ use fxrate_service::ports::{
 };
 use product_listing_core::{
     listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-    product_listing_id::ProductListingId, product_listing_price::ProductListingPrice,
+    product_listing_id::ProductListingId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,7 +195,10 @@ where
     };
     if source.lifecycle != ListingLifecycle::Active
         || source.availability != Some(ListingAvailability::SoldOut)
-        || !matches!(source.pricing.price, Some(ProductListingPrice::Monetary(_)))
+        || !source
+            .pricing
+            .price
+            .is_some_and(|price| price.bounds().is_some())
     {
         return Ok(None);
     }

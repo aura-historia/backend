@@ -82,7 +82,7 @@ pub struct ProductListingDiscoveryHistory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProductListingHistoryPrice<T> {
     pub source: T,
-    pub display: Option<ProductListingHistoryPriceDisplay>,
+    pub display: Option<ProductListingHistoryPriceDisplay<T>>,
 }
 
 impl<T> From<T> for ProductListingHistoryPrice<T> {
@@ -94,9 +94,10 @@ impl<T> From<T> for ProductListingHistoryPrice<T> {
     }
 }
 
+/// A source value converted into the requested currency: a price, or both bounds of a range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProductListingHistoryPriceDisplay {
-    pub price: Price,
+pub struct ProductListingHistoryPriceDisplay<T> {
+    pub price: T,
     pub fx_rate_id: FxRateId,
     pub captured_at: OffsetDateTime,
 }
@@ -311,7 +312,7 @@ where
 
 fn has_monetary_value(entry: &ProductListingHistoryEntry) -> bool {
     let is_monetary = |value: Option<ProductListingHistoryPrice<ProductListingPrice>>| {
-        value.is_some_and(|value| matches!(value.source, ProductListingPrice::Monetary(_)))
+        value.is_some_and(|value| !value.source.is_on_request())
     };
     match &entry.kind {
         ProductListingHistoryEntryKind::Discovered(discovery) => {
@@ -379,9 +380,14 @@ fn project_main_price(
     currency: Currency,
 ) -> Result<(), GetProductListingHistoryError> {
     if let Some(value) = value {
-        value.display = match value.source {
-            ProductListingPrice::Monetary(price) => display_price(price, snapshot, currency)?,
+        let source = value.source;
+        value.display = match source {
             ProductListingPrice::OnRequest => None,
+            ProductListingPrice::Monetary(_) | ProductListingPrice::Range(_) => {
+                display(snapshot, currency, |snapshot, rounding| {
+                    source.convert(snapshot, currency, rounding)
+                })?
+            }
         };
     }
     Ok(())
@@ -402,7 +408,18 @@ fn display_price(
     price: Price,
     snapshot: Option<&FxRateSnapshot>,
     currency: Currency,
-) -> Result<Option<ProductListingHistoryPriceDisplay>, GetProductListingHistoryError> {
+) -> Result<Option<ProductListingHistoryPriceDisplay<Price>>, GetProductListingHistoryError> {
+    display(snapshot, currency, |snapshot, rounding| {
+        snapshot.convert(price, currency, rounding)
+    })
+}
+
+/// Converts a source value with `snapshot`, or `None` when the snapshot or a quote is missing.
+fn display<T>(
+    snapshot: Option<&FxRateSnapshot>,
+    currency: Currency,
+    convert: impl FnOnce(&FxRateSnapshot, RoundingMode) -> Result<T, FxRateSnapshotError>,
+) -> Result<Option<ProductListingHistoryPriceDisplay<T>>, GetProductListingHistoryError> {
     let Some(snapshot) = snapshot else {
         return Ok(None);
     };
@@ -414,7 +431,7 @@ fn display_price(
     {
         return Ok(None);
     }
-    match snapshot.convert(price, currency, RoundingMode::HalfUp) {
+    match convert(snapshot, RoundingMode::HalfUp) {
         Ok(price) => Ok(Some(ProductListingHistoryPriceDisplay {
             price,
             fx_rate_id: snapshot.id(),
@@ -624,15 +641,15 @@ mod tests {
             .await
     }
 
-    fn assert_display(
-        display: Option<ProductListingHistoryPriceDisplay>,
+    fn assert_display<T: std::fmt::Debug + PartialEq + From<Price>>(
+        display: Option<ProductListingHistoryPriceDisplay<T>>,
         amount: u64,
         currency: Currency,
         snapshot: &FxRateSnapshot,
     ) {
         assert_eq!(
             Some(ProductListingHistoryPriceDisplay {
-                price: price(amount, currency),
+                price: price(amount, currency).into(),
                 fx_rate_id: snapshot.id(),
                 captured_at: snapshot.captured_at(),
             }),

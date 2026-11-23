@@ -683,13 +683,18 @@ fn validate_product_listing_price(value: &Value) -> Result<(), CdcRouteError> {
                 "product listing price",
             )?;
             require_u64(object, "amount")?;
-            let currency = require_string(object, "currency")?;
-            let parsed = money::Currency::from_code(currency.as_str())
-                .ok_or_else(|| invalid_product_listing_field("price.currency"))?;
-            if parsed.as_str() != currency {
-                return Err(noncanonical_product_listing_field("price.currency"));
+            validate_currency(object)
+        }
+        "RANGE" => {
+            require_exact_keys(
+                object,
+                &["type", "min", "max", "currency"],
+                "product listing price",
+            )?;
+            if require_u64(object, "min")? >= require_u64(object, "max")? {
+                return Err(invalid_product_listing_field("price.max"));
             }
-            Ok(())
+            validate_currency(object)
         }
         "ON_REQUEST" => {
             require_exact_keys(object, &["type"], "product listing price")?;
@@ -719,6 +724,10 @@ fn validate_price(value: &Value) -> Result<(), CdcRouteError> {
     let object = required_object(value)?;
     require_exact_keys(object, &["amount", "currency"], "price")?;
     require_u64(object, "amount")?;
+    validate_currency(object)
+}
+
+fn validate_currency(object: &Map<String, Value>) -> Result<(), CdcRouteError> {
     let currency = require_string(object, "currency")?;
     let parsed = money::Currency::from_code(currency.as_str())
         .ok_or_else(|| invalid_product_listing_field("price.currency"))?;
@@ -1558,6 +1567,33 @@ mod tests {
                 Err(CdcRouteError::NonCanonicalProductListingEventField { field })
                     if field == "title.text"
             ));
+        }
+    }
+
+    #[test]
+    fn price_range_changes_route_to_watchlist_notifications_and_invalid_ranges_fail_closed() {
+        let row = |current: Value| {
+            change(
+                "product_listing_events",
+                json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"pricing":{"price":{"previous":{"type":"MONETARY","amount":120000,"currency":"EUR"},"current":current}}}}),
+            )
+        };
+        let jobs = route_change(&row(
+            json!({"type":"RANGE","min":100000,"max":150000,"currency":"EUR"}),
+        ))
+        .unwrap();
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+        );
+        for invalid in [
+            json!({"type":"RANGE","min":150000,"max":100000,"currency":"EUR"}),
+            json!({"type":"RANGE","min":100000,"max":100000,"currency":"EUR"}),
+            json!({"type":"RANGE","min":100000,"max":150000,"currency":"eur"}),
+            json!({"type":"RANGE","min":100000,"currency":"EUR"}),
+            json!({"type":"RANGE","amount":100000,"min":100000,"max":150000,"currency":"EUR"}),
+        ] {
+            assert!(route_change(&row(invalid.clone())).is_err(), "{invalid}");
         }
     }
 

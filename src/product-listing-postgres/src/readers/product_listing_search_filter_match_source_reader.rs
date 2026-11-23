@@ -20,6 +20,7 @@ use product_listing_core::{
     product_listing::{ListingSaleObservation, ProductListingPricing},
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
+    product_listing_price::{PriceRange, ProductListingPrice},
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
     title::Title,
@@ -70,6 +71,7 @@ struct SourceRow {
     product_description_language: Option<String>,
     price_kind: Option<String>,
     price_amount: Option<i64>,
+    price_max_amount: Option<i64>,
     price_currency: Option<String>,
     price_estimate_min_amount: Option<i64>,
     price_estimate_min_currency: Option<String>,
@@ -226,6 +228,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.description_language AS product_description_language,
                 product.price_kind,
                 product.price_amount,
+                product.price_max_amount,
                 product.price_currency,
                 product.price_estimate_min_amount,
                 product.price_estimate_min_currency,
@@ -334,6 +337,7 @@ fn source_from_rows(
         price: product_listing_price(
             row.price_kind.as_deref(),
             row.price_amount,
+            row.price_max_amount,
             row.price_currency.as_deref(),
         )?,
         price_estimate_min: price(
@@ -553,29 +557,30 @@ fn description(value: &str) -> Result<Description, SourceRowMappingError> {
 fn product_listing_price(
     kind: Option<&str>,
     amount: Option<i64>,
+    max_amount: Option<i64>,
     currency_value: Option<&str>,
-) -> Result<
-    Option<product_listing_core::product_listing_price::ProductListingPrice>,
-    SourceRowMappingError,
-> {
-    match (kind, amount, currency_value) {
-        (None, None, None) => Ok(None),
-        (Some("MONETARY"), Some(amount), Some(currency_value)) => Ok(Some(
-            product_listing_core::product_listing_price::ProductListingPrice::Monetary(Price::new(
-                MonetaryAmount::from(u64::try_from(amount).map_err(|_| {
-                    SourceRowMappingError::invalid(
-                        "persisted product search-filter match price amount is invalid",
-                    )
-                })?),
-                currency(currency_value)?,
-            )),
-        )),
-        (Some("ON_REQUEST"), None, None) => Ok(Some(
-            product_listing_core::product_listing_price::ProductListingPrice::OnRequest,
-        )),
-        _ => Err(SourceRowMappingError::invalid(
+) -> Result<Option<ProductListingPrice>, SourceRowMappingError> {
+    let invalid = || {
+        SourceRowMappingError::invalid(
             "persisted product search-filter match main price is invalid",
-        )),
+        )
+    };
+    match (kind, amount, max_amount, currency_value) {
+        (None, None, None, None) => Ok(None),
+        (Some("MONETARY"), Some(amount), None, Some(currency_value)) => {
+            Ok(Some(ProductListingPrice::Monetary(
+                price(Some(amount), Some(currency_value))?.ok_or_else(invalid)?,
+            )))
+        }
+        (Some("RANGE"), Some(min), Some(max), Some(currency_value)) => {
+            let min = price(Some(min), Some(currency_value))?.ok_or_else(invalid)?;
+            let max = price(Some(max), Some(currency_value))?.ok_or_else(invalid)?;
+            Ok(Some(ProductListingPrice::Range(
+                PriceRange::new(min, max).map_err(|_| invalid())?,
+            )))
+        }
+        (Some("ON_REQUEST"), None, None, None) => Ok(Some(ProductListingPrice::OnRequest)),
+        _ => Err(invalid()),
     }
 }
 

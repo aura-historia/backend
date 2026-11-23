@@ -22,6 +22,7 @@ use product_listing_core::product_listing_auction::{
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
+use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
 
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
@@ -240,6 +241,85 @@ async fn should_round_trip_flat_listing_auction_fields() {
         Err(sqlx::Error::Database(error))
             if error.constraint() == Some("product_listings_lot_schedule_check")
     ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_round_trip_a_price_range_and_reject_ranges_that_do_not_ascend() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-price-range").await;
+    let range = PriceRange::from_amounts(Currency::Eur, 100_000_u64, 150_000_u64)
+        .unwrap_or_else(|error| panic!("range: {error}"));
+    let mut input = sample_new_product_listing(
+        "postgres-product-price-range",
+        listing_source_id,
+        SourceListingId::try_from("postgres-product-price-range")
+            .unwrap_or_else(|error| panic!("source listing ID: {error}")),
+        ProductListingId::new(),
+    );
+    input.pricing.price = Some(ProductListingPrice::Range(range));
+    let product = ProductListing::create(input)
+        .unwrap_or_else(|error| panic!("create product with range: {error}"));
+
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let loaded = product_listings
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+        .unwrap_or_else(|error| panic!("load range: {error:?}"))
+        .unwrap_or_else(|| panic!("persisted range is missing"));
+    commit(tx).await;
+    assert_eq!(
+        Some(ProductListingPrice::Range(range)),
+        loaded.value.pricing().price
+    );
+
+    let persisted: (Option<String>, Option<i64>, Option<i64>, Option<String>) = sqlx::query_as(
+        "SELECT price_kind, price_amount, price_max_amount, price_currency FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(product.id().into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("read persisted range: {error}"));
+    assert_eq!(
+        (
+            Some("RANGE".to_owned()),
+            Some(100_000),
+            Some(150_000),
+            Some("EUR".to_owned())
+        ),
+        persisted
+    );
+
+    for (kind, amount, max_amount) in [
+        ("RANGE", 150_000_i64, Some(150_000_i64)),
+        ("RANGE", 150_001, Some(150_000)),
+        ("RANGE", 100_000, None),
+        ("MONETARY", 100_000, Some(150_000)),
+    ] {
+        let invalid = sqlx::query(
+            "UPDATE product_listings SET price_kind = $1, price_amount = $2, price_max_amount = $3 WHERE product_listing_id = $4",
+        )
+        .bind(kind)
+        .bind(amount)
+        .bind(max_amount)
+        .bind(product.id().into_uuid())
+        .execute(&pool)
+        .await;
+        assert!(
+            matches!(
+                &invalid,
+                Err(sqlx::Error::Database(error))
+                    if error.constraint() == Some("product_listings_price_shape_check")
+            ),
+            "{kind} {amount} {max_amount:?}: {invalid:?}"
+        );
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

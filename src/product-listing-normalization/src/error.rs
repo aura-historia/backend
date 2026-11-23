@@ -33,6 +33,8 @@ pub enum NormalizationError {
     PriceNegative { field: PriceField },
     #[error("price amount has unsupported nonzero precision")]
     PriceExcessPrecision { field: PriceField },
+    #[error("price range is invalid")]
+    PriceRangeInvalid { field: PriceField },
     #[error("machine-decimal price requires a fallback currency")]
     PriceMachineDecimalFallbackCurrencyRequired { field: PriceField },
     #[error("image URL is invalid")]
@@ -92,6 +94,15 @@ impl NormalizationError {
             Self::PriceExcessPrecision {
                 field: PriceField::EstimateMax,
             } => "price_estimate_max_excess_precision",
+            Self::PriceRangeInvalid {
+                field: PriceField::Price,
+            } => "price_range_invalid",
+            Self::PriceRangeInvalid {
+                field: PriceField::EstimateMin,
+            } => "price_estimate_min_range_invalid",
+            Self::PriceRangeInvalid {
+                field: PriceField::EstimateMax,
+            } => "price_estimate_max_range_invalid",
             Self::PriceMachineDecimalFallbackCurrencyRequired { .. } => {
                 "machine_decimal_fallback_currency_required"
             }

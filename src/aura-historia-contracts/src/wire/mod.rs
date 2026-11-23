@@ -15,6 +15,16 @@ where
 pub mod listing;
 pub mod schema;
 
+/// An unsigned amount in minor units that a stored price can hold: signed 64-bit.
+pub(crate) fn storage_amount<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value = <u64 as serde::Deserialize>::deserialize(deserializer)?;
+    i64::try_from(value)
+        .map_err(|_| serde::de::Error::custom("amount exceeds the supported storage range"))?;
+    Ok(value)
+}
+
 pub mod source_listing_id {
     pub fn serialize<S: serde::Serializer>(
         value: &product_listing_core::source_listing_id::SourceListingId,
