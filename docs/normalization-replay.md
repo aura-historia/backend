@@ -92,7 +92,8 @@ A reviewer copies the candidates they decide and adds `"decision": "STRIP"` for 
 boilerplate or `"decision": "KEEP"` for an item fact. `boilerplate review` validates the whole
 file first, rejects any line without a decision and records it in one transaction; a later
 decision for the same source and sentence replaces the earlier one. The worker reads the new
-set for revisions normalized afterwards ([contract](product-listing.md#description-boilerplate)).
+set for revisions normalized afterwards; unchanged listings are not re-normalized
+([contract](product-listing.md#description-boilerplate)).
 
 ## Reviewed fixtures
 

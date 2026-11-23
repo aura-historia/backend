@@ -20,3 +20,8 @@ ALTER TABLE product_listing_raw_normalizations
     ADD COLUMN description_boilerplate_sha256 bytea,
     ADD CONSTRAINT product_listing_raw_normalizations_boilerplate_sha256_check
         CHECK (description_boilerplate_sha256 IS NULL OR octet_length(description_boilerplate_sha256) = 32);
+
+-- Candidate analysis pages crawled streams per listing source in stream order.
+CREATE INDEX product_listing_raw_streams_crawled_source_stream_idx
+    ON product_listing_raw_streams (listing_source_id, product_listing_raw_stream_id)
+    WHERE ingestion_method = 'WEB_CRAWL';

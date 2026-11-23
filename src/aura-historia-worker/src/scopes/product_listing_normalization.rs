@@ -304,6 +304,36 @@ mod tests {
 
     const RETAINED: &str = "Raw normalization job retained for retry or redrive";
 
+    #[test]
+    fn should_classify_boilerplate_read_failures_by_their_cause() {
+        let read_failed = |source| {
+            normalization_error_disposition(
+                &NormalizeProductListingRawRevisionError::DescriptionBoilerplateReadFailed {
+                    source,
+                },
+            )
+        };
+        let cause = || application::error::box_error(std::io::Error::other("boilerplate"));
+
+        let invalid =
+            read_failed(DescriptionBoilerplatePortError::InvalidPersistedState { source: cause() });
+        let unavailable =
+            read_failed(DescriptionBoilerplatePortError::Persistence { source: cause() });
+
+        assert!(matches!(
+            invalid,
+            ProductListingRawNormalizationJobDisposition::StateInvalid(failure)
+                if failure.stage() == "description_boilerplate_read"
+                    && failure.category() == INVALID_PERSISTED_STATE
+        ));
+        assert!(matches!(
+            unavailable,
+            ProductListingRawNormalizationJobDisposition::DependencyUnavailable(failure)
+                if failure.stage() == "description_boilerplate_read"
+                    && failure.dependency() == Some("postgres")
+        ));
+    }
+
     #[tokio::test]
     async fn acknowledges_only_a_fully_drained_or_durably_rejected_stream() {
         let expected = [

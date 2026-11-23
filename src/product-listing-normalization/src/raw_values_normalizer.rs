@@ -285,15 +285,13 @@ impl ProductListingRawValuesNormalizer {
         &self.description_boilerplate
     }
 
-    /// Only crawled pages carry shop boilerplate around the item text. Shopify and WooCommerce
-    /// descriptions are the shop's own catalogue text and stay as sent.
-    pub const fn strips_description_boilerplate(
-        payload_format: crate::RawProductListingPayloadFormat,
-    ) -> bool {
-        matches!(
-            payload_format,
-            crate::RawProductListingPayloadFormat::CrawlerExtractedProduct
-        )
+    /// Only crawled pages carry shop boilerplate around the item text, and only an UPSERT
+    /// carries a description. Shopify and WooCommerce descriptions are the shop's own catalogue
+    /// text and stay as sent.
+    pub fn strips_description_boilerplate(input: &ProductListingNormalizationInput) -> bool {
+        input.operation() == RawProductListingOperation::Upsert
+            && input.payload_format()
+                == crate::RawProductListingPayloadFormat::CrawlerExtractedProduct
     }
 
     pub fn normalize(
@@ -411,7 +409,7 @@ impl ProductListingRawValuesNormalizer {
 
         let raw_description = match raw.description {
             ProductListingRawValuesPatch::Set(fragments)
-                if Self::strips_description_boilerplate(input.payload_format()) =>
+                if Self::strips_description_boilerplate(input) =>
             {
                 ProductListingRawValuesPatch::Set(self.description_boilerplate.strip(fragments))
             }

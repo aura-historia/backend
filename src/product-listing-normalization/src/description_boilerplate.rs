@@ -116,7 +116,12 @@ impl DescriptionBoilerplate {
         stripped
     }
 
+    /// Rebuilds the fragment without its reviewed sentences. A fragment without one stays
+    /// byte-identical, so a source's first review does not rewrite unrelated descriptions.
     fn strip_fragment(&self, fragment: &str) -> String {
+        if !segments(fragment).any(|segment| self.contains(segment.sentence)) {
+            return fragment.to_owned();
+        }
         let mut kept: Vec<(&str, &str)> = Vec::new();
         for segment in segments(fragment) {
             if !self.contains(segment.sentence) {
@@ -141,7 +146,10 @@ impl DescriptionBoilerplate {
 }
 
 fn line_breaks(separator: &str) -> usize {
-    separator.matches('\n').count()
+    separator
+        .chars()
+        .filter(|character| matches!(character, '\n' | '\r'))
+        .count()
 }
 
 /// Splits description text into its sentences, trimmed and in order. Analysis counts these
@@ -158,8 +166,8 @@ struct Segment<'a> {
 }
 
 /// Sentence boundaries: a line break; `.`, `!`, `?` or `…` followed by whitespace and text that
-/// does not start in lower case; or a full-width `。`, `！`, `？`, which need neither. Closing
-/// quotes and brackets stay with their sentence. The lower-case rule keeps abbreviations such as
+/// does not start in lower case; or a full-width `。`, `！`, `？`, which need neither. A run of
+/// terminators and closing quotes or brackets stays with its sentence. The lower-case rule keeps abbreviations such as
 /// `MwSt. liegt bei` together; others such as `ca. 1900` still split. Analysis and stripping see
 /// the same segments, so a split never matches a sentence it was not counted from.
 fn segments(text: &str) -> impl Iterator<Item = Segment<'_>> {
@@ -186,16 +194,17 @@ fn sentence_end(text: &str) -> usize {
         if character == '\n' || character == '\r' {
             return index;
         }
-        let full_width = matches!(character, '。' | '！' | '？');
-        if !full_width && !matches!(character, '.' | '!' | '?' | '…') {
+        if !is_terminator(character) {
             continue;
         }
+        let mut full_width = is_full_width_terminator(character);
         let mut end = index + character.len_utf8();
-        while let Some(&(closer_index, closer)) = characters.peek() {
-            if !is_closing_mark(closer) {
+        while let Some(&(mark_index, mark)) = characters.peek() {
+            if !is_closing_mark(mark) && !is_terminator(mark) {
                 break;
             }
-            end = closer_index + closer.len_utf8();
+            full_width |= is_full_width_terminator(mark);
+            end = mark_index + mark.len_utf8();
             characters.next();
         }
         match characters.peek() {
@@ -216,6 +225,14 @@ fn continues_in_lower_case(rest: &str) -> bool {
         character.is_whitespace() && character != '\n' && character != '\r'
     });
     next.chars().next().is_some_and(char::is_lowercase)
+}
+
+fn is_terminator(character: char) -> bool {
+    matches!(character, '.' | '!' | '?' | '…') || is_full_width_terminator(character)
+}
+
+fn is_full_width_terminator(character: char) -> bool {
+    matches!(character, '。' | '！' | '？')
 }
 
 fn is_closing_mark(character: char) -> bool {
@@ -249,6 +266,8 @@ mod tests {
     #[case("Mit MwSt. ausgewiesen. Danke.", &["Mit MwSt. ausgewiesen.", "Danke."])]
     #[case("Um ca. 1900 gefertigt.", &["Um ca.", "1900 gefertigt."])]
     #[case("送料無料です。即日発送！", &["送料無料です。", "即日発送！"])]
+    #[case("即日発送！？次へ", &["即日発送！？", "次へ"])]
+    #[case("Wirklich?! Ja... Gut.", &["Wirklich?!", "Ja...", "Gut."])]
     #[case("  \n ", &[])]
     fn should_split_description_into_sentences(#[case] text: &str, #[case] expected: &[&str]) {
         assert_eq!(expected, description_sentences(text).collect::<Vec<_>>());
@@ -302,6 +321,26 @@ mod tests {
         assert_eq!(
             vec!["Biedermeier Kommode.\nKirschbaum furniert.".to_owned()],
             stripped
+        );
+    }
+
+    #[test]
+    fn should_keep_a_lone_carriage_return_of_a_removed_sentence() {
+        assert_eq!(
+            vec!["Vase.\rGut.".to_owned()],
+            strip(&["Versand weltweit."], &["Vase. Versand weltweit.\rGut."])
+        );
+    }
+
+    #[test]
+    fn should_leave_fragment_without_reviewed_sentence_byte_identical() {
+        let fragments = ["Zeile eins   \nZeile zwei", "Kommode. Versand weltweit."];
+        assert_eq!(
+            vec![
+                "Zeile eins   \nZeile zwei".to_owned(),
+                "Kommode.".to_owned()
+            ],
+            strip(&["Versand weltweit."], &fragments)
         );
     }
 

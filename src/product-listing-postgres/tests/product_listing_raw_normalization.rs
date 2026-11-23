@@ -37,8 +37,8 @@ use product_listing_service::{
     },
 };
 use product_service::ports::{
-    CurrentRawDescriptionReader, DescriptionBoilerplateDecision, DescriptionBoilerplateReader,
-    DescriptionBoilerplateReview, DescriptionBoilerplateReviewWriter,
+    CurrentRawDescriptionCursor, CurrentRawDescriptionReader, DescriptionBoilerplateDecision,
+    DescriptionBoilerplateReader, DescriptionBoilerplateReview, DescriptionBoilerplateReviewWriter,
 };
 use product_service::ports::{
     PendingProductListingRawStreamPageRequest, PendingProductListingRawStreamReader,
@@ -1521,22 +1521,64 @@ async fn should_strip_reviewed_description_boilerplate_and_record_its_set() {
         raw_write(
             native_source_id,
             RawProductListingOperation::Upsert,
-            values,
+            values.clone(),
             normalization_context(),
             "boilerplate-native",
         ),
     )
     .await;
-    let current = CurrentRawDescriptionReader::page(&store, None, None, 10)
+    let other_source_id = seed_listing_source(&pool, "raw-boilerplate-other-source").await;
+    let (other_stream_id, _, _) = changed_parts(
+        capture(
+            &unit_of_work,
+            &SqlxProductListingRawCaptureWriterFactory::new(),
+            crawled(raw_write(
+                other_source_id,
+                RawProductListingOperation::Upsert,
+                values,
+                normalization_context(),
+                "boilerplate-other",
+            )),
+        )
+        .await,
+    );
+    let mut expected = vec![
+        (listing_source_id, product_listing_raw_stream_id),
+        (other_source_id, other_stream_id),
+    ];
+    expected.sort();
+    let mut paged = Vec::new();
+    let mut after = None;
+    loop {
+        let page = CurrentRawDescriptionReader::page(&store, None, after, 1)
+            .await
+            .unwrap_or_else(|error| panic!("read current raw descriptions: {error}"));
+        let Some(row) = page.first() else {
+            break;
+        };
+        assert_eq!(1, page.len());
+        assert!(row.fragments.is_some());
+        paged.push((row.listing_source_id, row.product_listing_raw_stream_id));
+        after = Some(CurrentRawDescriptionCursor {
+            listing_source_id: row.listing_source_id,
+            product_listing_raw_stream_id: row.product_listing_raw_stream_id,
+        });
+    }
+    assert_eq!(expected, paged);
+    let selected = CurrentRawDescriptionReader::page(&store, Some(other_source_id), None, 10)
         .await
-        .unwrap_or_else(|error| panic!("read current raw descriptions: {error}"));
+        .unwrap_or_else(|error| panic!("read selected source descriptions: {error}"));
     assert_eq!(
-        vec![(listing_source_id, product_listing_raw_stream_id)],
-        current
+        vec![(other_source_id, other_stream_id)],
+        selected
             .iter()
             .map(|row| (row.listing_source_id, row.product_listing_raw_stream_id))
             .collect::<Vec<_>>()
     );
+    let native = CurrentRawDescriptionReader::page(&store, Some(native_source_id), None, 10)
+        .await
+        .unwrap_or_else(|error| panic!("read native source descriptions: {error}"));
+    assert!(native.is_empty());
 
     NormalizeProductListingRawRevisionHandler::new(
         unit_of_work,

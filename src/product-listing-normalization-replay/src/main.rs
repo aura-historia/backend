@@ -58,6 +58,7 @@ enum Command {
 
 fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, String> {
     let mut parsed = Arguments::default();
+    let mut thresholds_given = false;
     let mut arguments = arguments.into_iter().peekable();
     match arguments.peek().map(String::as_str) {
         Some("export") => {
@@ -103,6 +104,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, Strin
                 );
             }
             "--min-listings" => {
+                thresholds_given = true;
                 let count = value()?;
                 parsed.thresholds.min_listings = count
                     .parse::<u64>()
@@ -111,6 +113,7 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, Strin
                     .ok_or_else(|| format!("invalid minimum listing count {count}"))?;
             }
             "--min-share" => {
+                thresholds_given = true;
                 let share = value()?;
                 parsed.thresholds.min_share = share
                     .parse::<f64>()
@@ -154,9 +157,27 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, Strin
     }
     if review
         && (parsed.filter != NormalizationDiagnosticCaseFilter::default()
-            || parsed.output.is_some())
+            || parsed.output.is_some()
+            || parsed.page_size.is_some()
+            || thresholds_given)
     {
         return Err("boilerplate review takes only --input".to_owned());
+    }
+    let candidates = parsed.command == Command::BoilerplateCandidates;
+    if thresholds_given && !candidates {
+        return Err(
+            "--min-listings and --min-share are only valid for boilerplate candidates".to_owned(),
+        );
+    }
+    // Analysis reads raw descriptions, not diagnostic cases: only the source narrows it.
+    if candidates
+        && parsed.filter
+            != (NormalizationDiagnosticCaseFilter {
+                listing_source_id: parsed.filter.listing_source_id,
+                ..NormalizationDiagnosticCaseFilter::default()
+            })
+    {
+        return Err("boilerplate candidates takes only --listing-source as a filter".to_owned());
     }
     // Candidates carry listing text, so they go to a file, never to the terminal.
     if matches!(
@@ -356,6 +377,19 @@ mod tests {
         assert!(args(&["boilerplate", "candidates"]).is_err());
         assert!(args(&["boilerplate", "review"]).is_err());
         assert!(args(&["boilerplate", "review", "--input", "x", "--output", "y"]).is_err());
+        assert!(args(&["boilerplate", "review", "--input", "x", "--page-size", "5"]).is_err());
+        assert!(args(&["--min-share", "0.5"]).is_err());
+        assert!(
+            args(&[
+                "boilerplate",
+                "candidates",
+                "--reason",
+                "PRICE_NEGATIVE",
+                "--output",
+                "x"
+            ])
+            .is_err()
+        );
         assert!(
             args(&[
                 "boilerplate",

@@ -325,7 +325,8 @@ where
     ) -> StreamDrainResult {
         let mut results = Vec::new();
         // Every revision of a stream belongs to one listing source, so its boilerplate set is
-        // read once per drain, and only for crawled revisions, the only ones it strips.
+        // read once per drain, and only for crawled upserts, the only revisions it strips. A
+        // crawler-verified removal never waits on it.
         let native_normalizer = ProductListingRawValuesNormalizer::new();
         let mut crawled_normalizer = None;
         for _ in 0..max_revisions {
@@ -344,7 +345,7 @@ where
                 return StreamDrainResult::failed(results, error);
             }
             let normalizer = if !ProductListingRawValuesNormalizer::strips_description_boilerplate(
-                candidate.input.payload_format(),
+                &candidate.input,
             ) {
                 &native_normalizer
             } else {
@@ -2521,6 +2522,39 @@ mod tests {
             format!("A fresh description from the source. {notice}"),
             description.payload.as_ref()
         );
+        assert_eq!(
+            vec![None],
+            state
+                .completions
+                .iter()
+                .map(|completion| completion.description_boilerplate_sha256)
+                .collect::<Vec<_>>()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_withdraw_crawled_listing_without_reading_boilerplate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stream_id = ProductListingRawStreamId::new();
+        let listing_source_id = ListingSourceId::new();
+        let state = Arc::new(Mutex::new(TestState::default()));
+        lock(&state).streams.push(TestStream {
+            head: raw_head(stream_id, listing_source_id, None, None),
+            revisions: VecDeque::from([revision(
+                stream_id,
+                listing_source_id,
+                1,
+                delete_input(None)?,
+            )]),
+        });
+
+        handler(&state)
+            .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Err(()))))
+            .execute(wake_up(stream_id))
+            .await?;
+
+        let state = lock(&state);
         assert_eq!(
             vec![None],
             state

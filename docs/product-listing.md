@@ -174,9 +174,12 @@ operators produce and import them with [`normalization-replay boilerplate`](norm
 - Stripping fails safe: when only boilerplate would remain, the original description is kept.
 - Shipping evidence still reads the unstripped description, so delivery clauses in shop notices
   keep informing the [shipping quick check](shipping.md).
-- Each completion records the SHA-256 of the `STRIP` set it used. A review changes descriptions
-  only when a later raw revision of the listing is normalized; no backfill runs, so content
-  revisions and embeddings churn gradually with recrawls.
+- Each crawled upsert completion records the SHA-256 of the `STRIP` set it used; deletes and
+  native catalogue revisions record none and never wait on reading the set.
+- A review applies only to listings normalized after it, which requires a new raw revision.
+  Capture skips a recrawl whose extracted input is unchanged, so a listing whose page does not
+  change keeps its boilerplate. Nothing re-normalizes existing listings after a review; applying
+  one to unchanged listings would be a separate reapplication operation.
 
 ### Search ranking
 

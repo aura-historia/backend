@@ -127,6 +127,17 @@ impl CurrentRawDescriptionReader for SqlxDescriptionBoilerplateStore {
         after: Option<CurrentRawDescriptionCursor>,
         limit: u32,
     ) -> Result<Vec<CurrentRawDescription>, DescriptionBoilerplatePortError> {
+        // Plain range bounds on the partial stream index, so every page is an index range
+        // scan: after the cursor (or before the selected source) and up to the selected source.
+        let (after_source, after_stream) = match (after, listing_source_id) {
+            (Some(cursor), _) => (
+                cursor.listing_source_id.into_uuid(),
+                cursor.product_listing_raw_stream_id.into_uuid(),
+            ),
+            (None, Some(source)) => (source.into_uuid(), uuid::Uuid::nil()),
+            (None, None) => (uuid::Uuid::nil(), uuid::Uuid::nil()),
+        };
+        let through_source = listing_source_id.map_or(uuid::Uuid::max(), |id| id.into_uuid());
         let rows = sqlx::query_as::<_, CurrentRawDescriptionRow>(
             r#"
             SELECT
@@ -137,19 +148,19 @@ impl CurrentRawDescriptionReader for SqlxDescriptionBoilerplateStore {
             JOIN product_listing_raw_revisions AS revision
               ON revision.product_listing_raw_stream_id = stream.product_listing_raw_stream_id
              AND revision.revision = stream.latest_revision
-            WHERE revision.operation = 'UPSERT'
+            WHERE stream.ingestion_method = 'WEB_CRAWL'
+              AND (stream.listing_source_id, stream.product_listing_raw_stream_id) > ($1, $2)
+              AND stream.listing_source_id <= $3
+              AND revision.operation = 'UPSERT'
               AND revision.payload_format = 'CRAWLER_EXTRACTED_PRODUCT'
               AND revision.raw_values -> 'description' ->> 'action' = 'SET'
-              AND ($1::uuid IS NULL OR stream.listing_source_id = $1)
-              AND ($2::uuid IS NULL
-                   OR (stream.listing_source_id, stream.product_listing_raw_stream_id) > ($2, $3::uuid))
             ORDER BY stream.listing_source_id, stream.product_listing_raw_stream_id
             LIMIT $4
             "#,
         )
-        .bind(listing_source_id.map(|id| id.into_uuid()))
-        .bind(after.map(|cursor| cursor.listing_source_id.into_uuid()))
-        .bind(after.map(|cursor| cursor.product_listing_raw_stream_id.into_uuid()))
+        .bind(after_source)
+        .bind(after_stream)
+        .bind(through_source)
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
         .await
@@ -198,4 +209,26 @@ fn invalid_state_error(
 
 fn invalid_state(message: &'static str) -> DescriptionBoilerplatePortError {
     invalid_state_error(std::io::Error::other(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_stored_sentence_that_is_not_the_normalized_key() {
+        assert_eq!(
+            Ok("free shipping."),
+            stored_sentence("free shipping.")
+                .as_ref()
+                .map(BoilerplateSentence::as_str)
+                .map_err(ToString::to_string)
+        );
+        for stored in ["Free shipping.", "free  shipping.", " "] {
+            assert!(matches!(
+                stored_sentence(stored),
+                Err(DescriptionBoilerplatePortError::InvalidPersistedState { .. })
+            ));
+        }
+    }
 }
