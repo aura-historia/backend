@@ -16,7 +16,6 @@ aws-sdk-sesv2 = { workspace = true }
 aws-smithy-types = { workspace = true }
 delivery-outbox = { workspace = true }
 embedding = { workspace = true }
-fxrate-postgres = { workspace = true }
 geo-amazon-location = { workspace = true }
 geo-postgres = { workspace = true }
 geo-service = { workspace = true }

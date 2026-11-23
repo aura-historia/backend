@@ -378,14 +378,14 @@ async fn should_resume_server_issued_score_and_date_cursors_unchanged() {
 }
 
 #[aura_integration_test(services = [OpenSearch()], isolated = true)]
-async fn should_search_active_and_sold_products_with_one_pinned_price_plan() {
-    assert_ok(should_search_active_and_sold_products_with_one_pinned_price_plan_impl().await);
+async fn should_search_products_with_one_pinned_price_plan() {
+    assert_ok(should_search_products_with_one_pinned_price_plan_impl().await);
 }
 
-async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl() -> TestResult {
-    let active = product_listing_document(ProductListingSeed::active("active", 100))?;
-    let sold = product_listing_document(ProductListingSeed::sold("sold", 110))?;
-    index_products([active.document, sold.document]).await?;
+async fn should_search_products_with_one_pinned_price_plan_impl() -> TestResult {
+    let first = product_listing_document(ProductListingSeed::active("first", 100))?;
+    let second = product_listing_document(ProductListingSeed::active("second", 100))?;
+    index_products([first.document, second.document]).await?;
 
     let result = search(
         ProductListingSearch::new(localization::Language::En, Currency::Usd).with_price_query(
@@ -434,22 +434,10 @@ async fn should_match_price_ranges_that_overlap_the_price_filter_impl() -> TestR
         product_listing_document(ProductListingSeed::active("overlap", 50).up_to(200))?;
     let above = product_listing_document(ProductListingSeed::active("above", 101).up_to(300))?;
     let below = product_listing_document(ProductListingSeed::active("below", 20).up_to(99))?;
-    let sold = product_listing_document(ProductListingSeed::sold("sold", 100).up_to(120))?;
-    let sold_above =
-        product_listing_document(ProductListingSeed::sold("sold-above", 111).up_to(120))?;
-    let expected_ids = [&overlapping, &sold].map(|listing| {
-        listing.document["productListingId"]
-            .as_str()
-            .map(str::to_owned)
-    });
-    index_products([
-        overlapping.document,
-        above.document,
-        below.document,
-        sold.document,
-        sold_above.document,
-    ])
-    .await?;
+    let expected_id = overlapping.document["productListingId"]
+        .as_str()
+        .map(str::to_owned);
+    index_products([overlapping.document, above.document, below.document]).await?;
     let range = RangeQuery {
         min: Some(MonetaryAmount::from(110_u64)),
         max: Some(MonetaryAmount::from(110_u64)),
@@ -462,8 +450,8 @@ async fn should_match_price_ranges_that_overlap_the_price_filter_impl() -> TestR
     )
     .await?;
 
-    assert_eq!(Some(2), result.total);
-    let mut found = result
+    assert_eq!(Some(1), result.total);
+    let found = result
         .items
         .iter()
         .map(|item| {
@@ -473,7 +461,6 @@ async fn should_match_price_ranges_that_overlap_the_price_filter_impl() -> TestR
             )
         })
         .collect::<Vec<_>>();
-    found.sort_by(|left, right| left.0.cmp(&right.0));
     let usd_range = |min: u64, max: u64| {
         product_listing_core::product_listing_price::PriceRange::from_amounts(
             Currency::Usd,
@@ -482,33 +469,28 @@ async fn should_match_price_ranges_that_overlap_the_price_filter_impl() -> TestR
         )
         .map(ProductListingPrice::Range)
     };
-    let mut expected = vec![
-        (expected_ids[0].clone(), Some(usd_range(55, 220)?)),
-        (expected_ids[1].clone(), Some(usd_range(100, 120)?)),
-    ];
-    expected.sort_by(|left, right| left.0.cmp(&right.0));
-    assert_eq!(expected, found);
+    assert_eq!(vec![(expected_id, Some(usd_range(55, 220)?))], found);
     Ok(())
 }
 
 #[aura_integration_test(services = [OpenSearch()], isolated = true)]
-async fn should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search()
+async fn should_return_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search()
  {
     assert_ok(
-        should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search_impl()
+        should_return_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search_impl()
             .await,
     );
 }
 
-async fn should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search_impl()
+async fn should_return_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search_impl()
 -> TestResult {
-    let sold_without_price =
-        product_listing_document(ProductListingSeed::sold_without_main_price("sold-no-price"))?;
-    let product_listing_id = sold_without_price.document["productListingId"]
+    let without_price =
+        product_listing_document(ProductListingSeed::without_main_price("no-price"))?;
+    let product_listing_id = without_price.document["productListingId"]
         .as_str()
         .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productListingId missing"))?
         .to_owned();
-    index_products([sold_without_price.document]).await?;
+    index_products([without_price.document]).await?;
 
     let non_price_result = search(
         ProductListingSearch::new(localization::Language::En, Currency::Usd),
@@ -524,7 +506,7 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
     assert_eq!(None, non_price_result.items[0].display_price);
     assert!(matches!(
         non_price_result.items[0].price_valuation,
-        product_listing_service::use_cases::ProductListingSummaryPriceValuation::SaleObservation { .. }
+        product_listing_service::use_cases::ProductListingSummaryPriceValuation::Current { .. }
     ));
 
     let price_result = search(

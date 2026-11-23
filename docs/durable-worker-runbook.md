@@ -193,9 +193,36 @@ index `product-listings` by name, not an alias, so a generation cannot yet repla
 live scope to rebuild search after the index was lost. Each page commits on its own and the run reports
 the last listing, so an interrupted run resumes after it. Catch up by rerunning once old
 writers are fenced: listings whose job is still waiting are skipped, every other listing is
-enqueued again, and the projector completes the ones already current as stale. Withdrawn listings retain authoritative source state.
+enqueued again, and the projector completes the ones already current as stale; an
+undiscoverable listing rewrites its equal tombstone. Withdrawn listings retain authoritative source state.
 Index reset, the queue and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
+
+### Narrowed projection rule
+
+A release that narrows which listings are
+[discoverable](product-listing.md#application-api-and-search-contracts) leaves documents the
+earlier rule indexed at their current version. Once no projector of the earlier release runs,
+run `ops reproject-all --live`: the projector replaces each such document with an equal-version
+tombstone and completes current documents as stale. Only narrowing works in place: an
+equal-version upsert never replaces a tombstone, so a rollback or a later widening of the rule
+needs a [new index generation](#projection-fences-and-rebuild). Search keeps serving throughout; until the
+run completes, an affected listing can still appear and is valued at current FX. Verify that the
+number of live documents equals the number of discoverable listings:
+
+```sql
+SELECT count(*) FROM product_listings
+WHERE lifecycle = 'ACTIVE'
+  AND (availability IS NULL OR availability NOT IN ('SOLD_OUT', 'OUT_OF_STOCK', 'UNAVAILABLE'));
+```
+
+```json
+GET product-listings/_count
+{"query": {"bool": {"must_not": [{"term": {"projectionDeleted": true}}]}}}
+```
+
+Listings changing during the comparison and outstanding projector jobs account for small
+differences; compare again once the scope's queue is empty.
 
 ## Title translation recovery
 

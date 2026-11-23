@@ -259,7 +259,7 @@ Job IDs are not business idempotency keys.
 | Consumer | Authority and completion rule |
 | --- | --- |
 | ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the job queue's failure custody on redelivery; other failures retain only their own FIFO group. |
-| Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
+| Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version: the document while the listing is [discoverable](../product-listing.md#application-api-and-search-contracts), otherwise a tombstone. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
 | Embedding | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
 | Translation | The job records the current, untranslated content revision as pending work and completes; a superseded or translated revision completes as stale or duplicate. Worker [translation rounds](../product-listing.md#title-translation) submit pending work as provider batches and commit each title's result under the source-marker guard: first committed completion wins, a result for a superseded revision is dropped, and its journal entry drives projection. |
@@ -270,8 +270,11 @@ Job IDs are not business idempotency keys.
 | Geographic resolution | Lease a bounded claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Acknowledge settled generations, including `BLOCKED`/`FAILED`; retain contention, transient failures and provider-gated work (see [recovery](../durable-worker-runbook.md#geographic-resolution-recovery)). |
 
 ProductListing projections use externally versioned, content-free
-`projectionDeleted: true` tombstones. Readers exclude them; older/equal writes cannot
-resurrect deleted state. Tombstones must outlive physical-delete version memory.
+`projectionDeleted: true` tombstones for withdrawn and otherwise undiscoverable listings.
+Readers exclude them; older/equal writes cannot resurrect deleted state. A tombstone replaces
+a document of the same version: one version changes eligibility only through a narrowed
+projection rule, so reprojection removes what the earlier rule indexed. Tombstones must
+outlive physical-delete version memory.
 [Rebuild and deletion recovery](../durable-worker-runbook.md#projection-fences-and-rebuild)
 require authoritative facts and fenced writers, not an index reset.
 

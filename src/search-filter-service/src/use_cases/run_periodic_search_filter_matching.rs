@@ -24,10 +24,7 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use product_listing_core::{
-    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-    product_listing::ProductListingPriceValuationBasis,
-};
+use product_listing_core::product_listing::ProductListingPriceValuationBasis;
 
 use notification_service::saved_search_digest::{
     SavedSearchDigestStore, SavedSearchDigestStoreFactory,
@@ -97,6 +94,8 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub candidates_existing: usize,
     pub candidates_missing_source: usize,
     pub candidates_stale: usize,
+    /// Withdrawn candidates and those no longer discoverable (sold out, out of stock or
+    /// unavailable); the name predates the wider rule and stays for report stability.
     pub candidates_withdrawn: usize,
     pub candidates_rejected: usize,
     pub permanent_evaluation_failures: usize,
@@ -847,25 +846,16 @@ where
                     let source = sources.get(&evaluation.key).ok_or(
                         RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
                     )?;
-                    let valuation =
-                        filter
-                            .search
-                            .price_query
-                            .as_ref()
-                            .map(|_| PriceMatchValuation {
-                                basis: if has_applicable_sale_observation(source) {
-                                    ProductListingPriceValuationBasis::SaleObservation
-                                } else {
-                                    ProductListingPriceValuationBasis::Current
-                                },
-                                fx_rate_id: if let Some(observation) =
-                                    applicable_sale_observation(source)
-                                {
-                                    observation.fx_rate_id()
-                                } else {
-                                    price_filter_plan.fx_rate_id
-                                },
-                            });
+                    let valuation = filter
+                        .search
+                        .price_query
+                        .as_ref()
+                        // Eligible candidates are discoverable, so never sold: the price
+                        // filter compared their current asking price.
+                        .map(|_| PriceMatchValuation {
+                            basis: ProductListingPriceValuationBasis::Current,
+                            fx_rate_id: price_filter_plan.fx_rate_id,
+                        });
                     accepted.push(SearchFilterProductListingMatch {
                         user_id: filter.user_id,
                         user_search_filter_id: filter.search_filter_id,
@@ -1125,7 +1115,7 @@ fn eligible_source<'a>(
         CandidateEligibility::Eligible(source) => return Ok(Some(source)),
         CandidateEligibility::MissingSource => report.candidates_missing_source += 1,
         CandidateEligibility::Stale => report.candidates_stale += 1,
-        CandidateEligibility::Withdrawn => report.candidates_withdrawn += 1,
+        CandidateEligibility::Undiscoverable => report.candidates_withdrawn += 1,
     }
     Ok(None)
 }
@@ -1279,22 +1269,6 @@ fn product_search_error(
         }
     }
 }
-fn applicable_sale_observation(
-    source: &ProductListingSearchFilterMatchSource,
-) -> Option<product_listing_core::product_listing::ListingSaleObservation> {
-    if source.availability == Some(ListingAvailability::SoldOut)
-        || source.lifecycle == ListingLifecycle::Withdrawn
-    {
-        source.sale_observation
-    } else {
-        None
-    }
-}
-
-fn has_applicable_sale_observation(source: &ProductListingSearchFilterMatchSource) -> bool {
-    applicable_sale_observation(source).is_some()
-}
-
 fn product_source_error(
     error: ProductListingSearchFilterMatchSourceReadError,
 ) -> RunPeriodicSearchFilterMatchingError {
@@ -1346,6 +1320,7 @@ mod tests {
     use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
+    use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::{
         listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
@@ -2816,6 +2791,53 @@ mod tests {
             );
             assert_eq!(1, state.checkpoints);
         }
+    }
+
+    #[tokio::test]
+    async fn should_skip_candidates_that_are_no_longer_discoverable() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let refs = seed_candidates(&state, 4);
+        {
+            let mut state = state.lock().unwrap();
+            for (reference, availability) in refs.iter().zip([
+                ListingAvailability::SoldOut,
+                ListingAvailability::OutOfStock,
+                ListingAvailability::Unavailable,
+                ListingAvailability::Reserved,
+            ]) {
+                state.sources.get_mut(reference).unwrap().availability = Some(availability);
+            }
+            state.evaluator_results = [decision(true)].into();
+        }
+        let handler = full_budget_handler(state.clone());
+        let mut selected = None;
+        let mut report = FilterAttemptReport::default();
+
+        let outcome = handler
+            .process_filter(
+                &ordinary_filter(),
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                &mut selected,
+                &mut report,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(3, report.candidates_withdrawn);
+        assert_eq!(1, report.matches_inserted);
+        let state = state.lock().unwrap();
+        assert_eq!(
+            vec![refs[3].product_listing_id],
+            state
+                .persisted
+                .iter()
+                .map(|m| m.product_listing_id)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test]
