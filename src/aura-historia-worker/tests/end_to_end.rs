@@ -232,14 +232,6 @@ async fn enqueue_ingestion_command(pool: &PgPool, source: ListingSourceId) {
     ));
 }
 
-/// Title translation work the background rounds have not committed yet.
-async fn pending_translations(pool: &PgPool) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM product_listing_title_translation_work")
-        .fetch_one(pool)
-        .await
-        .unwrap()
-}
-
 async fn handlers(pool: &PgPool) -> Vec<(ConsumedScope, Arc<dyn JobHandler>)> {
     let index = test_api::TestContext::current()
         .expect("active end-to-end test")
@@ -336,9 +328,12 @@ async fn projected_document(index: &str, product_listing_id: uuid::Uuid) -> Opti
 
 /// Jobs still waiting or leased in the scopes this worker consumes, outbox rows not yet
 /// dispatched, and anything that reached failure custody.
+/// Queued jobs and title translation work the background rounds have not committed yet, captured
+/// outbox rows, and custody, all read in one snapshot.
 async fn backlog(pool: &PgPool, scopes: &[String]) -> (i64, i64, i64) {
     sqlx::query_as(
-        "SELECT (SELECT count(*) FROM job_queue_jobs WHERE scope = ANY($1)), \
+        "SELECT (SELECT count(*) FROM job_queue_jobs WHERE scope = ANY($1)) \
+                  + (SELECT count(*) FROM product_listing_title_translation_work), \
                 (SELECT count(*) FROM delivery_outbox), \
                 (SELECT count(*) FROM job_queue_failures) \
                   + (SELECT count(*) FROM delivery_outbox_failures)",
@@ -424,10 +419,11 @@ async fn should_carry_one_ingested_listing_through_every_stage_into_opensearch()
             .fetch_optional(&pool)
             .await
             .unwrap();
+            // The document is read only once nothing is left to change it: a translation round
+            // commits outside the job queue, so an earlier read could miss its projection.
             if let Some(listing) = listing
-                && let Some(document) = projected_document(&index, listing).await
                 && backlog(&pool, &scope_names).await == (0, 0, 0)
-                && pending_translations(&pool).await == 0
+                && let Some(document) = projected_document(&index, listing).await
             {
                 return (listing, document);
             }
