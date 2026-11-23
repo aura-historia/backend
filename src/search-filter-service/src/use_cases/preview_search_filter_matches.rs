@@ -585,7 +585,7 @@ fn select_eligible<'a>(
             }
             CandidateEligibility::MissingSource
             | CandidateEligibility::Stale
-            | CandidateEligibility::Withdrawn => {}
+            | CandidateEligibility::Undiscoverable => {}
         }
     }
     Ok(EligibleCandidates {

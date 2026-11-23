@@ -965,7 +965,11 @@ mod tests {
                     .collect::<std::collections::HashMap<_, _>>();
                 // Only a tombstone may replace a document of its own version.
                 assert_eq!(
-                    Some(if tombstone { "external_gte" } else { "external" }),
+                    Some(if tombstone {
+                        "external_gte"
+                    } else {
+                        "external"
+                    }),
                     query.get("version_type").map(|v| v.as_ref())
                 );
                 assert_eq!(

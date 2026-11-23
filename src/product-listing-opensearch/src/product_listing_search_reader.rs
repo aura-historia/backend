@@ -1776,6 +1776,18 @@ mod tests {
     }
 
     #[test]
+    fn should_match_nothing_when_no_source_currency_converts_into_the_price_window()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut plan = price_filter(Currency::Usd, Some(110))?;
+        plan.active_native_ranges.clear();
+
+        let clause = build_product_index_price_clause(&plan).ok_or("missing price clause")?;
+
+        assert_eq!(json!({ "match_none": {} }), clause);
+        Ok(())
+    }
+
+    #[test]
     fn should_not_render_price_clause_without_price_filter()
     -> Result<(), Box<dyn std::error::Error>> {
         assert!(build_product_index_price_clause(&price_filter(Currency::Usd, None)?).is_none());
