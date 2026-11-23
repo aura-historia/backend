@@ -1046,21 +1046,38 @@ async fn should_return_referenced_listing_sources_on_every_search_filter_respons
     .await;
     assert_eq!(both.to_vec(), listing_source_ids(&listed["items"][0]));
 
-    let (status, patched) = json_response(
+    let patch = |search: serde_json::Value| {
         client
             .patch(format!(
                 "{}/v1/me/search-filters/{filter_id}",
                 AURA_API.base_url()
             ))
-            .bearer_auth(String::from(token))
-            .json(&serde_json::json!({"search": {"excludeListingSourceId": []}}))
+            .bearer_auth(String::from(token.clone()))
+            .json(&serde_json::json!({ "search": search }))
             .send()
+    };
+
+    let (status, patched) = json_response(
+        patch(serde_json::json!({"excludeListingSourceId": []}))
             .await
             .unwrap_or_else(|error| panic!("failed to patch search filter: {error}")),
     )
     .await;
     assert_eq!(reqwest::StatusCode::OK, status, "{patched}");
     assert_eq!(vec![included], listing_source_ids(&patched));
+
+    let (status, patched) = json_response(
+        patch(serde_json::json!({"listingSourceId": []}))
+            .await
+            .unwrap_or_else(|error| panic!("failed to patch search filter: {error}")),
+    )
+    .await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{patched}");
+    assert!(listing_source_ids(&patched).is_empty(), "{patched}");
+    assert!(
+        patched["search"].get("listingSourceId").is_none(),
+        "{patched}"
+    );
 }
 
 fn listing_source_ids(filter: &serde_json::Value) -> Vec<ListingSourceId> {
