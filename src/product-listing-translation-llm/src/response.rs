@@ -24,7 +24,9 @@ pub(crate) struct GroupResponse {
 
 impl GroupResponse {
     /// Fails closed unless the entry of `position` holds a plausible, non-empty translation of
-    /// `source` for every target that keeps the source's runs of question marks.
+    /// `source` for every target that keeps at least the source's runs of question marks.
+    /// More runs are accepted: a target language may write a question mark where the source
+    /// uses another sign, as Greek does with `;`.
     pub(crate) fn translated_title(
         &self,
         position: u32,
@@ -37,7 +39,7 @@ impl GroupResponse {
             .and_then(serde_json::Value::as_object)
             .ok_or_else(|| invalid("product title translation response omitted a title"))?;
         let source_chars = source.as_ref().chars().count();
-        let source_question_mark_runs = source.question_mark_runs();
+        let source_question_mark_runs = Title::question_mark_runs(source.as_ref());
         let mut translated = IndexMap::with_capacity(target_languages.len());
         for language in target_languages {
             let raw = entry
@@ -51,18 +53,17 @@ impl GroupResponse {
                     "product title translation length is implausible for its source",
                 ));
             }
-            let title = Title::from(raw);
-            if title.as_ref().is_empty() {
+            if Title::from(raw).as_ref().is_empty() {
                 return Err(invalid(
                     "product title translation response contains an empty title",
                 ));
             }
-            if title.question_mark_runs() != source_question_mark_runs {
+            if Title::question_mark_runs(raw) < source_question_mark_runs {
                 return Err(invalid(
-                    "product title translation changed the runs of question marks of its source",
+                    "product title translation dropped runs of question marks of its source",
                 ));
             }
-            translated.insert(*language, title);
+            translated.insert(*language, Title::from(raw));
         }
         Ok(translated)
     }
@@ -135,7 +136,7 @@ mod tests {
             "1": {"en": "Akuma to Duet (????????) ???", "fr": "Akuma to Duet (????????) ???"},
             "2": {"en": "Akuma to Duet (Devil Duet) ???", "fr": "Akuma to Duet (????????) ???"},
             "3": {"en": "Akuma to Duet (????????)", "fr": "Akuma to Duet (????????) ???"},
-            "4": {"en": "Akuma to Duet (????????) ??? ?", "fr": "Akuma to Duet (????????) ???"},
+            "4": {"en": "Akuma to Duet (????????????) and Devil", "fr": "Akuma to Duet (????????) ???"},
         }));
 
         assert!(response.translated_title(1, &source, &TARGETS).is_ok());
@@ -155,6 +156,28 @@ mod tests {
         let source = Title::from("これは誰？");
         let response = response(serde_json::json!({
             "1": {"en": "Who is this?", "fr": "Qui est-ce ?"},
+        }));
+
+        assert!(response.translated_title(1, &source, &TARGETS).is_ok());
+    }
+
+    #[test]
+    fn should_count_question_marks_a_translation_had_before_truncation() {
+        let source = Title::from(format!("{} (Meissen?)", "a".repeat(100)).as_str());
+        let long = format!("{} (Meissen?)", "b".repeat(130));
+        let response = response(serde_json::json!({
+            "1": {"en": long, "fr": long},
+        }));
+
+        let translated = response.translated_title(1, &source, &TARGETS).unwrap();
+        assert!(translated[&Language::En].as_ref().ends_with("..."));
+    }
+
+    #[test]
+    fn should_accept_a_question_mark_the_target_adds() {
+        let source = Title::from("Τι είναι αυτό;");
+        let response = response(serde_json::json!({
+            "1": {"en": "What is this?", "fr": "Qu'est-ce que c'est ?"},
         }));
 
         assert!(response.translated_title(1, &source, &TARGETS).is_ok());

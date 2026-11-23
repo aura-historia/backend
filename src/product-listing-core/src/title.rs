@@ -21,15 +21,16 @@ impl Title {
         truncate(capitalize(strip_sentence_periods(text))) == text
     }
 
-    /// Counts the runs of consecutive question marks, ASCII or fullwidth.
+    /// Counts the runs of consecutive question marks in `text`: ASCII, fullwidth or Arabic.
     ///
     /// Some shops serve titles whose non-Latin characters were already replaced with `?`, while
     /// many titles use `???` deliberately, as in *Die drei ???* or `Modell ???`. Either way, a
-    /// translation must carry the same runs, because it cannot know what a lost run stood for.
-    pub fn question_mark_runs(&self) -> usize {
+    /// translation must keep the runs, because it cannot know what a lost run stood for. It takes
+    /// text rather than a title so a translation is counted before truncation can cut a run.
+    pub fn question_mark_runs(text: &str) -> usize {
         let mut runs = 0;
         let mut in_run = false;
-        for c in self.0.chars() {
+        for c in text.chars() {
             let question_mark = is_question_mark(c);
             if question_mark && !in_run {
                 runs += 1;
@@ -39,29 +40,28 @@ impl Title {
         runs
     }
 
-    /// Returns whether question marks replaced most of the title's letters: it contains a
-    /// question mark, and letters make up less than half of its non-space characters.
+    /// Returns whether question marks outnumber the title's letters, as when a shop replaced
+    /// the characters of a script it could not encode with `?`.
     ///
-    /// Such a title has too little text left to translate or to tell its language. Titles
-    /// without question marks, such as a bare date, are never reported.
+    /// Such a title has too little text left to translate. Digits and punctuation do not count
+    /// either way, so a title that marks uncertainty, such as `Vase 1920 ?` or `Ort ???`, does
+    /// not qualify.
     pub fn is_mostly_question_marks(&self) -> bool {
         let mut question_marks = 0;
         let mut letters = 0;
-        let mut visible = 0;
-        for c in self.0.chars().filter(|c| !c.is_whitespace()) {
-            visible += 1;
+        for c in self.0.chars() {
             if is_question_mark(c) {
                 question_marks += 1;
             } else if c.is_alphabetic() {
                 letters += 1;
             }
         }
-        question_marks > 0 && letters * 2 < visible
+        question_marks > letters
     }
 }
 
 fn is_question_mark(c: char) -> bool {
-    matches!(c, '?' | '？')
+    matches!(c, '?' | '？' | '؟')
 }
 
 impl From<&str> for Title {
@@ -366,8 +366,9 @@ mod tests {
     #[case::attached("Form??? MODELL???", 2)]
     #[case::lost("?????? 5 ??????? 1958", 2)]
     #[case::fullwidth("誰？ ?", 2)]
+    #[case::arabic("ما هذا؟", 1)]
     fn should_count_question_mark_runs(#[case] text: &str, #[case] expected: usize) {
-        assert_eq!(expected, Title::from(text).question_mark_runs());
+        assert_eq!(expected, Title::question_mark_runs(text));
     }
 
     #[rstest::rstest]
@@ -379,6 +380,9 @@ mod tests {
     #[case::unknown_place("Ort ???", false)]
     #[case::unknown_model("Form???", false)]
     #[case::date_without_marks("1920 - 1930", false)]
+    #[case::uncertain_date("Vase 1920 ?", false)]
+    #[case::uncertain_maker("Meissen? 1880-1900, 23 cm", false)]
+    #[case::unknown_place_and_date("Ort ??? 1900", false)]
     #[case::cjk("宋代青瓷碗？", false)]
     fn should_tell_titles_mostly_lost_to_question_marks(
         #[case] text: &str,
