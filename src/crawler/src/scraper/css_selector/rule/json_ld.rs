@@ -140,12 +140,12 @@ fn offer_property(
 /// An offer price as the worker reads it. schema.org writes a price as a decimal with a dot
 /// (`1250.00`), which the worker's display-price reading agrees with, except that it groups
 /// thousands by a dot that exactly three digits follow. Such a price is therefore written as the
-/// decimal it is: without its trailing zeros (`125.000` gives `125`, `12.500` gives `12.5`), or
-/// with one more when it has none (`12.345` gives `12.3450`, which the worker rejects as excess
-/// precision). A JSON number is always such a decimal. A string of one to three whole digits
-/// and three decimals (`"12.500"`) is a decimal to schema.org but grouped thousands to many
-/// dealers, so it is no value and the rule's next selector decides. Every other price is as
-/// written.
+/// decimal it is: without its trailing zeros (`1250.000` gives `1250`, the number `12.500` gives
+/// `12.5`), or with one more when it has none (`1250.345` gives `1250.3450`, which the worker
+/// rejects as excess precision). A JSON number is always such a decimal. A string of one to
+/// three whole digits and three decimals (`"12.500"`) is a decimal to schema.org but grouped
+/// thousands to many dealers, so it is no value and the rule's next selector decides. Every
+/// other price is as written.
 fn offer_price(value: &Value) -> Option<String> {
     let written = scalar(value)?;
     let Some((whole, decimals)) = written.split_once('.').filter(|(whole, decimals)| {
