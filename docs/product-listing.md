@@ -135,11 +135,12 @@ field no-op, even alongside other edits. Net-zero text edits disappear from the 
 Meaningful descriptions retain their paragraphs. Identity, source key and public slug never change.
 
 Meaningful title or description changes advance the shared content revision and the embedding
-revision, invalidate obsolete title translations and embeddings atomically, and refresh title
-translation, content assessment and embedding asynchronously. Reads fall back to current original
-text until translations arrive; assessments of older revisions are no longer current. Translation
-remains titles-only. Description-only changes also schedule [title translation](#title-translation) because it
-shares the content revision guard with assessment; pending older translation results are stale.
+revision, invalidate embeddings atomically, and refresh content assessment and embedding
+asynchronously; assessments of older revisions are no longer current. Translation remains
+titles-only. A title change, including a title language change, also invalidates the title
+translations and refreshes them asynchronously; reads fall back to the current original title until
+they arrive. A description-only change [carries](#title-translation) the title's translations onto
+the new revision instead.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
@@ -306,10 +307,20 @@ resubmitted title by title; only a title refused alone reaches Sonnet. Expired o
 requests, and requests a temporarily unavailable provider did not answer, return to the queue
 unchanged; an invalid answer or a failed write spends one of a title's three attempts and fails
 only that title. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
-content changes. A round settles work only while it is still where the round found it, so
+title changes. A round settles work only while it is still where the round found it, so
 several workers may run rounds side by side. Reads and saved-search matching fall back to the original title until a
 translation lands, so the daily match needs no synchronous sweep. Operations are in the
 [runbook](durable-worker-runbook.md#title-translation-recovery).
+
+A description-only change keeps the title, so the listing update carries its translation state onto
+the new content revision in the same transaction instead of translating the title again. When the
+replaced revision is translated, its translations are re-stamped and its translated-titles completion
+is copied for the new revision; the copy becomes the listing's current event, so it drives the search
+projection and the new revision's translation job completes as `duplicate` without a model call.
+Translation work still pending, in a batch or parked for the replaced revision moves along unchanged.
+Only the replaced revision is carried: translations of any older revision are stale and dropped, so a
+description change that follows a title change whose translation has not landed still translates
+that title.
 
 ## Source anti-corruption rules
 

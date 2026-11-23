@@ -135,8 +135,9 @@ pub use product_listing_raw_capture_writer::{
     SourceEvidenceSha256, SourceRecordKeySha256,
 };
 pub use product_listing_repository::{
-    ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
-    ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
+    ProductListingContentSourceEffect, ProductListingRepository, ProductListingRepositoryError,
+    ProductListingRepositoryFactory, ProductListingStorageVersion, ProductListingWriteEffects,
+    VersionedProductListing,
 };
 pub use product_listing_search_filter_match_source_reader::{
     ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceEventKind,

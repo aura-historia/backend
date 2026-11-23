@@ -248,9 +248,9 @@ translation rounds with `ANTHROPIC_API_KEY`; work waits in
 - Results stay downloadable for 29 days. A batch whose results the provider no longer serves
   fails each of its titles once, and they are submitted again.
 - Parked work (`parked IS NOT NULL`) spent three attempts or was refused by the fallback model.
-  It waits for a content change. To retry it after fixing a cause, set `parked` to `NULL`,
-  `attempts` to `0` and `mode` to `'GROUPED'` for the selected listings; never delete work to
-  silence it.
+  It waits for a title change; a description-only change carries it parked. To retry it after
+  fixing a cause, set `parked` to `NULL`, `attempts` to `0` and `mode` to `'GROUPED'` for the
+  selected listings; never delete work to silence it.
 
 ## Listing shipping recovery
 
