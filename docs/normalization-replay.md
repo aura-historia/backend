@@ -54,6 +54,8 @@ cargo run --locked -p product-listing-normalization-replay -- --reason PRICE_UNK
 cargo run --locked -p product-listing-normalization-replay -- export --output corpus.jsonl
 cargo run --locked -p product-listing-normalization-replay -- --input corpus.jsonl
 cargo run --locked -p product-listing-normalization-replay -- seed
+cargo run --locked -p product-listing-normalization-replay -- boilerplate candidates --output candidates.jsonl
+cargo run --locked -p product-listing-normalization-replay -- boilerplate review --input reviewed.jsonl
 ```
 
 - Without a selector, every retained case is replayed, including cases fixed earlier; they
@@ -61,7 +63,9 @@ cargo run --locked -p product-listing-normalization-replay -- seed
   only narrow a run.
 - A run pages through the corpus bounded at its start; later cases belong to the next run.
 - Each case calls the current checkout's production raw-values evaluator on the complete saved
-  input and reports every field. Output is JSONL: one `case` record per case, then a `summary` with
+  input, with its source's current reviewed [description boilerplate](#description-boilerplate),
+  and reports every field. Exported cases carry that set as `descriptionBoilerplate`, so offline
+  replay matches; an export without it strips nothing. Output is JSONL: one `case` record per case, then a `summary` with
   counts by status and by recorded field/reason: `RESOLVED`, `UNRESOLVED`, `INVALID`,
   `INCOMPATIBLE`, `SYSTEM_ERROR` and `UNAVAILABLE_EVIDENCE`.
 - Exit status `0` means the snapshot was fully covered, even with unresolved cases; `2` means
@@ -71,6 +75,24 @@ cargo run --locked -p product-listing-normalization-replay -- seed
   completed revisions; production reapplication is a separate, owned operation.
 - `seed` evaluates retained UPSERT raw revisions once and records those with issues as
   `EVALUATED_RESOLVED`/`EVALUATED_INVALID` cases.
+
+## Description boilerplate
+
+`boilerplate candidates` reads the latest raw description of every listing, one listing source at
+a time (`--listing-source` narrows it), and counts the listings that contain each sentence. An
+unreviewed sentence in at least `--min-listings` listings (default 5) and `--min-share` of the
+source's listings (default 0.2) is written as a `candidate` record with its normalized `sentence`,
+an `example` as written, `listings` and `share`. A `source` record follows each source with its
+description bytes, the `repeatedShare` of repeated sentences and the `strippedShare` its current
+`STRIP` set removes; replaying over current data before and after a review measures the drop.
+Candidate records hold listing text: write them to a private working file, never to logs, the
+repository or GitHub.
+
+A reviewer copies the candidates they decide and adds `"decision": "STRIP"` for shop
+boilerplate or `"decision": "KEEP"` for an item fact. `boilerplate review` validates the whole
+file first, rejects any line without a decision and records it in one transaction; a later
+decision for the same source and sentence replaces the earlier one. The worker reads the new
+set for revisions normalized afterwards ([contract](product-listing.md#description-boilerplate)).
 
 ## Reviewed fixtures
 

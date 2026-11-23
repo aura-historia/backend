@@ -153,6 +153,29 @@ notification snapshots, so approving or dissolving a Partnership needs no reinde
 the bounded source and response caches expire. Redacted listings hide the operator like the rest
 of the source.
 
+### Description boilerplate
+
+Raw normalization strips each listing source's reviewed boilerplate sentences (shipping,
+invoice and payment notices) from the description before language detection, so the canonical
+description, content assessment, embeddings and saved-search classification describe the item.
+Repetition alone never strips a sentence: a repeated sentence can be an item fact, such as whether
+a postcard was posted (`Gelaufen` / `Nicht gelaufen`). Only a sentence a reviewer decided `STRIP`
+for that source is removed; `KEEP` records a reviewed item fact so it is not proposed again.
+Reviews are business state in PostgreSQL, keyed by listing source and the normalized sentence;
+operators produce and import them with [`normalization-replay boilerplate`](normalization-replay.md#description-boilerplate).
+
+- Sentences are split at line breaks, at `.`, `!`, `?` or `…` followed by whitespace and text not
+  starting in lower case, and after `。`, `！`, `？`; matching ignores whitespace runs and letter
+  case ([`description_boilerplate.rs`](../src/product-listing-normalization/src/description_boilerplate.rs)).
+  Analysis and stripping share this segmentation. Templated sentences with item-specific numbers
+  do not match exactly and stay.
+- Stripping fails safe: when only boilerplate would remain, the original description is kept.
+- Shipping evidence still reads the unstripped description, so delivery clauses in shop notices
+  keep informing the [shipping quick check](shipping.md).
+- Each completion records the SHA-256 of the `STRIP` set it used. A review changes descriptions
+  only when a later raw revision of the listing is normalized; no backfill runs, so content
+  revisions and embeddings churn gradually with recrawls.
+
 ### Search ranking
 
 Public product search ranks by relevance unless a sort is requested. With a search term,
