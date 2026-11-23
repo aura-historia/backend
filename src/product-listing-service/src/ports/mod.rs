@@ -28,6 +28,8 @@ pub mod product_listing_search_filter_match_source_reader;
 pub mod product_listing_search_projection;
 pub mod product_listing_search_reader;
 pub mod product_listing_similar_product_listings_reader;
+pub mod product_listing_title_batch_translator;
+pub mod product_listing_title_translation_queue;
 pub mod product_listing_title_translator;
 pub mod product_listing_translation_source_reader;
 pub mod product_listing_translation_writer;
@@ -152,6 +154,18 @@ pub use product_listing_search_reader::{
 pub use product_listing_similar_product_listings_reader::{
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
     ProductListingSimilarProductListingsRequest, SimilarProductListingsLimit,
+};
+pub use product_listing_title_batch_translator::{
+    InvalidTitleTranslationBatchId, PositionedTitle, ProductListingTitleBatchTranslator,
+    TitleTranslationBatchId, TitleTranslationBatchPoll, TitleTranslationGroup,
+    TitleTranslationGroupOutcome, TitleTranslationGroupResult,
+};
+pub use product_listing_title_translation_queue::{
+    BatchedTitleTranslation, PendingTitleTranslation, ProductListingTitleTranslationQueue,
+    ProductListingTitleTranslationQueueError, ProductListingTitleTranslationQueueFactory,
+    ProductListingTitleTranslationQueueReader, SubmittedTitleTranslationBatch,
+    TitleTranslationAssignment, TitleTranslationBatchKey, TitleTranslationClaim,
+    TitleTranslationMode, TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
 };
 pub use product_listing_title_translator::{
     ProductListingTitleTranslationError, ProductListingTitleTranslator,

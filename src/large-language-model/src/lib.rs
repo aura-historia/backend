@@ -1,9 +1,14 @@
 use application::error::{BoxError, box_error};
 mod anthropic;
+mod anthropic_batches;
 mod claude_model;
 mod gemini_model;
 mod llm_logging;
 pub use anthropic::{AnthropicClaude, AnthropicConfig};
+pub use anthropic_batches::{
+    BatchCustomId, BatchItemOutcome, BatchItemResult, BatchProcessingStatus, BatchRequest,
+    LargeLanguageModelBatchId, LargeLanguageModelBatches, MAX_BATCH_REQUESTS,
+};
 pub use claude_model::{
     ClaudeEffort, ClaudeHaiku55Thinking, ClaudeModel, ClaudeReducedThinkingEffort,
     ClaudeSonnet55Thinking,

@@ -1,30 +1,22 @@
-//! `product-translation`: translates one product listing's title through Anthropic behind a
-//! first-committed-completion guard.
+//! `product-translation`: records one product listing's content revision as pending title
+//! translation work. The [batch rounds](crate::translation_batches) translate it.
 
 use crate::composition::CompositionError;
-use application::error::find_source;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use async_trait::async_trait;
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
-use large_language_model::{
-    AnthropicClaude, AnthropicConfig, ClaudeHaiku55Thinking, ClaudeModel,
-    ClaudeReducedThinkingEffort, ClaudeSonnet55Thinking, LargeLanguageModel,
-    LargeLanguageModelError,
-};
 use platform_postgres::SqlxUnitOfWork;
 use platform_postgres_queue::Disposition;
-use platform_process::{Dependency, FailureDiagnostic, UNCLASSIFIED_FAILURE, config::required};
+use platform_process::FailureDiagnostic;
 use platform_worker::{Job, JobHandler, error_class};
 use product_listing_postgres::{
-    SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
+    SqlxProductListingTitleTranslationQueueFactory, SqlxProductListingTranslationSourceReader,
 };
-use product_listing_service::ports::ProductListingTitleTranslationError;
 use product_listing_service::use_cases::{
     TranslateProductListingCommand, TranslateProductListingEventError,
     TranslateProductListingEventHandler, TranslateProductListingEventOutcome,
     TranslateProductListingEventUseCase,
 };
-use product_listing_translation_llm::LargeLanguageModelProductListingTitleTranslator;
 use sqlx::PgPool;
 use std::{
     sync::Arc,
@@ -32,46 +24,14 @@ use std::{
 };
 use tracing::{info, warn};
 
-const SCOPE: &str = "product-translation";
-const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
-// Title translation needs no reasoning, so thinking stays off and the translator's output-token
-// limit remains reserved for the structured answer.
-const TRANSLATION_MODEL: ClaudeModel = ClaudeModel::Haiku55(ClaudeHaiku55Thinking::Disabled(
-    ClaudeReducedThinkingEffort::Low,
-));
-// Haiku's safety classifier refuses some old scientific titles (pathogens, aerosols) that Sonnet
-// translates (#3076). Only such a refusal reaches Sonnet. Without tools, `BetweenTools` answers
-// without thinking first, the closest Sonnet 5.5 gets to thinking disabled.
-const REFUSAL_FALLBACK_MODEL: ClaudeModel = ClaudeModel::Sonnet55(
-    ClaudeSonnet55Thinking::BetweenTools(ClaudeReducedThinkingEffort::Low),
-);
-
-/// Builds the PostgreSQL-backed, first-committed-completion translation use case.
-///
-/// The source read completes before inference and the guarded write transaction starts only after
-/// it, so no pool connection is retained while Claude is awaited.
+/// Builds the PostgreSQL-backed use case that schedules a revision's title translation.
 pub fn compose_product_translation_use_case(
     pool: PgPool,
-    translator: AnthropicClaude,
-    refusal_fallback: AnthropicClaude,
 ) -> Arc<dyn TranslateProductListingEventUseCase> {
-    compose_product_translation_use_case_with_models(pool, translator, refusal_fallback)
-}
-
-pub fn compose_product_translation_use_case_with_models<P, F>(
-    pool: PgPool,
-    model: P,
-    refusal_fallback: F,
-) -> Arc<dyn TranslateProductListingEventUseCase>
-where
-    P: LargeLanguageModel + 'static,
-    F: LargeLanguageModel + 'static,
-{
     Arc::new(TranslateProductListingEventHandler::new(
         SqlxProductListingTranslationSourceReader::new(pool.clone()),
-        LargeLanguageModelProductListingTitleTranslator::new(model, refusal_fallback),
         SqlxUnitOfWork::new(pool),
-        SqlxProductListingTranslationWriterFactory::new(),
+        SqlxProductListingTitleTranslationQueueFactory::new(),
     ))
 }
 
@@ -135,9 +95,8 @@ pub async fn execute_job(
     }
 }
 
-/// Source, provider, write, and commit failures retain the job. A completed provider call is
-/// deliberately indistinguishable from unknown unfinished work until the guarded commit. Only the
-/// failed stage and safe cause facts are kept; the error chain itself is never logged.
+/// Source, write and commit failures retain the job. Only the failed stage and safe cause facts
+/// are kept; the error chain itself is never logged.
 fn translation_error_disposition(
     error: &TranslateProductListingEventError,
 ) -> ProductTranslationJobDisposition {
@@ -145,28 +104,12 @@ fn translation_error_disposition(
     use TranslateProductListingEventError as E;
     let stage = match error {
         E::ServiceOrSystemPrincipalRequired => return D::Poison("system_principal_required"),
-        E::TranslationFailed { .. } => return D::DependencyUnavailable(translation_failure(error)),
         E::SourceReadFailed { .. } => "source_read",
         E::BeginTransactionFailed { .. } => "write_begin",
-        E::TranslationWriteFailed { .. } => "translation_write",
+        E::ScheduleFailed { .. } => "schedule_write",
         E::CommitTransactionFailed { .. } => "write_commit",
     };
     D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
-}
-
-/// Classifies by the provider error when one is in the chain. Otherwise the translator adapter
-/// rejected the provider response itself, which its port variant still names.
-fn translation_failure(error: &TranslateProductListingEventError) -> FailureDiagnostic {
-    let category = find_source::<LargeLanguageModelError>(error)
-        .map(LargeLanguageModelError::diagnostic_category)
-        .or_else(|| {
-            find_source::<ProductListingTitleTranslationError>(error).map(|error| match error {
-                ProductListingTitleTranslationError::TemporarilyUnavailable { .. } => "unavailable",
-                ProductListingTitleTranslationError::InvalidResponse { .. } => "response_invalid",
-            })
-        })
-        .unwrap_or(UNCLASSIFIED_FAILURE);
-    FailureDiagnostic::new("translation", Dependency::Anthropic, category, None)
 }
 
 pub fn translation_disposition(
@@ -174,7 +117,7 @@ pub fn translation_disposition(
 ) -> ProductTranslationJobDisposition {
     use TranslateProductListingEventOutcome as O;
     match outcome {
-        O::Applied => ProductTranslationJobDisposition::Complete("applied"),
+        O::Scheduled => ProductTranslationJobDisposition::Complete("scheduled"),
         O::Duplicate => ProductTranslationJobDisposition::Complete("duplicate"),
         O::Stale => ProductTranslationJobDisposition::Complete("stale"),
         O::IgnoredEvent => ProductTranslationJobDisposition::Complete("ignored_event"),
@@ -253,18 +196,8 @@ impl JobHandler for ProductTranslationJobs {
 }
 
 pub async fn compose(pool: &PgPool) -> Result<Arc<dyn JobHandler>, CompositionError> {
-    let api_key = required(ANTHROPIC_API_KEY_ENV).map_err(|e| CompositionError::new(SCOPE, e))?;
-    // The client error is replaced, never chained, so no part of the key can reach a log.
-    let client = |model| {
-        AnthropicClaude::new(AnthropicConfig::new(model), &api_key)
-            .map_err(|_| CompositionError::new(SCOPE, "failed to configure the Anthropic client"))
-    };
     Ok(Arc::new(ProductTranslationJobs::new(
-        compose_product_translation_use_case(
-            pool.clone(),
-            client(TRANSLATION_MODEL)?,
-            client(REFUSAL_FALLBACK_MODEL)?,
-        ),
+        compose_product_translation_use_case(pool.clone()),
     )))
 }
 
@@ -290,7 +223,7 @@ mod tests {
     async fn acknowledges_committed_and_authoritative_noop_outcomes_but_retries_unfinished_work() {
         use TranslateProductListingEventOutcome as O;
         let use_case = Arc::new(FakeUseCase::new([
-            FakeResult::Outcome(O::Applied),
+            FakeResult::Outcome(O::Scheduled),
             FakeResult::Outcome(O::Duplicate),
             FakeResult::Outcome(O::Stale),
             FakeResult::Outcome(O::IgnoredEvent),
@@ -344,7 +277,7 @@ mod tests {
     async fn should_mark_guard_rejections_on_completed_jobs() {
         use TranslateProductListingEventOutcome as O;
         let use_case = Arc::new(FakeUseCase::new([
-            FakeResult::Outcome(O::Applied),
+            FakeResult::Outcome(O::Scheduled),
             FakeResult::Outcome(O::Stale),
         ]));
         let handler = ProductTranslationJobs::new(use_case);
@@ -356,7 +289,7 @@ mod tests {
 
         let completed = logs.events_where("message", COMPLETED);
         assert_eq!(2, completed.len());
-        assert_eq!(Some("applied"), completed[0]["outcome"].as_str());
+        assert_eq!(Some("scheduled"), completed[0]["outcome"].as_str());
         assert_eq!(Some(false), completed[0]["guard_rejection"].as_bool());
         assert_eq!(Some("stale"), completed[1]["outcome"].as_str());
         assert_eq!(Some(true), completed[1]["guard_rejection"].as_bool());
@@ -364,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_record_the_failed_stage_without_logging_its_cause() {
-        let use_case = Arc::new(FakeUseCase::new([FakeResult::ProviderAuthenticationFailed]));
+        let use_case = Arc::new(FakeUseCase::new([FakeResult::ScheduleWriteFailed]));
         let job = claimed_job(VALID_BODY);
         let (logs, guard) = CapturedLogs::start();
 
@@ -381,12 +314,8 @@ mod tests {
             Some(job.id().to_string().as_str()),
             retained[0]["job_id"].as_str()
         );
-        assert_eq!(Some("translation"), retained[0]["stage"].as_str());
-        assert_eq!(Some("anthropic"), retained[0]["dependency"].as_str());
-        assert_eq!(
-            Some("authentication"),
-            retained[0]["error_category"].as_str()
-        );
+        assert_eq!(Some("schedule_write"), retained[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), retained[0]["dependency"].as_str());
         assert!(!logs.text().contains("SENTINEL"));
     }
 
@@ -396,7 +325,7 @@ mod tests {
         Outcome(TranslateProductListingEventOutcome),
         Unavailable,
         PrincipalRejected,
-        ProviderAuthenticationFailed,
+        ScheduleWriteFailed,
     }
 
     struct FakeUseCase {
@@ -438,11 +367,9 @@ mod tests {
                 Some(FakeResult::PrincipalRejected) => {
                     Err(TranslateProductListingEventError::ServiceOrSystemPrincipalRequired)
                 }
-                Some(FakeResult::ProviderAuthenticationFailed) => {
-                    Err(TranslateProductListingEventError::TranslationFailed {
-                        source: Box::new(LargeLanguageModelError::Authentication {
-                            source: Box::new(std::io::Error::other(SENTINEL)),
-                        }),
+                Some(FakeResult::ScheduleWriteFailed) => {
+                    Err(TranslateProductListingEventError::ScheduleFailed {
+                        source: Box::new(std::io::Error::other(SENTINEL)),
                     })
                 }
                 None => panic!("unexpected use case invocation"),

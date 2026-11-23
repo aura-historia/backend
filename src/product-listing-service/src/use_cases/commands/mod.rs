@@ -14,6 +14,7 @@ pub mod refresh_public_catalogue_overview;
 
 pub mod submit_product_listing_ingestion;
 pub mod translate_product_listing_event;
+pub mod translate_product_listing_title_batches;
 pub mod update_product_listing;
 pub mod upsert_product_listing;
 pub mod withdraw_product_listing;

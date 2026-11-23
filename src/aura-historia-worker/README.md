@@ -22,6 +22,11 @@ job timeout:
 | `marketing-consent-sync` (FIFO), `product-listing-ingestion` (FIFO) | 2 | 35 s |
 | `geo-resolution`, `listing-geography`, `listing-shipping`, `user-identity-deletion` | 2 | 25 s |
 
+A `product-translation` job only records a listing's title translation work. Every worker that
+consumes the scope also runs a [title translation round](../../docs/product-listing.md#title-translation)
+every 15 minutes, which submits pending work to Anthropic's Message Batches API and commits
+ended batches; it needs `ANTHROPIC_API_KEY`.
+
 Leases, retry delays and retry budgets come from the
 [scope catalogue](../platform-worker-queue-contract/src/job_queue.rs). A projection generation
 consumer (`product-listing-opensearch-<g>`) writes only the index `product-listings-<g>`; it is
@@ -52,9 +57,9 @@ credentials come from the file `GOOGLE_APPLICATION_CREDENTIALS` names. Notificat
 rendered from the compiled templates under `MAIL_TEMPLATE_DIR`, which the image sets to its
 baked-in [templates](../../mjml/README.md); every template is loaded at startup.
 
-If a consumer, the dispatcher or the wake-up listener stops on its own, the worker shuts down
-every other task and exits non-zero, so the container is restarted rather than running with a
-scope that no longer consumes.
+If a consumer, the dispatcher, the wake-up listener or the translation rounds stop on their
+own, the worker shuts down every other task and exits non-zero, so the container is restarted
+rather than running with a scope that no longer consumes.
 
 ## Health metrics
 

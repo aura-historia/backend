@@ -23,7 +23,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Provider model selection supplied by the composition root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnthropicConfig {
-    model: ClaudeModel,
+    pub(crate) model: ClaudeModel,
 }
 
 impl AnthropicConfig {
@@ -55,10 +55,10 @@ impl AnthropicConfig {
 /// concurrency. Provider requests are attempted once, with retry advice returned
 /// to the caller; successful and invalid structured results emit invocation metrics.
 pub struct AnthropicClaude {
-    config: AnthropicConfig,
-    client: reqwest::Client,
+    pub(crate) config: AnthropicConfig,
+    pub(crate) client: reqwest::Client,
     image_fetcher: ImageFetcher,
-    messages_url: String,
+    pub(crate) messages_url: String,
 }
 
 impl AnthropicClaude {
@@ -206,7 +206,7 @@ impl LargeLanguageModel for AnthropicClaude {
 }
 
 #[derive(Serialize)]
-struct MessagesRequest<'a> {
+pub(crate) struct MessagesRequest<'a> {
     model: &'a str,
     system: String,
     messages: [Message; 1],
@@ -217,7 +217,7 @@ struct MessagesRequest<'a> {
 }
 
 impl<'a> MessagesRequest<'a> {
-    fn try_new(
+    pub(crate) fn try_new(
         config: &'a AnthropicConfig,
         request: StructuredGenerationRequest,
         images: Vec<FetchedImage>,
@@ -349,7 +349,7 @@ fn normalize_response_schema(
 }
 
 #[derive(Deserialize)]
-struct MessagesResponse {
+pub(crate) struct MessagesResponse {
     content: Vec<OutputContent>,
     stop_reason: String,
     #[serde(default)]
@@ -382,7 +382,7 @@ struct OutputTokenDetails {
 }
 
 impl MessagesResponse {
-    fn usage_metrics(&self) -> LlmInvocationMetrics {
+    pub(crate) fn usage_metrics(&self) -> LlmInvocationMetrics {
         let prompt_tokens = self.usage.input_tokens.and_then(|tokens| {
             tokens
                 .checked_add(self.usage.cache_creation_input_tokens.unwrap_or_default())?
@@ -400,7 +400,9 @@ impl MessagesResponse {
         }
     }
 
-    fn into_output<Output: DeserializeOwned>(self) -> Result<Output, LargeLanguageModelError> {
+    pub(crate) fn into_output<Output: DeserializeOwned>(
+        self,
+    ) -> Result<Output, LargeLanguageModelError> {
         if let Some(failure) = stop_reason_failure(&self.stop_reason) {
             return Err(invalid_response_error(failure));
         }
@@ -442,7 +444,7 @@ fn stop_reason_failure(stop_reason: &str) -> Option<StructuredResponseError> {
     }
 }
 
-fn log_model(model: &str) -> LlmModel {
+pub(crate) fn log_model(model: &str) -> LlmModel {
     match model {
         "claude-sonnet-5-5" => LlmModel::ClaudeSonnet55,
         "claude-opus-5-5" => LlmModel::ClaudeOpus55,
@@ -451,7 +453,7 @@ fn log_model(model: &str) -> LlmModel {
     }
 }
 
-fn http_status_error(
+pub(crate) fn http_status_error(
     status: reqwest::StatusCode,
     retry_after: Option<Duration>,
 ) -> LargeLanguageModelError {
