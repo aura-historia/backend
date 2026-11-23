@@ -3,6 +3,7 @@ use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionError;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -241,8 +242,9 @@ pub(super) struct ProductListingSchemasGenerationResponse {
 
 impl ProductListingSchemasGenerationResponse {
     pub(super) fn try_into_initial(
-        self,
+        mut self,
     ) -> Result<GeneratedProductSchemas, ProductListingSchemaResponseValidationError> {
+        without_sanitize(&mut self.schemas);
         if self.schemas.is_empty() {
             return Err(ProductListingSchemaResponseValidationError::InitialEmptySchemas);
         }
@@ -275,8 +277,9 @@ pub(super) struct ProductListingSchemaGenerationResponse {
 
 impl ProductListingSchemaGenerationResponse {
     pub(super) fn try_into_single(
-        self,
+        mut self,
     ) -> Result<GeneratedSingleSchema, ProductListingSchemaResponseValidationError> {
+        without_sanitize(&mut self.schemas);
         let evaluation = evaluation_from_response(self.confidence, self.summary, self.risks);
         let schema_count = self.schemas.len();
         match self.page_kind.unwrap_or(SinglePageKind::ProductListing) {
@@ -332,8 +335,36 @@ impl ProductListingSchemaGenerationResponse {
 }
 
 pub(super) fn product_schema_generation_response_json_schema() -> String {
-    serde_json::to_string_pretty(&schema_for!(ProductListingSchemasGenerationResponse))
+    generator_json_schema(schema_for!(ProductListingSchemasGenerationResponse))
+}
+
+/// A JSON schema as the generator sees it, without the product schema's `sanitize`: only the
+/// agent mode's author lists sanitize texts, never the `auto` mode's generator.
+pub(super) fn generator_json_schema(schema: schemars::Schema) -> String {
+    let mut schema = serde_json::to_value(schema).unwrap_or_default();
+    drop_sanitize_properties(&mut schema);
+    serde_json::to_string_pretty(&schema)
         .unwrap_or_else(|_| "Failed to generate response schema".to_owned())
+}
+
+fn drop_sanitize_properties(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if let Some(Value::Object(properties)) = object.get_mut("properties") {
+                properties.remove("sanitize");
+            }
+            object.values_mut().for_each(drop_sanitize_properties);
+        }
+        Value::Array(values) => values.iter_mut().for_each(drop_sanitize_properties),
+        _ => {}
+    }
+}
+
+/// Generated schemas never carry `sanitize`, even when the model returns one anyway.
+fn without_sanitize(schemas: &mut [ProductCssSelectorSchema]) {
+    for schema in schemas {
+        schema.sanitize.clear();
+    }
 }
 
 #[cfg(test)]
@@ -345,8 +376,7 @@ pub(super) fn parse_product_schemas_response(
 }
 
 pub(super) fn single_schema_generation_response_json_schema() -> String {
-    serde_json::to_string_pretty(&schema_for!(ProductListingSchemaGenerationResponse))
-        .unwrap_or_else(|_| "Failed to generate response schema".to_owned())
+    generator_json_schema(schema_for!(ProductListingSchemaGenerationResponse))
 }
 
 #[cfg(test)]
@@ -680,5 +710,21 @@ mod tests {
             Err(ProductListingSchemaResponseValidationError::UnregisteredRawAttributeKeys { keys })
                 if keys == [unregistered(0, "rawFoo")]
         ));
+    }
+
+    #[test]
+    fn should_never_offer_or_keep_sanitize_in_generated_schemas() {
+        for schema in [
+            product_schema_generation_response_json_schema(),
+            single_schema_generation_response_json_schema(),
+            generator_json_schema(schema_for!(ProductCssSelectorSchema)),
+        ] {
+            assert!(!schema.contains("\"sanitize\""), "{schema}");
+        }
+        let generated = parse_product_schemas_response(
+            r#"{"schemas":[{"title":{"selector":"h1","type":"text"},"sanitize":["Free shipping worldwide."]}],"confidence":"HIGH","summary":"ok"}"#,
+        )
+        .unwrap();
+        assert!(generated.schemas[0].sanitize.is_empty());
     }
 }

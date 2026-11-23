@@ -44,6 +44,7 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
             cardinality: ExtractionCardinality::All,
         }),
         raw_attributes: Default::default(),
+        sanitize: Vec::new(),
     }
 }
 
@@ -98,6 +99,7 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             cardinality: ExtractionCardinality::All,
         }),
         raw_attributes: Default::default(),
+        sanitize: Vec::new(),
     }
 }
 

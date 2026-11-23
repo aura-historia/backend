@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 use super::ReviewRepositoryError;
+use crate::scraper::css_selector::sanitize::invalid_sanitize_texts;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Why a product-schema candidate is refused, named for the reviewer who has to repair it.
@@ -207,7 +208,18 @@ pub(super) fn validate_product_schemas(
                         field: field.to_string(),
                         source,
                     })
-            })
+            })?;
+            match invalid_sanitize_texts(&schema.sanitize) {
+                Some((text, reason)) => Err(ProductSchemaCandidateFailure::InvalidRule {
+                    schema_index,
+                    field: "sanitize".to_owned(),
+                    source: ExtractionError::InvalidSanitizeText {
+                        text,
+                        reason: reason.to_owned(),
+                    },
+                }),
+                None => Ok(()),
+            }
         })
 }
 
@@ -432,6 +444,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(image_rule("img")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         }
     }
 
@@ -651,6 +664,8 @@ mod tests {
             ..text_rule(".price")
         });
         let invalid_raw_attribute = with_raw_attribute(schema("h1.product"), "rawMaterial", "a[");
+        let mut invalid_sanitize = schema("h1.product");
+        invalid_sanitize.sanitize = vec!["Versand".to_owned()];
         let cases = [
             (
                 vec![schema("h1.product"), schema("h1[")],
@@ -663,6 +678,10 @@ mod tests {
             (
                 vec![invalid_raw_attribute],
                 "invalid ProductSchema review candidate: schema 0, field `raw_attributes.rawMaterial`: invalid CSS selector `a[`:",
+            ),
+            (
+                vec![invalid_sanitize],
+                "invalid ProductSchema review candidate: schema 0, field `sanitize`: sanitize text `Versand` is unusable:",
             ),
         ];
 

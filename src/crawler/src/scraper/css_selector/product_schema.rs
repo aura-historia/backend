@@ -4,6 +4,7 @@ use crate::scraper::css_selector::rule::{
 };
 
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
+use crate::scraper::css_selector::sanitize::{invalid_sanitize_texts, sanitize_description};
 use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use scraper::Html;
@@ -121,6 +122,12 @@ pub struct ProductCssSelectorSchema {
         alias = "rawAttributes"
     )]
     pub raw_attributes: BTreeMap<String, ExtractionRule>,
+
+    #[schemars(
+        description = "Shop boilerplate to remove from the extracted description: each entry is a text copied exactly from the page, such as a shipping, payment, invoice, returns or legal notice, that this shop repeats in the description of every listing and that says nothing about the item. List a whole sentence or paragraph, at least 8 characters, never a single word. Never list item facts, even when many listings share them, such as condition, size, material, maker, date, or whether a postcard was posted (gelaufen / nicht gelaufen). Leave empty when the description holds no such text."
+    )]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub sanitize: Vec<String>,
 }
 
 /// Errors that can occur when applying a [`ProductCssSelectorSchema`] to an HTML document.
@@ -200,7 +207,14 @@ impl ProductCssSelectorSchema {
         .into_iter()
         .flatten()
         .chain(self.raw_attributes.values())
-        .try_for_each(ExtractionRule::validate)
+        .try_for_each(ExtractionRule::validate)?;
+        match invalid_sanitize_texts(&self.sanitize) {
+            Some((text, reason)) => Err(ExtractionError::InvalidSanitizeText {
+                text,
+                reason: reason.to_owned(),
+            }),
+            None => Ok(()),
+        }
     }
 
     /// The raw attribute keys outside the raw attribute registry, in key order. Generated schemas
@@ -393,10 +407,13 @@ impl ProductCssSelectorSchema {
         let title = self.anchor_title(html)?;
         let description = match &self.description {
             None => vec![],
-            Some(rule) => keep_first_occurrences(
-                misses
-                    .tolerate("description", rule.apply(html), OptionalMissLog::Debug)
-                    .map_err(ApplySchemaError::Description)?,
+            Some(rule) => sanitize_description(
+                keep_first_occurrences(
+                    misses
+                        .tolerate("description", rule.apply(html), OptionalMissLog::Debug)
+                        .map_err(ApplySchemaError::Description)?,
+                ),
+                &self.sanitize,
             ),
         };
         // A miss yields `None`, exactly like a schema without the rule, so plausibility
@@ -780,6 +797,7 @@ mod tests {
             state: Some(text_rule("span.state")),
             images: Some(text_rule_all("img")),
             raw_attributes: BTreeMap::new(),
+            sanitize: Vec::new(),
         };
         let single = serde_json::to_value(&schema).unwrap_or_else(|error| panic!("{error}"));
         let list = serde_json::to_value(vec![&schema]).unwrap_or_else(|error| panic!("{error}"));
@@ -861,6 +879,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         (parsed, schema)
     }
@@ -896,6 +915,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         }
     }
 
@@ -1022,6 +1042,7 @@ mod tests {
                 "#wpgs-gallery img, .wcgs-woocommerce-product-gallery img",
             )),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
 
         let result = schema.apply(&html).unwrap();
@@ -1101,6 +1122,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(image_rule_all("#wrong-gallery img")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
 
         let result = schema.apply(&html).unwrap();
@@ -1133,6 +1155,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(image_rule_all("#wpgs-gallery img")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
 
         let result = schema.apply(&html).unwrap();
@@ -1196,6 +1219,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price_estimate_min, Some("800".to_string()));
@@ -1221,6 +1245,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price_estimate_max, Some("1200".to_string()));
@@ -1299,6 +1324,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price, Some("€ 100".to_string()));
@@ -1329,6 +1355,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(
@@ -1359,6 +1386,59 @@ mod tests {
             result.description,
             vec!["Walnut, circa 1830.", "Restored in 1990."]
         );
+    }
+
+    #[test]
+    fn should_remove_the_schema_s_sanitize_texts_from_the_extracted_description() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="x.jpg">
+                <p class="desc">Ansichtskarte Berlin. Gelaufen. Versand innerhalb Deutschlands als Großbrief.</p>
+                <p class="desc">Eine Rechnung mit ausgewiesener MwSt. liegt bei.</p>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            description: Some(text_rule_all("p.desc")),
+            sanitize: vec![
+                "Versand innerhalb Deutschlands als Großbrief.".to_owned(),
+                "Eine Rechnung mit ausgewiesener MwSt. liegt bei.".to_owned(),
+            ],
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(result.description, vec!["Ansichtskarte Berlin. Gelaufen."]);
+    }
+
+    #[test]
+    fn should_store_a_schema_without_sanitize_texts_as_before() {
+        let schema = minimal_schema("<ignored>").1;
+        let stored = serde_json::to_value(&schema).unwrap();
+        assert!(stored.get("sanitize").is_none());
+
+        let with_texts = ProductCssSelectorSchema {
+            sanitize: vec!["Versand weltweit möglich.".to_owned()],
+            ..schema
+        };
+        let stored = serde_json::to_value(&with_texts).unwrap();
+        assert_eq!(
+            with_texts,
+            serde_json::from_value::<ProductCssSelectorSchema>(stored).unwrap()
+        );
+    }
+
+    #[test]
+    fn should_refuse_a_schema_whose_sanitize_text_is_too_short() {
+        let schema = ProductCssSelectorSchema {
+            sanitize: vec!["Versand".to_owned()],
+            ..minimal_schema("<ignored>").1
+        };
+        assert!(matches!(
+            schema.validate_rules(),
+            Err(ExtractionError::InvalidSanitizeText { .. })
+        ));
     }
 
     #[test]
@@ -1431,6 +1511,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(images_rule),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.images, vec!["main.jpg", "thumb1.jpg", "thumb2.jpg"]);
@@ -1552,6 +1633,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1579,6 +1661,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.state, None);
@@ -1602,6 +1685,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert!(result.images.is_empty());
@@ -1794,6 +1878,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         }
     }
 
@@ -1982,6 +2067,7 @@ mod tests {
                 state: Some(good_state),
                 images: Some(good_img),
                 raw_attributes: Default::default(),
+                sanitize: Vec::new(),
             },
             "title" => ProductCssSelectorSchema {
                 source_listing_id: Some(good_id),
@@ -1993,6 +2079,7 @@ mod tests {
                 state: Some(good_state),
                 images: Some(good_img),
                 raw_attributes: Default::default(),
+                sanitize: Vec::new(),
             },
             "state" => ProductCssSelectorSchema {
                 source_listing_id: Some(good_id),
@@ -2004,6 +2091,7 @@ mod tests {
                 state: Some(bad),
                 images: Some(good_img),
                 raw_attributes: Default::default(),
+                sanitize: Vec::new(),
             },
             "images" => ProductCssSelectorSchema {
                 source_listing_id: Some(good_id),
@@ -2015,6 +2103,7 @@ mod tests {
                 state: Some(good_state),
                 images: Some(bad),
                 raw_attributes: Default::default(),
+                sanitize: Vec::new(),
             },
             _ => unreachable!(),
         };
@@ -2044,6 +2133,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         // We only care that the error exists and mentions the field name.
         let err = schema.apply(&html).unwrap_err();
@@ -2063,6 +2153,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(err.to_string().contains("price"), "{err}");
@@ -2092,6 +2183,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("div.gallery img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
@@ -2118,6 +2210,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -2152,6 +2245,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("div.gallery img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
 
         let result = schema.apply(&html).unwrap();
@@ -2182,6 +2276,7 @@ mod tests {
                 cardinality: ExtractionCardinality::All,
             }),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
 
         let result = schema.apply(&html).unwrap();
@@ -2273,6 +2368,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
+            sanitize: Vec::new(),
         };
         let result = schema.apply(&html).unwrap();
 

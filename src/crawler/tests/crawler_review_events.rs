@@ -51,6 +51,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
             cardinality: ExtractionCardinality::All,
         }),
         raw_attributes: Default::default(),
+        sanitize: Vec::new(),
     }
 }
 

@@ -176,6 +176,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
         state: Some(text_rule("#state")),
         images: Some(attr_rule_all("img", "src")),
         raw_attributes: Default::default(),
+        sanitize: Vec::new(),
     }
 }
 
