@@ -150,11 +150,11 @@ fn upsert_raw_values(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or(ShopifyProductEventError::MissingHandle)?;
-    let price = patch(
+    let price = price_patch(
         product
             .variants
             .first()
-            .and_then(|variant| variant.price.clone()),
+            .and_then(|variant| variant.price.as_deref()),
     );
     if source.currency.is_none() && matches!(&price, ProductListingRawValuesPatch::Set(_)) {
         return Err(ShopifyProductEventError::MissingListingSourceCurrency);
@@ -201,10 +201,13 @@ fn normalization_context(
         .map_err(ShopifyProductEventError::InvalidSourcePayload)
 }
 
-fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
+/// The provider's machine-decimal price without the whitespace around it, which the strict
+/// machine-decimal reading would reject; a blank price clears it.
+fn price_patch(value: Option<&str>) -> ProductListingRawValuesPatch<String> {
     value
-        .filter(|value| !value.trim().is_empty())
-        .map(ProductListingRawValuesPatch::Set)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| ProductListingRawValuesPatch::Set(value.to_owned()))
         .unwrap_or(ProductListingRawValuesPatch::Clear)
 }
 
@@ -497,6 +500,23 @@ mod tests {
         };
         assert_eq!(
             json!({"action": "CLEAR"}),
+            observation.input.raw_values().value()["price"]
+        );
+    }
+
+    #[test]
+    fn should_capture_the_price_without_surrounding_whitespace() {
+        let mut product = payload(Some("active"));
+        product["variants"] = json!([{"price": " 42.00\n"}]);
+
+        let action = wrapped_listing_action(ShopifyProductEventKind::Add, &source(), product)
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"));
+
+        let ShopifyListingAction::Capture(observation) = action else {
+            panic!("priced product must capture");
+        };
+        assert_eq!(
+            json!({"action": "SET", "value": "42.00"}),
             observation.input.raw_values().value()["price"]
         );
     }
