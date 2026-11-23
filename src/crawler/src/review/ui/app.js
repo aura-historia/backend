@@ -4178,6 +4178,7 @@ function renderCoverageSection(matrix) {
       <div class="section-head"><h3>Coverage</h3>${badge(`${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}${coverage.notEvaluated ? ` · ${coverage.notEvaluated} not evaluated` : ''}`, tone)}</div>
       <div class="small muted">${escapeHtml(coverageSentences(matrix, coverage))}</div>
       ${capturedIdentityChanges(matrix).length ? `<div class="small tone-warn">${escapeHtml(identityChangeWarning(capturedIdentityChanges(matrix)))}</div>` : ''}
+      ${capturedTitleChanges(matrix).length ? `<div class="small tone-warn">${escapeHtml(titleChangeNote(capturedTitleChanges(matrix)))}</div>` : ''}
       <div class="actions">
         <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages" type="button">Evaluate on live pages</button>
         ${matrix.live_evaluation ? `<span class="small muted">evaluated ${evaluated ? timeBadge(evaluated, 'Evaluated') : 'never'}</span>` : ''}
@@ -5117,6 +5118,23 @@ function identityChangeWarning(changes) {
         .map(page => `${page.url}: captured as ${page.captured_identity}, now ${(page.identities || []).join(', ')}`)
         .join('; ');
     return `Identity change: the candidate derives another identity than ${changes.length} sampled captured listing${changes.length === 1 ? '' : 's'} (${named}). Their listings keep their captured identity, but new listings and new spellings of these products would take the new kind.`;
+}
+
+// The sampled captured listings from which the candidate the matrix evaluated extracts other titles
+// than the live schemas, which extract one, from the matrix's live evaluation.
+function capturedTitleChanges(matrix) {
+    const pages = matrix?.live_evaluation?.captured_identity_sample?.pages || [];
+    return pages.filter(page => (page.live_titles || []).length
+        && JSON.stringify(page.live_titles) !== JSON.stringify(page.candidate_titles || []));
+}
+
+// How the candidate changes the titles of sampled captured listings, naming up to three. A title
+// may rightly improve, so this asks the reviewer to look rather than refusing anything.
+function titleChangeNote(changes) {
+    const named = changes.slice(0, 3)
+        .map(page => `${page.url}: "${page.live_titles.join('" / "')}" → "${(page.candidate_titles || []).join('" / "') || 'no title'}"`)
+        .join('; ');
+    return `Title change: the candidate extracts another title than the live schemas from ${changes.length} sampled captured listing${changes.length === 1 ? '' : 's'} (${named}). Approving it retitles these listings; check that the new titles name only the product.`;
 }
 
 // The selected product-schema review's coverage while it is incomplete, or null.

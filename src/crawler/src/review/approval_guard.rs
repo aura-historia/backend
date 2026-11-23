@@ -796,7 +796,8 @@ mod tests {
             .live_evaluation
             .as_mut()
             .unwrap()
-            .captured_identity_sample = Some(CapturedIdentitySample::evaluate(schemas, &sampled));
+            .captured_identity_sample =
+            Some(CapturedIdentitySample::evaluate(schemas, &[], &sampled));
         matrix
     }
 
@@ -1451,6 +1452,8 @@ mod tests {
                     outcome: CapturedIdentityOutcome::Differs {
                         identities: vec!["lamp-0815".to_owned()],
                     },
+                    live_titles: Vec::new(),
+                    candidate_titles: vec!["Lamp".to_owned()],
                 }],
             }]
         );

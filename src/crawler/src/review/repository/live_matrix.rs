@@ -20,6 +20,10 @@ use crate::review::model::{
     ReviewSchemaMatrix, SchemaMatrix, SchemaReviewPageInput,
 };
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
+use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema_repository::{
+    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
+};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
@@ -105,6 +109,7 @@ impl CrawlerReviewRepository {
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
         let configuration_sha256 = going_live.fingerprint()?;
+        let live_schemas = self.live_schemas(review.listing_source_id).await?;
         let (mut matrix, captured_identity_sample) = evaluate_on_blocking_thread(move || {
             let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
@@ -115,7 +120,11 @@ impl CrawlerReviewRepository {
                 &[],
                 &captured_identities,
             );
-            let sample = CapturedIdentitySample::evaluate(&going_live.schemas, &captured_sample);
+            let sample = CapturedIdentitySample::evaluate(
+                &going_live.schemas,
+                &live_schemas,
+                &captured_sample,
+            );
             (matrix, sample)
         })
         .await?;
@@ -255,6 +264,19 @@ impl CrawlerReviewRepository {
             .map(|stored| stored.removed_page_schemas)
             .unwrap_or_default();
         Ok(candidate.going_live(&base, &stored))
+    }
+
+    /// The ListingSource's live product schemas, none before its first approval.
+    async fn live_schemas(
+        &self,
+        listing_source_id: uuid::Uuid,
+    ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+        let listing_source_id = listing_source_id_from_uuid(listing_source_id)?;
+        Ok(ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
+            .find_product_schema(&listing_source_id)
+            .await?
+            .map(|live| live.product_schemas)
+            .unwrap_or_default())
     }
 
     /// A random sample of at most [`CAPTURED_IDENTITY_SAMPLE_SIZE`] product URLs of the review's
