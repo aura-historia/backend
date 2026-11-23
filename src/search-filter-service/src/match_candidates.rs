@@ -5,6 +5,7 @@
 //! same intent and the same retrieved listings.
 
 use application::pagination::Cursor;
+use product_listing_core::listing_discoverability::is_discoverable;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
@@ -30,7 +31,9 @@ pub(crate) enum CandidateEligibility<'a> {
     MissingSource,
     /// The search projection lags the listing's current event.
     Stale,
-    Withdrawn,
+    /// Withdrawn, or no longer discoverable (docs/product-listing.md): a frozen selection or a
+    /// lagging index can still name such a listing, and it must never match.
+    Undiscoverable,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -107,8 +110,8 @@ pub(crate) fn candidate_eligibility<'a>(
         Some(source) if source.current_event_id != reference.event_id => {
             Ok(CandidateEligibility::Stale)
         }
-        Some(source) if is_withdrawn_candidate(source.lifecycle) => {
-            Ok(CandidateEligibility::Withdrawn)
+        Some(source) if !is_discoverable(source.lifecycle, source.availability) => {
+            Ok(CandidateEligibility::Undiscoverable)
         }
         Some(source) => Ok(CandidateEligibility::Eligible(source)),
     }

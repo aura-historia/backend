@@ -708,7 +708,6 @@ dependencies = [
  "delivery-outbox",
  "domain-primitives",
  "embedding",
- "fxrate-postgres",
  "geo",
  "geo-amazon-location",
  "geo-postgres",

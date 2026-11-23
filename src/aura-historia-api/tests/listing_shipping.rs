@@ -974,7 +974,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         client.clone(),
         index.clone(),
     );
-    writer.upsert(&source(&p, id).await, None).await.unwrap();
+    writer.upsert(&source(&p, id).await).await.unwrap();
     test_api::refresh_index(&index).await;
     assert_eq!(
         1,
@@ -1047,7 +1047,7 @@ async fn origin_search_reads_current_shipping_before_index_catchup_and_preserves
         old_rate_membership(&client, &index).await["hits"]["total"]["value"]
     );
     drain(&project, &p).await;
-    writer.upsert(&source(&p, id).await, None).await.unwrap();
+    writer.upsert(&source(&p, id).await).await.unwrap();
     test_api::refresh_index(&index).await;
     assert_eq!(
         0,

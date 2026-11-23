@@ -4,7 +4,6 @@
 use crate::composition::CompositionError;
 use async_trait::async_trait;
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -46,7 +45,6 @@ pub fn compose_projection_use_case(
     Arc::new(ProjectProductListingHandler::new(
         SqlxUnitOfWork::new(pool),
         SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchProductListingSearchProjection::with_index(open_search, index),
     ))
 }
@@ -121,16 +119,6 @@ fn projection_error_disposition(
     use ProductListingOpenSearchJobDisposition as D;
     use ProjectProductListingError as E;
     match error {
-        E::SaleObservationFxSnapshotMissing => D::Retry("sale_snapshot_missing"),
-        E::SaleObservationFxSnapshotInvalid { .. } => D::InvalidPersistedState {
-            category: "sale_snapshot_invalid",
-            failure: FailureDiagnostic::new(
-                "sale_snapshot_read",
-                Dependency::Postgres,
-                INVALID_PERSISTED_STATE,
-                None,
-            ),
-        },
         E::SourceStateInvalid { .. } => D::InvalidPersistedState {
             category: "source_state_invalid",
             failure: FailureDiagnostic::new(
@@ -145,9 +133,6 @@ fn projection_error_disposition(
         }
         E::SourceReadFailed { .. } => {
             D::DependencyUnavailable(FailureDiagnostic::postgres("source_read", error))
-        }
-        E::SaleObservationFxSnapshotReadFailed { .. } => {
-            D::DependencyUnavailable(FailureDiagnostic::postgres("sale_snapshot_read", error))
         }
         E::CommitFailed { .. } => {
             D::DependencyUnavailable(FailureDiagnostic::postgres("source_commit", error))
@@ -346,8 +331,6 @@ mod tests {
             FakeResult::Applied,
             FakeResult::Stale,
             FakeResult::MissingSource,
-            FakeResult::SaleObservationFxSnapshotMissing,
-            FakeResult::SaleObservationFxSnapshotInvalid,
             FakeResult::SourceStateInvalid,
             FakeResult::Unavailable,
         ])
@@ -358,14 +341,12 @@ mod tests {
                 Disposition::Complete,
                 Disposition::Complete,
                 Disposition::Retry(error_class("missing_source")),
-                Disposition::Retry(error_class("sale_snapshot_missing")),
-                Disposition::Retry(error_class("sale_snapshot_invalid")),
                 Disposition::Retry(error_class("source_state_invalid")),
                 Disposition::Retry(error_class("projection_unavailable")),
             ],
             dispositions
         );
-        assert_eq!(processor.calls(), 7);
+        assert_eq!(processor.calls(), 5);
     }
 
     #[tokio::test]
@@ -397,11 +378,10 @@ mod tests {
             FakeResult::SourceDatabaseFailure,
             FakeResult::TargetForbidden,
             FakeResult::CommitConnectionLost,
-            FakeResult::SaleObservationFxSnapshotInvalid,
             FakeResult::SourceStateInvalid,
         ]));
         let handler = ProductListingOpenSearchJobs::new(processor);
-        let jobs = [(); 5].map(|()| claimed_job(&valid_body()));
+        let jobs = [(); 4].map(|()| claimed_job(&valid_body()));
         let (logs, guard) = CapturedLogs::start();
 
         for job in &jobs {
@@ -421,10 +401,7 @@ mod tests {
                     "error_category": "http_status", "http_status": 403}),
                 json!({"job_id": id(2), "attempt": 1, "outcome": "projection_unavailable",
                     "stage": "source_commit", "dependency": "postgres", "error_category": "io"}),
-                json!({"job_id": id(3), "attempt": 1, "outcome": "sale_snapshot_invalid",
-                    "stage": "sale_snapshot_read", "dependency": "postgres",
-                    "error_category": "invalid_persisted_state"}),
-                json!({"job_id": id(4), "attempt": 1, "outcome": "source_state_invalid",
+                json!({"job_id": id(3), "attempt": 1, "outcome": "source_state_invalid",
                     "stage": "source_read", "dependency": "postgres",
                     "error_category": "invalid_persisted_state"}),
             ]
@@ -458,8 +435,6 @@ mod tests {
         Deleted,
         Stale,
         MissingSource,
-        SaleObservationFxSnapshotMissing,
-        SaleObservationFxSnapshotInvalid,
         SourceStateInvalid,
         Unavailable,
         SourceDatabaseFailure,
@@ -503,14 +478,6 @@ mod tests {
                 Some(FakeResult::MissingSource) => {
                     Ok(result(ProjectProductListingOutcome::MissingSource))
                 }
-                Some(FakeResult::SaleObservationFxSnapshotMissing) => {
-                    Err(ProjectProductListingError::SaleObservationFxSnapshotMissing)
-                }
-                Some(FakeResult::SaleObservationFxSnapshotInvalid) => Err(
-                    ProjectProductListingError::SaleObservationFxSnapshotInvalid {
-                        source: Box::new(std::io::Error::other(SENTINEL)),
-                    },
-                ),
                 Some(FakeResult::SourceStateInvalid) => {
                     Err(ProjectProductListingError::SourceStateInvalid {
                         source: Box::new(std::io::Error::other(SENTINEL)),

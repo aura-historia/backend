@@ -731,7 +731,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
             },
             "created": {
               "$ref": "#/$defs/DateRangeSchema",
@@ -921,7 +921,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
             },
             "price": {
               "anyOf": [
@@ -1335,7 +1335,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
             },
             "created": {
               "$ref": "#/$defs/DateRangeSchema",
@@ -1478,7 +1478,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
             },
             "price": {
               "anyOf": [
@@ -12639,7 +12639,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
             },
             "created": {
               "$ref": "#/$defs/DateRangeSchema",
@@ -12782,7 +12782,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
             },
             "price": {
               "anyOf": [
@@ -13350,7 +13350,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
             },
             "created": {
               "$ref": "#/$defs/DateRangeSchema",
@@ -13493,7 +13493,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
             },
             "price": {
               "anyOf": [
@@ -22024,7 +22024,7 @@
               "type": "null"
             }
           ],
-          "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+          "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
         },
         "created": {
           "$ref": "#/$defs/DateRangeSchema",
@@ -22242,7 +22242,7 @@
               "type": "null"
             }
           ],
-          "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+          "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
         },
         "price": {
           "anyOf": [
@@ -25144,7 +25144,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
             },
             "created": {
               "anyOf": [
@@ -25332,7 +25332,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
             },
             "price": {
               "anyOf": [
@@ -25774,7 +25774,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both."
+              "description": "Only listings in one of these exact availability states; combined with `orderability`, a listing must satisfy both. Search holds no `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` listings, so those values match nothing."
             },
             "created": {
               "$ref": "#/$defs/DateRangeSchema",
@@ -25917,7 +25917,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both."
+              "description": "Only listings whose availability falls into one of these orderability groups; combined with `availability`, a listing must satisfy both. `NOT_ORDERABLE` matches only `RESERVED` listings, because search holds no sold-out, out-of-stock or unavailable ones."
             },
             "price": {
               "anyOf": [

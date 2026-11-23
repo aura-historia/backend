@@ -1,7 +1,6 @@
 use crate::product_listing_image_document::ProductListingImageDocument;
 use auction_core::AuctionId;
 use domain_primitives::event_id::EventId;
-use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::Language;
@@ -191,13 +190,6 @@ pub(crate) enum SourcePriceDocument {
     OnRequest,
 }
 
-impl SourcePriceDocument {
-    /// Whether the price states amounts that a sale observation values.
-    fn has_amounts(self) -> bool {
-        !matches!(self, Self::OnRequest)
-    }
-}
-
 impl From<ProductListingPrice> for SourcePriceDocument {
     fn from(value: ProductListingPrice) -> Self {
         match value {
@@ -236,114 +228,10 @@ impl TryFrom<SourcePriceDocument> for ProductListingPrice {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SalePricesDocument {
-    pub(crate) eur: u64,
-    pub(crate) gbp: u64,
-    pub(crate) usd: u64,
-    pub(crate) aud: u64,
-    pub(crate) cad: u64,
-    pub(crate) nzd: u64,
-    pub(crate) cny: u64,
-    pub(crate) brl: u64,
-    pub(crate) pln: u64,
-    pub(crate) r#try: u64,
-    pub(crate) jpy: u64,
-    pub(crate) czk: u64,
-    pub(crate) rub: u64,
-    pub(crate) aed: u64,
-    pub(crate) sar: u64,
-    pub(crate) hkd: u64,
-    pub(crate) sgd: u64,
-    pub(crate) chf: u64,
-    pub(crate) zar: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) sek: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) dkk: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) nok: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) krw: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) inr: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) twd: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) huf: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) ron: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) mxn: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) thb: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) ars: Option<u64>,
-}
-
-impl SalePricesDocument {
-    /// Whether the newer currencies are all present or all absent.
-    fn has_complete_expanded_currencies(&self) -> bool {
-        let expanded = [
-            self.sek, self.dkk, self.nok, self.krw, self.inr, self.twd, self.huf, self.ron,
-            self.mxn, self.thb,
-        ];
-        !((self.ars.is_some() || expanded.iter().any(Option::is_some))
-            && expanded.iter().any(Option::is_none))
-    }
-
-    fn amount_in(&self, currency: Currency) -> Option<u64> {
-        match currency {
-            Currency::Eur => Some(self.eur),
-            Currency::Gbp => Some(self.gbp),
-            Currency::Usd => Some(self.usd),
-            Currency::Aud => Some(self.aud),
-            Currency::Cad => Some(self.cad),
-            Currency::Nzd => Some(self.nzd),
-            Currency::Cny => Some(self.cny),
-            Currency::Brl => Some(self.brl),
-            Currency::Pln => Some(self.pln),
-            Currency::Try => Some(self.r#try),
-            Currency::Jpy => Some(self.jpy),
-            Currency::Czk => Some(self.czk),
-            Currency::Rub => Some(self.rub),
-            Currency::Aed => Some(self.aed),
-            Currency::Sar => Some(self.sar),
-            Currency::Hkd => Some(self.hkd),
-            Currency::Sgd => Some(self.sgd),
-            Currency::Chf => Some(self.chf),
-            Currency::Zar => Some(self.zar),
-            Currency::Sek => self.sek,
-            Currency::Dkk => self.dkk,
-            Currency::Nok => self.nok,
-            Currency::Krw => self.krw,
-            Currency::Inr => self.inr,
-            Currency::Twd => self.twd,
-            Currency::Huf => self.huf,
-            Currency::Ron => self.ron,
-            Currency::Mxn => self.mxn,
-            Currency::Thb => self.thb,
-            Currency::Ars => self.ars,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ProductListingDocumentValidationError {
-    #[error("product sale projection metadata must be complete when present")]
-    PartialSaleProjection,
     #[error("product geographic projection is invalid")]
     InvalidGeography,
-    #[error("sale prices must contain either all or none of the expanded currencies")]
-    PartialExpandedSalePrices,
-    #[error("product sale prices require sale projection metadata")]
-    SalePricesWithoutSaleObservation,
-    #[error("product sale prices require a monetary source price")]
-    SalePricesRequireMonetarySourcePrice,
-    #[error("a monetary source price with sale metadata requires sale prices")]
-    MissingSalePricesForMonetarySaleObservation,
-    #[error("upper-bound sale prices must accompany the sale prices of a source price range")]
-    SaleMaxPricesMismatch,
     #[error("source price range bounds are invalid")]
     InvalidSourcePriceRange,
 }
@@ -434,21 +322,6 @@ pub(crate) struct ProductListingDocument {
     pub(crate) title_it: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub(crate) source_price: Option<SourcePriceDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) sale_prices: Option<SalePricesDocument>,
-    /// The upper bound of a sold source price range, valued like `sale_prices`.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) sale_prices_max: Option<SalePricesDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    #[serde(rename = "saleObservationFxRateId")]
-    pub(crate) sale_observation_fx_rate_id: Option<FxRateId>,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    #[serde(rename = "saleObservedAt")]
-    pub(crate) sale_observed_at: Option<OffsetDateTime>,
     #[serde(
         with = "listing_availability::option",
         skip_serializing_if = "Option::is_none",
@@ -528,68 +401,16 @@ impl ProductListingDocument {
             check().ok_or(ProductListingDocumentValidationError::InvalidGeography)?;
         }
 
-        if [&self.sale_prices, &self.sale_prices_max]
-            .into_iter()
-            .flatten()
-            .any(|prices| !prices.has_complete_expanded_currencies())
-        {
-            return Err(ProductListingDocumentValidationError::PartialExpandedSalePrices);
-        }
         if let Some(price) = self.source_price {
             ProductListingPrice::try_from(price)?;
         }
-        let is_range = matches!(self.source_price, Some(SourcePriceDocument::Range { .. }));
-        if self.sale_prices_max.is_some() != (is_range && self.sale_prices.is_some()) {
-            return Err(ProductListingDocumentValidationError::SaleMaxPricesMismatch);
-        }
-        let has_sale_metadata = match (self.sale_observation_fx_rate_id, self.sale_observed_at) {
-            (None, None) => false,
-            (Some(_), Some(_)) => true,
-            _ => return Err(ProductListingDocumentValidationError::PartialSaleProjection),
-        };
-        let has_monetary_source_price = self
-            .source_price
-            .is_some_and(SourcePriceDocument::has_amounts);
-
-        match (
-            has_sale_metadata,
-            self.sale_prices.is_some(),
-            has_monetary_source_price,
-        ) {
-            (false, true, _) => {
-                Err(ProductListingDocumentValidationError::SalePricesWithoutSaleObservation)
-            }
-            (true, true, false) => {
-                Err(ProductListingDocumentValidationError::SalePricesRequireMonetarySourcePrice)
-            }
-            (true, false, true) => Err(
-                ProductListingDocumentValidationError::MissingSalePricesForMonetarySaleObservation,
-            ),
-            _ => Ok(()),
-        }
+        Ok(())
     }
 
     pub(crate) fn source_price(
         &self,
     ) -> Result<Option<ProductListingPrice>, ProductListingDocumentValidationError> {
         self.source_price.map(TryInto::try_into).transpose()
-    }
-
-    pub(crate) fn sale_price(&self, currency: Currency) -> Option<u64> {
-        self.sale_prices
-            .as_ref()
-            .and_then(|prices| prices.amount_in(currency))
-    }
-
-    /// The upper bound of a sold source price range in `currency`.
-    pub(crate) fn sale_price_max(&self, currency: Currency) -> Option<u64> {
-        self.sale_prices_max
-            .as_ref()
-            .and_then(|prices| prices.amount_in(currency))
-    }
-
-    pub(crate) fn has_sale_observation(&self) -> bool {
-        self.sale_observation_fx_rate_id.is_some()
     }
 }
 
@@ -623,10 +444,6 @@ mod tests {
                 amount: 100,
                 currency: Currency::Eur,
             }),
-            sale_prices: None,
-            sale_prices_max: None,
-            sale_observation_fx_rate_id: None,
-            sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             images: IndexSet::new(),
@@ -800,22 +617,13 @@ mod tests {
     #[test]
     fn should_round_trip_canonical_typed_ids_without_retired_source_fields()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
+        let document = document()?;
         let value = serde_json::to_value(&document)?;
 
         for (field, expected) in [
             ("productListingId", document.product_listing_id.to_string()),
             ("listingSourceId", document.listing_source_id.to_string()),
             ("eventId", document.event_id.to_string()),
-            (
-                "saleObservationFxRateId",
-                document
-                    .sale_observation_fx_rate_id
-                    .map(|id| id.to_string())
-                    .ok_or("sale observation FX rate ID missing")?,
-            ),
             ("sourceListingId", document.source_listing_id.to_string()),
         ] {
             assert_eq!(Some(&serde_json::json!(expected)), value.get(field));
@@ -848,16 +656,12 @@ mod tests {
     #[test]
     fn should_reject_wrong_prefixes_for_typed_document_ids()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
-        let value = serde_json::to_value(document)?;
+        let value = serde_json::to_value(document()?)?;
 
         for (field, wrong_id) in [
             ("productListingId", EventId::new().to_string()),
             ("listingSourceId", ProductListingId::new().to_string()),
-            ("eventId", FxRateId::new().to_string()),
-            ("saleObservationFxRateId", EventId::new().to_string()),
+            ("eventId", ProductListingId::new().to_string()),
         ] {
             let mut malformed = value.clone();
             malformed[field] = serde_json::json!(wrong_id);
@@ -871,9 +675,7 @@ mod tests {
 
     #[test]
     fn should_reject_bare_uuids_for_typed_document_ids() -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
+        let document = document()?;
         let bare_ids = [
             (
                 "productListingId",
@@ -884,13 +686,6 @@ mod tests {
                 document.listing_source_id.as_uuid().to_string(),
             ),
             ("eventId", document.event_id.as_uuid().to_string()),
-            (
-                "saleObservationFxRateId",
-                document
-                    .sale_observation_fx_rate_id
-                    .map(|id| id.as_uuid().to_string())
-                    .ok_or("sale observation FX rate ID missing")?,
-            ),
         ];
         let value = serde_json::to_value(document)?;
 
@@ -905,143 +700,30 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case::active_without_source_price(None, false, false, true)]
-    #[case::active_on_request(Some(SourcePriceDocument::OnRequest), false, false, true)]
-    #[case::active_monetary(
-        Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }),
-        false,
-        false,
-        true
-    )]
-    #[case::sold_without_source_price(None, true, false, true)]
-    #[case::sold_on_request(Some(SourcePriceDocument::OnRequest), true, false, true)]
-    #[case::sold_monetary(
-        Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }),
-        true,
-        true,
-        true
-    )]
-    #[case::sale_prices_without_source_price(None, true, true, false)]
-    #[case::sale_prices_with_on_request(Some(SourcePriceDocument::OnRequest), true, true, false)]
-    #[case::sold_monetary_without_sale_prices(
-        Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }),
-        true,
-        false,
-        false
-    )]
-    #[case::sale_prices_without_sale_metadata(
-        Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }),
-        false,
-        true,
-        false
-    )]
-    #[case::sold_range(Some(RANGE), true, true, true)]
-    #[case::active_range(Some(RANGE), false, false, true)]
-    #[case::sold_range_without_sale_prices(Some(RANGE), true, false, false)]
-    fn should_validate_sale_prices_against_source_price_and_sale_metadata(
-        #[case] source_price: Option<SourcePriceDocument>,
-        #[case] has_sale_metadata: bool,
-        #[case] has_sale_prices: bool,
-        #[case] valid: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.source_price = source_price;
-        document.sale_observation_fx_rate_id = has_sale_metadata.then(FxRateId::new);
-        document.sale_observed_at = has_sale_metadata.then_some(OffsetDateTime::UNIX_EPOCH);
-        document.sale_prices = has_sale_prices.then(test_sale_prices);
-        document.sale_prices_max =
-            (has_sale_prices && source_price == Some(RANGE)).then(test_sale_prices);
-
-        assert_eq!(valid, document.validate().is_ok());
-        Ok(())
-    }
-
     const RANGE: SourcePriceDocument = SourcePriceDocument::Range {
         amount: 100,
         max_amount: 200,
         currency: Currency::Eur,
     };
 
-    #[rstest]
-    #[case::monetary_with_max(Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }), true, true)]
-    #[case::range_without_max(Some(RANGE), true, false)]
-    #[case::active_range_with_max(Some(RANGE), false, true)]
-    fn should_require_upper_bound_sale_prices_exactly_for_sold_ranges(
-        #[case] source_price: Option<SourcePriceDocument>,
-        #[case] has_sale_prices: bool,
-        #[case] has_sale_prices_max: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.source_price = source_price;
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
-        document.sale_prices = has_sale_prices.then(test_sale_prices);
-        document.sale_prices_max = has_sale_prices_max.then(test_sale_prices);
-
-        assert_eq!(
-            Err(ProductListingDocumentValidationError::SaleMaxPricesMismatch),
-            document.validate()
-        );
-        Ok(())
-    }
-
-    fn test_sale_prices() -> SalePricesDocument {
-        SalePricesDocument {
-            eur: 100,
-            gbp: 100,
-            usd: 100,
-            aud: 100,
-            cad: 100,
-            nzd: 100,
-            cny: 100,
-            brl: 100,
-            pln: 100,
-            r#try: 100,
-            jpy: 100,
-            czk: 100,
-            rub: 100,
-            aed: 100,
-            sar: 100,
-            hkd: 100,
-            sgd: 100,
-            chf: 100,
-            zar: 100,
-            sek: Some(100),
-            dkk: Some(100),
-            nok: Some(100),
-            krw: Some(100),
-            inr: Some(100),
-            twd: Some(100),
-            huf: Some(100),
-            ron: Some(100),
-            mxn: Some(100),
-            thb: Some(100),
-            ars: Some(100),
-        }
-    }
-
+    /// Documents an earlier projection rule wrote for sold listings stay readable until the
+    /// backfill replaces them; their sale valuation is ignored.
     #[test]
-    fn should_reject_partial_sale_projection() -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-
-        assert_eq!(
-            Err(ProductListingDocumentValidationError::PartialSaleProjection),
-            document.validate()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_incomplete_sale_prices_during_deserialization()
+    fn should_decode_legacy_sold_document_without_its_sale_valuation()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut value = serde_json::to_value(document()?)?;
-        value["salePrices"] = serde_json::json!({ "eur": 100 });
-        value["saleObservationFxRateId"] = serde_json::json!(FxRateId::new());
-        value["saleObservedAt"] = serde_json::json!("1970-01-01T00:00:00Z");
+        let mut document = document()?;
+        document.source_price = Some(RANGE);
+        document.availability = Some(ListingAvailability::SoldOut);
+        let mut legacy = serde_json::to_value(&document)?;
+        legacy["salePrices"] = serde_json::json!({ "eur": 100, "usd": 110 });
+        legacy["salePricesMax"] = serde_json::json!({ "eur": 200, "usd": 220 });
+        legacy["saleObservationFxRateId"] = serde_json::json!(fxrate_core::FxRateId::new());
+        legacy["saleObservedAt"] = serde_json::json!("1970-01-01T00:00:00Z");
 
-        assert!(serde_json::from_value::<ProductListingDocument>(value).is_err());
+        let decoded = serde_json::from_value::<ProductListingDocument>(legacy)?;
+
+        decoded.validate()?;
+        assert_eq!(document, decoded);
         Ok(())
     }
 }

@@ -95,7 +95,7 @@ async fn should_apply_replay_withdraw_and_restore_through_the_real_worker_compos
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
-async fn should_retry_missing_source_and_missing_fx_snapshot_jobs_through_the_real_composition() {
+async fn should_retry_missing_source_jobs_through_the_real_composition() {
     let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
         let pool = get_postgres_client().await;
         let handler = jobs(
@@ -109,24 +109,89 @@ async fn should_retry_missing_source_and_missing_fx_snapshot_jobs_through_the_re
         let missing = handle(&handler, missing_event, missing_listing).await;
         assert_eq!(Disposition::Retry(error_class("missing_source")), missing);
         assert!(stored_optional(missing_listing).await?.is_none());
-
-        let missing_fx = insert_sold_product_with_missing_fx_snapshot_event(&pool, 11).await?;
-        let missing_fx_response =
-            handle(&handler, missing_fx.event_id, missing_fx.product_listing_id).await;
-        assert_eq!(
-            Disposition::Retry(error_class("sale_snapshot_missing")),
-            missing_fx_response
-        );
-        assert!(
-            stored_optional(missing_fx.product_listing_id)
-                .await?
-                .is_none()
-        );
         Ok(())
     }
     .await;
 
     assert!(result.is_ok(), "real worker retry test failed: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
+async fn should_keep_unbuyable_listings_out_of_search_through_the_real_worker_composition() {
+    let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+        let pool = get_postgres_client().await;
+        let handler = jobs(
+            pool.clone(),
+            get_opensearch_client().await.clone(),
+            product_listings_index(),
+        );
+        let fixture = insert_active_product_with_event(&pool, 11).await?;
+        let id = fixture.product_listing_id;
+        assert_eq!(
+            Disposition::Complete,
+            handle(&handler, fixture.event_id, id).await
+        );
+        assert_indexed(id, 11).await?;
+
+        // A document an earlier projection rule indexed at this same version: reprojection
+        // replaces it with the tombstone, which is how the backfill removes it.
+        sqlx::query(
+            "UPDATE product_listings SET availability = 'OUT_OF_STOCK' WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(id))
+        .execute(&pool)
+        .await?;
+        assert_eq!(
+            Disposition::Complete,
+            handle(&handler, fixture.event_id, id).await
+        );
+        assert_tombstone(id, 11).await?;
+
+        let back_in_stock = change_availability(&pool, id, "OUT_OF_STOCK", "IN_STOCK", 12).await?;
+        assert_eq!(
+            Disposition::Complete,
+            handle(&handler, back_in_stock, id).await
+        );
+        assert_indexed(id, 12).await?;
+
+        let sold_out = change_availability(&pool, id, "IN_STOCK", "SOLD_OUT", 13).await?;
+        assert_eq!(Disposition::Complete, handle(&handler, sold_out, id).await);
+        assert_tombstone(id, 13).await?;
+
+        let stale_in_stock = handle(&handler, back_in_stock, id).await;
+        assert_eq!(Disposition::Complete, stale_in_stock);
+        assert_tombstone(id, 13).await?;
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "real worker discoverability test failed: {result:?}"
+    );
+}
+
+async fn assert_indexed(
+    id: ProductListingId,
+    version: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let document = stored(id).await?;
+    assert_eq!(json!(version), document["_version"]);
+    assert_ne!(json!(true), document["_source"]["projectionDeleted"]);
+    Ok(())
+}
+
+async fn assert_tombstone(
+    id: ProductListingId,
+    version: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let document = stored(id).await?;
+    assert_eq!(json!(version), document["_version"]);
+    assert_eq!(
+        json!({"productListingId": id, "projectionDeleted": true}),
+        document["_source"]
+    );
+    Ok(())
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, TestOpenSearch()], isolated = true)]
@@ -320,54 +385,33 @@ async fn insert_active_product_with_event(
     })
 }
 
-async fn insert_sold_product_with_missing_fx_snapshot_event(
+async fn change_availability(
     pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+    previous: &str,
+    current: &str,
     projection_version: i64,
-) -> Result<ProductFixture, sqlx::Error> {
-    let product_listing_id = ProductListingId::new();
+) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
-    let listing_source_id = ListingSourceId::new();
-    let missing_fx_rate_id = uuid::Uuid::now_v7();
     let mut transaction = pool.begin().await?;
-    let slug = format!("lambda-sold-source-{}", listing_source_id.as_uuid());
-    let operator_party_id = uuid::Uuid::now_v7();
-    sqlx::query(
-        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Lambda sold projection fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT $3, $2, 'Lambda sold projection fixture source', party_id, 'DEALER' FROM operator",
-    )
-    .bind(operator_party_id)
-    .bind(slug)
-    .bind(listing_source_id.as_uuid())
-    .execute(&mut *transaction)
-    .await?;
-    // PostgreSQL's normal FK prevents a lost immutable snapshot. This synthetic fixture exercises
-    // the real reader's defensive missing-snapshot branch without changing production schema.
-    sqlx::query("SET LOCAL session_replication_role = replica")
-        .execute(&mut *transaction)
-        .await?;
-    sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_kind, price_amount, price_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Lambda sold projection chair', 'en', 'MONETARY', 12345, 'USD', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/lambda-sold-projection-chair', '[]', $7)",
-    )
-    .bind(uuid::Uuid::from(product_listing_id))
-    .bind(product_slug(product_listing_id))
-    .bind(uuid::Uuid::from(event_id))
-    .bind(listing_source_id.as_uuid())
-    .bind(product_listing_id.to_string())
-    .bind(missing_fx_rate_id)
-    .bind(projection_version)
-    .execute(&mut *transaction)
-    .await?;
     insert_event(
         &mut transaction,
         product_listing_id,
         event_id,
-        json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
+        json!({"availability": {"previous": previous, "current": current}}),
     )
     .await?;
+    sqlx::query(
+        "UPDATE product_listings SET current_event_id = $1, availability = $2, projection_version = $3, version = version + 1, updated = now() WHERE product_listing_id = $4",
+    )
+    .bind(uuid::Uuid::from(event_id))
+    .bind(current)
+    .bind(projection_version)
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
-    Ok(ProductFixture {
-        product_listing_id,
-        event_id,
-    })
+    Ok(event_id)
 }
 
 async fn withdraw(
