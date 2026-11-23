@@ -216,9 +216,17 @@ impl LargeLanguageModelBatches for AnthropicClaude {
         let mut summary = BatchSummary::default();
         let mut results = Vec::with_capacity(lines.len());
         for line in lines {
+            // A line without its custom ID cannot be attributed, so it fails the whole read; a
+            // result this client cannot decode fails only its own request.
             let line =
                 serde_json::from_slice::<BatchResultLine>(&line).map_err(invalid_response_error)?;
-            let outcome = self.item_outcome(operation, line.result, &mut summary, started_at);
+            let outcome = match serde_json::from_value::<BatchResultBody>(line.result) {
+                Ok(result) => self.item_outcome(operation, result, &mut summary, started_at),
+                Err(source) => {
+                    summary.invalid += 1;
+                    BatchItemOutcome::Failed(invalid_response_error(source))
+                }
+            };
             results.push(BatchItemResult {
                 custom_id: line.custom_id,
                 outcome,
@@ -341,7 +349,7 @@ struct MessageBatch {
 #[derive(Deserialize)]
 struct BatchResultLine {
     custom_id: String,
-    result: BatchResultBody,
+    result: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -717,6 +725,7 @@ mod tests {
                 "error": {"type": "error", "error": {"type": "overloaded_error", "message": ""}}}}),
             serde_json::json!({"custom_id": "expired", "result": {"type": "expired"}}),
             serde_json::json!({"custom_id": "canceled", "result": {"type": "canceled"}}),
+            serde_json::json!({"custom_id": "unknown", "result": {"type": "paused"}}),
         ];
         let body = lines.map(|line| line.to_string()).join("\n") + "\n";
         let (model, server) = serve_once(200, body).await;
@@ -762,6 +771,10 @@ mod tests {
         ));
         assert!(matches!(by_id("expired"), BatchItemOutcome::NotProcessed));
         assert!(matches!(by_id("canceled"), BatchItemOutcome::NotProcessed));
+        assert!(matches!(
+            by_id("unknown"),
+            BatchItemOutcome::Failed(LargeLanguageModelError::InvalidResponse { .. })
+        ));
     }
 
     #[tokio::test]

@@ -12,7 +12,8 @@ use product_listing_service::ports::{
     ProductListingTitleTranslationQueueError, ProductListingTitleTranslationQueueFactory,
     ProductListingTitleTranslationQueueReader, SubmittedTitleTranslationBatch,
     TitleTranslationAssignment, TitleTranslationBatchId, TitleTranslationBatchKey,
-    TitleTranslationMode, TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
+    TitleTranslationClaim, TitleTranslationMode, TitleTranslationScheduleOutcome,
+    TitleTranslationWorkRef,
 };
 use sqlx::{PgConnection, PgPool};
 use std::time::Duration;
@@ -30,6 +31,17 @@ macro_rules! select_current_work {
           AND listing.content_source_event_id = work.source_event_id
           AND listing.title_text IS NOT NULL
           AND listing.title_language IS NOT NULL"
+    };
+}
+
+/// Matches the work `$1`/`$2` only while it is still where the claim `$3` took it from: in the
+/// batch `$3`, or with `$3` NULL, waiting for the refusal fallback.
+macro_rules! claimed_work {
+    () => {
+        "WHERE product_listing_id = $1 AND source_event_id = $2
+           AND (batch_id = $3
+                OR ($3::uuid IS NULL AND batch_id IS NULL AND parked IS NULL
+                    AND mode = 'REFUSAL_FALLBACK'))"
     };
 }
 
@@ -383,12 +395,18 @@ impl ProductListingTitleTranslationQueue for SqlxProductListingTitleTranslationQ
         Ok(abandoned.len() as u64)
     }
 
-    async fn complete(&mut self, work: TitleTranslationWorkRef) -> QueueResult<()> {
-        sqlx::query(
-            "DELETE FROM product_listing_title_translation_work WHERE product_listing_id = $1 AND source_event_id = $2",
-        )
+    async fn complete(
+        &mut self,
+        work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
+    ) -> QueueResult<()> {
+        sqlx::query(concat!(
+            "DELETE FROM product_listing_title_translation_work ",
+            claimed_work!()
+        ))
         .bind(work.product_listing_id.as_uuid())
         .bind(work.source_event_id.as_uuid())
+        .bind(claimed_batch(claim))
         .execute(&mut *self.connection)
         .await
         .map_err(sql)?;
@@ -398,20 +416,19 @@ impl ProductListingTitleTranslationQueue for SqlxProductListingTitleTranslationQ
     async fn requeue(
         &mut self,
         work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
         mode: TitleTranslationMode,
         attempts: u16,
     ) -> QueueResult<()> {
         sqlx::query(concat!(
-            "
-            UPDATE product_listing_title_translation_work
-            SET mode = $3, attempts = $4, ",
+            "UPDATE product_listing_title_translation_work SET mode = $4, attempts = $5, ",
             unassigned!(),
-            "
-            WHERE product_listing_id = $1 AND source_event_id = $2
-            "
+            " ",
+            claimed_work!()
         ))
         .bind(work.product_listing_id.as_uuid())
         .bind(work.source_event_id.as_uuid())
+        .bind(claimed_batch(claim))
         .bind(mode_to_db(mode))
         .bind(to_db_attempts(attempts)?)
         .execute(&mut *self.connection)
@@ -420,23 +437,35 @@ impl ProductListingTitleTranslationQueue for SqlxProductListingTitleTranslationQ
         Ok(())
     }
 
-    async fn park(&mut self, work: TitleTranslationWorkRef, attempts: u16) -> QueueResult<()> {
+    async fn park(
+        &mut self,
+        work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
+        attempts: u16,
+    ) -> QueueResult<()> {
         sqlx::query(concat!(
-            "
-            UPDATE product_listing_title_translation_work
-            SET parked = now(), attempts = $3, ",
+            "UPDATE product_listing_title_translation_work SET parked = now(), attempts = $4, ",
             unassigned!(),
-            "
-            WHERE product_listing_id = $1 AND source_event_id = $2
-            "
+            " ",
+            claimed_work!()
         ))
         .bind(work.product_listing_id.as_uuid())
         .bind(work.source_event_id.as_uuid())
+        .bind(claimed_batch(claim))
         .bind(to_db_attempts(attempts)?)
         .execute(&mut *self.connection)
         .await
         .map_err(sql)?;
         Ok(())
+    }
+}
+
+/// The batch a claim names, or `NULL` for the refusal fallback; bound as `$3` of
+/// `claimed_work`.
+fn claimed_batch(claim: TitleTranslationClaim) -> Option<uuid::Uuid> {
+    match claim {
+        TitleTranslationClaim::Batch(key) => Some(*key.as_uuid()),
+        TitleTranslationClaim::RefusalFallback => None,
     }
 }
 

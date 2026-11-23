@@ -14,8 +14,9 @@ use crate::ports::{
     ProductListingTranslationWriteError, ProductListingTranslationWriteOutcome,
     ProductListingTranslationWriter, ProductListingTranslationWriterFactory,
     SubmittedTitleTranslationBatch, TitleTranslationAssignment, TitleTranslationBatchId,
-    TitleTranslationBatchKey, TitleTranslationBatchPoll, TitleTranslationGroup,
-    TitleTranslationGroupOutcome, TitleTranslationMode,
+    TitleTranslationBatchKey, TitleTranslationBatchPoll, TitleTranslationClaim,
+    TitleTranslationGroup, TitleTranslationGroupOutcome, TitleTranslationMode,
+    TitleTranslationWorkRef,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
@@ -58,11 +59,15 @@ pub struct TitleTranslationRoundReport {
     pub batches_in_progress: usize,
     pub batches_unavailable: usize,
     pub batches_collected: usize,
+    /// Batches whose collection failed this round; the next round retries them.
+    pub batches_failed: usize,
     pub applied: usize,
     pub duplicate: usize,
     pub stale: usize,
     pub requeued: usize,
     pub parked: usize,
+    /// Results whose guarded write failed; their titles spent an attempt.
+    pub write_failures: usize,
     pub refusal_fallbacks: usize,
     pub superseded_discarded: u64,
     pub submitted_groups: usize,
@@ -141,6 +146,12 @@ impl<R, B, F, U, Q, W> TranslateProductListingTitleBatchesHandler<R, B, F, U, Q,
 #[derive(Debug, PartialEq)]
 enum Settlement {
     Commit(IndexMap<Language, Title>),
+    Retry(Retry),
+}
+
+/// Work that is not settled yet: another attempt later, or none until its content changes.
+#[derive(Debug, PartialEq)]
+enum Retry {
     Requeue(TitleTranslationMode, u16),
     Park(u16),
 }
@@ -176,8 +187,17 @@ where
             abandoned_batches: self.close_abandoned_submissions().await?,
             ..Default::default()
         };
+        // One batch that cannot be collected must not hold back the others or new work.
         for batch in self.reader.submitted_batches().await? {
-            self.collect(&batch, &mut report).await?;
+            if let Err(error) = self.collect(&batch, &mut report).await {
+                report.batches_failed += 1;
+                tracing::warn!(
+                    event = "product.translation.batch_failed",
+                    provider_batch_id = %batch.provider_batch_id,
+                    error_kind = error.kind(),
+                    "Translation batch collection failed; the next round retries it"
+                );
+            }
         }
         self.translate_refusal_fallbacks(&mut report).await?;
         self.submit_pending(&mut report).await?;
@@ -238,8 +258,9 @@ where
                     .collect()
             }
         };
+        let claim = TitleTranslationClaim::Batch(batch.key);
         for (pending, settlement) in settlements(items, results) {
-            self.settle(&pending, settlement, report).await?;
+            self.settle(&pending, claim, settlement, report).await?;
         }
         self.close_batch(batch.key).await?;
         report.batches_collected += 1;
@@ -265,7 +286,13 @@ where
                 )
                 .await;
             let settlement = fallback_settlement(&pending, result);
-            self.settle(&pending, settlement, report).await?;
+            self.settle(
+                &pending,
+                TitleTranslationClaim::RefusalFallback,
+                settlement,
+                report,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -370,29 +397,17 @@ where
     async fn settle(
         &self,
         pending: &PendingTitleTranslation,
+        claim: TitleTranslationClaim,
         settlement: Settlement,
         report: &mut TitleTranslationRoundReport,
     ) -> Result<(), Error> {
         let work = pending.work;
-        let mut tx = self.begin().await?;
-        match settlement {
-            Settlement::Commit(titles) => {
-                let outcome = self
-                    .translations
-                    .in_transaction(&mut tx)
-                    .apply(&ProductListingTranslationWrite {
-                        product_listing_id: work.product_listing_id,
-                        source_event_id: work.source_event_id,
-                        enrichment_event_id: EventId::new(),
-                        source_language: pending.source_language,
-                        titles,
-                    })
-                    .await?;
-                self.queue.in_transaction(&mut tx).complete(work).await?;
-                commit(tx).await?;
-                match outcome {
-                    ProductListingTranslationWriteOutcome::Applied => {
-                        report.applied += 1;
+        let retry = match settlement {
+            Settlement::Retry(retry) => retry,
+            Settlement::Commit(titles) => match self.commit(pending, claim, titles).await {
+                Ok(outcome) => {
+                    report.count(outcome);
+                    if outcome == ProductListingTranslationWriteOutcome::Applied {
                         tracing::info!(
                             event = "product.translated",
                             actor_type = "system",
@@ -401,25 +416,47 @@ where
                             outcome = "success",
                         );
                     }
-                    ProductListingTranslationWriteOutcome::Duplicate => report.duplicate += 1,
-                    ProductListingTranslationWriteOutcome::Stale
-                    | ProductListingTranslationWriteOutcome::ProductListingNotFound => {
-                        report.stale += 1;
-                    }
+                    return Ok(());
                 }
-            }
-            Settlement::Requeue(mode, attempts) => {
+                // A write this listing's state rejects fails only its title.
+                Err(error @ Error::TranslationWriteFailed { .. }) => {
+                    report.write_failures += 1;
+                    tracing::warn!(
+                        event = "product.translation.write_failed",
+                        product_listing_id = %work.product_listing_id,
+                        source_event_id = %work.source_event_id,
+                        error_kind = error.kind(),
+                        "Translated title could not be written; it spends an attempt"
+                    );
+                    failed(pending)
+                }
+                Err(error) => return Err(error),
+            },
+        };
+        self.retry(work, claim, retry, report).await
+    }
+
+    async fn retry(
+        &self,
+        work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
+        retry: Retry,
+        report: &mut TitleTranslationRoundReport,
+    ) -> Result<(), Error> {
+        let mut tx = self.begin().await?;
+        match retry {
+            Retry::Requeue(mode, attempts) => {
                 self.queue
                     .in_transaction(&mut tx)
-                    .requeue(work, mode, attempts)
+                    .requeue(work, claim, mode, attempts)
                     .await?;
                 commit(tx).await?;
                 report.requeued += 1;
             }
-            Settlement::Park(attempts) => {
+            Retry::Park(attempts) => {
                 self.queue
                     .in_transaction(&mut tx)
-                    .park(work, attempts)
+                    .park(work, claim, attempts)
                     .await?;
                 commit(tx).await?;
                 report.parked += 1;
@@ -433,6 +470,34 @@ where
             }
         }
         Ok(())
+    }
+
+    /// Writes the translations under the source-marker guard and completes the work together.
+    async fn commit(
+        &self,
+        pending: &PendingTitleTranslation,
+        claim: TitleTranslationClaim,
+        titles: IndexMap<Language, Title>,
+    ) -> Result<ProductListingTranslationWriteOutcome, Error> {
+        let work = pending.work;
+        let mut tx = self.begin().await?;
+        let outcome = self
+            .translations
+            .in_transaction(&mut tx)
+            .apply(&ProductListingTranslationWrite {
+                product_listing_id: work.product_listing_id,
+                source_event_id: work.source_event_id,
+                enrichment_event_id: EventId::new(),
+                source_language: pending.source_language,
+                titles,
+            })
+            .await?;
+        self.queue
+            .in_transaction(&mut tx)
+            .complete(work, claim)
+            .await?;
+        commit(tx).await?;
+        Ok(outcome)
     }
 
     async fn begin(&self) -> Result<U::Tx, Error> {
@@ -517,7 +582,6 @@ fn settlements(
     }
     let mut settled = Vec::new();
     for (group, items) in by_group {
-        let alone = items.len() == 1;
         match outcomes
             .remove(&group)
             .unwrap_or(TitleTranslationGroupOutcome::NotProcessed)
@@ -527,7 +591,7 @@ fn settlements(
                 for item in items {
                     let settlement = match results.remove(&item.position) {
                         Some(Ok(titles)) => Settlement::Commit(titles),
-                        Some(Err(_)) | None => failed(&item.translation),
+                        Some(Err(_)) | None => Settlement::Retry(failed(&item.translation)),
                     };
                     settled.push((item.translation, settlement));
                 }
@@ -535,36 +599,40 @@ fn settlements(
             TitleTranslationGroupOutcome::Refused => {
                 settled.extend(items.into_iter().map(|item| {
                     let pending = item.translation;
-                    let next = if alone || pending.mode != TitleTranslationMode::Grouped {
+                    let next = if pending.mode != TitleTranslationMode::Grouped {
                         TitleTranslationMode::RefusalFallback
                     } else {
                         TitleTranslationMode::Single
                     };
                     let attempts = pending.attempts;
-                    (pending, Settlement::Requeue(next, attempts))
+                    (pending, Settlement::Retry(Retry::Requeue(next, attempts)))
                 }));
             }
             TitleTranslationGroupOutcome::Truncated => {
                 settled.extend(items.into_iter().map(|item| {
                     let pending = item.translation;
-                    let settlement = if alone || pending.mode != TitleTranslationMode::Grouped {
-                        failed(&pending)
+                    let settlement = if pending.mode != TitleTranslationMode::Grouped {
+                        Settlement::Retry(failed(&pending))
                     } else {
-                        Settlement::Requeue(TitleTranslationMode::Single, pending.attempts)
+                        Settlement::Retry(Retry::Requeue(
+                            TitleTranslationMode::Single,
+                            pending.attempts,
+                        ))
                     };
                     (pending, settlement)
                 }));
             }
-            TitleTranslationGroupOutcome::Failed(_) => {
+            TitleTranslationGroupOutcome::Failed(error) => {
                 settled.extend(items.into_iter().map(|item| {
-                    let settlement = failed(&item.translation);
+                    let settlement = Settlement::Retry(after_error(&item.translation, &error));
                     (item.translation, settlement)
                 }));
             }
             TitleTranslationGroupOutcome::NotProcessed => {
                 settled.extend(items.into_iter().map(|item| {
                     let pending = item.translation;
-                    let settlement = Settlement::Requeue(pending.mode, pending.attempts);
+                    let settlement =
+                        Settlement::Retry(Retry::Requeue(pending.mode, pending.attempts));
                     (pending, settlement)
                 }));
             }
@@ -581,19 +649,34 @@ fn fallback_settlement(
     match result {
         Ok(titles) => Settlement::Commit(titles),
         Err(ProductListingTitleTranslationError::Refused { .. }) => {
-            Settlement::Park(pending.attempts.saturating_add(1))
+            Settlement::Retry(Retry::Park(pending.attempts.saturating_add(1)))
         }
-        Err(_) => failed(pending),
+        Err(error) => Settlement::Retry(after_error(pending, &error)),
+    }
+}
+
+/// A provider that is temporarily unavailable did not judge the title, so it returns to the
+/// queue unchanged; any other failure spends an attempt.
+fn after_error(
+    pending: &PendingTitleTranslation,
+    error: &ProductListingTitleTranslationError,
+) -> Retry {
+    match error {
+        ProductListingTitleTranslationError::TemporarilyUnavailable { .. } => {
+            Retry::Requeue(pending.mode, pending.attempts)
+        }
+        ProductListingTitleTranslationError::InvalidResponse { .. }
+        | ProductListingTitleTranslationError::Refused { .. } => failed(pending),
     }
 }
 
 /// One more failed attempt, in the work's current mode, or parked once the attempts are spent.
-fn failed(pending: &PendingTitleTranslation) -> Settlement {
+fn failed(pending: &PendingTitleTranslation) -> Retry {
     let attempts = pending.attempts.saturating_add(1);
     if attempts >= MAX_TRANSLATION_ATTEMPTS {
-        Settlement::Park(attempts)
+        Retry::Park(attempts)
     } else {
-        Settlement::Requeue(pending.mode, attempts)
+        Retry::Requeue(pending.mode, attempts)
     }
 }
 
@@ -602,6 +685,31 @@ fn rejected_batch(
 ) -> ProductListingTitleTranslationError {
     ProductListingTitleTranslationError::InvalidResponse {
         source: box_error(std::io::Error::other(error.to_string())),
+    }
+}
+
+impl TitleTranslationRoundReport {
+    fn count(&mut self, outcome: ProductListingTranslationWriteOutcome) {
+        match outcome {
+            ProductListingTranslationWriteOutcome::Applied => self.applied += 1,
+            ProductListingTranslationWriteOutcome::Duplicate => self.duplicate += 1,
+            ProductListingTranslationWriteOutcome::Stale
+            | ProductListingTranslationWriteOutcome::ProductListingNotFound => self.stale += 1,
+        }
+    }
+}
+
+impl TranslateProductListingTitleBatchesError {
+    /// An allowlisted label of the failed step, safe to log.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::SystemPrincipalRequired => "system_principal_required",
+            Self::QueueFailed { .. } => "queue",
+            Self::BeginTransactionFailed { .. } => "write_begin",
+            Self::TranslationWriteFailed { .. } => "translation_write",
+            Self::CommitTransactionFailed { .. } => "write_commit",
+            Self::SubmissionFailed { .. } => "batch_submit",
+        }
     }
 }
 
@@ -724,9 +832,9 @@ mod tests {
         assert_eq!(
             vec![
                 Settlement::Commit(translated()),
-                Settlement::Requeue(TitleTranslationMode::Grouped, 1),
-                Settlement::Park(MAX_TRANSLATION_ATTEMPTS),
-                Settlement::Requeue(TitleTranslationMode::Grouped, 1),
+                Settlement::Retry(Retry::Requeue(TitleTranslationMode::Grouped, 1)),
+                Settlement::Retry(Retry::Park(MAX_TRANSLATION_ATTEMPTS)),
+                Settlement::Retry(Retry::Requeue(TitleTranslationMode::Grouped, 1)),
             ],
             settle_one_group(items, Some(outcome))
         );
@@ -750,37 +858,85 @@ mod tests {
         };
         assert_eq!(
             vec![
-                Settlement::Requeue(TitleTranslationMode::Single, 1),
-                Settlement::Requeue(TitleTranslationMode::Single, 0),
+                Settlement::Retry(Retry::Requeue(TitleTranslationMode::Single, 1)),
+                Settlement::Retry(Retry::Requeue(TitleTranslationMode::Single, 0)),
             ],
             settle_one_group(group(), Some(TitleTranslationGroupOutcome::Refused))
         );
         assert_eq!(
             vec![
-                Settlement::Requeue(TitleTranslationMode::Single, 1),
-                Settlement::Requeue(TitleTranslationMode::Single, 0),
+                Settlement::Retry(Retry::Requeue(TitleTranslationMode::Single, 1)),
+                Settlement::Retry(Retry::Requeue(TitleTranslationMode::Single, 0)),
             ],
             settle_one_group(group(), Some(TitleTranslationGroupOutcome::Truncated))
         );
 
-        for mode in [TitleTranslationMode::Single, TitleTranslationMode::Grouped] {
-            let alone = vec![batched(1, 1, pending(Language::De, mode, 0))];
-            assert_eq!(
-                vec![Settlement::Requeue(
-                    TitleTranslationMode::RefusalFallback,
-                    0
-                )],
-                settle_one_group(alone, Some(TitleTranslationGroupOutcome::Refused))
-            );
-        }
-        let alone = vec![batched(
-            1,
-            1,
-            pending(Language::De, TitleTranslationMode::Single, 0),
-        )];
+        // A grouped title left alone because its siblings were superseded was still refused
+        // among them, so it is retried alone before it reaches the fallback.
+        let left_alone = || {
+            vec![batched(
+                1,
+                2,
+                pending(Language::De, TitleTranslationMode::Grouped, 0),
+            )]
+        };
         assert_eq!(
-            vec![Settlement::Requeue(TitleTranslationMode::Single, 1)],
-            settle_one_group(alone, Some(TitleTranslationGroupOutcome::Truncated))
+            vec![Settlement::Retry(Retry::Requeue(
+                TitleTranslationMode::Single,
+                0
+            ))],
+            settle_one_group(left_alone(), Some(TitleTranslationGroupOutcome::Refused))
+        );
+        let alone = || {
+            vec![batched(
+                1,
+                1,
+                pending(Language::De, TitleTranslationMode::Single, 0),
+            )]
+        };
+        assert_eq!(
+            vec![Settlement::Retry(Retry::Requeue(
+                TitleTranslationMode::RefusalFallback,
+                0
+            ))],
+            settle_one_group(alone(), Some(TitleTranslationGroupOutcome::Refused))
+        );
+        assert_eq!(
+            vec![Settlement::Retry(Retry::Requeue(
+                TitleTranslationMode::Single,
+                1
+            ))],
+            settle_one_group(alone(), Some(TitleTranslationGroupOutcome::Truncated))
+        );
+    }
+
+    #[test]
+    fn should_retry_titles_a_temporarily_unavailable_provider_did_not_judge_for_free() {
+        let unavailable = || ProductListingTitleTranslationError::TemporarilyUnavailable {
+            source: application::error::static_error("overloaded"),
+        };
+        let item = || {
+            vec![batched(
+                1,
+                1,
+                pending(Language::De, TitleTranslationMode::Grouped, 2),
+            )]
+        };
+
+        assert_eq!(
+            vec![Settlement::Retry(Retry::Requeue(
+                TitleTranslationMode::Grouped,
+                2
+            ))],
+            settle_one_group(
+                item(),
+                Some(TitleTranslationGroupOutcome::Failed(unavailable()))
+            )
+        );
+        let fallback = pending(Language::De, TitleTranslationMode::RefusalFallback, 2);
+        assert_eq!(
+            Settlement::Retry(Retry::Requeue(TitleTranslationMode::RefusalFallback, 2)),
+            fallback_settlement(&fallback, Err(unavailable()))
         );
     }
 
@@ -796,12 +952,15 @@ mod tests {
 
         for outcome in [None, Some(TitleTranslationGroupOutcome::NotProcessed)] {
             assert_eq!(
-                vec![Settlement::Requeue(TitleTranslationMode::Single, 2)],
+                vec![Settlement::Retry(Retry::Requeue(
+                    TitleTranslationMode::Single,
+                    2
+                ))],
                 settle_one_group(item(), outcome)
             );
         }
         assert_eq!(
-            vec![Settlement::Park(MAX_TRANSLATION_ATTEMPTS)],
+            vec![Settlement::Retry(Retry::Park(MAX_TRANSLATION_ATTEMPTS))],
             settle_one_group(
                 item(),
                 Some(TitleTranslationGroupOutcome::Failed(invalid()))
@@ -821,11 +980,11 @@ mod tests {
             fallback_settlement(&item, Ok(translated()))
         );
         assert_eq!(
-            Settlement::Park(1),
+            Settlement::Retry(Retry::Park(1)),
             fallback_settlement(&item, Err(refused))
         );
         assert_eq!(
-            Settlement::Requeue(TitleTranslationMode::RefusalFallback, 1),
+            Settlement::Retry(Retry::Requeue(TitleTranslationMode::RefusalFallback, 1)),
             fallback_settlement(&item, Err(invalid()))
         );
     }
@@ -840,6 +999,8 @@ mod tests {
             VecDeque<Result<IndexMap<Language, Title>, ProductListingTitleTranslationError>>,
         pending: Vec<PendingTitleTranslation>,
         submit_fails: bool,
+        batch_items_fail_once: bool,
+        write_fails: bool,
         write_outcome: Option<ProductListingTranslationWriteOutcome>,
         submitted_groups: Vec<TitleTranslationGroup>,
         writes: Vec<ProductListingTranslationWrite>,
@@ -872,7 +1033,15 @@ mod tests {
             &self,
             _: TitleTranslationBatchKey,
         ) -> QueueResult<Vec<BatchedTitleTranslation>> {
-            Ok(lock(&self.0).batch_items.clone())
+            let mut state = lock(&self.0);
+            if std::mem::take(&mut state.batch_items_fail_once) {
+                return Err(
+                    ProductListingTitleTranslationQueueError::InvalidPersistedState {
+                        source: application::error::static_error("invalid row"),
+                    },
+                );
+            }
+            Ok(state.batch_items.clone())
         }
 
         async fn refusal_fallbacks(&self, _: u32) -> QueueResult<Vec<PendingTitleTranslation>> {
@@ -969,6 +1138,11 @@ mod tests {
         ) -> Result<ProductListingTranslationWriteOutcome, ProductListingTranslationWriteError>
         {
             let mut state = lock(&self.0);
+            if state.write_fails {
+                return Err(ProductListingTranslationWriteError::WriteFailed {
+                    source: application::error::static_error("orphan translation rows"),
+                });
+            }
             state.writes.push(write.clone());
             Ok(state
                 .write_outcome
@@ -1022,7 +1196,11 @@ mod tests {
             Ok(0)
         }
 
-        async fn complete(&mut self, _: TitleTranslationWorkRef) -> QueueResult<()> {
+        async fn complete(
+            &mut self,
+            _: TitleTranslationWorkRef,
+            _: TitleTranslationClaim,
+        ) -> QueueResult<()> {
             lock(&self.0).log.push("complete".to_owned());
             Ok(())
         }
@@ -1030,6 +1208,7 @@ mod tests {
         async fn requeue(
             &mut self,
             _: TitleTranslationWorkRef,
+            _: TitleTranslationClaim,
             mode: TitleTranslationMode,
             attempts: u16,
         ) -> QueueResult<()> {
@@ -1039,7 +1218,12 @@ mod tests {
             Ok(())
         }
 
-        async fn park(&mut self, _: TitleTranslationWorkRef, attempts: u16) -> QueueResult<()> {
+        async fn park(
+            &mut self,
+            _: TitleTranslationWorkRef,
+            _: TitleTranslationClaim,
+            attempts: u16,
+        ) -> QueueResult<()> {
             lock(&self.0).log.push(format!("park {attempts}"));
             Ok(())
         }
@@ -1140,6 +1324,72 @@ mod tests {
 
         assert_eq!((0, 1), (report.applied, report.stale));
         assert!(lock(&state).log.contains(&"complete".to_owned()));
+    }
+
+    fn ended_with_one_translation() -> TitleTranslationBatchPoll {
+        TitleTranslationBatchPoll::Ended(vec![TitleTranslationGroupResult {
+            group: 1,
+            outcome: TitleTranslationGroupOutcome::Translated(vec![(1, Ok(translated()))]),
+        }])
+    }
+
+    #[tokio::test]
+    async fn should_fail_only_the_title_whose_write_fails_and_finish_the_round() {
+        let state = Shared::default();
+        {
+            let mut state = lock(&state);
+            state.submitted = vec![submitted_batch()];
+            state.batch_items = vec![batched(
+                1,
+                1,
+                pending(Language::De, TitleTranslationMode::Grouped, 0),
+            )];
+            state.write_fails = true;
+            state.poll.push_back(Ok(ended_with_one_translation()));
+            state.pending = vec![pending(Language::Fr, TitleTranslationMode::Grouped, 0)];
+        }
+
+        let report = run_round(&state).await.unwrap();
+
+        assert_eq!(
+            (1, 1, 1, 1),
+            (
+                report.write_failures,
+                report.requeued,
+                report.batches_collected,
+                report.submitted_titles
+            )
+        );
+        let log = &lock(&state).log;
+        assert!(log.contains(&"requeue Grouped 1".to_owned()));
+        assert!(!log.contains(&"complete".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn should_collect_other_batches_when_one_cannot_be_read() {
+        let state = Shared::default();
+        {
+            let mut state = lock(&state);
+            state.submitted = vec![submitted_batch(), submitted_batch()];
+            state.batch_items_fail_once = true;
+            state.batch_items = vec![batched(
+                1,
+                1,
+                pending(Language::De, TitleTranslationMode::Grouped, 0),
+            )];
+            state.poll.push_back(Ok(ended_with_one_translation()));
+        }
+
+        let report = run_round(&state).await.unwrap();
+
+        assert_eq!(
+            (1, 1, 1),
+            (
+                report.batches_failed,
+                report.batches_collected,
+                report.applied
+            )
+        );
     }
 
     #[tokio::test]

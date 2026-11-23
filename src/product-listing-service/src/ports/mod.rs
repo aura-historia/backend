@@ -164,8 +164,8 @@ pub use product_listing_title_translation_queue::{
     BatchedTitleTranslation, PendingTitleTranslation, ProductListingTitleTranslationQueue,
     ProductListingTitleTranslationQueueError, ProductListingTitleTranslationQueueFactory,
     ProductListingTitleTranslationQueueReader, SubmittedTitleTranslationBatch,
-    TitleTranslationAssignment, TitleTranslationBatchKey, TitleTranslationMode,
-    TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
+    TitleTranslationAssignment, TitleTranslationBatchKey, TitleTranslationClaim,
+    TitleTranslationMode, TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
 };
 pub use product_listing_title_translator::{
     ProductListingTitleTranslationError, ProductListingTitleTranslator,

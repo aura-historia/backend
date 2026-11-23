@@ -13,7 +13,8 @@ use product_listing_service::ports::{
     ProductListingTitleTranslationQueueReader, ProductListingTranslationWrite,
     ProductListingTranslationWriter, ProductListingTranslationWriterFactory,
     TitleTranslationAssignment, TitleTranslationBatchId, TitleTranslationBatchKey,
-    TitleTranslationMode, TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
+    TitleTranslationClaim, TitleTranslationMode, TitleTranslationScheduleOutcome,
+    TitleTranslationWorkRef,
 };
 use std::time::Duration;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -116,10 +117,13 @@ async fn should_carry_work_through_a_batch_and_back_to_the_queue() {
 
         in_queue(&unit_of_work, |queue| {
             Box::pin(async move {
+                let claim = TitleTranslationClaim::Batch(key);
                 queue
-                    .requeue(first, TitleTranslationMode::RefusalFallback, 0)
+                    .requeue(first, claim, TitleTranslationMode::RefusalFallback, 0)
                     .await?;
-                queue.park(second, 3).await
+                queue.park(second, claim, 3).await?;
+                // A round that read the batch before the work moved on changes nothing.
+                queue.park(first, claim, 3).await
             })
         })
         .await?;
@@ -136,7 +140,19 @@ async fn should_carry_work_through_a_batch_and_back_to_the_queue() {
             "fallback and parked work wait"
         );
 
-        in_queue(&unit_of_work, |queue| Box::pin(queue.complete(first))).await?;
+        in_queue(&unit_of_work, |queue| {
+            Box::pin(queue.complete(first, TitleTranslationClaim::Batch(key)))
+        })
+        .await?;
+        assert_eq!(
+            1,
+            reader.refusal_fallbacks(10).await?.len(),
+            "another claim's work stays"
+        );
+        in_queue(&unit_of_work, |queue| {
+            Box::pin(queue.complete(first, TitleTranslationClaim::RefusalFallback))
+        })
+        .await?;
         assert!(reader.refusal_fallbacks(10).await?.is_empty());
         let newer = advance_content(&pool, second.product_listing_id, "Barocke Truhe").await?;
         schedule(&unit_of_work, newer).await?;
@@ -295,10 +311,6 @@ async fn commit_translation(
             source_language: Language::De,
             titles: IndexMap::from([(Language::En, Title::from("Antique table"))]),
         })
-        .await?;
-    SqlxProductListingTitleTranslationQueueFactory::new()
-        .in_transaction(&mut tx)
-        .complete(work)
         .await?;
     tx.commit().await?;
     Ok(())

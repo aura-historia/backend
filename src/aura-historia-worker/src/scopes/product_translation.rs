@@ -1,5 +1,5 @@
 //! `product-translation`: records one product listing's content revision as pending title
-//! translation work. The [batch rounds](super::product_title_translation_batches) translate it.
+//! translation work. The [batch rounds](crate::translation_batches) translate it.
 
 use crate::composition::CompositionError;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};

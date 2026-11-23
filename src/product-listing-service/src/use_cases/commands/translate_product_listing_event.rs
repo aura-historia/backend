@@ -218,7 +218,8 @@ mod tests {
     use super::*;
     use crate::ports::{
         PendingTitleTranslation, ProductListingTranslationSource, TitleTranslationAssignment,
-        TitleTranslationBatchId, TitleTranslationBatchKey, TitleTranslationMode,
+        TitleTranslationBatchId, TitleTranslationBatchKey, TitleTranslationClaim,
+        TitleTranslationMode,
     };
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
@@ -334,20 +335,30 @@ mod tests {
             unreachable!()
         }
 
-        async fn complete(&mut self, _: TitleTranslationWorkRef) -> QueueResult<()> {
+        async fn complete(
+            &mut self,
+            _: TitleTranslationWorkRef,
+            _: TitleTranslationClaim,
+        ) -> QueueResult<()> {
             unreachable!()
         }
 
         async fn requeue(
             &mut self,
             _: TitleTranslationWorkRef,
+            _: TitleTranslationClaim,
             _: TitleTranslationMode,
             _: u16,
         ) -> QueueResult<()> {
             unreachable!()
         }
 
-        async fn park(&mut self, _: TitleTranslationWorkRef, _: u16) -> QueueResult<()> {
+        async fn park(
+            &mut self,
+            _: TitleTranslationWorkRef,
+            _: TitleTranslationClaim,
+            _: u16,
+        ) -> QueueResult<()> {
             unreachable!()
         }
     }

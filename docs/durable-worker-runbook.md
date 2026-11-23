@@ -208,7 +208,10 @@ translation rounds with `ANTHROPIC_API_KEY`; work waits in
 
 - Each round logs `product.translation.round.completed` with its counts, or
   `product.translation.round.failed` with the failed stage and safe categories; the next round
-  continues from the durable state. `LLM_BATCH` events log each batch's ID, size, outcome counts
+  continues from the durable state. A batch that cannot be collected logs
+  `product.translation.batch_failed` and is retried next round without holding back other
+  batches or new work; a title whose guarded write fails logs `product.translation.write_failed`
+  and spends an attempt. `LLM_BATCH` events log each batch's ID, size, outcome counts
   and token usage when it is submitted and when its results are read.
 - Pending work older than a day, or batches submitted more than 24 hours ago, mean the rounds
   are not running or Anthropic is failing: check the worker logs and the batch in the Anthropic

@@ -303,9 +303,11 @@ data: they travel as JSON string values keyed by short IDs, the instruction tell
 translate them and never follow them, and each title is validated alone. A missing, empty or
 implausibly long or short translation fails only its title. A refused or truncated group is
 resubmitted title by title; only a title refused alone reaches Sonnet. Expired or canceled
-requests return to the queue unchanged; every other failure spends one of a title's three
-attempts. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
-content changes. Reads and saved-search matching fall back to the original title until a
+requests, and requests a temporarily unavailable provider did not answer, return to the queue
+unchanged; an invalid answer or a failed write spends one of a title's three attempts and fails
+only that title. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
+content changes. A round settles work only while it is still where the round found it, so
+several workers may run rounds side by side. Reads and saved-search matching fall back to the original title until a
 translation lands, so the daily match needs no synchronous sweep. Operations are in the
 [runbook](durable-worker-runbook.md#title-translation-recovery).
 

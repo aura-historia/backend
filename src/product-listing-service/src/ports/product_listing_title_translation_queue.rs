@@ -77,6 +77,16 @@ impl Default for TitleTranslationBatchKey {
     }
 }
 
+/// Where a round took the work it settles from. A settlement applies only while the work is
+/// still there, so a round that read it before another round moved it on changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleTranslationClaim {
+    /// Assigned to this batch.
+    Batch(TitleTranslationBatchKey),
+    /// Waiting, unassigned and unparked, for the refusal fallback.
+    RefusalFallback,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmittedTitleTranslationBatch {
     pub key: TitleTranslationBatchKey,
@@ -152,23 +162,29 @@ pub trait ProductListingTitleTranslationQueue: Send {
         older_than: Duration,
     ) -> Result<u64, ProductListingTitleTranslationQueueError>;
 
-    /// Deletes the work once its revision is settled. Newer work of the listing stays.
+    /// Deletes the work once its revision is settled, while it is still `claim`ed. Newer work of
+    /// the listing, or work another round already moved on, stays.
     async fn complete(
         &mut self,
         work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
     ) -> Result<(), ProductListingTitleTranslationQueueError>;
 
+    /// Returns the work to the pending queue, while it is still `claim`ed.
     async fn requeue(
         &mut self,
         work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
         mode: TitleTranslationMode,
         attempts: u16,
     ) -> Result<(), ProductListingTitleTranslationQueueError>;
 
-    /// Keeps the work without retrying it, until a newer content revision replaces it.
+    /// Keeps the work without retrying it, until a newer content revision replaces it, while it
+    /// is still `claim`ed.
     async fn park(
         &mut self,
         work: TitleTranslationWorkRef,
+        claim: TitleTranslationClaim,
         attempts: u16,
     ) -> Result<(), ProductListingTitleTranslationQueueError>;
 }
