@@ -89,12 +89,21 @@
       ]
     },
     {
-      "name": "translations under a language code inside the path, next to a category of the same depth",
+      "name": "language codes inside the path: one inserted, or swapped for a translation titled in another writing system; a swap between two Latin titles and a category of the same depth stay apart",
       "rows": [
         {"path": "shop/en/item.php?id=88", "captured": "88", "page_identity": "88", "title": "Imari charger", "expected": "survivor", "evidence": null},
-        {"path": "shop/de/item.php?id=88", "captured": "f3a91c07d2e4", "page_identity": "88", "title": "Imari-Teller", "expected": "retire", "evidence": "language_directory"},
+        {"path": "shop/ja/item.php?id=88", "captured": "e5a03c7b91d2", "page_identity": "88", "title": "伊万里大皿", "expected": "retire", "evidence": "language_directory"},
         {"path": "shop/item.php?id=88", "captured": "0b6e2d94c1a8", "page_identity": "88", "title": "Imari-Platte", "expected": "retire", "evidence": "language_directory"},
+        {"path": "shop/de/item.php?id=88", "captured": "f3a91c07d2e4", "page_identity": "88", "title": "Imari-Teller", "expected": "keep", "evidence": null},
         {"path": "shop/vases/item.php?id=88", "captured": "7d40e2b9a6c3", "page_identity": "88", "title": "Celadon vase", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "origin categories named like languages, each numbering its pieces, titled in the shop's language",
+      "rows": [
+        {"path": "chinese/item.php?id=12", "captured": "12", "page_identity": "12", "title": "Famille rose vase", "expected": "survivor", "evidence": null},
+        {"path": "japanese/item.php?id=12", "captured": "4f8a2c61e0b7", "page_identity": "12", "title": "Imari dish", "expected": "keep", "evidence": null},
+        {"path": "english/item.php?id=12", "captured": "9c3e7d05a4f1", "page_identity": "12", "title": "Oak coffer", "expected": "keep", "evidence": null}
       ]
     },
     {

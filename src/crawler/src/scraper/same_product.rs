@@ -13,6 +13,8 @@ use url::Url;
 mod language_codes;
 mod language_version;
 
+use language_version::VersionedPage;
+
 /// Query parameters that name the language a page is shown in (`?Sprache=fr`, `?l=en`) when
 /// their value is a language tag. They do not tell two products apart, so two URLs that differ
 /// only in them, on top of the parameters the crawler never stores
@@ -48,10 +50,11 @@ pub enum SameProductEvidence {
     /// which a rule read from the page URL (`/ukiyoe_detail.php?print_id=40475` and `40475`).
     IdentityToken,
     /// The URLs name the same page in two language versions: spelled alike, their directories
-    /// differ only in language directories, and the page identity is part of what they share
-    /// (`/ukiyoe/ukiyoe_detail.php?print_id=24689` and
-    /// `/english/ukiyoe_detail.php?print_id=24689` for `24689`, or `/shop/en/item?id=88` and
-    /// `/shop/de/item?id=88` for `88`; [`language_version`]).
+    /// differ in one language directory, inserted or dropped (`/shop/de/item?id=88` and
+    /// `/shop/item?id=88`), or swapped for another directory when the two titles are written in
+    /// different writing systems (`/ukiyoe/ukiyoe_detail.php?print_id=24689`, titled in Japanese,
+    /// and `/english/ukiyoe_detail.php?print_id=24689`), and the page identity is part of what
+    /// they share ([`language_version`]).
     LanguageDirectory,
     /// The captured titles are equal and name something ([`title_names_something`]), and
     /// neither URL is a list page ([`is_list_page`]). A missing title shows nothing: a captured
@@ -88,8 +91,14 @@ pub fn same_product_evidence(
     {
         Some(SameProductEvidence::IdentityToken)
     } else if language_version::are_language_versions(
-        &page_spelling(page.url),
-        &page_spelling(carrier.url),
+        VersionedPage {
+            spelling: &page_spelling(page.url),
+            title: page.title,
+        },
+        VersionedPage {
+            spelling: &page_spelling(carrier.url),
+            title: carrier.title,
+        },
         page_identity,
     ) {
         Some(SameProductEvidence::LanguageDirectory)
