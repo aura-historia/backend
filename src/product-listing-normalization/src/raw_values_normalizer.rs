@@ -1,3 +1,4 @@
+use crate::description_boilerplate::DescriptionBoilerplate;
 use crate::diagnostics::{
     NormalizationField, NormalizationIssue, NormalizationIssueDetails, NormalizationIssueHandling,
     NormalizationIssueReason, NormalizationReport, availability_normalization_error,
@@ -29,7 +30,7 @@ pub const PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION: u16 = 1;
 
 /// Provenance version of the raw-values normalization heuristics. Bump it when the decision for
 /// an existing input can change. It never triggers reprocessing of completed revisions.
-pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 6;
+pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 7;
 
 /// Stable provider-neutral encoding for raw price patch values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
@@ -258,12 +259,30 @@ pub struct ProductListingRawValuesEvaluation {
 ///
 /// DELETE inputs decode only an optional canonical identity and bypass UPSERT field normalization.
 /// Without an explicit identity, deletion targets the stream's existing canonical binding.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ProductListingRawValuesNormalizer;
+#[derive(Debug, Default, Clone)]
+pub struct ProductListingRawValuesNormalizer {
+    description_boilerplate: DescriptionBoilerplate,
+}
 
 impl ProductListingRawValuesNormalizer {
     pub const fn new() -> Self {
-        Self
+        Self {
+            description_boilerplate: DescriptionBoilerplate::new(),
+        }
+    }
+
+    /// Strips the listing source's reviewed boilerplate from descriptions. Shipping evidence
+    /// still reads the unstripped description.
+    pub fn with_description_boilerplate(
+        mut self,
+        description_boilerplate: DescriptionBoilerplate,
+    ) -> Self {
+        self.description_boilerplate = description_boilerplate;
+        self
+    }
+
+    pub const fn description_boilerplate(&self) -> &DescriptionBoilerplate {
+        &self.description_boilerplate
     }
 
     pub fn normalize(
@@ -379,7 +398,13 @@ impl ProductListingRawValuesNormalizer {
             .transpose()
             .map_err(|error| envelope(error, report))?;
 
-        let description_context = match &raw.description {
+        let raw_description = match raw.description {
+            ProductListingRawValuesPatch::Set(fragments) => {
+                ProductListingRawValuesPatch::Set(self.description_boilerplate.strip(fragments))
+            }
+            patch => patch,
+        };
+        let description_context = match &raw_description {
             ProductListingRawValuesPatch::Set(fragments) => join_description_fragments(fragments),
             ProductListingRawValuesPatch::Clear | ProductListingRawValuesPatch::Unchanged => None,
         };
@@ -399,7 +424,7 @@ impl ProductListingRawValuesNormalizer {
         });
         let title_language = title.as_ref().and_then(title_language);
         let description = fields.take(NormalizationField::Description, |_| {
-            normalize_description_patch(raw.description, title_language.or(fallback_language))
+            normalize_description_patch(raw_description, title_language.or(fallback_language))
         });
         let price = fields.take(NormalizationField::Price, |report| {
             normalize_product_listing_price_patch(
@@ -997,6 +1022,37 @@ mod tests {
             };
             assert_eq!(crate::shipping::ShippingQuickCheck::NoAssertion, v.shipping);
         }
+    }
+
+    #[test]
+    fn should_strip_reviewed_boilerplate_from_description_but_not_from_shipping_evidence() {
+        let notice = "Shipping for this item is available worldwide.";
+        let mut values = base_values();
+        values["description"]["value"] = json!([format!("A restored ceramic vase. {notice}")]);
+        values["attributes"] =
+            json!({"rawShipment": {"action": "SET", "value": ["This item is collection only"]}});
+        let normalizer = ProductListingRawValuesNormalizer::new().with_description_boilerplate(
+            [crate::BoilerplateSentence::new(notice).unwrap()]
+                .into_iter()
+                .collect(),
+        );
+
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+            normalizer.normalize(&input(values))
+        else {
+            panic!("listing with boilerplate must resolve");
+        };
+
+        let ProductListingRawValuesPatch::Set(description) = resolved.description else {
+            panic!("description must stay set");
+        };
+        assert_eq!("A restored ceramic vase.", description.payload.as_ref());
+        assert_eq!(
+            crate::shipping::ShippingQuickCheck::Unsupported(
+                crate::shipping::ShippingUnsupportedReason::ContradictoryAssertions
+            ),
+            resolved.shipping
+        );
     }
 
     fn base_values() -> serde_json::Value {

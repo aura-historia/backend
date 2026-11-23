@@ -5,6 +5,7 @@
 
 pub mod availability;
 pub mod date_time;
+pub mod description_boilerplate;
 pub mod diagnostics;
 pub mod error;
 pub mod image_url;
@@ -21,6 +22,10 @@ pub use availability::{
     quick_check_availability,
 };
 pub use date_time::{DateTimeNormalizationError, normalize_date_time};
+pub use description_boilerplate::{
+    BoilerplateSentence, BoilerplateSentenceError, DescriptionBoilerplate,
+    MAX_BOILERPLATE_SENTENCE_BYTES, description_sentences,
+};
 pub use diagnostics::{
     NORMALIZATION_DIAGNOSTICS_VERSION, NormalizationField, NormalizationIssue,
     NormalizationIssueDetails, NormalizationIssueHandling, NormalizationIssueReason,
