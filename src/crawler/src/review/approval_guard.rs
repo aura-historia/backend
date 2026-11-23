@@ -680,6 +680,8 @@ mod tests {
 
     const CONFIGURATION: &str = "configuration-sha256";
     const MAX_AGE: Duration = Duration::from_secs(30 * 60);
+    /// The ListingSource of the reviews, whose name no product title of these tests holds.
+    const TEST_SOURCE_NAME: &str = "Example Antiques";
 
     fn rule(selector: &str, extract: ExtractionKind) -> ExtractionRule {
         ExtractionRule {
@@ -756,6 +758,7 @@ mod tests {
     ) -> SchemaMatrix {
         let mut matrix = evaluate_schema_matrix_for_live_review_pages(
             CrawlerReviewId::new(),
+            TEST_SOURCE_NAME,
             schemas,
             templates,
             pages,

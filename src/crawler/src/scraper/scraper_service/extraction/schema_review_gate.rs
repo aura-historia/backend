@@ -357,6 +357,7 @@ mod tests {
     fn should_record_present_but_missing_rule_failures_in_validation_summary() {
         let matrix = SchemaMatrix {
             review_id: None,
+            listing_source_name: None,
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),
             live_evaluation: None,
@@ -595,6 +596,7 @@ mod tests {
     fn should_not_report_miss_when_an_additional_selector_matches() {
         let matrix = SchemaMatrix {
             review_id: None,
+            listing_source_name: None,
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),
             live_evaluation: None,
@@ -639,6 +641,7 @@ mod tests {
     fn should_not_record_missing_images_as_present_but_missing_rule_failure() {
         let matrix = SchemaMatrix {
             review_id: None,
+            listing_source_name: None,
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),
             live_evaluation: None,

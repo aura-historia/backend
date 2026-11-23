@@ -51,6 +51,7 @@ impl EvaluatedSchemaMatrix {
 pub struct CandidateProposal {
     review_id: CrawlerReviewId,
     listing_source_id: uuid::Uuid,
+    listing_source_name: String,
     going_live: ProductSchemaReviewCandidate,
     /// The review's pages, to fetch live.
     pub pages: Vec<CrawlerReviewPage>,
@@ -67,6 +68,7 @@ impl CandidateProposal {
 /// A product-schema review as a live evaluation reads it.
 struct ReviewUnderEvaluation {
     listing_source_id: uuid::Uuid,
+    listing_source_name: String,
     artifact_type: String,
     candidate_payload: serde_json::Value,
     candidate_version: i64,
@@ -106,6 +108,7 @@ impl CrawlerReviewRepository {
         let (mut matrix, captured_identity_sample) = evaluate_on_blocking_thread(move || {
             let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
+                &review.listing_source_name,
                 &going_live.schemas,
                 &going_live.removed_page_schemas,
                 &pages,
@@ -168,6 +171,7 @@ impl CrawlerReviewRepository {
         Ok(CandidateProposal {
             review_id,
             listing_source_id: review.listing_source_id,
+            listing_source_name: review.listing_source_name,
             going_live,
             pages,
             urls,
@@ -196,6 +200,7 @@ impl CrawlerReviewRepository {
         evaluate_on_blocking_thread(move || {
             evaluate_schema_matrix_for_live_review_pages(
                 proposal.review_id,
+                &proposal.listing_source_name,
                 &proposal.going_live.schemas,
                 &proposal.going_live.removed_page_schemas,
                 &pages,
@@ -211,11 +216,12 @@ impl CrawlerReviewRepository {
         review_id: CrawlerReviewId,
     ) -> Result<ReviewUnderEvaluation, ReviewRepositoryError> {
         let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, candidate_payload, candidate_version,
-                    removed_page_schemas_base,
-                    encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
-             FROM crawler_reviews
-             WHERE review_id = $1",
+            "SELECT r.listing_source_id, s.listing_source_name, r.artifact_type,
+                    r.candidate_payload, r.candidate_version, r.removed_page_schemas_base,
+                    encode(digest(r.candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
+             FROM crawler_reviews r
+             JOIN listing_sources s USING (listing_source_id)
+             WHERE r.review_id = $1",
         )
         .bind(review_id.as_uuid())
         .fetch_optional(&self.pool)
@@ -223,6 +229,7 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         Ok(ReviewUnderEvaluation {
             listing_source_id: review.try_get("listing_source_id")?,
+            listing_source_name: review.try_get("listing_source_name")?,
             artifact_type: review.try_get("artifact_type")?,
             candidate_payload: review.try_get("candidate_payload")?,
             candidate_version: review.try_get("candidate_version")?,

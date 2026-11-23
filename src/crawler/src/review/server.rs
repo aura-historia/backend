@@ -2950,6 +2950,7 @@ Origin: http://127.0.0.1:7878/x
                 .collect();
             let evaluated = evaluate_schema_matrix_for_live_review_pages(
                 fixture.review_id,
+                "Example Antiques",
                 &[schema("h1")],
                 &[],
                 &pages,

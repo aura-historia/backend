@@ -266,6 +266,7 @@ mod tests {
             .collect();
         evaluate_schema_matrix_for_live_review_pages(
             CrawlerReviewId::new(),
+            "Example Antiques",
             schemas,
             templates,
             &pages,

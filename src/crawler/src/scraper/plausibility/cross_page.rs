@@ -1,10 +1,11 @@
 //! Cross-page plausibility checks: one candidate's extractions of the review pages compared
-//! with each other. Each review page shows a different product, so an identity or an image
-//! that two pages share names the shop, the category or a default share image rather than
-//! the product. A shared `title` is a finding only when the pages that share it also share
-//! an identity or an image, or when every page shares it; otherwise it is the name two
-//! different products have in common. Runtime extraction sees one page at a time and cannot
-//! run them.
+//! with each other and with the ListingSource. Each review page shows a different product, so an
+//! identity or an image that two pages share names the shop, the category or a default share
+//! image rather than the product. A shared `title` is a finding only when the pages that share
+//! it also share an identity or an image, or when every page shares it; otherwise it is the name
+//! two different products have in common. A segment every title starts or ends with, and the
+//! ListingSource's name in a title, are what the title rule reads besides the product's name
+//! ([`title_affix`]). Runtime extraction sees one page at a time and cannot run them.
 
 use super::PlausibilityField;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -13,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use url::Url;
+
+mod title_affix;
 
 /// The check a value failed against the candidate's extractions of the other pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,18 +28,31 @@ pub enum CrossPageCheck {
     /// container, such as a customer review box, would. A single page without images may
     /// show a product without photos, so only every page counts.
     NoImageOnAnyPage,
+    /// Every review page's title starts or ends with the same segment after a separator, such
+    /// as the shop's name or a constant SEO tail that a document `<title>` or `og:title` adds
+    /// to the product's name.
+    SharedTitleSegment,
+    /// The title holds the ListingSource's name.
+    ListingSourceName,
 }
 
 impl CrossPageCheck {
     /// Every check, so tests can pin how the review console names each code.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 2] = [Self::RepeatedAcrossPages, Self::NoImageOnAnyPage];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::RepeatedAcrossPages,
+        Self::NoImageOnAnyPage,
+        Self::SharedTitleSegment,
+        Self::ListingSourceName,
+    ];
 
     /// How the review console describes the check.
     pub(crate) const fn description(self) -> &'static str {
         match self {
             Self::RepeatedAcrossPages => "repeats a value of another product page",
             Self::NoImageOnAnyPage => "yields no capturable image on any review page",
+            Self::SharedTitleSegment => "starts or ends with the same segment on every review page",
+            Self::ListingSourceName => "contains the name of the shop",
         }
     }
 }
@@ -46,18 +62,22 @@ impl CrossPageCheck {
 pub struct CrossPageFinding {
     pub field: PlausibilityField,
     pub check: CrossPageCheck,
-    /// This page's values that another page shares, as extracted from this page; empty
+    /// This page's values the check names, as extracted from this page: the values another
+    /// page shares, the shared title segments or the title that holds the shop's name; empty
     /// for [`CrossPageCheck::NoImageOnAnyPage`], whose page has no image to name.
     pub values: Vec<String>,
 }
 
 impl CrossPageFinding {
-    /// The finding for the `values` of `field` that another page repeats; `None` when it
-    /// repeats none.
-    fn repeated(field: PlausibilityField, values: Vec<String>) -> Option<Self> {
+    /// The finding of `check` for the `values` of `field` it names; `None` when it names none.
+    fn naming(
+        field: PlausibilityField,
+        check: CrossPageCheck,
+        values: Vec<String>,
+    ) -> Option<Self> {
         (!values.is_empty()).then_some(Self {
             field,
-            check: CrossPageCheck::RepeatedAcrossPages,
+            check,
             values,
         })
     }
@@ -98,11 +118,12 @@ pub struct PageExtraction<'a> {
 }
 
 impl CrossPageFindings {
-    /// Compares the extractions of `pages`, each of a different product, and returns the
-    /// findings of each page in the order of `pages`. Blank values are left to the
-    /// per-page checks; an `images` rule without a capturable image on any page is
-    /// reported on every page.
-    pub fn of(pages: &[PageExtraction<'_>]) -> Vec<Self> {
+    /// Compares the extractions of `pages`, each of a different product of the ListingSource
+    /// named `listing_source_name`, and returns the findings of each page in the order of
+    /// `pages`. Blank values are left to the per-page checks; an `images` rule without a
+    /// capturable image on any page is reported on every page. Without a name, as for the pages
+    /// schema generation was given, no title is checked for it.
+    pub fn of(pages: &[PageExtraction<'_>], listing_source_name: Option<&str>) -> Vec<Self> {
         let identity_keys = keyed_values(pages, |page| {
             non_blank(page.raw.source_listing_id.trim())
                 .map(|identity| (identity.to_owned(), identity.to_owned()))
@@ -122,25 +143,50 @@ impl CrossPageFindings {
         let image_groups = pages_per_key(&image_keys);
         let title_groups = pages_per_key(&title_keys);
 
-        let identities = repeated_values(&identity_keys, &identity_groups, |_| true);
-        let images = repeated_values(&image_keys, &image_groups, |_| true);
-        let titles = repeated_values(&title_keys, &title_groups, |sharing| {
+        let mut identities = repeated_values(&identity_keys, &identity_groups, |_| true);
+        let mut images = repeated_values(&image_keys, &image_groups, |_| true);
+        let mut titles = repeated_values(&title_keys, &title_groups, |sharing| {
             sharing.len() == pages.len()
                 || shares_a_key(sharing, &identity_groups)
                 || shares_a_key(sharing, &image_groups)
         });
+        let mut title_segments = shared_title_segments(pages, &title_groups);
         let no_image_on_any_page = !pages.iter().any(|page| page.has_capturable_image);
 
-        identities
-            .into_iter()
-            .zip(titles)
-            .zip(images)
-            .map(|((identities, titles), images)| {
+        use CrossPageCheck::{ListingSourceName, RepeatedAcrossPages, SharedTitleSegment};
+        use PlausibilityField::{Images, SourceListingId, Title};
+        use std::mem::take;
+        pages
+            .iter()
+            .enumerate()
+            .map(|(index, page)| {
                 Self(
                     [
-                        CrossPageFinding::repeated(PlausibilityField::SourceListingId, identities),
-                        CrossPageFinding::repeated(PlausibilityField::Title, titles),
-                        CrossPageFinding::repeated(PlausibilityField::Images, images),
+                        CrossPageFinding::naming(
+                            SourceListingId,
+                            RepeatedAcrossPages,
+                            take(&mut identities[index]),
+                        ),
+                        CrossPageFinding::naming(
+                            Title,
+                            RepeatedAcrossPages,
+                            take(&mut titles[index]),
+                        ),
+                        CrossPageFinding::naming(
+                            Title,
+                            SharedTitleSegment,
+                            take(&mut title_segments[index]),
+                        ),
+                        CrossPageFinding::naming(
+                            Title,
+                            ListingSourceName,
+                            title_holding_name(page, listing_source_name),
+                        ),
+                        CrossPageFinding::naming(
+                            Images,
+                            RepeatedAcrossPages,
+                            take(&mut images[index]),
+                        ),
                         no_image_on_any_page.then(CrossPageFinding::no_image_on_any_page),
                     ]
                     .into_iter()
@@ -158,6 +204,35 @@ impl CrossPageFindings {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+}
+
+/// For each page, the segments every page's title starts or ends with
+/// ([`title_affix::shared_segments`]); none when every page shares the whole title, which the
+/// repeated-title check reports.
+fn shared_title_segments(
+    pages: &[PageExtraction<'_>],
+    title_groups: &HashMap<&str, Vec<usize>>,
+) -> Vec<Vec<String>> {
+    if title_groups
+        .values()
+        .any(|group| group.len() == pages.len())
+    {
+        return vec![Vec::new(); pages.len()];
+    }
+    let titles: Vec<Option<&str>> = pages.iter().map(|page| page.raw.title()).collect();
+    title_affix::shared_segments(&titles)
+}
+
+/// The page's title when it holds the ListingSource's name
+/// ([`title_affix::holds_listing_source_name`]).
+fn title_holding_name(page: &PageExtraction<'_>, listing_source_name: Option<&str>) -> Vec<String> {
+    page.raw
+        .title()
+        .zip(listing_source_name)
+        .filter(|(title, name)| title_affix::holds_listing_source_name(title, name))
+        .map(|(title, _)| title.trim().to_owned())
+        .into_iter()
+        .collect()
 }
 
 /// Each page's `(key, value)` pairs, as `keyed` yields them.
@@ -277,6 +352,26 @@ mod tests {
         findings_with_capturable_images(pages, &vec![true; pages.len()])
     }
 
+    /// The findings of `pages` of the ListingSource named `listing_source_name`, each of which
+    /// has an image capture keeps.
+    fn findings_of_source(
+        listing_source_name: &str,
+        pages: &[(&str, RawExtractedProduct)],
+    ) -> Vec<Vec<CrossPageFinding>> {
+        let pages: Vec<PageExtraction<'_>> = pages
+            .iter()
+            .map(|(url, raw)| PageExtraction {
+                url,
+                raw,
+                has_capturable_image: true,
+            })
+            .collect();
+        CrossPageFindings::of(&pages, Some(listing_source_name))
+            .into_iter()
+            .map(|findings| findings.as_slice().to_vec())
+            .collect()
+    }
+
     /// The findings of `pages`, the page at each index having a capturable image as
     /// `has_capturable_image` says.
     fn findings_with_capturable_images(
@@ -292,18 +387,34 @@ mod tests {
                 has_capturable_image: *has_capturable_image,
             })
             .collect();
-        CrossPageFindings::of(&pages)
+        CrossPageFindings::of(&pages, None)
             .into_iter()
             .map(|findings| findings.as_slice().to_vec())
             .collect()
     }
 
     fn repeated(field: PlausibilityField, values: &[&str]) -> CrossPageFinding {
+        finding(field, CrossPageCheck::RepeatedAcrossPages, values)
+    }
+
+    fn finding(
+        field: PlausibilityField,
+        check: CrossPageCheck,
+        values: &[&str],
+    ) -> CrossPageFinding {
         CrossPageFinding {
             field,
-            check: CrossPageCheck::RepeatedAcrossPages,
+            check,
             values: values.iter().map(|value| (*value).to_owned()).collect(),
         }
+    }
+
+    fn shared_segment(values: &[&str]) -> CrossPageFinding {
+        finding(
+            PlausibilityField::Title,
+            CrossPageCheck::SharedTitleSegment,
+            values,
+        )
     }
 
     mod distinct_products {
@@ -394,8 +505,9 @@ mod tests {
         use super::*;
         use PlausibilityField::{Images, SourceListingId, Title};
 
-        /// Navarro's untitled sold items share the document `<title>`, and Vauclair's
-        /// `<body id>` is the same on every product page.
+        /// Navarro's untitled sold items share the document `<title>`, which ends with the
+        /// shop's name on every page, and Vauclair's `<body id>` is the same on every product
+        /// page.
         #[test]
         fn should_report_an_identity_and_a_title_that_another_page_repeats() {
             let findings = findings_of(&[
@@ -419,12 +531,17 @@ mod tests {
                     vec![
                         repeated(SourceListingId, &["top"]),
                         repeated(Title, &["Sold items - Navarro"]),
+                        shared_segment(&["Navarro"]),
                     ],
                     vec![
                         repeated(SourceListingId, &["top"]),
                         repeated(Title, &["Sold items  -\nNavarro"]),
+                        shared_segment(&["Navarro"]),
                     ],
-                    vec![repeated(SourceListingId, &["top"])],
+                    vec![
+                        repeated(SourceListingId, &["top"]),
+                        shared_segment(&["Navarro"]),
+                    ],
                 ]
             );
         }
@@ -622,6 +739,118 @@ mod tests {
         }
     }
 
+    mod title_affixes {
+        use super::*;
+        use PlausibilityField::Title;
+
+        fn titled(titles: &[&'static str]) -> Vec<(&'static str, RawExtractedProduct)> {
+            titles
+                .iter()
+                .enumerate()
+                .map(|(index, title)| {
+                    (
+                        "https://shop.example/product",
+                        product(&index.to_string(), title, &[]),
+                    )
+                })
+                .collect()
+        }
+
+        /// VIADUKT*3's document `<title>` adds the category path and the shop's name.
+        #[test]
+        fn should_report_the_segment_every_title_ends_with() {
+            let findings = findings_of(&titled(&[
+                "Holztisch | Holztische | Tische | VIADUKT*3",
+                "Stuhl | Stühle | VIADUKT*3",
+            ]));
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![shared_segment(&["VIADUKT*3"])],
+                    vec![shared_segment(&["VIADUKT*3"])],
+                ]
+            );
+        }
+
+        #[test]
+        fn should_report_a_leading_and_a_trailing_segment_together() {
+            let findings = findings_of(&titled(&[
+                "Shop: Oak table | Antiques",
+                "Shop: Walnut chair | Antiques",
+            ]));
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![shared_segment(&["Shop", "Antiques"])],
+                    vec![shared_segment(&["Shop", "Antiques"])],
+                ]
+            );
+        }
+
+        /// Bogen33's image `alt` adds a category path that differs between products, which
+        /// only the title rule of the prompts keeps out.
+        #[test]
+        fn should_leave_segments_alone_that_differ_between_products() {
+            let findings = findings_of(&titled(&[
+                "Knapp drei Meter, Leder-Sofas, Sofa",
+                "Rundum, Sessel, Stühle",
+                "Oak table",
+            ]));
+
+            assert!(findings.iter().all(Vec::is_empty), "{findings:?}");
+        }
+
+        /// A title every page shares is repeated whole: naming its segments too would say
+        /// the same twice.
+        #[test]
+        fn should_report_a_title_every_page_shares_only_as_repeated() {
+            let findings = findings_of(&titled(&["Antiques - Shop", "Antiques - Shop"]));
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![repeated(Title, &["Antiques - Shop"])],
+                    vec![repeated(Title, &["Antiques - Shop"])],
+                ]
+            );
+        }
+
+        /// Bauman Rare Books' document `<title>` adds an SEO tail that names the shop, which
+        /// one page alone shows.
+        #[test]
+        fn should_report_a_title_that_holds_the_listing_source_name() {
+            let title = "Josef Koudelka - First Edition - Signed - Bauman Rare Books";
+            let findings = findings_of_source(
+                "Bauman Rare Books",
+                &[("https://shop.example/koudelka", product("1", title, &[]))],
+            );
+
+            assert_eq!(
+                findings,
+                vec![vec![finding(
+                    Title,
+                    CrossPageCheck::ListingSourceName,
+                    &[title]
+                )]]
+            );
+        }
+
+        #[test]
+        fn should_leave_a_title_alone_that_holds_the_name_inside_another_word() {
+            let findings = findings_of_source(
+                "Antiquariat",
+                &[(
+                    "https://shop.example/a",
+                    product("1", "Antiquariatsbestand: Mappe", &[]),
+                )],
+            );
+
+            assert_eq!(findings, vec![vec![]]);
+        }
+    }
+
     mod no_image_on_any_page {
         use super::*;
 
@@ -732,6 +961,24 @@ mod tests {
                 }))
                 .ok(),
                 Some(CrossPageCheck::NoImageOnAnyPage)
+            );
+            assert_eq!(
+                check_of(serde_json::json!({
+                    "field": "title",
+                    "check": "SHARED_TITLE_SEGMENT",
+                    "values": ["Shop"]
+                }))
+                .ok(),
+                Some(CrossPageCheck::SharedTitleSegment)
+            );
+            assert_eq!(
+                check_of(serde_json::json!({
+                    "field": "title",
+                    "check": "LISTING_SOURCE_NAME",
+                    "values": ["Chair | Shop"]
+                }))
+                .ok(),
+                Some(CrossPageCheck::ListingSourceName)
             );
             assert!(
                 check_of(serde_json::json!({

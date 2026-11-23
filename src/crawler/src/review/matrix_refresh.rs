@@ -265,6 +265,7 @@ mod tests {
         ReviewSchemaMatrix::of(
             SchemaMatrix {
                 review_id: None,
+                listing_source_name: None,
                 candidates: Vec::new(),
                 removed_page_matches: Vec::new(),
                 page_signals: Vec::new(),

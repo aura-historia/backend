@@ -123,7 +123,8 @@ fn is_zero(count: &usize) -> bool {
 pub enum FindingKind {
     /// A check of the page's own extraction.
     Page,
-    /// The value repeats one extracted from another product's page.
+    /// A check against the schema's extractions of the other review pages and the ListingSource,
+    /// such as a value another product's page repeats or a title that holds the shop's name.
     CrossPage,
     /// The extracted identity contradicts another schema's or the captured one.
     Identity,

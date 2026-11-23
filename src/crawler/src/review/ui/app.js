@@ -4222,6 +4222,8 @@ const plausibilityCheckDescriptions = {
     LINK_OR_PATH: 'is a link or file path',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
+    SHARED_TITLE_SEGMENT: 'starts or ends with the same segment on every review page',
+    LISTING_SOURCE_NAME: 'contains the name of the shop',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
@@ -4259,6 +4261,8 @@ const CHECK_LABELS = {
     LINK_OR_PATH: 'Link or path',
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
+    SHARED_TITLE_SEGMENT: 'Shared title segment',
+    LISTING_SOURCE_NAME: 'Shop name',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity'
 };

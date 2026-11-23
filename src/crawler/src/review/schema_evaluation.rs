@@ -40,12 +40,14 @@ fn parse_page(raw_html: &str) -> Html {
 }
 
 /// Evaluates the schemas and removed-page templates on the live review pages and on the live
-/// `url_pages` of the review's ListingSource that are no review pages, which the matrix refers to
-/// as inputs by their position. A review page marked as no product page is left out, so no check
-/// of the matrix counts it or compares it with the product pages. `captured_identities` maps a page URL to the source listing id its
-/// listing was captured under.
+/// `url_pages` of the review's ListingSource, named `listing_source_name`, that are no review
+/// pages, which the matrix refers to as inputs by their position. A review page marked as no
+/// product page is left out, so no check of the matrix counts it or compares it with the product
+/// pages. `captured_identities` maps a page URL to the source listing id its listing was captured
+/// under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
+    listing_source_name: &str,
     schemas: &[ProductCssSelectorSchema],
     removed_page_schemas: &[RemovedPageSchema],
     pages: &[(CrawlerReviewPage, String)],
@@ -75,7 +77,13 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
             captured_identity: captured_identities.get(&page.url).map(String::as_str),
         });
     let pages: Vec<MatrixPage<'_>> = review_pages.chain(url_pages).collect();
-    evaluate_matrix(Some(review_id), schemas, removed_page_schemas, &pages)
+    evaluate_matrix(
+        Some(review_id),
+        Some(listing_source_name),
+        schemas,
+        removed_page_schemas,
+        &pages,
+    )
 }
 
 pub(crate) fn evaluate_schema_matrix_for_inputs(
@@ -94,8 +102,9 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
             captured_identity: None,
         })
         .collect();
-    // Generated-schema inputs carry no removed-page templates.
-    evaluate_matrix(None, schemas, &[], &pages)
+    // Generated-schema inputs carry no removed-page templates, and generation names no
+    // ListingSource.
+    evaluate_matrix(None, None, schemas, &[], &pages)
 }
 
 /// Evaluates every candidate and removed-page template on every page. Each page is parsed
@@ -104,6 +113,7 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
 /// page is held at a time.
 fn evaluate_matrix(
     review_id: Option<CrawlerReviewId>,
+    listing_source_name: Option<&str>,
     schemas: &[ProductCssSelectorSchema],
     removed_page_schemas: &[RemovedPageSchema],
     pages: &[MatrixPage<'_>],
@@ -140,6 +150,7 @@ fn evaluate_matrix(
     }
     let mut matrix = SchemaMatrix {
         review_id,
+        listing_source_name: listing_source_name.map(str::to_owned),
         candidates,
         removed_page_matches,
         page_signals,
@@ -188,14 +199,15 @@ fn evaluate_page_findings(matrix: &mut SchemaMatrix) {
     }
 }
 
-/// Sets every candidate's cross-page findings from its extractions of the review pages,
-/// replacing the ones a cached matrix was stored with. They depend on the extractions
-/// alone, so a cached matrix is read through this and shows every cross-page check of
-/// this crawler, including one added after it was cached, without fetching the pages
-/// again.
+/// Sets every candidate's cross-page findings from its extractions of the review pages and the
+/// ListingSource name the matrix records, replacing the ones a cached matrix was stored with.
+/// They depend on those alone, so a cached matrix is read through this and shows every
+/// cross-page check of this crawler, including one added after it was cached, without fetching
+/// the pages again.
 fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
+    let listing_source_name = matrix.listing_source_name.as_deref();
     for candidate in &mut matrix.candidates {
-        add_cross_page_findings(&mut candidate.pages);
+        add_cross_page_findings(&mut candidate.pages, listing_source_name);
     }
 }
 
@@ -261,9 +273,9 @@ fn matched_template(
 }
 
 /// Compares one candidate's extractions of the review pages, each of a different
-/// product. An extraction a rejecting finding withdrew takes part too: its selectors
-/// still produced it.
-fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
+/// product of the ListingSource named `listing_source_name`. An extraction a rejecting finding
+/// withdrew takes part too: its selectors still produced it.
+fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation], listing_source_name: Option<&str>) {
     let (page_indices, extractions): (Vec<usize>, Vec<PageExtraction<'_>>) = pages
         .iter()
         .enumerate()
@@ -279,7 +291,7 @@ fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
             ))
         })
         .unzip();
-    let findings = CrossPageFindings::of(&extractions);
+    let findings = CrossPageFindings::of(&extractions, listing_source_name);
     for (index, findings) in page_indices.into_iter().zip(findings) {
         pages[index].cross_page_findings = findings;
     }
@@ -818,6 +830,7 @@ mod tests {
         let (live_matrix, live_parses) = with_page_parses(|| {
             evaluate_schema_matrix_for_live_review_pages(
                 CrawlerReviewId::new(),
+                "Example Antiques",
                 &schemas,
                 &removed_page_templates,
                 &live_pages,
@@ -928,7 +941,7 @@ mod tests {
             schemas: &[ProductCssSelectorSchema],
             pages: &[MatrixPage<'_>],
         ) -> Vec<RemovedPageTemplateMatch> {
-            evaluate_matrix(None, schemas, templates, pages).removed_page_matches
+            evaluate_matrix(None, None, schemas, templates, pages).removed_page_matches
         }
 
         fn matrix_page<'a>(role: &'a str, url: &'a str, raw_html: &'a str) -> MatrixPage<'a> {
@@ -2329,6 +2342,7 @@ mod tests {
 
             let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
+                "Example Antiques",
                 &schemas,
                 &[],
                 &[(sold_page, product_html(53036, true))],
