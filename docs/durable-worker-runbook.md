@@ -202,9 +202,11 @@ Index reset, the queue and absent history cannot restore missing authoritative f
 
 A release that narrows which listings are
 [discoverable](product-listing.md#application-api-and-search-contracts) leaves documents the
-earlier rule indexed at their current version. After the release's projector runs, run
-`ops reproject-all --live`: the projector replaces each such document with an equal-version
-tombstone and completes current documents as stale. Search keeps serving throughout; until the
+earlier rule indexed at their current version. Once no projector of the earlier release runs,
+run `ops reproject-all --live`: the projector replaces each such document with an equal-version
+tombstone and completes current documents as stale. Only narrowing works in place: an
+equal-version upsert never replaces a tombstone, so a rollback or a later widening of the rule
+needs a [new index generation](#projection-fences-and-rebuild). Search keeps serving throughout; until the
 run completes, an affected listing can still appear and is valued at current FX. Verify that the
 number of live documents equals the number of discoverable listings:
 
