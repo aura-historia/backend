@@ -11,6 +11,8 @@ use crate::spider::utils::url::canonical::without_language_segment;
 use regex::regex;
 use url::Url;
 
+mod language_version;
+
 /// Query parameters that name the language a page is shown in (`?Sprache=fr`, `?l=en`) when
 /// their value is a language tag. They do not tell two products apart, so two URLs that differ
 /// only in them, on top of the parameters the crawler never stores
@@ -25,43 +27,6 @@ const LANGUAGE_PARAMETERS: &[&str] = &[
 /// these names (`index.php?page=item123`, `lot.php?l=55`) keeps them apart by a value that is no
 /// page number or language tag.
 const PAGER_PARAMETERS: &[&str] = &["page", "pg"];
-
-/// Directory names that name a language in words, in English or in the language itself without
-/// diacritics, as a shop names the directory of a language version (`/english/…`). A language
-/// code (`/en/…`) before the path is a spelling ([`product_spelling`]); a two- or three-letter
-/// directory elsewhere names a category as often as a language, so codes are no language
-/// directory.
-const LANGUAGE_DIRECTORIES: &[&str] = &[
-    "english",
-    "japanese",
-    "nihongo",
-    "german",
-    "deutsch",
-    "french",
-    "francais",
-    "spanish",
-    "espanol",
-    "italian",
-    "italiano",
-    "dutch",
-    "nederlands",
-    "portuguese",
-    "portugues",
-    "chinese",
-    "korean",
-    "russian",
-    "swedish",
-    "svenska",
-    "danish",
-    "dansk",
-    "norwegian",
-    "norsk",
-    "finnish",
-    "suomi",
-    "polish",
-    "polski",
-    "czech",
-];
 
 /// A product URL as the same-product rule compares it.
 #[derive(Debug, Clone, Copy)]
@@ -124,7 +89,11 @@ pub fn same_product_evidence(
         .is_some_and(|captured| is_identity_token_of(page_identity, captured))
     {
         Some(SameProductEvidence::IdentityToken)
-    } else if are_language_directory_versions(&page_spelling, &carrier_spelling, page_identity) {
+    } else if language_version::are_language_directory_versions(
+        &page_spelling,
+        &carrier_spelling,
+        page_identity,
+    ) {
         Some(SameProductEvidence::LanguageDirectory)
     } else if titles_agree(page.title, carrier.title)
         && !is_list_page(page.url)
@@ -179,42 +148,6 @@ fn product_spelling(url: &Url) -> Url {
     });
     spelling.set_query(kept.as_deref().filter(|query| !query.is_empty()));
     spelling
-}
-
-/// Whether two [product spellings](product_spelling) name one page in two language versions: on
-/// one origin and with one query, their paths differ in one directory only, a language directory
-/// ([`LANGUAGE_DIRECTORIES`]) on at least one side, and `identity` is a whole query value or path
-/// segment of them ([`is_identity_token_of`]), so the URLs themselves name the product the shared
-/// identity stands for.
-fn are_language_directory_versions(spelling: &Url, other: &Url, identity: &str) -> bool {
-    let segments: Vec<&str> = spelling.path().split('/').collect();
-    let other_segments: Vec<&str> = other.path().split('/').collect();
-    let differing: Vec<usize> = (0..segments.len())
-        .filter(|&index| other_segments.get(index) != Some(&segments[index]))
-        .collect();
-    let differs_in_one_language_directory = match differing[..] {
-        [index] => {
-            segments.len() == other_segments.len()
-                && index + 1 < segments.len()
-                && (is_language_directory(segments[index])
-                    || is_language_directory(other_segments[index]))
-        }
-        _ => false,
-    };
-    let shared_link = match spelling.query() {
-        Some(query) => format!("{}?{query}", other.path()),
-        None => other.path().to_owned(),
-    };
-    spelling.origin() == other.origin()
-        && spelling.query() == other.query()
-        && differs_in_one_language_directory
-        && is_identity_token_of(identity, &shared_link)
-}
-
-fn is_language_directory(segment: &str) -> bool {
-    LANGUAGE_DIRECTORIES
-        .iter()
-        .any(|language| segment.eq_ignore_ascii_case(language))
 }
 
 fn collapse_slashes(path: &str) -> String {
