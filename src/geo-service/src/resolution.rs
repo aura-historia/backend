@@ -643,6 +643,11 @@ fn administrative_only(
     )
 }
 /// Whether the input's assertions and search constraint leave `geography` a possible answer.
+///
+/// A submitted country, and a search constraint's country and subdivision, must be derived and
+/// equal. A submitted subdivision is only contradicted by a known, different one: a provider
+/// that derives none neither confirms nor refutes it, and adapters mark the candidates they can
+/// refute with `SubmittedSubdivisionMismatch`.
 pub fn candidate_compatible(input: &ResolutionInput, geography: &DerivedGeography) -> bool {
     let derived = geography.description();
     let submitted = input
@@ -650,7 +655,10 @@ pub fn candidate_compatible(input: &ResolutionInput, geography: &DerivedGeograph
         .submitted()
         .map(SubmittedGeography::description);
     let assertions_agree = submitted.is_none_or(|asserted| {
-        administrative_matches(derived, asserted.country(), asserted.subdivision())
+        administrative_matches(derived, asserted.country(), None)
+            && asserted
+                .subdivision()
+                .is_none_or(|s| subdivision_not_contradicted(derived, s))
     });
     let constraint_holds = input
         .request
@@ -670,6 +678,19 @@ fn administrative_matches(
     country.is_none_or(|c| derived.and_then(GeographicDescription::country) == Some(c))
         && subdivision
             .is_none_or(|s| derived.and_then(GeographicDescription::subdivision) == Some(s))
+}
+
+/// `derived` names no other subdivision than `asserted`. An unknown subdivision still needs the
+/// derived country to be the asserted subdivision's own, so a subdivision is never accepted for
+/// a place in another or an unknown country.
+fn subdivision_not_contradicted(
+    derived: Option<&GeographicDescription>,
+    asserted: geo::SubdivisionCode,
+) -> bool {
+    match derived.and_then(GeographicDescription::subdivision) {
+        Some(known) => known == asserted,
+        None => derived.and_then(GeographicDescription::country) == Some(asserted.country()),
+    }
 }
 
 /// The asserted postal code, if any, is present in `derived` and equivalent to it under the
@@ -1594,5 +1615,259 @@ mod tests {
         );
         assert_eq!(Some(place()), newly_picked(Some(place()), None));
         assert_eq!(None, newly_picked(None, Some(&current)));
+    }
+
+    fn iso_subdivision(code: &str) -> SubdivisionCode {
+        SubdivisionCode::new(code).unwrap()
+    }
+
+    fn postal_code(value: &str) -> geo::PostalCode {
+        geo::PostalCode::new(value).unwrap()
+    }
+
+    /// A candidate whose derived description carries exactly the given administrative facts.
+    fn described_candidate(
+        country: CountryCode,
+        subdivision: Option<SubdivisionCode>,
+        postal: Option<&str>,
+        precision: Option<SpatialPrecision>,
+    ) -> GeocodingCandidate {
+        let base = candidate(country, precision);
+        GeocodingCandidate::new(
+            DerivedGeography::new(
+                GeographicDescription::new(
+                    None,
+                    Some(country),
+                    subdivision,
+                    postal.map(postal_code),
+                )
+                .unwrap(),
+                base.geography().and_then(DerivedGeography::position),
+            ),
+            vec![],
+            None,
+            base.provenance().clone(),
+        )
+    }
+
+    fn with_submitted(
+        mut input: ResolutionInput,
+        country: Option<CountryCode>,
+        subdivision: Option<SubdivisionCode>,
+        postal: Option<&str>,
+    ) -> ResolutionInput {
+        input.request = input.request.with_submitted(SubmittedGeography::new(
+            GeographicDescription::new(None, country, subdivision, postal.map(postal_code))
+                .unwrap()
+                .unwrap(),
+        ));
+        input
+    }
+
+    fn with_constraint(
+        mut input: ResolutionInput,
+        country: Option<CountryCode>,
+        subdivision: Option<SubdivisionCode>,
+    ) -> ResolutionInput {
+        input.request = input
+            .request
+            .with_constraint(GeographicConstraint::new(country, subdivision).unwrap());
+        input
+    }
+
+    fn accepted_description(e: &ResolutionEvidence) -> &GeographicDescription {
+        e.candidates[e.accepted_index.unwrap()]
+            .geography
+            .description()
+            .unwrap()
+    }
+
+    #[test]
+    fn should_accept_an_administrative_result_when_the_provider_returns_no_subdivision_for_a_submitted_one()
+     {
+        let british_columbia = iso_subdivision("CA-BC");
+        for submitted_country in [None, Some(CountryCode::CAN)] {
+            let input = with_submitted(
+                input("123 Street", Uuid::now_v7()),
+                submitted_country,
+                Some(british_columbia),
+                None,
+            );
+            let e = evidence(
+                &input,
+                vec![described_candidate(CountryCode::CAN, None, None, None)],
+            );
+            assert_eq!(
+                ResolutionStatus::Accepted,
+                e.status,
+                "{submitted_country:?}"
+            );
+            assert_eq!(
+                Some(CountryCode::CAN),
+                accepted_description(&e).country(),
+                "{submitted_country:?}"
+            );
+            assert_eq!(
+                None,
+                accepted_description(&e).subdivision(),
+                "the submitted subdivision is never copied into derived geography"
+            );
+        }
+    }
+
+    #[test]
+    fn should_accept_a_private_browsing_point_when_the_provider_returns_no_subdivision_for_a_submitted_one()
+     {
+        let input = with_submitted(
+            user_input(),
+            Some(CountryCode::DEU),
+            Some(iso_subdivision("DE-BE")),
+            Some("10115"),
+        );
+        let e = evidence(
+            &input,
+            vec![described_candidate(
+                CountryCode::DEU,
+                None,
+                Some("10115"),
+                Some(SpatialPrecision::Premises),
+            )],
+        );
+        assert_eq!(ResolutionStatus::Accepted, e.status);
+        assert!(
+            e.candidates[e.accepted_index.unwrap()]
+                .geography
+                .position()
+                .is_some()
+        );
+        assert_eq!(None, accepted_description(&e).subdivision());
+    }
+
+    #[test]
+    fn should_accept_a_picked_place_when_the_provider_returns_no_subdivision_for_a_submitted_one() {
+        let submitted = |input| {
+            with_submitted(
+                input,
+                Some(CountryCode::DEU),
+                Some(iso_subdivision("DE-BE")),
+                Some("10115"),
+            )
+            .with_selected_place(place())
+        };
+        for input in [
+            submitted(user_input()),
+            submitted(input("123 Street", Uuid::now_v7())),
+        ] {
+            let e = selected_evidence(
+                &input,
+                described_candidate(
+                    CountryCode::DEU,
+                    None,
+                    Some("10115"),
+                    Some(SpatialPrecision::Premises),
+                ),
+            );
+            assert_eq!(ResolutionStatus::Accepted, e.status, "{:?}", input.purpose);
+            assert!(
+                e.candidates[e.accepted_index.unwrap()]
+                    .geography
+                    .position()
+                    .is_some()
+            );
+            assert_eq!(None, accepted_description(&e).subdivision());
+        }
+    }
+
+    #[test]
+    fn should_leave_a_result_ambiguous_when_the_provider_returns_a_different_subdivision() {
+        let input = with_submitted(
+            input("123 Street", Uuid::now_v7()),
+            None,
+            Some(iso_subdivision("CA-BC")),
+            None,
+        );
+        let contradicting = || {
+            described_candidate(
+                CountryCode::CAN,
+                Some(iso_subdivision("CA-ON")),
+                None,
+                Some(SpatialPrecision::Premises),
+            )
+        };
+        let automatic = evidence(&input, vec![contradicting()]);
+        let picked =
+            selected_evidence(&input.clone().with_selected_place(place()), contradicting());
+        for e in [automatic, picked] {
+            assert_eq!(ResolutionStatus::Ambiguous, e.status);
+            assert!(e.accepted_index.is_none());
+            assert!(!e.candidates[0].acceptable);
+        }
+    }
+
+    #[test]
+    fn should_require_the_submitted_subdivisions_country_when_the_provider_returns_no_subdivision()
+    {
+        let input = with_submitted(
+            input("123 Street", Uuid::now_v7()),
+            None,
+            Some(iso_subdivision("CA-BC")),
+            None,
+        );
+        let derived = |country: Option<CountryCode>, subdivision: Option<SubdivisionCode>| {
+            DerivedGeography::new(
+                GeographicDescription::new(None, country, subdivision, Some(postal_code("10115")))
+                    .unwrap(),
+                None,
+            )
+            .unwrap()
+        };
+        assert!(candidate_compatible(
+            &input,
+            &derived(Some(CountryCode::CAN), None)
+        ));
+        assert!(!candidate_compatible(
+            &input,
+            &derived(Some(CountryCode::DEU), None)
+        ));
+        assert!(!candidate_compatible(&input, &derived(None, None)));
+    }
+
+    #[test]
+    fn should_keep_a_constraint_subdivision_strict_when_the_provider_returns_no_subdivision() {
+        let constrained = with_constraint(
+            input("123 Street", Uuid::now_v7()),
+            Some(CountryCode::CAN),
+            Some(iso_subdivision("CA-BC")),
+        );
+        let unverified = || {
+            let base = described_candidate(
+                CountryCode::CAN,
+                None,
+                None,
+                Some(SpatialPrecision::Premises),
+            );
+            GeocodingCandidate::new(
+                base.geography().cloned(),
+                vec![CandidateIssue::UnverifiedConstraint],
+                None,
+                base.provenance().clone(),
+            )
+        };
+        let unflagged = described_candidate(
+            CountryCode::CAN,
+            None,
+            None,
+            Some(SpatialPrecision::Premises),
+        );
+        for e in [
+            evidence(&constrained, vec![unflagged.clone()]),
+            evidence(&constrained, vec![unverified()]),
+            selected_evidence(&constrained.clone().with_selected_place(place()), unflagged),
+            selected_evidence(&constrained.with_selected_place(place()), unverified()),
+        ] {
+            assert_eq!(ResolutionStatus::Ambiguous, e.status);
+            assert!(e.accepted_index.is_none());
+            assert!(!e.candidates[0].acceptable);
+        }
     }
 }
