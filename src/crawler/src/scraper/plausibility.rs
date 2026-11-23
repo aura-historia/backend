@@ -677,13 +677,13 @@ fn resolves_to_availability(text: &str) -> bool {
         .is_some()
 }
 
-/// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
-/// "Sold for £500": the amount detector of the `state` check, which the review's page signals
+/// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113",
+/// "Sold for £500" or a range such as "1.000 bis 1.500 €": the amount detector of the `state` check, which the review's page signals
 /// reuse to tell that a page shows a price. Unlike the `state` check it ignores status labels,
 /// because a price element that says "Sold for £500" still shows a price.
 pub(crate) fn is_price_text(text: &str) -> bool {
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
-    let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪]");
+    let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪円원]");
     let code_before =
         regex!(r"(?i)\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron)\s*\d");
     let code_or_word_after = regex!(
@@ -916,6 +916,23 @@ mod tests {
         }
 
         #[test]
+        fn should_accept_a_price_range_when_the_price_states_one() {
+            for range in [
+                "€ 1.000 – 1.500",
+                "€1.250 - €2.500",
+                "1.000 bis 1.500 €",
+                "from £1,200 to £1,500",
+                "1,000円～1,500円",
+            ] {
+                let mut raw = plausible();
+                raw.price = Some(range.to_owned());
+
+                assert!(PlausibilityFindings::of(&raw).is_empty(), "{range}");
+                assert!(is_price_text(range), "{range}");
+            }
+        }
+
+        #[test]
         fn should_accept_a_state_and_price_of_exactly_label_length() {
             let mut raw = plausible();
             raw.state = Some(format!("  {}  ", "s".repeat(MAX_LABEL_CHARS)));
@@ -1061,6 +1078,9 @@ mod tests {
                 "GBP 265",
                 "75 euro",
                 "Prijs: 95",
+                "€ 1.000 – 1.500",
+                "1.000 bis 1.500 €",
+                "700円",
             ] {
                 let mut raw = plausible();
                 raw.state = Some(price.to_owned());

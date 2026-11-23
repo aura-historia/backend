@@ -91,7 +91,13 @@ impl ShownContent {
 fn offers_a_shown_price(html: &Html) -> bool {
     let offered: Vec<String> = json_ld_scripts(html)
         .filter_map(|json| json_ld_offer_value(&json, JsonLdOfferProperty::Price))
-        .filter_map(|price| whole_amount(&price))
+        .flat_map(|price| {
+            // An `AggregateOffer` range (`1000.00 - 1500.00 EUR`) offers both of its bounds.
+            price
+                .split(" - ")
+                .filter_map(whole_amount)
+                .collect::<Vec<_>>()
+        })
         .collect();
     !offered.is_empty() && shows_one_of_amounts(html, &offered)
 }
@@ -310,6 +316,24 @@ mod tests {
             (false, false)
         );
         assert_eq!(signals_of(&shown("not json", row)), (false, false));
+    }
+
+    #[test]
+    fn should_see_a_price_range_when_a_price_element_or_the_json_ld_offers_one() {
+        assert_eq!(
+            signals_of("<span class=\"price\">€ 1.000 – 1.500</span>"),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of("<span class=\"price\">1.000 bis 1.500 €</span>"),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of(
+                r#"<h1>Mirror</h1><p>ab 1.500 €</p><script type="application/ld+json">{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"1000.00","highPrice":"1500.00","priceCurrency":"EUR"}}</script>"#
+            ),
+            (true, false)
+        );
     }
 
     /// A price-on-request shop that publishes the price in its JSON-LD but shows visitors none, or
