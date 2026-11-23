@@ -329,18 +329,20 @@ Storage bucket, because a batch cannot fetch HTTP URLs; the JSONL requests refer
 objects by `gs://` URI and the job writes its output under the same prefix. A batch request
 carries the same text and image bytes as a synchronous request, without preprocessing on either
 path, so vectors from both paths share one index. An image that cannot be fetched is left out,
-as on the synchronous path. Requests a canceled or expired job did not reach, and failures where
-the provider could not be asked or did not answer, return to the queue unchanged; a rejected
-request, a failed job's unanswered requests or a failed guarded write spends one of an
-embedding's three attempts. Spent work and documents no provider can embed, such as a blank
-title, are parked until the content changes. A round settles work only while it is still where
+as on the synchronous path. Requests a job did not judge, because it was canceled, expired or
+failed as a whole, and failures where the provider could not be asked or did not answer, return
+to the queue unchanged; a rejected request, a request a succeeded job left unanswered, or a failed
+guarded write spends one of an embedding's three attempts. Spent work and persisted documents no
+provider can embed, such as a blank title or an invalid image URL, are parked alone until the
+content changes. A round settles work only while it is still where
 the round found it, so several workers may run rounds side by side.
 
 A listing without an embedding is still found lexically. Saved-search matching runs daily at
-15:00 UTC, so the host's `embedding-sweep` job embeds the work still pending at 14:00 UTC
-synchronously; only that leftover pays the synchronous price. Work inside a running batch stays
-there. An embedding that lands after the match advances the listing's `updated`, so the next
-match picks it up. Operations are in the
+15:00 UTC, so the host's `embedding-sweep` job embeds every embedding still unsettled at 14:00
+UTC synchronously, including work inside a batch that has not ended; that batch's result then
+settles as a duplicate. Only this leftover pays the synchronous price, and the work in flight at
+14:00 once more at the batch price. The sweep stops after 45 minutes. An embedding that lands
+after the match advances the listing's `updated`, so the next match picks it up. Operations are in the
 [runbook](durable-worker-runbook.md#product-embedding-recovery).
 
 ## Source anti-corruption rules

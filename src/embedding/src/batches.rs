@@ -63,9 +63,9 @@ pub struct EndedEmbeddingBatch {
 /// What the provider's end state says about the requests it did not answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnansweredEmbeddings {
-    /// The batch was canceled or expired before it reached them.
+    /// The batch did not judge them: it was canceled, expired or failed as a whole.
     NotProcessed,
-    /// The batch ran and gave up on them.
+    /// The batch ran every request, so one it did not answer failed on its own.
     Failed,
 }
 

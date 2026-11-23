@@ -15,8 +15,8 @@ use crate::{
     VertexAiEmbeddingConfig,
     cloud_storage::CloudStorageBucket,
     vertex::{
-        CONNECT_TIMEOUT, EmbedContentResponse, GEMINI_EMBEDDING_MODEL_RESOURCE, fetch_image,
-        location_resource, product_text,
+        CONNECT_TIMEOUT, EmbedContentResponse, GEMINI_EMBEDDING_MODEL_RESOURCE, api_endpoint,
+        fetch_image, location_resource, product_text,
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
@@ -72,10 +72,7 @@ impl VertexAiProductEmbeddingBatches {
                 reason: "Vertex AI location has no gemini-embedding-2 batch prediction",
             });
         }
-        let api_base_url = match location {
-            "global" => "https://aiplatform.googleapis.com/v1".to_owned(),
-            location => format!("https://{location}-aiplatform.googleapis.com/v1"),
-        };
+        let api_base_url = format!("{}/v1", api_endpoint(&config.embedding));
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
@@ -288,10 +285,10 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
     async fn poll(&self, batch: &EmbeddingBatchId) -> Result<EmbeddingBatchPoll, EmbeddingError> {
         let token = self.access_token().await?;
         let job = self.get_job(&token, batch).await?;
-        let unanswered = match JobState::of(&job.state)? {
+        let unanswered = match JobState::of(&job.state) {
             JobState::Running => return Ok(EmbeddingBatchPoll::InProgress),
-            JobState::Ran => UnansweredEmbeddings::Failed,
-            JobState::Stopped => UnansweredEmbeddings::NotProcessed,
+            JobState::Succeeded => UnansweredEmbeddings::Failed,
+            JobState::Failed | JobState::Stopped => UnansweredEmbeddings::NotProcessed,
         };
         Ok(EmbeddingBatchPoll::Ended(EndedEmbeddingBatch {
             results: self.read_results(&token, &job).await?,
@@ -303,30 +300,26 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
 /// The job states, by what they mean for its unanswered requests.
 #[derive(Debug, PartialEq, Eq)]
 enum JobState {
-    /// Not ended yet; a paused job resumes.
+    /// Not ended, as far as this adapter knows. A paused job resumes; a state it does not know
+    /// is waited out rather than closed, because closing a job Vertex AI still runs would pay
+    /// for its work twice.
     Running,
-    /// Ended after running every request it could.
-    Ran,
+    /// Ran every request; a request missing from the output failed on its own.
+    Succeeded,
+    /// The job as a whole failed, such as for a missing permission or quota. That says nothing
+    /// about its documents.
+    Failed,
     /// Canceled or expired before it reached every request.
     Stopped,
 }
 
 impl JobState {
-    fn of(state: &str) -> Result<Self, EmbeddingError> {
+    fn of(state: &str) -> Self {
         match state {
-            "JOB_STATE_PENDING"
-            | "JOB_STATE_QUEUED"
-            | "JOB_STATE_RUNNING"
-            | "JOB_STATE_CANCELLING"
-            | "JOB_STATE_UPDATING"
-            | "JOB_STATE_PAUSED" => Ok(Self::Running),
-            "JOB_STATE_SUCCEEDED" | "JOB_STATE_PARTIALLY_SUCCEEDED" | "JOB_STATE_FAILED" => {
-                Ok(Self::Ran)
-            }
-            "JOB_STATE_CANCELLED" | "JOB_STATE_EXPIRED" => Ok(Self::Stopped),
-            _ => Err(EmbeddingError::InvalidResponse {
-                reason: "batch job state is unknown",
-            }),
+            "JOB_STATE_SUCCEEDED" | "JOB_STATE_PARTIALLY_SUCCEEDED" => Self::Succeeded,
+            "JOB_STATE_FAILED" => Self::Failed,
+            "JOB_STATE_CANCELLED" | "JOB_STATE_EXPIRED" => Self::Stopped,
+            _ => Self::Running,
         }
     }
 }
@@ -723,14 +716,32 @@ mod tests {
     }
 
     #[test]
-    fn should_classify_every_job_state_and_reject_unknown_ones() {
-        assert_eq!(JobState::Running, JobState::of("JOB_STATE_PAUSED").unwrap());
-        assert_eq!(JobState::Ran, JobState::of("JOB_STATE_FAILED").unwrap());
+    fn should_classify_job_states_and_wait_out_unknown_ones() {
+        assert_eq!(JobState::Running, JobState::of("JOB_STATE_PAUSED"));
         assert_eq!(
-            JobState::Stopped,
-            JobState::of("JOB_STATE_EXPIRED").unwrap()
+            JobState::Succeeded,
+            JobState::of("JOB_STATE_PARTIALLY_SUCCEEDED")
         );
-        assert!(JobState::of("JOB_STATE_UNSPECIFIED").is_err());
+        assert_eq!(JobState::Failed, JobState::of("JOB_STATE_FAILED"));
+        assert_eq!(JobState::Stopped, JobState::of("JOB_STATE_EXPIRED"));
+        assert_eq!(JobState::Running, JobState::of("JOB_STATE_UNSPECIFIED"));
+    }
+
+    #[test]
+    fn should_address_the_regional_endpoint_of_a_multi_region() {
+        let batches = VertexAiProductEmbeddingBatches::new(
+            VertexAiBatchConfig::new(
+                VertexAiEmbeddingConfig::new("test-project", "eu"),
+                "staging",
+            ),
+            AccessTokenCredentials::from(TestCredentials::Issued),
+        )
+        .unwrap();
+
+        assert_eq!(
+            "https://aiplatform.eu.rep.googleapis.com/v1/projects/test-project/locations/eu/batchPredictionJobs",
+            batches.jobs_url
+        );
     }
 
     #[test]

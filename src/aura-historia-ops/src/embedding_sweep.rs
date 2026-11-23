@@ -1,4 +1,4 @@
-//! The product embedding sweep before the daily periodic match: embeds the work still pending
+//! The product embedding sweep before the daily periodic match: embeds the work still unsettled
 //! synchronously, so the match sees it ([embeddings](../../../docs/product-listing.md#embeddings)).
 
 use crate::OpsError;
@@ -41,8 +41,8 @@ pub(crate) async fn run() -> Result<Value, OpsError> {
     sweep_pending_embeddings(&sweep).await
 }
 
-/// Runs one sweep. It fails when it swept work but settled none of it, because the provider
-/// was unavailable throughout: that work still misses the match, so the job's alarm must see it.
+/// Runs one sweep. It fails when Vertex AI answered none of the work it swept, or when a result
+/// could not be settled: that work still misses the match, so the job's alarm must see it.
 pub async fn sweep_pending_embeddings(
     sweep: &dyn SweepProductListingEmbeddingsUseCase,
 ) -> Result<Value, OpsError> {
@@ -65,9 +65,22 @@ pub async fn sweep_pending_embeddings(
         requeued = settlements.requeued,
         parked = settlements.parked,
         write_failures = settlements.write_failures,
+        unavailable = report.unavailable,
+        settlement_failures = report.settlement_failures,
+        out_of_time = report.out_of_time,
     );
+    if report.out_of_time > 0 {
+        tracing::warn!(
+            event = "product.embedding.sweep.out_of_time",
+            out_of_time = report.out_of_time,
+            "The sweep stopped before the match with work left unembedded"
+        );
+    }
     if provider_unavailable_throughout(&report) {
         return Err(OpsError::failed(COMMAND, ProviderUnavailable));
+    }
+    if report.settlement_failures > 0 {
+        return Err(OpsError::failed(COMMAND, SettlementFailed));
     }
     Ok(json!({
         "outcome": "success",
@@ -78,11 +91,13 @@ pub async fn sweep_pending_embeddings(
         "requeued": settlements.requeued,
         "parked": settlements.parked,
         "writeFailures": settlements.write_failures,
+        "unavailable": report.unavailable,
+        "outOfTime": report.out_of_time,
     }))
 }
 
 fn provider_unavailable_throughout(report: &ProductEmbeddingSweepReport) -> bool {
-    report.swept > 0 && report.settlements.requeued == report.swept
+    report.swept > 0 && report.unavailable == report.swept
 }
 
 /// Names only the failed step; the cause can carry provider text.
@@ -94,19 +109,24 @@ struct SweepFailed(&'static str, #[source] ProductEmbeddingWorkError);
 #[error("Vertex AI was unavailable for every swept embedding")]
 struct ProviderUnavailable;
 
+#[derive(Debug, thiserror::Error)]
+#[error("some swept embeddings could not be settled in PostgreSQL")]
+struct SettlementFailed;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use product_listing_service::use_cases::ProductEmbeddingSettlements;
 
-    fn report(swept: usize, requeued: usize, applied: usize) -> ProductEmbeddingSweepReport {
+    fn report(swept: usize, unavailable: usize, applied: usize) -> ProductEmbeddingSweepReport {
         ProductEmbeddingSweepReport {
             swept,
+            unavailable,
             settlements: ProductEmbeddingSettlements {
                 applied,
-                requeued,
                 ..Default::default()
             },
+            ..Default::default()
         }
     }
 

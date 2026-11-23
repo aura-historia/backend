@@ -9,22 +9,25 @@ use crate::product_listing_embedding_source_reader::{
 };
 use application::error::{box_error, static_error};
 use platform_postgres::SqlxTransaction;
+use product_listing_core::{description::Description, title::Title};
 use product_listing_service::ports::{
-    BatchedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding, ProductEmbeddingAssignment,
-    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
-    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
-    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
-    SubmittedProductEmbeddingBatch,
+    BatchedProductEmbedding, ClaimedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding,
+    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
+    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
+    ProductListingEmbeddingQueueError, ProductListingEmbeddingQueueFactory,
+    ProductListingEmbeddingQueueReader, SubmittedProductEmbeddingBatch,
 };
+use product_listing_service::use_cases::MAX_EMBEDDING_ATTEMPTS as MAX_ATTEMPTS;
 use sqlx::{PgConnection, PgPool};
 use std::time::Duration;
+use url::Url;
 
 type QueueResult<T> = Result<T, ProductListingEmbeddingQueueError>;
 
 /// Selects current work: the work row joined with its listing at the work's revision.
 macro_rules! select_current_work {
     () => {
-        "SELECT work.product_listing_id, work.source_event_id, work.attempts,
+        "SELECT work.product_listing_id, work.source_event_id, work.attempts, work.batch_id,
                 work.batch_position, listing.title_text, listing.title_language,
                 listing.description_text, listing.description_language, listing.product_images
          FROM product_listing_embedding_work work
@@ -66,6 +69,7 @@ struct CurrentWorkRow {
     product_listing_id: uuid::Uuid,
     source_event_id: uuid::Uuid,
     attempts: i16,
+    batch_id: Option<uuid::Uuid>,
     batch_position: Option<i32>,
     title_text: String,
     title_language: String,
@@ -74,43 +78,105 @@ struct CurrentWorkRow {
     product_images: serde_json::Value,
 }
 
+/// Work whose persisted document no provider could be given; it is parked or skipped alone.
+struct InvalidWork {
+    work: ProductEmbeddingWorkRef,
+    reason: &'static str,
+}
+
+impl InvalidWork {
+    fn log(&self) {
+        tracing::warn!(
+            event = "product.embedding.work_invalid",
+            product_listing_id = %self.work.product_listing_id,
+            source_event_id = %self.work.source_event_id,
+            reason = self.reason,
+            "Persisted embedding document is invalid; the work is parked"
+        );
+    }
+}
+
+/// A row's work, or `Err` for invalid identifiers, which fail the whole read closed; inside,
+/// the mapped item or the work whose document is invalid.
+type MappedRow<T> = QueueResult<Result<T, InvalidWork>>;
+
 impl CurrentWorkRow {
-    fn pending(self) -> QueueResult<PendingProductEmbedding> {
+    fn work(&self) -> QueueResult<ProductEmbeddingWorkRef> {
         let mapping = |source| ProductListingEmbeddingQueueError::InvalidPersistedState {
             source: box_error(source),
         };
-        let title = localized_title(Some(self.title_text), Some(self.title_language))
-            .map_err(invalid_state)?
-            .ok_or_else(|| invalid_state("persisted title of embedding work is empty"))?;
-        let description = localized_description(self.description_text, self.description_language)
-            .map_err(invalid_state)?
-            .map(|description| description.payload)
-            .filter(|description| !description.as_ref().is_empty());
-        Ok(PendingProductEmbedding {
-            work: ProductEmbeddingWorkRef {
-                product_listing_id: try_from_uuid(self.product_listing_id, "ProductListing ID")
-                    .map_err(mapping)?,
-                source_event_id: try_from_uuid(self.source_event_id, "event ID")
-                    .map_err(mapping)?,
-            },
-            title: title.payload,
-            description,
-            image_url: first_image_url(self.product_images).map_err(invalid_state)?,
-            attempts: u16::try_from(self.attempts)
-                .map_err(|_| invalid_state("persisted embedding attempts are invalid"))?,
+        Ok(ProductEmbeddingWorkRef {
+            product_listing_id: try_from_uuid(self.product_listing_id, "ProductListing ID")
+                .map_err(mapping)?,
+            source_event_id: try_from_uuid(self.source_event_id, "event ID").map_err(mapping)?,
         })
     }
 
-    fn batched(self) -> QueueResult<BatchedProductEmbedding> {
+    fn claim(&self) -> ProductEmbeddingClaim {
+        self.batch_id
+            .map_or(ProductEmbeddingClaim::Pending, |batch| {
+                ProductEmbeddingClaim::Batch(ProductEmbeddingBatchKey::from_uuid(batch))
+            })
+    }
+
+    fn pending(self) -> MappedRow<PendingProductEmbedding> {
+        let work = self.work()?;
+        let attempts = u16::try_from(self.attempts)
+            .map_err(|_| invalid_state("persisted embedding attempts are invalid"))?;
+        Ok(self
+            .document()
+            .map(|(title, description, image_url)| PendingProductEmbedding {
+                work,
+                title,
+                description,
+                image_url,
+                attempts,
+            })
+            .map_err(|reason| InvalidWork { work, reason }))
+    }
+
+    fn document(self) -> Result<(Title, Option<Description>, Option<Url>), &'static str> {
+        let title = localized_title(Some(self.title_text), Some(self.title_language))?
+            .ok_or("persisted title of embedding work is empty")?;
+        let description = localized_description(self.description_text, self.description_language)?
+            .map(|description| description.payload)
+            .filter(|description| !description.as_ref().is_empty());
+        Ok((
+            title.payload,
+            description,
+            first_image_url(self.product_images)?,
+        ))
+    }
+
+    fn batched(self) -> MappedRow<BatchedProductEmbedding> {
         let position = self
             .batch_position
             .and_then(|position| u32::try_from(position).ok())
             .ok_or_else(|| invalid_state("batched embedding work has no valid position"))?;
-        Ok(BatchedProductEmbedding {
+        Ok(self.pending()?.map(|embedding| BatchedProductEmbedding {
             position,
-            embedding: self.pending()?,
-        })
+            embedding,
+        }))
     }
+
+    fn claimed(self) -> MappedRow<ClaimedProductEmbedding> {
+        let claim = self.claim();
+        Ok(self
+            .pending()?
+            .map(|embedding| ClaimedProductEmbedding { claim, embedding }))
+    }
+}
+
+/// The valid items of a read; invalid work is logged and left out.
+fn valid<T>(rows: Vec<MappedRow<T>>) -> QueueResult<Vec<T>> {
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        match row? {
+            Ok(item) => items.push(item),
+            Err(invalid) => invalid.log(),
+        }
+    }
+    Ok(items)
 }
 
 fn to_db_attempts(attempts: u16) -> QueueResult<i16> {
@@ -234,8 +300,9 @@ impl ProductListingEmbeddingQueue for SqlxProductListingEmbeddingQueue<'_> {
         Ok(deleted.rows_affected())
     }
 
+    /// Work whose document is invalid is parked here, alone, so it cannot hold back the queue.
     async fn lock_pending(&mut self, limit: u32) -> QueueResult<Vec<PendingProductEmbedding>> {
-        sqlx::query_as::<_, CurrentWorkRow>(concat!(
+        let rows = sqlx::query_as::<_, CurrentWorkRow>(concat!(
             select_current_work!(),
             "
             WHERE work.batch_id IS NULL AND work.parked IS NULL
@@ -247,10 +314,19 @@ impl ProductListingEmbeddingQueue for SqlxProductListingEmbeddingQueue<'_> {
         .bind(i64::from(limit))
         .fetch_all(&mut *self.connection)
         .await
-        .map_err(sql)?
-        .into_iter()
-        .map(CurrentWorkRow::pending)
-        .collect()
+        .map_err(sql)?;
+        let mut pending = Vec::with_capacity(rows.len());
+        for row in rows {
+            match row.pending()? {
+                Ok(item) => pending.push(item),
+                Err(invalid) => {
+                    invalid.log();
+                    self.park(invalid.work, ProductEmbeddingClaim::Pending, MAX_ATTEMPTS)
+                        .await?;
+                }
+            }
+        }
+        Ok(pending)
     }
 
     async fn create_batch(
@@ -467,7 +543,7 @@ impl ProductListingEmbeddingQueueReader for SqlxProductListingEmbeddingQueueRead
         &self,
         key: ProductEmbeddingBatchKey,
     ) -> QueueResult<Vec<BatchedProductEmbedding>> {
-        sqlx::query_as::<_, CurrentWorkRow>(concat!(
+        let rows = sqlx::query_as::<_, CurrentWorkRow>(concat!(
             select_current_work!(),
             "
             WHERE work.batch_id = $1
@@ -477,17 +553,15 @@ impl ProductListingEmbeddingQueueReader for SqlxProductListingEmbeddingQueueRead
         .bind(key.as_uuid())
         .fetch_all(&self.pool)
         .await
-        .map_err(sql)?
-        .into_iter()
-        .map(CurrentWorkRow::batched)
-        .collect()
+        .map_err(sql)?;
+        valid(rows.into_iter().map(CurrentWorkRow::batched).collect())
     }
 
-    async fn pending(&self, limit: u32) -> QueueResult<Vec<PendingProductEmbedding>> {
-        sqlx::query_as::<_, CurrentWorkRow>(concat!(
+    async fn unsettled(&self, limit: u32) -> QueueResult<Vec<ClaimedProductEmbedding>> {
+        let rows = sqlx::query_as::<_, CurrentWorkRow>(concat!(
             select_current_work!(),
             "
-            WHERE work.batch_id IS NULL AND work.parked IS NULL
+            WHERE work.parked IS NULL
             ORDER BY work.enqueued, work.product_listing_id
             LIMIT $1
             "
@@ -495,10 +569,8 @@ impl ProductListingEmbeddingQueueReader for SqlxProductListingEmbeddingQueueRead
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
         .await
-        .map_err(sql)?
-        .into_iter()
-        .map(CurrentWorkRow::pending)
-        .collect()
+        .map_err(sql)?;
+        valid(rows.into_iter().map(CurrentWorkRow::claimed).collect())
     }
 }
 

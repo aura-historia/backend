@@ -94,11 +94,11 @@ pub use product_listing_details_reader::{
     ProductListingDetailsReaderFactory, ProductListingLot,
 };
 pub use product_listing_embedding_queue::{
-    BatchedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding, ProductEmbeddingAssignment,
-    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
-    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
-    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
-    SubmittedProductEmbeddingBatch,
+    BatchedProductEmbedding, ClaimedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding,
+    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
+    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
+    ProductListingEmbeddingQueueError, ProductListingEmbeddingQueueFactory,
+    ProductListingEmbeddingQueueReader, SubmittedProductEmbeddingBatch,
 };
 pub use product_listing_embedding_reader::{
     ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,

@@ -2,13 +2,14 @@
 //! The queue follows the claim rules of the PostgreSQL adapter.
 
 use crate::ports::{
-    BatchedProductEmbedding, PendingProductEmbedding, ProductEmbeddingAssignment,
-    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
-    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
-    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
-    ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
-    ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
-    ProductListingEmbeddingWriterFactory, SubmittedProductEmbeddingBatch,
+    BatchedProductEmbedding, ClaimedProductEmbedding, PendingProductEmbedding,
+    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
+    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
+    ProductListingEmbeddingQueueError, ProductListingEmbeddingQueueFactory,
+    ProductListingEmbeddingQueueReader, ProductListingEmbeddingWrite,
+    ProductListingEmbeddingWriteError, ProductListingEmbeddingWriteOutcome,
+    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory,
+    SubmittedProductEmbeddingBatch,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
@@ -41,11 +42,15 @@ pub(crate) struct State {
     pub writes: Vec<ProductListingEmbeddingWrite>,
     pub write_outcome: Option<ProductListingEmbeddingWriteOutcome>,
     pub write_fails: bool,
+    /// Fails the next transaction to begin, as an unreachable PostgreSQL would.
+    pub begin_fails_once: bool,
     pub submitted: Vec<(String, Vec<ProductEmbeddingRequest>)>,
     pub submission_fails: bool,
     pub polls: VecDeque<Result<EmbeddingBatchPoll, EmbeddingError>>,
     pub generated: Vec<String>,
     pub generation_error: Option<fn() -> EmbeddingError>,
+    /// Never answers a product embedding.
+    pub generation_stalls: bool,
 }
 
 /// Every port of the embedding use cases over one shared state.
@@ -144,6 +149,11 @@ impl Transaction for Tx {
 impl UnitOfWork for World {
     type Tx = Tx;
     async fn begin(&self) -> Result<Tx, TransactionError> {
+        if std::mem::take(&mut self.state().begin_fails_once) {
+            return Err(TransactionError::BeginFailed(Box::new(
+                std::io::Error::other("connection lost"),
+            )));
+        }
         Ok(Tx)
     }
 }
@@ -170,7 +180,14 @@ impl ProductListingEmbeddingQueue for World {
     }
 
     async fn lock_pending(&mut self, limit: u32) -> QueueResult<Vec<PendingProductEmbedding>> {
-        ProductListingEmbeddingQueueReader::pending(self, limit).await
+        Ok(self
+            .state()
+            .work
+            .iter()
+            .filter(|row| row.batch.is_none() && !row.parked)
+            .take(limit as usize)
+            .map(|row| row.pending.clone())
+            .collect())
     }
 
     async fn create_batch(
@@ -287,14 +304,21 @@ impl ProductListingEmbeddingQueueReader for World {
             .collect())
     }
 
-    async fn pending(&self, limit: u32) -> QueueResult<Vec<PendingProductEmbedding>> {
+    async fn unsettled(&self, limit: u32) -> QueueResult<Vec<ClaimedProductEmbedding>> {
         Ok(self
             .state()
             .work
             .iter()
-            .filter(|row| row.batch.is_none() && !row.parked)
+            .filter(|row| !row.parked)
             .take(limit as usize)
-            .map(|row| row.pending.clone())
+            .map(|row| ClaimedProductEmbedding {
+                claim: row
+                    .batch
+                    .map_or(ProductEmbeddingClaim::Pending, |(key, _)| {
+                        ProductEmbeddingClaim::Batch(key)
+                    }),
+                embedding: row.pending.clone(),
+            })
             .collect())
     }
 }
@@ -355,6 +379,9 @@ impl EmbeddingGenerator for World {
         _: Option<&EmbeddingText>,
         _: Option<&EmbeddingImageUrl>,
     ) -> Result<EmbeddingVector, EmbeddingError> {
+        if self.state().generation_stalls {
+            std::future::pending::<()>().await;
+        }
         let mut state = self.state();
         state.generated.push(title.as_str().to_owned());
         match state.generation_error {

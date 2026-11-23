@@ -130,8 +130,9 @@ where
     W: ProductListingEmbeddingWriterFactory<U::Tx>,
 {
     /// Settles every current item of an ended batch, then closes it. A batch whose results
-    /// cannot be read now is left for the next round; one whose results the provider rejected
-    /// for good fails every item once.
+    /// cannot be read now is left for the next round; one the provider rejected for good returns
+    /// its items to the queue without spending attempts, because that says nothing about their
+    /// documents. The backlog-age alarm catches a provider that keeps rejecting.
     async fn collect(
         &self,
         batch: &SubmittedProductEmbeddingBatch,
@@ -152,11 +153,11 @@ where
                     event = "product.embedding.batch_unreadable",
                     provider_batch_id = %batch.provider_batch_id,
                     error_category = error.diagnostic_category(),
-                    "Embedding batch results were rejected; its embeddings are retried"
+                    "Embedding batch results were rejected; its embeddings are submitted again"
                 );
                 EndedEmbeddingBatch {
                     results: Vec::new(),
-                    unanswered: UnansweredEmbeddings::Failed,
+                    unanswered: UnansweredEmbeddings::NotProcessed,
                 }
             }
         };
@@ -511,7 +512,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_every_item_once_when_the_provider_rejects_the_results() {
+    async fn should_return_every_item_unspent_when_the_provider_rejects_the_results() {
         let world = World::default();
         let work = world.add_pending("Ancient vase");
         world.submitted(&[work]);
@@ -523,7 +524,7 @@ mod tests {
         let report = handler(&world).execute(&system()).await.unwrap();
 
         assert_eq!(1, report.batches_collected);
-        assert_eq!(1, world.row(work).unwrap().pending.attempts);
+        assert_eq!(0, world.row(work).unwrap().pending.attempts);
     }
 
     #[tokio::test]

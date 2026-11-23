@@ -209,7 +209,8 @@ export function stageConfig(stage: StageName): StageConfig {
         "periodic-match": 27 * 60 * 60,
       },
       // A batch job's 24-hour target turnaround, the 30-minute round interval and half a day's
-      // slack; the daily sweep embeds pending work, but not work inside a running batch.
+      // slack. The daily sweep embeds everything unsettled, so only a failing sweep, or work that
+      // keeps failing, gets this old.
       maximumPendingEmbeddingAgeSeconds: 36 * 60 * 60,
       crawler: {
         logGroupName: `/aura-historia/${stage}/host/crawler`,

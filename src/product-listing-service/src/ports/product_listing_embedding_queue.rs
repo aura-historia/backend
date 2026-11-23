@@ -46,6 +46,13 @@ pub struct BatchedProductEmbedding {
     pub embedding: PendingProductEmbedding,
 }
 
+/// Work and where it was read: pending or in a batch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaimedProductEmbedding {
+    pub claim: ProductEmbeddingClaim,
+    pub embedding: PendingProductEmbedding,
+}
+
 /// The local identity of a batch, assigned before the provider knows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProductEmbeddingBatchKey(uuid::Uuid);
@@ -199,9 +206,10 @@ pub trait ProductListingEmbeddingQueueReader: Send + Sync {
         key: ProductEmbeddingBatchKey,
     ) -> Result<Vec<BatchedProductEmbedding>, ProductListingEmbeddingQueueError>;
 
-    /// Up to `limit` current pending work items, oldest first.
-    async fn pending(
+    /// Up to `limit` current work items that are neither committed nor parked, pending or in a
+    /// batch, oldest first, each with where it is.
+    async fn unsettled(
         &self,
         limit: u32,
-    ) -> Result<Vec<PendingProductEmbedding>, ProductListingEmbeddingQueueError>;
+    ) -> Result<Vec<ClaimedProductEmbedding>, ProductListingEmbeddingQueueError>;
 }

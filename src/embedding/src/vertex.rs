@@ -183,18 +183,24 @@ impl EmbeddingGenerator for VertexAiEmbeddingGenerator {
 }
 
 fn build_embed_content_url(config: &VertexAiEmbeddingConfig) -> String {
-    let endpoint = match config.location() {
+    format!(
+        "{}/v1/{}/{GEMINI_EMBEDDING_MODEL_RESOURCE}:embedContent",
+        api_endpoint(config),
+        location_resource(config),
+    )
+}
+
+/// The Vertex AI host serving `config`'s location: the `us` and `eu` multi-regions have regional
+/// endpoints of their own.
+pub(crate) fn api_endpoint(config: &VertexAiEmbeddingConfig) -> String {
+    match config.location() {
         "us" | "eu" => format!(
             "https://aiplatform.{}.rep.googleapis.com",
             config.location()
         ),
         "global" => "https://aiplatform.googleapis.com".to_owned(),
         location => format!("https://{location}-aiplatform.googleapis.com"),
-    };
-    format!(
-        "{endpoint}/v1/{}/{GEMINI_EMBEDDING_MODEL_RESOURCE}:embedContent",
-        location_resource(config),
-    )
+    }
 }
 
 /// `projects/<project>/locations/<location>`, the parent of every Vertex AI resource used here.

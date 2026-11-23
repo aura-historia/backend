@@ -118,8 +118,18 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
             "superseded work is discarded before submission"
         );
         assert!(
-            reader.pending(10).await?.is_empty(),
+            lock(&unit_of_work, 10).await?.is_empty(),
             "batched work is not pending"
+        );
+        assert_eq!(
+            vec![ProductEmbeddingClaim::Batch(key); 2],
+            reader
+                .unsettled(10)
+                .await?
+                .iter()
+                .map(|item| item.claim)
+                .collect::<Vec<_>>(),
+            "batched work is unsettled"
         );
 
         in_queue(&unit_of_work, |queue| {
@@ -135,7 +145,7 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
         in_queue(&unit_of_work, |queue| Box::pin(queue.close_batch(key))).await?;
 
         assert!(reader.submitted_batches().await?.is_empty());
-        let pending = reader.pending(10).await?;
+        let pending = lock(&unit_of_work, 10).await?;
         assert_eq!(
             vec![(first, 1)],
             pending
@@ -151,14 +161,14 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
         .await?;
         assert_eq!(
             1,
-            reader.pending(10).await?.len(),
+            lock(&unit_of_work, 10).await?.len(),
             "another claim's work stays"
         );
         in_queue(&unit_of_work, |queue| {
             Box::pin(queue.complete(first, ProductEmbeddingClaim::Pending))
         })
         .await?;
-        assert!(reader.pending(10).await?.is_empty());
+        assert!(reader.unsettled(10).await?.is_empty());
 
         let newer = advance_content(&pool, second.product_listing_id, "Barocke Truhe").await?;
         schedule(&unit_of_work, newer).await?;
@@ -223,6 +233,44 @@ async fn should_lock_pending_work_for_one_submitter_and_release_abandoned_submis
             .fetch_one(&pool)
             .await?;
         assert_eq!(0, remaining, "work is deleted with its listing");
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_park_work_with_an_invalid_document_without_holding_back_the_rest() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let reader = SqlxProductListingEmbeddingQueueReader::new(pool.clone());
+        let invalid = insert_listing(&pool, "Antiker Stuhl").await?;
+        let valid = insert_listing(&pool, "Barocke Kommode").await?;
+        for work in [invalid, valid] {
+            schedule(&unit_of_work, work).await?;
+        }
+        sqlx::query(r#"UPDATE product_listings SET product_images = '[{"url": "ftp://example.test/a.jpg"}]' WHERE product_listing_id = $1"#)
+            .bind(invalid.product_listing_id.as_uuid())
+            .execute(&pool)
+            .await?;
+
+        assert_eq!(
+            vec![valid],
+            reader.unsettled(10).await?.iter().map(|item| item.embedding.work).collect::<Vec<_>>(),
+            "the sweep skips it"
+        );
+        assert_eq!(
+            vec![valid],
+            lock(&unit_of_work, 10).await?.iter().map(|item| item.work).collect::<Vec<_>>()
+        );
+        let parked: bool = sqlx::query_scalar(
+            "SELECT parked IS NOT NULL FROM product_listing_embedding_work WHERE product_listing_id = $1",
+        )
+        .bind(invalid.product_listing_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert!(parked, "submission parks it");
         Ok(())
     }
     .await;

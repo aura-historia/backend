@@ -269,19 +269,23 @@ which is ever purged except by settlement.
   counts and `turnaround_seconds` (from submission to the round that collected it). A batch that
   cannot be collected logs `product.embedding.batch_failed` and is retried next round without
   holding back other batches or new work; a vector whose guarded write fails logs
-  `product.embedding.write_failed` and spends an attempt.
+  `product.embedding.write_failed` and spends an attempt. Work whose persisted document is
+  invalid logs `product.embedding.work_invalid` and is parked alone. The worker keeps these
+  records at `info` whatever `LOG_LEVEL` says.
 - The `…-host-embedding-backlog-age` alarm fires when work that is neither committed nor parked
-  is 36 hours old: the rounds are not running, submissions fail, or a job is stuck. Check the
-  worker logs and the job in the Vertex AI console by its ID. The sweep does not take work inside
-  a running batch.
+  is 36 hours old: the rounds are not running, submissions fail, or jobs keep failing as a whole
+  (a missing bucket permission or quota returns their work unspent, so it is resubmitted every
+  round). Check the worker logs and the job in the Vertex AI console by its ID.
 - A batch whose submission was not recorded within two hours is closed and its work returns to
   the queue. If Vertex AI accepted the job anyway, it runs unread and is billed once more.
 - The staging bucket's lifecycle rule deletes objects after 7 days, longer than a job may queue
-  and run (72 hours) plus a round. A job whose output is gone when it is collected fails each of
-  its embeddings once, and they are submitted again.
-- `ops embedding-sweep` runs at 14:00 UTC (`aura-prod-embedding-sweep`). It fails when Vertex AI
-  answered none of the work it swept; the work then stays pending for the rounds. A manual run is
-  safe at any time; it pays the synchronous price.
+  and run (72 hours) plus a round. A job whose output can no longer be read returns its work
+  unspent, and it is submitted again.
+- `ops embedding-sweep` runs at 14:00 UTC (`aura-prod-embedding-sweep`) and logs
+  `product.embedding.sweep.completed`. It fails when Vertex AI answered none of the work it swept
+  or a result could not be settled; that work stays where it was for the rounds. It stops after
+  45 minutes and then logs `product.embedding.sweep.out_of_time`. A manual run is safe at any
+  time; it pays the synchronous price, also for work in running batches.
 - Parked work (`parked IS NOT NULL`) spent three attempts or cannot be embedded. It waits for a
   content change. To retry it after fixing a cause, set `parked` to `NULL` and `attempts` to `0`
   for the selected listings; never delete work to silence it.
