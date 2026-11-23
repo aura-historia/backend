@@ -1813,6 +1813,7 @@ mod tests {
             Some(iso_subdivision("CA-BC")),
             None,
         );
+        // The postal code only keeps the description of an unknown country non-empty.
         let derived = |country: Option<CountryCode>, subdivision: Option<SubdivisionCode>| {
             DerivedGeography::new(
                 GeographicDescription::new(None, country, subdivision, Some(postal_code("10115")))
@@ -1839,35 +1840,45 @@ mod tests {
             Some(CountryCode::CAN),
             Some(iso_subdivision("CA-BC")),
         );
-        let unverified = || {
-            let base = described_candidate(
+        let without_subdivision = || {
+            described_candidate(
                 CountryCode::CAN,
                 None,
                 None,
                 Some(SpatialPrecision::Premises),
-            );
-            GeocodingCandidate::new(
-                base.geography().cloned(),
-                vec![CandidateIssue::UnverifiedConstraint],
-                None,
-                base.provenance().clone(),
             )
         };
-        let unflagged = described_candidate(
-            CountryCode::CAN,
-            None,
-            None,
-            Some(SpatialPrecision::Premises),
+        let automatic = evidence(&constrained, vec![without_subdivision()]);
+        let picked = selected_evidence(
+            &constrained.with_selected_place(place()),
+            without_subdivision(),
         );
-        for e in [
-            evidence(&constrained, vec![unflagged.clone()]),
-            evidence(&constrained, vec![unverified()]),
-            selected_evidence(&constrained.clone().with_selected_place(place()), unflagged),
-            selected_evidence(&constrained.with_selected_place(place()), unverified()),
-        ] {
+        for e in [automatic, picked] {
             assert_eq!(ResolutionStatus::Ambiguous, e.status);
             assert!(e.accepted_index.is_none());
             assert!(!e.candidates[0].acceptable);
         }
+    }
+
+    #[test]
+    fn should_keep_the_private_postal_code_check_when_the_provider_returns_no_subdivision() {
+        let input = with_submitted(
+            user_input(),
+            Some(CountryCode::DEU),
+            Some(iso_subdivision("DE-BE")),
+            Some("10115"),
+        );
+        let e = evidence(
+            &input,
+            vec![described_candidate(
+                CountryCode::DEU,
+                None,
+                Some("80331"),
+                Some(SpatialPrecision::Premises),
+            )],
+        );
+        assert_eq!(ResolutionStatus::Ambiguous, e.status);
+        assert!(e.accepted_index.is_none());
+        assert!(!e.candidates[0].acceptable);
     }
 }

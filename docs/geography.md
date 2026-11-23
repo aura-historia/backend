@@ -335,11 +335,10 @@ residence, billing, nationality, tax domicile or deliverability.
 
 Private policy **AUTOMATIC_USER_BROWSING_V1** accepts a point only from exactly one usable
 compatible premises candidate, with a requested candidate limit of at least two. Submitted
-country/subdivision/postal assertions must not be contradicted: only a known, different
-subdivision contradicts a submitted one, because a provider may derive none, whereas the
-country and, for private browsing, the postal code must be confirmed. Derived geography never
-copies a submitted subdivision. Unsupported alternatives count toward ambiguity. A unique
-coarse result can supply administrative facts only. Users avoid
+country/subdivision/postal assertions must not be contradicted. A submitted country, and for
+private browsing a submitted postal code, must be derived and equal; a submitted subdivision is
+contradicted only by a known, different one, since a provider may derive none. Unsupported
+alternatives count toward ambiguity. A unique coarse result can supply administrative facts only. Users avoid
 uncertain results by picking an [address suggestion](#address-suggestions) and correct them
 through ordinary replacement; no candidate-selection/retry API exists. Provider failures retry
 under bounded policy. A picked place is browsing enrichment, not a verified backend fact.
