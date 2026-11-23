@@ -14,6 +14,8 @@ pub struct ProductListingRawRevision {
     pub acquired_at: Option<OffsetDateTime>,
     pub product_listing_raw_revision_id: ProductListingRawRevisionId,
     pub product_listing_raw_stream_id: ProductListingRawStreamId,
+    /// Owner of the stream, whose reviewed description boilerplate the revision normalizes with.
+    pub listing_source_id: ListingSourceId,
     pub revision: u64,
     pub input: ProductListingNormalizationInput,
 }
@@ -59,6 +61,9 @@ pub struct ProductListingRawNormalizationCompletion {
     pub product_listing_raw_stream_id: ProductListingRawStreamId,
     pub revision: u64,
     pub normalizer_version: u16,
+    /// Provenance of the reviewed boilerplate set the revision normalized with; `None` when the
+    /// source had none.
+    pub description_boilerplate_sha256: Option<[u8; 32]>,
     pub outcome: ProductListingRawNormalizationOutcome,
     pub product_listing_id: Option<ProductListingId>,
     pub product_listing_event_id: Option<EventId>,

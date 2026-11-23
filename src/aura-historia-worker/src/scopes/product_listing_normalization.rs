@@ -9,10 +9,11 @@ use platform_postgres_queue::Disposition;
 use platform_process::{Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE};
 use platform_worker::{Job, JobHandler, error_class};
 use product_listing_postgres::{
-    SqlxNormalizationDiagnosticCaseWriterFactory, SqlxPendingProductListingRawStreamReader,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingRawNormalizationWriterFactory,
-    SqlxProductListingRepositoryFactory,
+    SqlxDescriptionBoilerplateStore, SqlxNormalizationDiagnosticCaseWriterFactory,
+    SqlxPendingProductListingRawStreamReader, SqlxProductListingEventAppenderFactory,
+    SqlxProductListingRawNormalizationWriterFactory, SqlxProductListingRepositoryFactory,
 };
+use product_service::ports::DescriptionBoilerplatePortError;
 use product_service::use_cases::{
     NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
     NormalizeProductListingRawRevisionHandler, NormalizeProductListingRawRevisionMode,
@@ -45,10 +46,11 @@ pub fn compose_normalization_use_case(
             SqlxProductListingRawNormalizationWriterFactory::new(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventAppenderFactory::new(),
-            SqlxPendingProductListingRawStreamReader::new(pool),
+            SqlxPendingProductListingRawStreamReader::new(pool.clone()),
         )
         .with_diagnostic_cases(SqlxNormalizationDiagnosticCaseWriterFactory::new())
-        .with_crawler_shipping(Arc::new(shipping)),
+        .with_crawler_shipping(Arc::new(shipping))
+        .with_description_boilerplate(Arc::new(SqlxDescriptionBoilerplateStore::new(pool))),
     )
 }
 
@@ -144,17 +146,19 @@ fn normalization_error_disposition(
         E::InvalidLimit
         | E::InvalidPersistedState { .. }
         | E::UnsupportedStoredSchemaVersion
-        | E::NormalizationConfigurationFailed { .. } => {
-            ProductListingRawNormalizationJobDisposition::StateInvalid(failure)
-        }
+        | E::NormalizationConfigurationFailed { .. }
+        | E::DescriptionBoilerplateReadFailed {
+            source: DescriptionBoilerplatePortError::InvalidPersistedState { .. },
+        } => ProductListingRawNormalizationJobDisposition::StateInvalid(failure),
         E::PendingStreamReadFailed { .. }
         | E::BeginTransactionFailed { .. }
         | E::PersistenceFailed { .. }
         | E::CanonicalWriteFailed { .. }
         | E::CommitTransactionFailed { .. }
-        | E::DiagnosticCaseRecordFailed { .. } => {
-            ProductListingRawNormalizationJobDisposition::DependencyUnavailable(failure)
-        }
+        | E::DiagnosticCaseRecordFailed { .. }
+        | E::DescriptionBoilerplateReadFailed {
+            source: DescriptionBoilerplatePortError::Persistence { .. },
+        } => ProductListingRawNormalizationJobDisposition::DependencyUnavailable(failure),
     }
 }
 
@@ -193,6 +197,17 @@ fn normalization_failure(error: &NormalizeProductListingRawRevisionError) -> Fai
         }
         E::DiagnosticCaseRecordFailed { .. } => {
             FailureDiagnostic::postgres("diagnostic_case_record", error)
+        }
+        E::DescriptionBoilerplateReadFailed {
+            source: DescriptionBoilerplatePortError::InvalidPersistedState { .. },
+        } => FailureDiagnostic::new(
+            "description_boilerplate_read",
+            Dependency::Postgres,
+            INVALID_PERSISTED_STATE,
+            None,
+        ),
+        E::DescriptionBoilerplateReadFailed { .. } => {
+            FailureDiagnostic::postgres("description_boilerplate_read", error)
         }
     }
 }
