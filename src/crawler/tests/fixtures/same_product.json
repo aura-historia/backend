@@ -87,6 +87,15 @@
         {"path": "ukiyoe//ukiyoe_detail.php?print_id=24689", "captured": "9b0e5d3c1f7a", "page_identity": "24689", "title": "豊国三代　時世桜狩図", "expected": "retire", "evidence": "language_directory"},
         {"path": "ukiyoe/ukiyoe_detail.php?print_id=124689", "captured": "4c2d8e6a0b91", "page_identity": "24689", "title": "国芳　武者絵", "expected": "keep", "evidence": null}
       ]
+    },
+    {
+      "name": "translations under a language code inside the path, next to a category of the same depth",
+      "rows": [
+        {"path": "shop/en/item.php?id=88", "captured": "88", "page_identity": "88", "title": "Imari charger", "expected": "survivor", "evidence": null},
+        {"path": "shop/de/item.php?id=88", "captured": "f3a91c07d2e4", "page_identity": "88", "title": "Imari-Teller", "expected": "retire", "evidence": "language_directory"},
+        {"path": "shop/item.php?id=88", "captured": "0b6e2d94c1a8", "page_identity": "88", "title": "Imari-Platte", "expected": "retire", "evidence": "language_directory"},
+        {"path": "shop/vases/item.php?id=88", "captured": "7d40e2b9a6c3", "page_identity": "88", "title": "Celadon vase", "expected": "keep", "evidence": null}
+      ]
     }
   ]
 }
