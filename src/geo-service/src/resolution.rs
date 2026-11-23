@@ -6,7 +6,7 @@ use application::{
     operation_context::{OperationContext, Principal},
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
-use geo::{DerivedGeography, GeographicDescription, SpatialPrecision};
+use geo::{DerivedGeography, GeographicDescription, SpatialPrecision, SubmittedGeography};
 use sha2::{Digest, Sha256};
 use std::{fmt, time::Duration};
 use uuid::Uuid;
@@ -642,33 +642,52 @@ fn administrative_only(
         }),
     )
 }
+/// Whether the input's assertions and search constraint leave `geography` a possible answer.
 pub fn candidate_compatible(input: &ResolutionInput, geography: &DerivedGeography) -> bool {
-    let d = geography.description();
-    let country = d.and_then(|d| d.country());
-    let subdivision = d.and_then(|d| d.subdivision());
-    let matches = |c: Option<geo::CountryCode>, s: Option<geo::SubdivisionCode>| {
-        c.is_none_or(|c| country == Some(c)) && s.is_none_or(|s| subdivision == Some(s))
-    };
-    let administrative_match = input
+    let derived = geography.description();
+    let submitted = input
         .request
         .submitted()
-        .is_none_or(|s| matches(s.description().country(), s.description().subdivision()))
-        && input
-            .request
-            .constraint()
-            .is_none_or(|c| matches(c.country(), c.subdivision()));
-    administrative_match
-        && (input.purpose != RetentionPurpose::UserLocation
-            || input.request.submitted().is_none_or(|s| {
-                s.description().postal_code().is_none_or(|postal| {
-                    d.and_then(|d| d.postal_code()).is_some_and(|derived| {
-                        country.map_or_else(
-                            || derived == postal,
-                            |country| derived.equivalent_in(postal, country),
-                        )
-                    })
-                })
-            }))
+        .map(SubmittedGeography::description);
+    let assertions_agree = submitted.is_none_or(|asserted| {
+        administrative_matches(derived, asserted.country(), asserted.subdivision())
+    });
+    let constraint_holds = input
+        .request
+        .constraint()
+        .is_none_or(|c| administrative_matches(derived, c.country(), c.subdivision()));
+    let postal_code_holds = input.purpose != RetentionPurpose::UserLocation
+        || submitted.is_none_or(|asserted| postal_code_matches(derived, asserted.postal_code()));
+    assertions_agree && constraint_holds && postal_code_holds
+}
+
+/// Every asserted country and subdivision is present in `derived` and equal to it.
+fn administrative_matches(
+    derived: Option<&GeographicDescription>,
+    country: Option<geo::CountryCode>,
+    subdivision: Option<geo::SubdivisionCode>,
+) -> bool {
+    country.is_none_or(|c| derived.and_then(GeographicDescription::country) == Some(c))
+        && subdivision
+            .is_none_or(|s| derived.and_then(GeographicDescription::subdivision) == Some(s))
+}
+
+/// The asserted postal code, if any, is present in `derived` and equivalent to it under the
+/// derived country's rules, or equal to it when that country is unknown.
+fn postal_code_matches(
+    derived: Option<&GeographicDescription>,
+    asserted: Option<&geo::PostalCode>,
+) -> bool {
+    asserted.is_none_or(|postal| {
+        derived
+            .and_then(GeographicDescription::postal_code)
+            .is_some_and(
+                |derived_postal| match derived.and_then(GeographicDescription::country) {
+                    Some(country) => derived_postal.equivalent_in(postal, country),
+                    None => derived_postal == postal,
+                },
+            )
+    })
 }
 
 #[derive(thiserror::Error, Debug)]
