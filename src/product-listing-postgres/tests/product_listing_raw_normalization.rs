@@ -13,13 +13,11 @@ use auction_service::ports::{AuctionRepository, AuctionRepositoryFactory};
 use listing_source_core::ListingSourceId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing::LotNumber;
-use product_listing_normalization::BoilerplateSentence;
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
     SourcePayload,
 };
-use product_listing_postgres::SqlxDescriptionBoilerplateStore;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxPendingProductListingRawStreamReader,
     SqlxProductListingEventAppenderFactory, SqlxProductListingRawCaptureWriterFactory,
@@ -35,10 +33,6 @@ use product_listing_service::{
     use_cases::{
         CreateProductListingCommand, CreateProductListingHandler, CreateProductListingUseCase,
     },
-};
-use product_service::ports::{
-    CurrentRawDescriptionCursor, CurrentRawDescriptionReader, DescriptionBoilerplateDecision,
-    DescriptionBoilerplateReader, DescriptionBoilerplateReview, DescriptionBoilerplateReviewWriter,
 };
 use product_service::ports::{
     PendingProductListingRawStreamPageRequest, PendingProductListingRawStreamReader,
@@ -1455,198 +1449,6 @@ async fn concurrent_normalization(max_revisions: u32) -> Result<(), Box<dyn std:
             .is_empty()
     );
     Ok(())
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_strip_reviewed_description_boilerplate_and_record_its_set() {
-    let pool = get_postgres_client().await;
-    let listing_source_id = seed_listing_source(&pool, "raw-boilerplate-source").await;
-    let store = SqlxDescriptionBoilerplateStore::new(pool.clone());
-    let notice = "Free shipping has no tracking number.";
-    let posted = "Posted by mail.";
-    let review = |sentence: &str, decision| DescriptionBoilerplateReview {
-        listing_source_id,
-        sentence: BoilerplateSentence::new(sentence)
-            .unwrap_or_else(|error| panic!("boilerplate sentence: {error}")),
-        decision,
-    };
-    store
-        .record(vec![
-            review(notice, DescriptionBoilerplateDecision::Keep),
-            review(posted, DescriptionBoilerplateDecision::Keep),
-        ])
-        .await
-        .unwrap_or_else(|error| panic!("record first reviews: {error}"));
-    // A later review of the same sentence replaces the earlier decision.
-    store
-        .record(vec![review(notice, DescriptionBoilerplateDecision::Strip)])
-        .await
-        .unwrap_or_else(|error| panic!("record revised review: {error}"));
-    let reviews = store
-        .reviews(Some(listing_source_id))
-        .await
-        .unwrap_or_else(|error| panic!("read reviews: {error}"));
-    assert_eq!(
-        vec![
-            review(notice, DescriptionBoilerplateDecision::Strip),
-            review(posted, DescriptionBoilerplateDecision::Keep),
-        ],
-        reviews
-    );
-
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let mut values = upsert_values("EUR 250");
-    values["description"] = json!({"action": "SET", "value": [
-        format!("This antique ceramic vase has documented provenance. {posted} {notice}")
-    ]});
-    let (product_listing_raw_stream_id, product_listing_raw_revision_id, revision) = changed_parts(
-        capture(
-            &unit_of_work,
-            &SqlxProductListingRawCaptureWriterFactory::new(),
-            crawled(raw_write(
-                listing_source_id,
-                RawProductListingOperation::Upsert,
-                values.clone(),
-                normalization_context(),
-                "boilerplate",
-            )),
-        )
-        .await,
-    );
-    // Native catalogue descriptions are never stripped, so analysis does not read them.
-    let native_source_id = seed_listing_source(&pool, "raw-boilerplate-native-source").await;
-    capture(
-        &unit_of_work,
-        &SqlxProductListingRawCaptureWriterFactory::new(),
-        raw_write(
-            native_source_id,
-            RawProductListingOperation::Upsert,
-            values.clone(),
-            normalization_context(),
-            "boilerplate-native",
-        ),
-    )
-    .await;
-    let other_source_id = seed_listing_source(&pool, "raw-boilerplate-other-source").await;
-    let (other_stream_id, _, _) = changed_parts(
-        capture(
-            &unit_of_work,
-            &SqlxProductListingRawCaptureWriterFactory::new(),
-            crawled(raw_write(
-                other_source_id,
-                RawProductListingOperation::Upsert,
-                values,
-                normalization_context(),
-                "boilerplate-other",
-            )),
-        )
-        .await,
-    );
-    let mut expected = vec![
-        (listing_source_id, product_listing_raw_stream_id),
-        (other_source_id, other_stream_id),
-    ];
-    expected.sort();
-    let mut paged = Vec::new();
-    let mut after = None;
-    loop {
-        let page = CurrentRawDescriptionReader::page(&store, None, after, 1)
-            .await
-            .unwrap_or_else(|error| panic!("read current raw descriptions: {error}"));
-        let Some(row) = page.first() else {
-            break;
-        };
-        assert_eq!(1, page.len());
-        assert!(row.fragments.is_some());
-        paged.push((row.listing_source_id, row.product_listing_raw_stream_id));
-        after = Some(CurrentRawDescriptionCursor {
-            listing_source_id: row.listing_source_id,
-            product_listing_raw_stream_id: row.product_listing_raw_stream_id,
-        });
-    }
-    assert_eq!(expected, paged);
-    let selected = CurrentRawDescriptionReader::page(&store, Some(other_source_id), None, 10)
-        .await
-        .unwrap_or_else(|error| panic!("read selected source descriptions: {error}"));
-    assert_eq!(
-        vec![(other_source_id, other_stream_id)],
-        selected
-            .iter()
-            .map(|row| (row.listing_source_id, row.product_listing_raw_stream_id))
-            .collect::<Vec<_>>()
-    );
-    let native = CurrentRawDescriptionReader::page(&store, Some(native_source_id), None, 10)
-        .await
-        .unwrap_or_else(|error| panic!("read native source descriptions: {error}"));
-    assert!(native.is_empty());
-
-    NormalizeProductListingRawRevisionHandler::new(
-        unit_of_work,
-        SqlxProductListingRawNormalizationWriterFactory::new(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventAppenderFactory::new(),
-        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
-    )
-    .with_description_boilerplate(std::sync::Arc::new(store.clone()))
-    .execute(NormalizeProductListingRawRevisionCommand {
-        mode: NormalizeProductListingRawRevisionMode::RawRevision {
-            product_listing_raw_stream_id,
-            product_listing_raw_revision_id,
-            revision,
-        },
-        max_revisions_per_stream: 1,
-        pending_stream_limit: 1,
-    })
-    .await
-    .unwrap_or_else(|error| panic!("normalize raw revision: {error}"));
-
-    let description: String = sqlx::query_scalar(
-        "SELECT description_text FROM product_listings WHERE listing_source_id = $1",
-    )
-    .bind(listing_source_id.into_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("load description: {error}"));
-    assert_eq!(
-        format!("This antique ceramic vase has documented provenance. {posted}"),
-        description
-    );
-    let recorded: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT description_boilerplate_sha256 FROM product_listing_raw_normalizations WHERE product_listing_raw_revision_id = $1",
-    )
-    .bind(product_listing_raw_revision_id.into_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("load boilerplate provenance: {error}"));
-    let strip_set = store
-        .strip_set(listing_source_id)
-        .await
-        .unwrap_or_else(|error| panic!("read strip set: {error}"));
-    assert_eq!(strip_set.sha256().map(|sha256| sha256.to_vec()), recorded);
-}
-
-/// The same write as captured by the crawler.
-fn crawled(write: ProductListingRawCaptureWrite) -> ProductListingRawCaptureWrite {
-    let native = write.input;
-    let input = ProductListingNormalizationInput::new(
-        native.operation(),
-        RawProductListingPayloadFormat::CrawlerExtractedProduct,
-        native.payload_schema_version(),
-        native.raw_values_schema_version(),
-        native.source_payload().clone(),
-        native.raw_values().clone(),
-        native.normalization_context().clone(),
-    )
-    .unwrap_or_else(|error| panic!("crawled normalization input: {error}"));
-    let input_sha256 = input
-        .hash()
-        .unwrap_or_else(|error| panic!("crawled normalization input hash: {error}"));
-    ProductListingRawCaptureWrite {
-        ingestion_method: ProductListingRawIngestionMethod::WebCrawl,
-        input,
-        input_sha256,
-        ..write
-    }
 }
 
 async fn create_auction(

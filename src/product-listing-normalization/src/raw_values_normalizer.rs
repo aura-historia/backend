@@ -1,4 +1,3 @@
-use crate::description_boilerplate::DescriptionBoilerplate;
 use crate::diagnostics::{
     NormalizationField, NormalizationIssue, NormalizationIssueDetails, NormalizationIssueHandling,
     NormalizationIssueReason, NormalizationReport, availability_normalization_error,
@@ -30,7 +29,7 @@ pub const PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION: u16 = 1;
 
 /// Provenance version of the raw-values normalization heuristics. Bump it when the decision for
 /// an existing input can change. It never triggers reprocessing of completed revisions.
-pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 7;
+pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 6;
 
 /// Stable provider-neutral encoding for raw price patch values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
@@ -259,39 +258,12 @@ pub struct ProductListingRawValuesEvaluation {
 ///
 /// DELETE inputs decode only an optional canonical identity and bypass UPSERT field normalization.
 /// Without an explicit identity, deletion targets the stream's existing canonical binding.
-#[derive(Debug, Default, Clone)]
-pub struct ProductListingRawValuesNormalizer {
-    description_boilerplate: DescriptionBoilerplate,
-}
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProductListingRawValuesNormalizer;
 
 impl ProductListingRawValuesNormalizer {
     pub const fn new() -> Self {
-        Self {
-            description_boilerplate: DescriptionBoilerplate::new(),
-        }
-    }
-
-    /// Strips the listing source's reviewed boilerplate from crawled descriptions. Shipping
-    /// evidence still reads the unstripped description.
-    pub fn with_description_boilerplate(
-        mut self,
-        description_boilerplate: DescriptionBoilerplate,
-    ) -> Self {
-        self.description_boilerplate = description_boilerplate;
-        self
-    }
-
-    pub const fn description_boilerplate(&self) -> &DescriptionBoilerplate {
-        &self.description_boilerplate
-    }
-
-    /// Only crawled pages carry shop boilerplate around the item text, and only an UPSERT
-    /// carries a description. Shopify and WooCommerce descriptions are the shop's own catalogue
-    /// text and stay as sent.
-    pub fn strips_description_boilerplate(input: &ProductListingNormalizationInput) -> bool {
-        input.operation() == RawProductListingOperation::Upsert
-            && input.payload_format()
-                == crate::RawProductListingPayloadFormat::CrawlerExtractedProduct
+        Self
     }
 
     pub fn normalize(
@@ -407,15 +379,7 @@ impl ProductListingRawValuesNormalizer {
             .transpose()
             .map_err(|error| envelope(error, report))?;
 
-        let raw_description = match raw.description {
-            ProductListingRawValuesPatch::Set(fragments)
-                if Self::strips_description_boilerplate(input) =>
-            {
-                ProductListingRawValuesPatch::Set(self.description_boilerplate.strip(fragments))
-            }
-            patch => patch,
-        };
-        let description_context = match &raw_description {
+        let description_context = match &raw.description {
             ProductListingRawValuesPatch::Set(fragments) => join_description_fragments(fragments),
             ProductListingRawValuesPatch::Clear | ProductListingRawValuesPatch::Unchanged => None,
         };
@@ -435,7 +399,7 @@ impl ProductListingRawValuesNormalizer {
         });
         let title_language = title.as_ref().and_then(title_language);
         let description = fields.take(NormalizationField::Description, |_| {
-            normalize_description_patch(raw_description, title_language.or(fallback_language))
+            normalize_description_patch(raw.description, title_language.or(fallback_language))
         });
         let price = fields.take(NormalizationField::Price, |report| {
             normalize_product_listing_price_patch(
@@ -1032,77 +996,6 @@ mod tests {
                 panic!("native catalog");
             };
             assert_eq!(crate::shipping::ShippingQuickCheck::NoAssertion, v.shipping);
-        }
-    }
-
-    #[test]
-    fn should_strip_reviewed_boilerplate_from_description_but_not_from_shipping_evidence() {
-        let notice = "Shipping for this item is available worldwide.";
-        let mut values = base_values();
-        values["description"]["value"] = json!([format!("A restored ceramic vase. {notice}")]);
-        values["attributes"] =
-            json!({"rawShipment": {"action": "SET", "value": ["This item is collection only"]}});
-        let normalizer = ProductListingRawValuesNormalizer::new().with_description_boilerplate(
-            [crate::BoilerplateSentence::new(notice).unwrap()]
-                .into_iter()
-                .collect(),
-        );
-
-        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
-            normalizer.normalize(&input(values))
-        else {
-            panic!("listing with boilerplate must resolve");
-        };
-
-        let ProductListingRawValuesPatch::Set(description) = resolved.description else {
-            panic!("description must stay set");
-        };
-        assert_eq!("A restored ceramic vase.", description.payload.as_ref());
-        assert_eq!(
-            crate::shipping::ShippingQuickCheck::Unsupported(
-                crate::shipping::ShippingUnsupportedReason::ContradictoryAssertions
-            ),
-            resolved.shipping
-        );
-    }
-
-    #[test]
-    fn should_keep_native_catalogue_descriptions_unstripped() {
-        let notice = "Free shipping has no tracking number.";
-        let mut values = base_values();
-        values["description"]["value"] = json!([format!("A restored ceramic vase. {notice}")]);
-        let crawled = input(values);
-        let normalizer = ProductListingRawValuesNormalizer::new().with_description_boilerplate(
-            [crate::BoilerplateSentence::new(notice).unwrap()]
-                .into_iter()
-                .collect(),
-        );
-        for format in [
-            RawProductListingPayloadFormat::ShopifyProduct,
-            RawProductListingPayloadFormat::WoocommerceProduct,
-        ] {
-            let native = ProductListingNormalizationInput::new(
-                crawled.operation(),
-                format,
-                1,
-                PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
-                crawled.source_payload().clone(),
-                crawled.raw_values().clone(),
-                crawled.normalization_context().clone(),
-            )
-            .unwrap();
-            let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
-                normalizer.normalize(&native)
-            else {
-                panic!("native listing must resolve");
-            };
-            let ProductListingRawValuesPatch::Set(description) = resolved.description else {
-                panic!("description must stay set");
-            };
-            assert_eq!(
-                format!("A restored ceramic vase. {notice}"),
-                description.payload.as_ref()
-            );
         }
     }
 

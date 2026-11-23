@@ -2,16 +2,15 @@ use crate::normalization_diagnostics::{
     BUILD_GIT_SHA, NormalizationUnsolvedEventContext, log_normalization_unsolved,
 };
 use crate::ports::{
-    DescriptionBoilerplatePortError, DescriptionBoilerplateReader, NormalizationDiagnosticCase,
-    NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePortError,
-    NormalizationDiagnosticCaseWriter, NormalizationDiagnosticCaseWriterFactory,
-    NormalizationDiagnosticEntryPoint, NormalizationDiagnosticOutcome,
-    NormalizationDiagnosticProvenance, PendingProductListingRawStreamCursor,
-    PendingProductListingRawStreamPageRequest, PendingProductListingRawStreamReader,
-    ProductListingRawNormalizationCompletion, ProductListingRawNormalizationHead,
-    ProductListingRawNormalizationOutcome, ProductListingRawNormalizationPortError,
-    ProductListingRawNormalizationWriter, ProductListingRawNormalizationWriterFactory,
-    ProductListingRawRevisionReader,
+    NormalizationDiagnosticCase, NormalizationDiagnosticCaseId,
+    NormalizationDiagnosticCasePortError, NormalizationDiagnosticCaseWriter,
+    NormalizationDiagnosticCaseWriterFactory, NormalizationDiagnosticEntryPoint,
+    NormalizationDiagnosticOutcome, NormalizationDiagnosticProvenance,
+    PendingProductListingRawStreamCursor, PendingProductListingRawStreamPageRequest,
+    PendingProductListingRawStreamReader, ProductListingRawNormalizationCompletion,
+    ProductListingRawNormalizationHead, ProductListingRawNormalizationOutcome,
+    ProductListingRawNormalizationPortError, ProductListingRawNormalizationWriter,
+    ProductListingRawNormalizationWriterFactory, ProductListingRawRevisionReader,
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
@@ -156,11 +155,6 @@ pub enum NormalizeProductListingRawRevisionError {
         #[source]
         source: NormalizationDiagnosticCasePortError,
     },
-    #[error("failed to read the listing source's description boilerplate")]
-    DescriptionBoilerplateReadFailed {
-        #[source]
-        source: DescriptionBoilerplatePortError,
-    },
 }
 
 #[derive(Debug)]
@@ -247,7 +241,7 @@ pub struct NormalizeProductListingRawRevisionHandler<
     events: E,
     pending_streams: P,
     diagnostic_cases: Option<D>,
-    description_boilerplate: Option<std::sync::Arc<dyn DescriptionBoilerplateReader>>,
+    normalizer: ProductListingRawValuesNormalizer,
 }
 
 impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
@@ -267,7 +261,7 @@ impl<U, W, R, E, P> NormalizeProductListingRawRevisionHandler<U, W, R, E, P> {
             events,
             pending_streams,
             diagnostic_cases: None,
-            description_boilerplate: None,
+            normalizer: ProductListingRawValuesNormalizer::new(),
         }
     }
 }
@@ -286,18 +280,8 @@ impl<U, W, R, E, P, D> NormalizeProductListingRawRevisionHandler<U, W, R, E, P, 
             events: self.events,
             pending_streams: self.pending_streams,
             diagnostic_cases: Some(diagnostic_cases),
-            description_boilerplate: self.description_boilerplate,
+            normalizer: self.normalizer,
         }
-    }
-
-    /// Strips each listing source's reviewed description boilerplate. Without a reader nothing
-    /// is stripped.
-    pub fn with_description_boilerplate(
-        mut self,
-        description_boilerplate: std::sync::Arc<dyn DescriptionBoilerplateReader>,
-    ) -> Self {
-        self.description_boilerplate = Some(description_boilerplate);
-        self
     }
 
     pub fn with_crawler_shipping(
@@ -324,11 +308,6 @@ where
         max_revisions: u32,
     ) -> StreamDrainResult {
         let mut results = Vec::new();
-        // Every revision of a stream belongs to one listing source, so its boilerplate set is
-        // read once per drain, and only for crawled upserts, the only revisions it strips. A
-        // crawler-verified removal never waits on it.
-        let native_normalizer = ProductListingRawValuesNormalizer::new();
-        let mut crawled_normalizer = None;
         for _ in 0..max_revisions {
             let candidate = match self
                 .pending_streams
@@ -344,20 +323,7 @@ where
             if let Err(error) = validate_stored_schema(&candidate.input) {
                 return StreamDrainResult::failed(results, error);
             }
-            let normalizer = if !ProductListingRawValuesNormalizer::strips_description_boilerplate(
-                &candidate.input,
-            ) {
-                &native_normalizer
-            } else {
-                match crawled_normalizer {
-                    Some(ref normalizer) => normalizer,
-                    None => match self.source_normalizer(candidate.listing_source_id).await {
-                        Ok(normalizer) => crawled_normalizer.insert(normalizer),
-                        Err(error) => return StreamDrainResult::failed(results, error),
-                    },
-                }
-            };
-            let evaluation = normalizer.evaluate(&candidate.input);
+            let evaluation = self.normalizer.evaluate(&candidate.input);
             let evaluated = EvaluatedRevision {
                 normalized: evaluation.outcome,
                 issues: evaluation.report.into_issues(),
@@ -416,10 +382,7 @@ where
                 )
                 .await
             {
-                Ok(completion) => ProductListingRawNormalizationCompletion {
-                    description_boilerplate_sha256: normalizer.description_boilerplate().sha256(),
-                    ..completion
-                },
+                Ok(completion) => completion,
                 Err(error) => return StreamDrainResult::failed(results, error),
             };
             let result = NormalizedRawRevisionResult {
@@ -483,23 +446,6 @@ where
             results.push(result);
         }
         StreamDrainResult::completed(results)
-    }
-
-    async fn source_normalizer(
-        &self,
-        listing_source_id: listing_source_core::ListingSourceId,
-    ) -> Result<ProductListingRawValuesNormalizer, NormalizeProductListingRawRevisionError> {
-        let normalizer = ProductListingRawValuesNormalizer::new();
-        let Some(reader) = &self.description_boilerplate else {
-            return Ok(normalizer);
-        };
-        let boilerplate = reader
-            .strip_set(listing_source_id)
-            .await
-            .map_err(|source| {
-                NormalizeProductListingRawRevisionError::DescriptionBoilerplateReadFailed { source }
-            })?;
-        Ok(normalizer.with_description_boilerplate(boilerplate))
     }
 
     async fn complete_work_in_transaction(
@@ -1080,7 +1026,6 @@ impl NormalizeProductListingRawRevisionError {
             Self::CanonicalWriteFailed { .. } => "CANONICAL_WRITE_FAILED",
             Self::CommitTransactionFailed { .. } => "COMMIT_TRANSACTION_FAILED",
             Self::DiagnosticCaseRecordFailed { .. } => "DIAGNOSTIC_CASE_RECORD_FAILED",
-            Self::DescriptionBoilerplateReadFailed { .. } => "DESCRIPTION_BOILERPLATE_READ_FAILED",
         }
     }
 }
@@ -1157,7 +1102,6 @@ fn completion(
         product_listing_raw_stream_id: revision.product_listing_raw_stream_id,
         revision: revision.revision,
         normalizer_version: NORMALIZER_VERSION,
-        description_boilerplate_sha256: None,
         outcome,
         product_listing_id,
         product_listing_event_id,
@@ -1385,7 +1329,6 @@ mod tests {
 
     fn revision(
         stream_id: ProductListingRawStreamId,
-        listing_source_id: ListingSourceId,
         revision: u64,
         input: ProductListingNormalizationInput,
     ) -> crate::ports::ProductListingRawRevision {
@@ -1393,7 +1336,6 @@ mod tests {
             acquired_at: None,
             product_listing_raw_revision_id: ProductListingRawRevisionId::new(),
             product_listing_raw_stream_id: stream_id,
-            listing_source_id,
             revision,
             input,
         }
@@ -1728,16 +1670,13 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let stream_id = ProductListingRawStreamId::new();
         let listing_source_id = ListingSourceId::new();
-        let rejected = revision(stream_id, listing_source_id, 1, upsert_input("-100 EUR")?);
+        let rejected = revision(stream_id, 1, upsert_input("-100 EUR")?);
         let rejected_id = rejected.product_listing_raw_revision_id;
         let rejected_hash = *rejected.input.hash()?.as_bytes();
         let state = Arc::new(Mutex::new(TestState::default()));
         lock(&state).streams.push(TestStream {
             head: raw_head(stream_id, listing_source_id, None, None),
-            revisions: VecDeque::from([
-                rejected,
-                revision(stream_id, listing_source_id, 2, delete_input(None)?),
-            ]),
+            revisions: VecDeque::from([rejected, revision(stream_id, 2, delete_input(None)?)]),
         });
 
         let result = handler(&state)
@@ -1781,19 +1720,13 @@ mod tests {
     async fn should_drain_raw_revisions_in_revision_order_not_delivery_order()
     -> Result<(), Box<dyn std::error::Error>> {
         let stream_id = ProductListingRawStreamId::new();
-        let listing_source_id = ListingSourceId::new();
         let mut revisions = VecDeque::new();
         for revision_number in 1..=3 {
-            revisions.push_back(revision(
-                stream_id,
-                listing_source_id,
-                revision_number,
-                delete_input(None)?,
-            ));
+            revisions.push_back(revision(stream_id, revision_number, delete_input(None)?));
         }
         let state = Arc::new(Mutex::new(TestState::default()));
         lock(&state).streams.push(TestStream {
-            head: raw_head(stream_id, listing_source_id, None, None),
+            head: raw_head(stream_id, ListingSourceId::new(), None, None),
             revisions,
         });
 
@@ -1845,14 +1778,12 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let blocked_stream_id = ProductListingRawStreamId::new();
         let healthy_stream_id = ProductListingRawStreamId::new();
-        let healthy_listing_source_id = ListingSourceId::new();
         let blocked_oldest_at = OffsetDateTime::UNIX_EPOCH;
         let healthy_oldest_at = blocked_oldest_at + Duration::seconds(1);
         let mut healthy_revisions = VecDeque::new();
         for revision_number in 1..=3 {
             healthy_revisions.push_back(revision(
                 healthy_stream_id,
-                healthy_listing_source_id,
                 revision_number,
                 delete_input(None)?,
             ));
@@ -1866,7 +1797,7 @@ mod tests {
                 revisions: VecDeque::new(),
             });
             state.streams.push(TestStream {
-                head: raw_head(healthy_stream_id, healthy_listing_source_id, None, None),
+                head: raw_head(healthy_stream_id, ListingSourceId::new(), None, None),
                 revisions: healthy_revisions,
             });
             state.pending_page = PendingProductListingRawStreamPage {
@@ -1970,7 +1901,6 @@ mod tests {
                 head: raw_head(stream_id, source_id, None, None),
                 revisions: VecDeque::from([revision(
                     stream_id,
-                    source_id,
                     1,
                     delete_input(Some("source-123"))?,
                 )]),
@@ -2013,7 +1943,6 @@ mod tests {
     async fn should_ignore_identified_delete_when_listing_belongs_to_another_source()
     -> Result<(), Box<dyn std::error::Error>> {
         let stream_id = ProductListingRawStreamId::new();
-        let listing_source_id = ListingSourceId::new();
         let (listing, _) = existing_listing(
             ProductListingId::new(),
             ListingSourceId::new(),
@@ -2025,10 +1954,9 @@ mod tests {
                 ProductListingStorageVersion::INITIAL,
             )),
             streams: vec![TestStream {
-                head: raw_head(stream_id, listing_source_id, None, None),
+                head: raw_head(stream_id, ListingSourceId::new(), None, None),
                 revisions: VecDeque::from([revision(
                     stream_id,
-                    listing_source_id,
                     1,
                     delete_input(Some("source-123"))?,
                 )]),
@@ -2063,20 +1991,18 @@ mod tests {
     async fn should_reject_delete_identity_that_differs_from_the_stream_binding()
     -> Result<(), Box<dyn std::error::Error>> {
         let stream_id = ProductListingRawStreamId::new();
-        let listing_source_id = ListingSourceId::new();
         let source_listing_id = SourceListingId::try_from("bound-identity")?;
         let listing_id = ProductListingId::new();
         let state = Arc::new(Mutex::new(TestState {
             streams: vec![TestStream {
                 head: raw_head(
                     stream_id,
-                    listing_source_id,
+                    ListingSourceId::new(),
                     Some(listing_id),
                     Some(source_listing_id.clone()),
                 ),
                 revisions: VecDeque::from([revision(
                     stream_id,
-                    listing_source_id,
                     1,
                     delete_input(Some("different-identity"))?,
                 )]),
@@ -2120,13 +2046,7 @@ mod tests {
     async fn should_leave_delete_pending_when_identity_lookup_fails()
     -> Result<(), Box<dyn std::error::Error>> {
         let stream_id = ProductListingRawStreamId::new();
-        let listing_source_id = ListingSourceId::new();
-        let pending = revision(
-            stream_id,
-            listing_source_id,
-            1,
-            delete_input(Some("source-123"))?,
-        );
+        let pending = revision(stream_id, 1, delete_input(Some("source-123"))?);
         let revision_id = pending.product_listing_raw_revision_id;
         let state = Arc::new(Mutex::new(TestState {
             key_lookup_error: Some(
@@ -2137,7 +2057,7 @@ mod tests {
                 },
             ),
             streams: vec![TestStream {
-                head: raw_head(stream_id, listing_source_id, None, None),
+                head: raw_head(stream_id, ListingSourceId::new(), None, None),
                 revisions: VecDeque::from([pending]),
             }],
             ..Default::default()
@@ -2212,7 +2132,6 @@ mod tests {
                     acquired_at: None,
                     product_listing_raw_revision_id: revision_id,
                     product_listing_raw_stream_id: stream_id,
-                    listing_source_id,
                     revision: 1,
                     input: upsert_input("EUR 250")?,
                 }]),
@@ -2302,7 +2221,6 @@ mod tests {
                     acquired_at: None,
                     product_listing_raw_revision_id: revision_id,
                     product_listing_raw_stream_id: stream_id,
-                    listing_source_id,
                     revision: 1,
                     input,
                 }]),
@@ -2340,229 +2258,6 @@ mod tests {
         assert_eq!("€", price.currency.currency_symbol());
         assert_eq!(1, state.completions.len());
         assert_eq!(1, state.commits);
-        Ok(())
-    }
-
-    struct DescriptionBoilerplateFake(
-        Result<product_listing_normalization::DescriptionBoilerplate, ()>,
-    );
-
-    #[async_trait::async_trait]
-    impl DescriptionBoilerplateReader for DescriptionBoilerplateFake {
-        async fn strip_set(
-            &self,
-            _listing_source_id: ListingSourceId,
-        ) -> Result<
-            product_listing_normalization::DescriptionBoilerplate,
-            DescriptionBoilerplatePortError,
-        > {
-            self.0
-                .clone()
-                .map_err(|()| DescriptionBoilerplatePortError::Persistence {
-                    source: application::error::box_error(std::io::Error::other(
-                        "boilerplate read failed",
-                    )),
-                })
-        }
-
-        async fn reviews(
-            &self,
-            _listing_source_id: Option<ListingSourceId>,
-        ) -> Result<Vec<crate::ports::DescriptionBoilerplateReview>, DescriptionBoilerplatePortError>
-        {
-            Ok(Vec::new())
-        }
-    }
-
-    /// A bound listing whose stream holds one upsert with a shop notice in its description.
-    fn listing_with_shop_notice(
-        notice: &str,
-        payload_format: RawProductListingPayloadFormat,
-    ) -> Result<(SharedState, ProductListingRawStreamId), Box<dyn std::error::Error>> {
-        let stream_id = ProductListingRawStreamId::new();
-        let listing_source_id = ListingSourceId::new();
-        let product_listing_id = ProductListingId::new();
-        let source_listing_id = SourceListingId::try_from("source-123")?;
-        let mut input = upsert_input("EUR 250")?.raw_values().value().clone();
-        input["description"]["value"] =
-            serde_json::json!([format!("A fresh description from the source. {notice}")]);
-        let reference = upsert_input("EUR 250")?;
-        let input = ProductListingNormalizationInput::new(
-            reference.operation(),
-            payload_format,
-            reference.payload_schema_version(),
-            reference.raw_values_schema_version(),
-            reference.source_payload().clone(),
-            RawProductListingValues::new(input)?,
-            reference.normalization_context().clone(),
-        )?;
-        let (listing, _) = existing_listing(
-            product_listing_id,
-            listing_source_id,
-            source_listing_id.clone(),
-        )?;
-        let state = Arc::new(Mutex::new(TestState::default()));
-        {
-            let mut state = lock(&state);
-            state.existing_product = Some(Versioned::new(
-                listing,
-                ProductListingStorageVersion::INITIAL,
-            ));
-            state.streams.push(TestStream {
-                head: raw_head(
-                    stream_id,
-                    listing_source_id,
-                    Some(product_listing_id),
-                    Some(source_listing_id),
-                ),
-                revisions: VecDeque::from([revision(stream_id, listing_source_id, 1, input)]),
-            });
-        }
-        Ok((state, stream_id))
-    }
-
-    fn wake_up(stream_id: ProductListingRawStreamId) -> NormalizeProductListingRawRevisionCommand {
-        NormalizeProductListingRawRevisionCommand {
-            mode: NormalizeProductListingRawRevisionMode::RawRevision {
-                product_listing_raw_stream_id: stream_id,
-                product_listing_raw_revision_id: ProductListingRawRevisionId::new(),
-                revision: 1,
-            },
-            max_revisions_per_stream: 1,
-            pending_stream_limit: 1,
-        }
-    }
-
-    #[tokio::test]
-    async fn should_write_description_without_reviewed_boilerplate_and_record_its_set()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let notice = "Free shipping has no tracking number.";
-        let (state, stream_id) = listing_with_shop_notice(
-            notice,
-            RawProductListingPayloadFormat::CrawlerExtractedProduct,
-        )?;
-        let boilerplate: product_listing_normalization::DescriptionBoilerplate =
-            [product_listing_normalization::BoilerplateSentence::new(
-                notice,
-            )?]
-            .into_iter()
-            .collect();
-
-        handler(&state)
-            .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Ok(
-                boilerplate.clone()
-            ))))
-            .execute(wake_up(stream_id))
-            .await?;
-
-        let state = lock(&state);
-        let description = state
-            .updated_products
-            .first()
-            .and_then(|listing| listing.description())
-            .ok_or_else(|| std::io::Error::other("description was not written"))?;
-        assert_eq!(
-            "A fresh description from the source.",
-            description.payload.as_ref()
-        );
-        assert_eq!(
-            vec![boilerplate.sha256()],
-            state
-                .completions
-                .iter()
-                .map(|completion| completion.description_boilerplate_sha256)
-                .collect::<Vec<_>>()
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_leave_revision_pending_when_boilerplate_cannot_be_read()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let (state, stream_id) = listing_with_shop_notice(
-            "Free shipping.",
-            RawProductListingPayloadFormat::CrawlerExtractedProduct,
-        )?;
-
-        let result = handler(&state)
-            .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Err(()))))
-            .execute(wake_up(stream_id))
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(NormalizeProductListingRawRevisionError::DescriptionBoilerplateReadFailed { .. })
-        ));
-        let state = lock(&state);
-        assert_eq!(1, state.streams[0].revisions.len());
-        assert!(state.completions.is_empty());
-        assert_eq!(0, state.begins);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_not_read_boilerplate_for_native_catalogue_revisions()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let notice = "Free shipping has no tracking number.";
-        let (state, stream_id) =
-            listing_with_shop_notice(notice, RawProductListingPayloadFormat::ShopifyProduct)?;
-
-        handler(&state)
-            .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Err(()))))
-            .execute(wake_up(stream_id))
-            .await?;
-
-        let state = lock(&state);
-        let description = state
-            .updated_products
-            .first()
-            .and_then(|listing| listing.description())
-            .ok_or_else(|| std::io::Error::other("description was not written"))?;
-        assert_eq!(
-            format!("A fresh description from the source. {notice}"),
-            description.payload.as_ref()
-        );
-        assert_eq!(
-            vec![None],
-            state
-                .completions
-                .iter()
-                .map(|completion| completion.description_boilerplate_sha256)
-                .collect::<Vec<_>>()
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_withdraw_crawled_listing_without_reading_boilerplate()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let stream_id = ProductListingRawStreamId::new();
-        let listing_source_id = ListingSourceId::new();
-        let state = Arc::new(Mutex::new(TestState::default()));
-        lock(&state).streams.push(TestStream {
-            head: raw_head(stream_id, listing_source_id, None, None),
-            revisions: VecDeque::from([revision(
-                stream_id,
-                listing_source_id,
-                1,
-                delete_input(None)?,
-            )]),
-        });
-
-        handler(&state)
-            .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Err(()))))
-            .execute(wake_up(stream_id))
-            .await?;
-
-        let state = lock(&state);
-        assert_eq!(
-            vec![None],
-            state
-                .completions
-                .iter()
-                .map(|completion| completion.description_boilerplate_sha256)
-                .collect::<Vec<_>>()
-        );
         Ok(())
     }
 }

@@ -49,7 +49,6 @@ struct RawRevisionRow {
     source_occurred_at: Option<time::OffsetDateTime>,
     product_listing_raw_revision_id: uuid::Uuid,
     product_listing_raw_stream_id: uuid::Uuid,
-    listing_source_id: uuid::Uuid,
     revision: i64,
     operation: String,
     payload_format: String,
@@ -133,23 +132,20 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
         let revision = sqlx::query_as::<_, RawRevisionRow>(
             r#"
             SELECT
-                revision.product_listing_raw_revision_id,
-                revision.product_listing_raw_stream_id,
-                stream.listing_source_id,
-                revision.revision,
-                revision.operation,
-                revision.payload_format,
-                revision.payload_schema_version,
-                revision.raw_values_schema_version,
-                revision.source_payload,
-                revision.raw_values,
-                revision.source_occurred_at,
-                revision.normalization_context
-            FROM product_listing_raw_revisions AS revision
-            JOIN product_listing_raw_streams AS stream
-              ON stream.product_listing_raw_stream_id = revision.product_listing_raw_stream_id
-            WHERE revision.product_listing_raw_stream_id = $1
-              AND revision.revision = $2
+                product_listing_raw_revision_id,
+                product_listing_raw_stream_id,
+                revision,
+                operation,
+                payload_format,
+                payload_schema_version,
+                raw_values_schema_version,
+                source_payload,
+                raw_values,
+                source_occurred_at,
+                normalization_context
+            FROM product_listing_raw_revisions
+            WHERE product_listing_raw_stream_id = $1
+              AND revision = $2
             "#,
         )
         .bind(stream_id)
@@ -183,9 +179,8 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
                 outcome,
                 product_listing_id,
                 product_listing_event_id,
-                error_code,
-                description_boilerplate_sha256
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                error_code
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
         .bind(completion.product_listing_raw_revision_id.as_uuid())
@@ -200,11 +195,6 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
                 .map(|value| value.into_uuid()),
         )
         .bind(completion.error_code)
-        .bind(
-            completion
-                .description_boilerplate_sha256
-                .map(|sha256| sha256.to_vec()),
-        )
         .execute(&mut *self.connection)
         .await
         .map_err(persistence)?;
@@ -254,7 +244,6 @@ impl ProductListingRawRevisionReader for SqlxPendingProductListingRawStreamReade
             SELECT
                 revision.product_listing_raw_revision_id,
                 revision.product_listing_raw_stream_id,
-                stream.listing_source_id,
                 revision.revision,
                 revision.operation,
                 revision.payload_format,
@@ -265,8 +254,6 @@ impl ProductListingRawRevisionReader for SqlxPendingProductListingRawStreamReade
                 revision.source_occurred_at,
                 revision.normalization_context
             FROM product_listing_raw_revisions AS revision
-            JOIN product_listing_raw_streams AS stream
-              ON stream.product_listing_raw_stream_id = revision.product_listing_raw_stream_id
             LEFT JOIN product_listing_raw_normalization_heads AS head
               ON head.product_listing_raw_stream_id = revision.product_listing_raw_stream_id
             WHERE revision.product_listing_raw_stream_id = $1
@@ -421,8 +408,6 @@ fn revision_from_row(
             "ProductListing raw stream ID",
         )
         .map_err(invalid_state_error)?,
-        listing_source_id: try_from_uuid(row.listing_source_id, "ListingSource ID")
-            .map_err(invalid_state_error)?,
         revision,
         input,
     })

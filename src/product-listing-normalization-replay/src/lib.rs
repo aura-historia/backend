@@ -5,21 +5,17 @@
 //! machine-readable results. It never writes canonical state, advances raw heads, redelivers
 //! queue messages or records replay outcomes as new cases. See `docs/normalization-replay.md`.
 
-pub mod boilerplate;
-
-use listing_source_core::ListingSourceId;
 use product_listing_normalization::shipping::ShippingQuickCheck;
 use product_listing_normalization::{
-    BoilerplateSentence, DescriptionBoilerplate, ListingAvailabilityQuickCheck,
-    NORMALIZATION_DIAGNOSTICS_VERSION, NormalizationIssue, NormalizationIssueHandling,
-    NormalizationIssueScope, PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION,
-    ProductListingNormalizationInput, ProductListingRawValuesNormalizationOutcome,
-    ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
-    ProductListingRawValuesResolved,
+    ListingAvailabilityQuickCheck, NORMALIZATION_DIAGNOSTICS_VERSION, NormalizationIssue,
+    NormalizationIssueHandling, NormalizationIssueScope,
+    PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION, ProductListingNormalizationInput,
+    ProductListingRawValuesNormalizationOutcome, ProductListingRawValuesNormalizer,
+    ProductListingRawValuesPatch, ProductListingRawValuesResolved,
 };
 use product_service::normalization_diagnostics::BUILD_GIT_SHA;
 use product_service::ports::{
-    DescriptionBoilerplateReader, NormalizationDiagnosticCase, NormalizationDiagnosticCaseFilter,
+    NormalizationDiagnosticCase, NormalizationDiagnosticCaseFilter,
     NormalizationDiagnosticCasePageRequest, NormalizationDiagnosticCaseReader,
     NormalizationDiagnosticCaseRecorder, NormalizationDiagnosticEntryPoint,
     NormalizationDiagnosticOutcome, NormalizationDiagnosticProvenance,
@@ -27,7 +23,7 @@ use product_service::ports::{
     StoredNormalizationDiagnosticCase, StoredNormalizationDiagnosticEvidence,
 };
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::Write;
 
 pub const DEFAULT_REPLAY_PAGE_SIZE: u32 = 200;
@@ -42,9 +38,6 @@ pub struct ReplayCase {
     pub recorded_outcome: String,
     pub recorded_issues: Value,
     pub evidence: ReplayEvidence,
-    /// The source's reviewed `STRIP` sentences the case normalizes with, so offline replay
-    /// matches the worker.
-    pub description_boilerplate: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,10 +53,7 @@ pub enum ReplayEvidence {
 }
 
 impl ReplayCase {
-    pub fn from_stored(
-        case: StoredNormalizationDiagnosticCase,
-        description_boilerplate: &DescriptionBoilerplate,
-    ) -> Self {
+    pub fn from_stored(case: StoredNormalizationDiagnosticCase) -> Self {
         let evidence = match case.evidence {
             StoredNormalizationDiagnosticEvidence::RawRevision {
                 product_listing_raw_revision_id,
@@ -86,10 +76,6 @@ impl ReplayCase {
             recorded_outcome: case.recorded_outcome,
             recorded_issues: case.recorded_issues,
             evidence,
-            description_boilerplate: description_boilerplate
-                .sentences()
-                .map(|sentence| sentence.as_str().to_owned())
-                .collect(),
         }
     }
 
@@ -115,7 +101,6 @@ impl ReplayCase {
             "recordedOutcome": self.recorded_outcome,
             "recordedIssues": self.recorded_issues,
             "evidence": evidence,
-            "descriptionBoilerplate": self.description_boilerplate,
         })
     }
 
@@ -156,24 +141,7 @@ impl ReplayCase {
             recorded_outcome: text("recordedOutcome")?,
             recorded_issues: value.get("recordedIssues").cloned().unwrap_or(json!([])),
             evidence,
-            // Exports from before reviewed boilerplate carry none.
-            description_boilerplate: match value.get("descriptionBoilerplate") {
-                None => Vec::new(),
-                Some(sentences) => serde_json::from_value(sentences.clone()).map_err(|_| {
-                    "replay case field `descriptionBoilerplate` is not a list of strings".to_owned()
-                })?,
-            },
         })
-    }
-
-    fn normalizer(&self) -> Result<ProductListingRawValuesNormalizer, String> {
-        let boilerplate = self
-            .description_boilerplate
-            .iter()
-            .map(|sentence| BoilerplateSentence::new(sentence))
-            .collect::<Result<DescriptionBoilerplate, _>>()
-            .map_err(|error| format!("description boilerplate is invalid: {error}"))?;
-        Ok(ProductListingRawValuesNormalizer::new().with_description_boilerplate(boilerplate))
     }
 }
 
@@ -224,9 +192,8 @@ pub fn replay_case(case: &ReplayCase) -> ReplayResult {
             ReplayEvidence::RawRevision { input, .. },
             Some(NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1),
         ) => ProductListingNormalizationInput::from_document(input)
-            .map_err(|error| error.to_string())
-            .and_then(|input| Ok(evaluate_raw_values(&case.normalizer()?, &input)))
-            .map_err(|error| (ReplayStatus::Incompatible, error)),
+            .map(|input| evaluate_raw_values(&input))
+            .map_err(|error| (ReplayStatus::Incompatible, error.to_string())),
         _ => Err((
             ReplayStatus::Incompatible,
             "evidence does not match the entry point".to_owned(),
@@ -297,10 +264,9 @@ pub fn replay_case(case: &ReplayCase) -> ReplayResult {
 }
 
 fn evaluate_raw_values(
-    normalizer: &ProductListingRawValuesNormalizer,
     input: &ProductListingNormalizationInput,
 ) -> (&'static str, Value, Vec<NormalizationIssue>) {
-    let evaluation = normalizer.evaluate(input);
+    let evaluation = ProductListingRawValuesNormalizer::new().evaluate(input);
     let issues = evaluation.report.into_issues();
     match evaluation.outcome {
         ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
@@ -478,13 +444,13 @@ impl RunCompletion {
 /// Replays every case of the corpus snapshot bounded at run start, page by page.
 pub async fn replay_corpus(
     reader: &dyn NormalizationDiagnosticCaseReader,
-    boilerplate: &dyn DescriptionBoilerplateReader,
     filter: NormalizationDiagnosticCaseFilter,
     page_size: u32,
     out: &mut dyn Write,
 ) -> RunCompletion {
     let mut summary = ReplaySummary::default();
-    let error = for_each_stored_case(reader, boilerplate, filter, page_size, |case| {
+    let error = for_each_stored_case(reader, filter, page_size, |case| {
+        let case = ReplayCase::from_stored(case);
         let result = replay_case(&case);
         summary.add(&result);
         write_record(out, &result_record(&case, &result))
@@ -497,15 +463,14 @@ pub async fn replay_corpus(
 /// Writes the selected corpus with full evidence for offline replay.
 pub async fn export_corpus(
     reader: &dyn NormalizationDiagnosticCaseReader,
-    boilerplate: &dyn DescriptionBoilerplateReader,
     filter: NormalizationDiagnosticCaseFilter,
     page_size: u32,
     out: &mut dyn Write,
 ) -> RunCompletion {
     let mut summary = ReplaySummary::default();
-    let error = for_each_stored_case(reader, boilerplate, filter, page_size, |case| {
+    let error = for_each_stored_case(reader, filter, page_size, |case| {
         summary.cases += 1;
-        write_record(out, &case.to_json())
+        write_record(out, &ReplayCase::from_stored(case).to_json())
     })
     .await
     .err();
@@ -548,7 +513,6 @@ pub fn replay_jsonl(input: impl std::io::BufRead, out: &mut dyn Write) -> RunCom
                     evidence: ReplayEvidence::Unavailable {
                         reason: "MALFORMED_CASE".to_owned(),
                     },
-                    description_boilerplate: Vec::new(),
                 };
                 let result = ReplayResult {
                     status: ReplayStatus::Incompatible,
@@ -575,16 +539,12 @@ pub fn replay_jsonl(input: impl std::io::BufRead, out: &mut dyn Write) -> RunCom
     }
 }
 
-/// Visits each stored case of the snapshot as a replay case carrying its source's reviewed
-/// boilerplate.
 async fn for_each_stored_case(
     reader: &dyn NormalizationDiagnosticCaseReader,
-    boilerplate: &dyn DescriptionBoilerplateReader,
     filter: NormalizationDiagnosticCaseFilter,
     page_size: u32,
-    mut visit: impl FnMut(ReplayCase) -> Result<(), String>,
+    mut visit: impl FnMut(StoredNormalizationDiagnosticCase) -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut sources = SourceBoilerplate::new(boilerplate);
     let page_size = page_size.max(1);
     let Some(through_generation) = reader
         .snapshot_bound()
@@ -609,15 +569,7 @@ async fn for_each_stored_case(
         let page_len = page.len();
         for case in page {
             after_generation = case.generation;
-            let listing_source_id =
-                ListingSourceId::try_from(case.listing_source_id).map_err(|error| {
-                    format!(
-                        "case {} has an invalid listing source: {error}",
-                        case.case_id
-                    )
-                })?;
-            let boilerplate = sources.get(listing_source_id).await?;
-            visit(ReplayCase::from_stored(case, boilerplate))?;
+            visit(case)?;
         }
         if page_len < page_size as usize {
             return Ok(());
@@ -629,12 +581,10 @@ async fn for_each_stored_case(
 /// evaluator and records the ones with issues as `EVALUATED_*` cases.
 pub async fn seed_from_raw_revisions(
     revisions: &dyn RetainedProductListingRawRevisionReader,
-    boilerplate: &dyn DescriptionBoilerplateReader,
     recorder: &dyn NormalizationDiagnosticCaseRecorder,
     page_size: u32,
 ) -> SeedCompletion {
     let mut completion = SeedCompletion::default();
-    let mut sources = SourceBoilerplate::new(boilerplate);
     let page_size = page_size.max(1);
     let through_generation = match revisions.snapshot_bound().await {
         Ok(Some(bound)) => bound,
@@ -670,16 +620,7 @@ pub async fn seed_from_raw_revisions(
                 }
             };
             after_generation = revision.generation;
-            let boilerplate = match sources.get(revision.listing_source_id).await {
-                Ok(boilerplate) => boilerplate.clone(),
-                Err(error) => {
-                    completion.error = Some(error);
-                    return completion;
-                }
-            };
-            let evaluation = ProductListingRawValuesNormalizer::new()
-                .with_description_boilerplate(boilerplate)
-                .evaluate(&revision.input);
+            let evaluation = ProductListingRawValuesNormalizer::new().evaluate(&revision.input);
             if evaluation.report.is_empty() {
                 continue;
             }
@@ -742,40 +683,6 @@ impl SeedCompletion {
     }
 }
 
-/// Each listing source's reviewed `STRIP` set, read once per run.
-struct SourceBoilerplate<'a> {
-    reader: &'a dyn DescriptionBoilerplateReader,
-    sets: HashMap<ListingSourceId, DescriptionBoilerplate>,
-}
-
-impl<'a> SourceBoilerplate<'a> {
-    fn new(reader: &'a dyn DescriptionBoilerplateReader) -> Self {
-        Self {
-            reader,
-            sets: HashMap::new(),
-        }
-    }
-
-    async fn get(
-        &mut self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<&DescriptionBoilerplate, String> {
-        if !self.sets.contains_key(&listing_source_id) {
-            let set = self
-                .reader
-                .strip_set(listing_source_id)
-                .await
-                .map_err(|error| {
-                    format!(
-                        "failed to read description boilerplate of {listing_source_id}: {error}"
-                    )
-                })?;
-            self.sets.insert(listing_source_id, set);
-        }
-        Ok(&self.sets[&listing_source_id])
-    }
-}
-
 pub fn write_record(out: &mut dyn Write, record: &Value) -> Result<(), String> {
     serde_json::to_writer(&mut *out, record)
         .map_err(|error| error.to_string())
@@ -790,6 +697,7 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use listing_source_core::ListingSourceId;
     use product_listing_core::product_listing_raw_id::ProductListingRawRevisionId;
     use product_service::ports::{
         NormalizationDiagnosticCaseId, NormalizationDiagnosticCasePortError,
@@ -901,31 +809,6 @@ mod tests {
         assert_eq!(ReplayStatus::Incompatible, replay_case(&case).status);
     }
 
-    /// Every source strips the same reviewed set.
-    #[derive(Default)]
-    struct BoilerplateFake(DescriptionBoilerplate);
-
-    #[async_trait]
-    impl DescriptionBoilerplateReader for BoilerplateFake {
-        async fn strip_set(
-            &self,
-            _listing_source_id: ListingSourceId,
-        ) -> Result<DescriptionBoilerplate, product_service::ports::DescriptionBoilerplatePortError>
-        {
-            Ok(self.0.clone())
-        }
-
-        async fn reviews(
-            &self,
-            _listing_source_id: Option<ListingSourceId>,
-        ) -> Result<
-            Vec<product_service::ports::DescriptionBoilerplateReview>,
-            product_service::ports::DescriptionBoilerplatePortError,
-        > {
-            Ok(Vec::new())
-        }
-    }
-
     struct CorpusFake {
         cases: Vec<StoredNormalizationDiagnosticCase>,
         bound: i64,
@@ -946,7 +829,7 @@ mod tests {
             entry_point: Some(NormalizationDiagnosticEntryPoint::RawValuesNormalizationV1),
             entry_point_code: "RAW_VALUES_NORMALIZATION_V1".to_owned(),
             input_sha256: vec![0; 32],
-            listing_source_id: ListingSourceId::new().into_uuid(),
+            listing_source_id: uuid::Uuid::nil(),
             evidence: StoredNormalizationDiagnosticEvidence::RawRevision {
                 product_listing_raw_revision_id: ProductListingRawRevisionId::new(),
                 input: Box::new(ProductListingNormalizationInput::from_document(&input).unwrap()),
@@ -1014,7 +897,6 @@ mod tests {
         let mut output = Vec::new();
         let completion = replay_corpus(
             &corpus,
-            &BoilerplateFake::default(),
             NormalizationDiagnosticCaseFilter::default(),
             2,
             &mut output,
@@ -1050,7 +932,6 @@ mod tests {
         let mut output = Vec::new();
         let completion = replay_corpus(
             &corpus,
-            &BoilerplateFake::default(),
             NormalizationDiagnosticCaseFilter::default(),
             2,
             &mut output,
@@ -1076,7 +957,6 @@ mod tests {
         assert!(
             export_corpus(
                 &corpus,
-                &BoilerplateFake::default(),
                 NormalizationDiagnosticCaseFilter::default(),
                 10,
                 &mut export
@@ -1092,42 +972,6 @@ mod tests {
         let records = records(&output);
         assert_eq!(json!("UNRESOLVED"), records[0]["status"]);
         assert_eq!(json!("INCOMPATIBLE"), records[1]["status"]);
-    }
-
-    #[tokio::test]
-    async fn exported_cases_carry_their_source_boilerplate_for_offline_replay() {
-        let corpus = CorpusFake {
-            cases: vec![stored(1)],
-            bound: 1,
-            fail_after: None,
-            requests: Mutex::new(Vec::new()),
-        };
-        let boilerplate = BoilerplateFake(
-            [BoilerplateSentence::new("Free  Shipping.").unwrap()]
-                .into_iter()
-                .collect(),
-        );
-        let mut export = Vec::new();
-        export_corpus(
-            &corpus,
-            &boilerplate,
-            NormalizationDiagnosticCaseFilter::default(),
-            10,
-            &mut export,
-        )
-        .await;
-
-        let case = ReplayCase::from_json(&records(&export)[0]).unwrap();
-        assert_eq!(
-            vec!["free shipping.".to_owned()],
-            case.description_boilerplate
-        );
-        let mut invalid = case.to_json();
-        invalid["descriptionBoilerplate"] = json!([" "]);
-        assert_eq!(
-            ReplayStatus::Incompatible,
-            replay_case(&ReplayCase::from_json(&invalid).unwrap()).status
-        );
     }
 
     struct RevisionsFake(Vec<RetainedProductListingRawRevisionRead>);
@@ -1197,8 +1041,7 @@ mod tests {
             revision(3, "negated-quantity"),
         ]);
         let recorder = RecorderFake::default();
-        let completion =
-            seed_from_raw_revisions(&revisions, &BoilerplateFake::default(), &recorder, 2).await;
+        let completion = seed_from_raw_revisions(&revisions, &recorder, 2).await;
         assert_eq!(
             SeedCompletion {
                 evaluated: 3,

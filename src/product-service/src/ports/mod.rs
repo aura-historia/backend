@@ -1,12 +1,5 @@
-pub mod description_boilerplate;
 pub mod normalization_diagnostic_case;
 pub mod product_listing_raw_normalization;
-
-pub use description_boilerplate::{
-    CurrentRawDescription, CurrentRawDescriptionCursor, CurrentRawDescriptionReader,
-    DescriptionBoilerplateDecision, DescriptionBoilerplatePortError, DescriptionBoilerplateReader,
-    DescriptionBoilerplateReview, DescriptionBoilerplateReviewWriter,
-};
 
 pub use normalization_diagnostic_case::{
     MAX_NORMALIZATION_DIAGNOSTIC_BUILD_BYTES, NORMALIZATION_DIAGNOSTIC_INPUT_SHA256_BYTES,

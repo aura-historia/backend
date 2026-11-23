@@ -6,7 +6,6 @@ mod query_error;
 pub mod product_listing_event_appender;
 mod product_listing_event_codec;
 
-pub mod description_boilerplate;
 pub mod partner_product_listing_authorizer;
 pub mod product_listing_command_receipt;
 pub mod product_listing_content_assessment_source_reader;
@@ -24,7 +23,6 @@ pub mod readers;
 mod title;
 mod url;
 
-pub use description_boilerplate::SqlxDescriptionBoilerplateStore;
 pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerFactory;
 
 pub use product_listing_command_receipt::SqlxProductListingCommandReceiptStoreFactory;
