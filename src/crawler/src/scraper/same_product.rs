@@ -11,6 +11,7 @@ use crate::spider::utils::url::canonical::without_language_segment;
 use regex::regex;
 use url::Url;
 
+mod language_codes;
 mod language_version;
 
 /// Query parameters that name the language a page is shown in (`?Sprache=fr`, `?l=en`) when

@@ -5,27 +5,8 @@
 //! ([`product_spelling`](super::product_spelling)); this rule covers language directories at any
 //! depth, inserted, dropped or swapped.
 
+use super::language_codes::is_language_code;
 use url::Url;
-
-/// The ISO 639-1 language codes. A directory that is one of them, alone or with a region or script
-/// subtag (`de`, `pt-br`, `zh_hans`), names a language version only where it cannot be taken for a
-/// category: inserted into or dropped from a path, or swapped for another language. A two-letter
-/// directory in place of an ordinary one (`/de/` for `/vases/`) may be a category or a dealer's
-/// initials whose products are numbered on their own.
-const LANGUAGE_CODES: &[&str] = &[
-    "aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bh",
-    "bi", "bm", "bn", "bo", "br", "bs", "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy", "da",
-    "de", "dv", "dz", "ee", "el", "en", "eo", "es", "et", "eu", "fa", "ff", "fi", "fj", "fo", "fr",
-    "fy", "ga", "gd", "gl", "gn", "gu", "gv", "ha", "he", "hi", "ho", "hr", "ht", "hu", "hy", "hz",
-    "ia", "id", "ie", "ig", "ii", "ik", "io", "is", "it", "iu", "ja", "jv", "ka", "kg", "ki", "kj",
-    "kk", "kl", "km", "kn", "ko", "kr", "ks", "ku", "kv", "kw", "ky", "la", "lb", "lg", "li", "ln",
-    "lo", "lt", "lu", "lv", "mg", "mh", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "na", "nb",
-    "nd", "ne", "ng", "nl", "nn", "no", "nr", "nv", "ny", "oc", "oj", "om", "or", "os", "pa", "pi",
-    "pl", "ps", "pt", "qu", "rm", "rn", "ro", "ru", "rw", "sa", "sc", "sd", "se", "sg", "si", "sk",
-    "sl", "sm", "sn", "so", "sq", "sr", "ss", "st", "su", "sv", "sw", "ta", "te", "tg", "th", "ti",
-    "tk", "tl", "tn", "to", "tr", "ts", "tt", "tw", "ty", "ug", "uk", "ur", "uz", "ve", "vi", "vo",
-    "wa", "wo", "xh", "yi", "yo", "za", "zh", "zu",
-];
 
 /// Languages named in words, in English and in the language itself without diacritics, as a shop
 /// names the directory of a language version (`/english/…`, `/deutsch/…`). Such a directory names
@@ -150,7 +131,11 @@ impl<'a> PagePath<'a> {
 }
 
 /// Whether a directory names a language: a language named in words ([`LANGUAGE_NAMES`]) or an
-/// ISO 639-1 code ([`LANGUAGE_CODES`]) with an optional region or script subtag.
+/// ISO 639-1 code ([`is_language_code`]) with an optional region or script subtag. A code names a
+/// language version only where it cannot be taken for a category: inserted into or dropped from a
+/// path, or swapped for another language ([`PagePath::shared_directories`]). A two-letter
+/// directory in place of an ordinary one (`/de/` for `/vases/`) may be a category or a dealer's
+/// initials whose products are numbered on their own.
 fn is_language_directory(directory: &str) -> bool {
     is_language_name(directory) || is_language_code(directory)
 }
@@ -159,19 +144,6 @@ fn is_language_name(directory: &str) -> bool {
     LANGUAGE_NAMES
         .iter()
         .any(|name| directory.eq_ignore_ascii_case(name))
-}
-
-fn is_language_code(directory: &str) -> bool {
-    let (code, subtag) = directory
-        .split_once(['-', '_'])
-        .map_or((directory, None), |(code, subtag)| (code, Some(subtag)));
-    let subtag_fits = subtag.is_none_or(|subtag| {
-        (2..=4).contains(&subtag.len()) && subtag.bytes().all(|byte| byte.is_ascii_alphanumeric())
-    });
-    subtag_fits
-        && LANGUAGE_CODES
-            .iter()
-            .any(|language| code.eq_ignore_ascii_case(language))
 }
 
 fn query_values(query: Option<&str>) -> impl Iterator<Item = &str> {
@@ -351,15 +323,5 @@ mod tests {
         #[case] names: bool,
     ) {
         assert_eq!(is_language_directory(directory), names);
-    }
-
-    #[test]
-    fn should_hold_the_184_iso_639_1_codes_once_each() {
-        let mut codes = LANGUAGE_CODES.to_vec();
-        codes.sort_unstable();
-        codes.dedup();
-
-        assert_eq!(codes.len(), 184);
-        assert_eq!(codes.len(), LANGUAGE_CODES.len());
     }
 }
