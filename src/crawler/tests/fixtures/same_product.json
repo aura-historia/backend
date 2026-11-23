@@ -96,6 +96,14 @@
         {"path": "shop/item.php?id=88", "captured": "0b6e2d94c1a8", "page_identity": "88", "title": "Imari-Platte", "expected": "retire", "evidence": "language_directory"},
         {"path": "shop/vases/item.php?id=88", "captured": "7d40e2b9a6c3", "page_identity": "88", "title": "Celadon vase", "expected": "keep", "evidence": null}
       ]
+    },
+    {
+      "name": "sections named by three letters that name no language, next to a three-letter language version",
+      "rows": [
+        {"path": "art/item.php?id=5", "captured": "5", "page_identity": "5", "title": "River landscape, oil on canvas", "expected": "survivor", "evidence": null},
+        {"path": "map/item.php?id=5", "captured": "a51c09e7b3d2", "page_identity": "5", "title": "Map of Flanders, 1640", "expected": "keep", "evidence": null},
+        {"path": "ita/art/item.php?id=5", "captured": "5", "page_identity": "5", "title": "Paesaggio fluviale, olio su tela", "expected": "retire", "evidence": "spelling"}
+      ]
     }
   ]
 }
