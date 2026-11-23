@@ -76,6 +76,10 @@ impl DescriptionBoilerplate {
         self.0.is_empty()
     }
 
+    pub fn sentences(&self) -> impl Iterator<Item = &BoilerplateSentence> {
+        self.0.iter()
+    }
+
     pub fn contains(&self, sentence: &str) -> bool {
         self.0
             .contains(&BoilerplateSentence(sentence_key(sentence)))

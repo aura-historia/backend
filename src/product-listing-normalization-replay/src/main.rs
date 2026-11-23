@@ -5,19 +5,27 @@
 //! normalization-replay --input FILE.jsonl [--output FILE]          # offline replay of an export
 //! normalization-replay export [FILTERS] --output FILE.jsonl        # export cases with evidence
 //! normalization-replay seed [--page-size N]                        # seed from raw revisions
+//! normalization-replay boilerplate candidates [--listing-source ID] [--min-listings N]
+//!                      [--min-share F] [--page-size N] --output FILE  # propose boilerplate
+//! normalization-replay boilerplate review --input FILE               # import reviewed decisions
 //!
-//! FILTERS: --entry-point CODE  --listing-source UUID  --case UUID (repeatable)
+//! FILTERS: --entry-point CODE  --listing-source ID  --case UUID (repeatable)
 //!          --field CODE  --reason CODE
 //! ```
 //!
 //! Exit status: 0 when the run covered its whole snapshot (even if cases remain unresolved),
 //! 2 when the run is incomplete, 64 for invalid usage.
 
+use product_listing_normalization_replay::boilerplate::{
+    CandidateThresholds, boilerplate_candidates, import_reviews, parse_reviews,
+};
 use product_listing_normalization_replay::{
     DEFAULT_REPLAY_PAGE_SIZE, RunCompletion, export_corpus, replay_corpus, replay_jsonl,
     seed_from_raw_revisions, write_record,
 };
-use product_listing_postgres::SqlxNormalizationDiagnosticCaseStore;
+use product_listing_postgres::{
+    SqlxDescriptionBoilerplateStore, SqlxNormalizationDiagnosticCaseStore,
+};
 use product_service::ports::{
     NormalizationDiagnosticCaseFilter, NormalizationDiagnosticCaseId,
     NormalizationDiagnosticEntryPoint,
@@ -35,6 +43,7 @@ struct Arguments {
     page_size: Option<u32>,
     input: Option<String>,
     output: Option<String>,
+    thresholds: CandidateThresholds,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -43,6 +52,8 @@ enum Command {
     Replay,
     Export,
     Seed,
+    BoilerplateCandidates,
+    BoilerplateReview,
 }
 
 fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, String> {
@@ -56,6 +67,14 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, Strin
         Some("seed") => {
             parsed.command = Command::Seed;
             arguments.next();
+        }
+        Some("boilerplate") => {
+            arguments.next();
+            parsed.command = match arguments.next().as_deref() {
+                Some("candidates") => Command::BoilerplateCandidates,
+                Some("review") => Command::BoilerplateReview,
+                _ => return Err("boilerplate needs candidates or review".to_owned()),
+            };
         }
         _ => {}
     }
@@ -79,8 +98,25 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, Strin
                     uuid::Uuid::parse_str(&id)
                         .ok()
                         .and_then(|id| listing_source_core::ListingSourceId::try_from(id).ok())
+                        .or_else(|| id.parse().ok())
                         .ok_or_else(|| format!("invalid listing source ID {id}"))?,
                 );
+            }
+            "--min-listings" => {
+                let count = value()?;
+                parsed.thresholds.min_listings = count
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|count| *count > 0)
+                    .ok_or_else(|| format!("invalid minimum listing count {count}"))?;
+            }
+            "--min-share" => {
+                let share = value()?;
+                parsed.thresholds.min_share = share
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|share| (0.0..=1.0).contains(share))
+                    .ok_or_else(|| format!("invalid minimum share {share}"))?;
             }
             "--case" => {
                 let id = value()?;
@@ -107,11 +143,28 @@ fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Arguments, Strin
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    if parsed.input.is_some() && parsed.command != Command::Replay {
-        return Err("--input is only valid for replay".to_owned());
+    let review = parsed.command == Command::BoilerplateReview;
+    if parsed.input.is_some()
+        && !matches!(parsed.command, Command::Replay | Command::BoilerplateReview)
+    {
+        return Err("--input is only valid for replay and boilerplate review".to_owned());
     }
-    if parsed.command == Command::Export && parsed.output.is_none() {
-        return Err("export requires --output".to_owned());
+    if review && parsed.input.is_none() {
+        return Err("boilerplate review requires --input".to_owned());
+    }
+    if review
+        && (parsed.filter != NormalizationDiagnosticCaseFilter::default()
+            || parsed.output.is_some())
+    {
+        return Err("boilerplate review takes only --input".to_owned());
+    }
+    // Candidates carry listing text, so they go to a file, never to the terminal.
+    if matches!(
+        parsed.command,
+        Command::Export | Command::BoilerplateCandidates
+    ) && parsed.output.is_none()
+    {
+        return Err("export and boilerplate candidates require --output".to_owned());
     }
     Ok(parsed)
 }
@@ -137,7 +190,7 @@ async fn main() -> ExitCode {
     };
     let page_size = arguments.page_size.unwrap_or(DEFAULT_REPLAY_PAGE_SIZE);
 
-    if let Some(path) = &arguments.input {
+    if let (Some(path), Command::Replay) = (&arguments.input, &arguments.command) {
         let completion = match std::fs::File::open(path) {
             Ok(file) => replay_jsonl(BufReader::new(file), out.as_mut()),
             Err(error) => {
@@ -163,14 +216,29 @@ async fn main() -> ExitCode {
             return ExitCode::from(INCOMPLETE);
         }
     };
-    let store = SqlxNormalizationDiagnosticCaseStore::new(pool);
+    let store = SqlxNormalizationDiagnosticCaseStore::new(pool.clone());
+    let boilerplate = SqlxDescriptionBoilerplateStore::new(pool);
     match arguments.command {
         Command::Replay => {
-            let completion = replay_corpus(&store, arguments.filter, page_size, out.as_mut()).await;
+            let completion = replay_corpus(
+                &store,
+                &boilerplate,
+                arguments.filter,
+                page_size,
+                out.as_mut(),
+            )
+            .await;
             finish(out.as_mut(), &completion)
         }
         Command::Export => {
-            let completion = export_corpus(&store, arguments.filter, page_size, out.as_mut()).await;
+            let completion = export_corpus(
+                &store,
+                &boilerplate,
+                arguments.filter,
+                page_size,
+                out.as_mut(),
+            )
+            .await;
             eprintln!(
                 "normalization-replay: exported {} cases (complete: {})",
                 completion.summary.cases,
@@ -183,12 +251,53 @@ async fn main() -> ExitCode {
             exit_code(completion.completed())
         }
         Command::Seed => {
-            let completion = seed_from_raw_revisions(&store, &store, page_size).await;
+            let completion = seed_from_raw_revisions(&store, &boilerplate, &store, page_size).await;
             let record = completion.to_json();
             let written = write_record(out.as_mut(), &record)
                 .and_then(|()| out.flush().map_err(|error| error.to_string()));
             eprintln!("{record}");
             exit_code(completion.error.is_none() && written.is_ok())
+        }
+        Command::BoilerplateCandidates => {
+            let completion = boilerplate_candidates(
+                &boilerplate,
+                &boilerplate,
+                arguments.filter.listing_source_id,
+                arguments.thresholds,
+                page_size,
+                out.as_mut(),
+            )
+            .await;
+            let record = completion.to_json();
+            let written = write_record(out.as_mut(), &record)
+                .and_then(|()| out.flush().map_err(|error| error.to_string()));
+            eprintln!("{record}");
+            exit_code(completion.error.is_none() && written.is_ok())
+        }
+        Command::BoilerplateReview => {
+            let Some(path) = &arguments.input else {
+                return ExitCode::from(USAGE);
+            };
+            let reviews = match std::fs::File::open(path)
+                .map_err(|error| format!("cannot open {path}: {error}"))
+                .and_then(|file| parse_reviews(BufReader::new(file)))
+            {
+                Ok(reviews) => reviews,
+                Err(error) => {
+                    eprintln!("normalization-replay: {error}");
+                    return ExitCode::from(USAGE);
+                }
+            };
+            match import_reviews(&boilerplate, reviews).await {
+                Ok(count) => {
+                    eprintln!("normalization-replay: recorded {count} boilerplate reviews");
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("normalization-replay: {error}");
+                    ExitCode::from(INCOMPLETE)
+                }
+            }
         }
     }
 }
@@ -243,6 +352,40 @@ mod tests {
             parsed.filter.entry_point
         );
         assert!(args(&["export"]).is_err());
+        assert!(args(&["boilerplate"]).is_err());
+        assert!(args(&["boilerplate", "candidates"]).is_err());
+        assert!(args(&["boilerplate", "review"]).is_err());
+        assert!(args(&["boilerplate", "review", "--input", "x", "--output", "y"]).is_err());
+        assert!(
+            args(&[
+                "boilerplate",
+                "candidates",
+                "--min-share",
+                "1.5",
+                "--output",
+                "x"
+            ])
+            .is_err()
+        );
+        let candidates = args(&[
+            "boilerplate",
+            "candidates",
+            "--min-listings",
+            "3",
+            "--min-share",
+            "0.5",
+            "--output",
+            "candidates.jsonl",
+        ])
+        .unwrap();
+        assert_eq!(Command::BoilerplateCandidates, candidates.command);
+        assert_eq!(
+            CandidateThresholds {
+                min_listings: 3,
+                min_share: 0.5
+            },
+            candidates.thresholds
+        );
         assert!(args(&["seed", "--input", "x"]).is_err());
         assert!(args(&["--page-size", "0"]).is_err());
     }
