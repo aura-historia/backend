@@ -407,11 +407,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .ok_or(ProductListingRepositoryError::ConcurrencyConflict)?;
 
         if effects.advance_content_source {
-            sqlx::query("DELETE FROM product_listing_translations WHERE product_listing_id = $1")
-                .bind(product.id().as_uuid())
-                .execute(&mut *self.connection)
-                .await
-                .map_err(ProductListingUpdateSqlxError)?;
+            crate::title_translation_revision::discard_title_translations(
+                self.connection,
+                product.id(),
+            )
+            .await
+            .map_err(ProductListingUpdateSqlxError)?;
         }
 
         let version = ProductListingStorageVersion::try_from(version)
