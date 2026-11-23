@@ -755,6 +755,8 @@ pub(crate) fn build_product_index_price_clause(
         return None;
     }
 
+    // A source currency no single native amount converts into the filter window has no native
+    // range, so a source range spanning a window narrower than one minor unit is not matched.
     let active_ranges = price_filter
         .active_native_ranges
         .iter()

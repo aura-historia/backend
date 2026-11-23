@@ -1616,6 +1616,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn should_read_a_dash_separated_dual_currency_display_with_the_fallback_currency() {
+        assert_eq!(
+            Ok(Some(Price::new(3_300_u64.into(), Currency::Chf).into())),
+            normalize_product_listing_price(Some("€ 35.00 - CHF 33.00"), Some(Currency::Chf))
+        );
+    }
+
     #[rstest]
     #[case("€ -100 - 200")]
     #[case("€ 1.000 - −1.500")]
@@ -1631,6 +1639,9 @@ mod tests {
     #[case("€12,500 – contact us to buy", 1_250_000)]
     #[case("Vase - €100", 10_000)]
     #[case("1.250 € - 3 Stück", 125_000)]
+    #[case("€ 1.250 - 3 Stück", 125_000)]
+    #[case("Lot 12 – 680 €", 68_000)]
+    #[case("€ 45 - 100 Stück", 4_500)]
     fn should_keep_single_prices_next_to_a_dash(#[case] raw: &str, #[case] minor: u64) {
         assert_eq!(
             Ok(Some(Price::new(minor.into(), Currency::Eur).into())),

@@ -8,15 +8,18 @@
 //!
 //! A currency written only between the bounds belongs to its own amount, so the other number
 //! is no bound: `1.250 € - 3 Stück` and `Lot 12 – € 680` are no ranges and stay single prices.
-//! A dash directly after a decimal separator is a sign or a zero-cents dash (`100,-200`,
-//! `2490,- €`), never a range separator.
+//! A currency on one side covers only a bare number on the other: a number a word names or
+//! qualifies (`Lot 12 – 680 €`, `€ 45 - 100 Stück`) or one written with a leading zero is no
+//! bound either. A dash directly after a decimal separator is a sign or a zero-cents dash
+//! (`100,-200`, `2490,- €`), never a range separator. A mix of currencies the fallback currency
+//! names is a dual-currency display, which the single-price rule reads.
 //!
 //! Text that holds a range layout but cannot be one range fails closed with
 //! [`PriceError::InvalidRange`]: mixed currencies, a lower bound that is not below the upper
 //! one, several different ranges, or a range next to another price.
 
 use super::currency_marker::{CurrencyMarker, currency_markers, has_unsupported_dollar};
-use super::display_number::{PriceNumberCandidate, extract_price_number_candidates};
+use super::display_number::{PriceNumberCandidate, extract_price_number_candidates, stands_alone};
 use super::{
     PriceError, euro_sign_decimal_number, has_amount_run_into_a_percentage, has_negative_sign,
     parse_price_candidate, price_currency_pairs,
@@ -96,6 +99,8 @@ struct RangeLayout<'a> {
     before_upper: Option<CurrencyMarker>,
     /// After the upper bound (`1.000 – 1.500 €`).
     trailing: Option<CurrencyMarker>,
+    /// Whether a minus sign stands on the upper bound or its currency.
+    upper_signed: bool,
     /// Where the layout starts, including an opening word (`from`, `ab`, `entre`).
     start: usize,
     end: usize,
@@ -128,16 +133,30 @@ impl<'a> RangeLayout<'a> {
         if separator.is_word() && before_upper_start == separator_end {
             return None;
         }
-        let before_upper = marker_at(markers, before_upper_start);
-        let upper_start = match before_upper {
-            Some(marker) => whitespace_end(raw, marker.end, MAX_MARKER_GAP_CHARS)?,
-            None => before_upper_start,
+        // A sign on the upper bound or its currency keeps the layout, so the bound is rejected
+        // as negative rather than the lower bound read as a single price. The separator itself
+        // is never a sign (`1.000€-1.500€`).
+        let signed_start = sign_end(raw, before_upper_start);
+        let (before_upper, number_start) = match marker_at(markers, signed_start) {
+            Some(marker) => (
+                Some(marker),
+                whitespace_end(raw, marker.end, MAX_MARKER_GAP_CHARS)?,
+            ),
+            None => (None, before_upper_start),
         };
-        // A sign on a bound keeps the layout, so the bound is rejected as negative rather
-        // than the other bound read as a single price.
-        if sign_end(raw, upper_start) != upper.start {
+        let unsigned_start = sign_end(raw, number_start);
+        if unsigned_start != upper.start {
             return None;
         }
+        // A minus spaced off the lower bound but written onto the upper one (`€ 1.000 -1.500`)
+        // reads as a sign.
+        let sign_like_separator = separator == Separator::Dash
+            && raw[separator_start..separator_end].chars().all(is_minus)
+            && separator_start > cursor
+            && before_upper_start == separator_end;
+        let upper_signed = sign_like_separator
+            || signed_start != before_upper_start
+            || unsigned_start != number_start;
 
         let leading = markers.iter().copied().find(|marker| {
             marker.end <= lower.start
@@ -162,6 +181,7 @@ impl<'a> RangeLayout<'a> {
             after_lower,
             before_upper,
             trailing,
+            upper_signed,
             start: opener.map_or(bounds_start, |(start, _)| start),
             end: trailing.map_or(upper_end, |marker| marker.end),
         })
@@ -197,13 +217,34 @@ impl<'a> RangeLayout<'a> {
         {
             return LayoutReading::NoRange;
         }
+        // A currency on one side covers a bare number on the other side only. A number a word
+        // names or qualifies (`Lot 12 – 680 €`, `€ 45 - 100 Stück`, `$45 - 1 left`) and a
+        // number written with a leading zero (`0171`) are no amounts of the range.
+        // A bound that continues as another number form (`1,5 Mio.`) stays, so it fails closed.
+        if [self.lower, self.upper]
+            .iter()
+            .any(|bound| has_leading_zero(&bound.value))
+            || (!lower_has_currency
+                && stands_alone(raw, self.lower)
+                && !is_bare_before(&raw[..self.start]))
+            || (!upper_has_currency
+                && stands_alone(raw, self.upper)
+                && !is_bare_after(&raw[self.end..]))
+        {
+            return LayoutReading::NoRange;
+        }
 
         let mut stated = self.markers().map(|marker| marker.currency);
         let (currency, explicit_currency) = match stated.next() {
-            Some(currency) if stated.any(|other| other != currency) => {
-                return LayoutReading::Range(Err(PriceError::InvalidRange));
-            }
-            Some(currency) => (currency, true),
+            Some(currency) => match stated.find(|other| *other != currency) {
+                // A dual-currency display (`€ 35.00 - CHF 33.00`) is the single-price rule's
+                // to read with the fallback currency; any other mix is no range.
+                Some(other) if fallback_currency.is_some_and(|f| f == currency || f == other) => {
+                    return LayoutReading::NoRange;
+                }
+                Some(_) => return LayoutReading::Range(Err(PriceError::InvalidRange)),
+                None => (currency, true),
+            },
             None => match fallback_currency {
                 Some(fallback) if self.is_whole_price_text(raw, markers, fallback) => {
                     (fallback, false)
@@ -218,7 +259,7 @@ impl<'a> RangeLayout<'a> {
     }
 
     fn bounds(&self, raw: &str, currency: Currency) -> Result<PriceRange, PriceError> {
-        if has_negative_sign(raw, self.lower) || has_negative_sign(raw, self.upper) {
+        if has_negative_sign(raw, self.lower) || self.upper_signed {
             return Err(PriceError::NegativeAmount);
         }
         let lower = parse_price_candidate(raw, self.lower, &currency)?;
@@ -227,8 +268,9 @@ impl<'a> RangeLayout<'a> {
     }
 
     /// Without a currency marker, two numbers are a range only when they are the whole price
-    /// text, apart from a label (`Preis: 1.000 – 1.500`) and the fallback currency itself, so
-    /// that a delivery time or a reference (`1 bis 2 Wochen`) never becomes a price.
+    /// text, apart from a price label (`Preis: 1.000 – 1.500`) and the fallback currency itself,
+    /// so that a delivery time or a reference (`Lieferzeit: 1 - 2`, `Art.-Nr.: 12-34`) never
+    /// becomes a price.
     fn is_whole_price_text(
         &self,
         raw: &str,
@@ -238,11 +280,6 @@ impl<'a> RangeLayout<'a> {
         if markers.iter().any(|marker| marker.currency != fallback) {
             return false;
         }
-        let before = &raw[..self.start];
-        let before = before
-            .rfind(':')
-            .map_or(before, |colon| &before[colon + 1..]);
-        let after = &raw[self.end..];
         let outside_markers = |text: &str, offset: usize| {
             text.char_indices().all(|(index, ch)| {
                 !ch.is_alphanumeric()
@@ -251,8 +288,42 @@ impl<'a> RangeLayout<'a> {
                         .any(|marker| (marker.start..marker.end).contains(&(offset + index)))
             })
         };
-        outside_markers(before, self.start - before.len()) && outside_markers(after, self.end)
+        let before = &raw[..self.start];
+        (outside_markers(before, 0) || is_price_label(before))
+            && outside_markers(&raw[self.end..], self.end)
     }
+}
+
+/// Whether `before` is nothing but a price label (`Preis:`, `Price`), with punctuation.
+fn is_price_label(before: &str) -> bool {
+    regex!(r"(?i)^[^\p{L}\p{N}]*(?:price|our\s+price|sale\s+price|preis|kaufpreis|verkaufspreis|prix|prezzo|precio|preço|preco|prijs|cena|pris|hinta|fiyat)\s*:?[^\p{L}\p{N}]*$")
+        .is_match(before)
+}
+
+/// Whether the text before a lower bound without its own currency leaves it a bare amount: it
+/// ends in punctuation or a price label, not in a word that names the number (`Lot 12`,
+/// `Art. 4711`).
+fn is_bare_before(before: &str) -> bool {
+    let word = before.trim_end().trim_end_matches(['.', ':']);
+    word.chars().next_back().is_none_or(|ch| !ch.is_alphanumeric())
+        || regex!(r"(?i)(?:^|[^\p{L}])(?:price|our\s+price|sale\s+price|preis|kaufpreis|verkaufspreis|prix|prezzo|precio|preço|preco|prijs|cena|pris|hinta|fiyat|ca|circa|approx|approximately|now|jetzt|nur|only)$")
+            .is_match(word)
+}
+
+/// Whether the text after an upper bound without its own currency leaves it a bare amount: it
+/// starts with punctuation or a tax or negotiation note, not with a unit or count (`100 Stück`).
+fn is_bare_after(after: &str) -> bool {
+    let after = after.trim_start();
+    after.chars().next().is_none_or(|ch| !ch.is_alphanumeric())
+        || regex!(r"(?i)^(?:inkl|incl|exkl|excl|zzgl|zzg|plus|vat|mwst|ust|ttc|ht|iva|tax|vb|ono|obo)(?:[^\p{L}]|$)")
+            .is_match(after)
+}
+
+/// Whether a number is written with a leading zero (`0171`), as references and phone numbers
+/// are and amounts are not.
+fn has_leading_zero(number: &str) -> bool {
+    let mut digits = number.chars();
+    digits.next() == Some('0') && digits.next().is_some_and(|ch| ch.is_ascii_digit())
 }
 
 /// What joins the bounds of a range.
@@ -460,6 +531,12 @@ mod tests {
         120_000,
         150_000
     )]
+    #[case("1.000€-1.500€", Currency::Eur, 100_000, 150_000)]
+    #[case("1.000 €-1.500 €", Currency::Eur, 100_000, 150_000)]
+    #[case("Preis 1.000 - 1.500 €", Currency::Eur, 100_000, 150_000)]
+    #[case("ca. 1.000 - 1.500 €", Currency::Eur, 100_000, 150_000)]
+    #[case("€ 1.000 - 1.500 VB", Currency::Eur, 100_000, 150_000)]
+    #[case("€ 1.000 - 1.500 zzgl. Versand", Currency::Eur, 100_000, 150_000)]
     // The range the crawler writes for a JSON-LD AggregateOffer.
     #[case("1000.00 - 1500.00 EUR", Currency::Eur, 100_000, 150_000)]
     // A repeated range from a scraped fragment is one range.
@@ -522,6 +599,25 @@ mod tests {
     #[case("1.250 € - 3 Stück", None)]
     #[case("Lot 12 – € 680", None)]
     #[case("1.000 € - 1.500", None)]
+    // A word names or qualifies the number on the side without a currency.
+    #[case("Lot 12 – 680 €", None)]
+    #[case("Lot de 6 - 120 €", None)]
+    #[case("Art. 4711 - 8.500 €", None)]
+    #[case("€ 45 - 100 Stück", None)]
+    #[case("€ 1.250 - 3 Stück", None)]
+    #[case("$45.00 - 1 left in stock", None)]
+    #[case("€ 3,50 al 100 g", None)]
+    #[case("€ 850 - 1920er", None)]
+    // A number with a leading zero is a reference, not an amount.
+    #[case("Tel. 0171-2345678 €", None)]
+    // The fallback currency reads no reference or delivery time as a range.
+    #[case("Art.-Nr.: 12-34", Some(Currency::Eur))]
+    #[case("Lieferzeit: 1 - 2", Some(Currency::Eur))]
+    #[case("Tel.: 0171-2345678", Some(Currency::Eur))]
+    #[case("Lieferzeit 3 Wochen, Maße: 40 - 60", Some(Currency::Eur))]
+    // A dual-currency display the fallback currency resolves.
+    #[case("€ 35.00 - CHF 33.00", Some(Currency::Chf))]
+    #[case("€ 1.000 - 1.500 CHF", Some(Currency::Eur))]
     // A dash after a decimal separator is a sign or zero cents, not a range.
     #[case("100,-200 €", None)]
     #[case("1.000,--1.500 €", None)]
@@ -530,6 +626,7 @@ mod tests {
     #[case("Vase - €100", None)]
     #[case("€12,500 – contact us to buy", None)]
     #[case("€ 100 and 200", None)]
+    #[case("€ 1.000 bis ca. 1.500", None)]
     #[case("€ 100 a pezzo", None)]
     #[case("€ 1.000 total 1.500", None)]
     // Layouts a single price owns.
@@ -546,13 +643,24 @@ mod tests {
     }
 
     #[rstest]
-    // Mixed currencies.
     #[case("€ 1.000 - 1.500 CHF")]
     #[case("€ 1.000 - $ 1.500")]
+    fn should_fail_closed_when_the_bounds_mix_currencies_the_fallback_does_not_name(
+        #[case] raw: &str,
+    ) {
+        for fallback in [None, Some(Currency::Gbp)] {
+            assert_eq!(
+                Err(PriceError::InvalidRange),
+                display_range(raw, fallback),
+                "{raw}"
+            );
+        }
+    }
+
+    #[rstest]
     // The lower bound is not below the upper bound.
     #[case("€ 1.500 - 1.000")]
     #[case("€ 1.000 - 1.000")]
-    #[case("€ 1.250 - 3 Stück")]
     // Several different ranges.
     #[case("€ 100 - 200, € 300 - 400")]
     #[case("€ 100 - 200 - 300")]
