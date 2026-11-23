@@ -104,10 +104,22 @@ fn shows_one_of_amounts(html: &Html, amounts: &[String]) -> bool {
         .any(|number| amounts.contains(&number))
 }
 
-/// The whole units of a JSON-LD price such as `7900`, `5600.00` or `5600.00 CHF`, as digits.
+/// The whole units of a JSON-LD price, as digits: those before the dot of a schema.org decimal
+/// such as `7900`, `5600.00`, `5600.00 CHF` or `12.3450`, or before the dot or comma that one or
+/// two decimals follow in a dealer's grouped amount, such as `1,250.00` or `1.250,00`.
 fn whole_amount(price: &str) -> Option<String> {
     let number = price.split_whitespace().next()?;
-    let whole = number.split(['.', ',']).next()?;
+    let is_decimal =
+        |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    let whole = match number.rsplit_once(['.', ',']) {
+        Some((whole, decimals))
+            if is_decimal(decimals)
+                && (decimals.len() <= 2 || (number.contains('.') && is_decimal(whole))) =>
+        {
+            whole
+        }
+        _ => number,
+    };
     Some(digits_of(whole)).filter(|digits| !digits.is_empty())
 }
 
@@ -205,6 +217,22 @@ mod tests {
             &html,
         );
         (signals.shows_price_text, signals.shows_description_block)
+    }
+
+    #[rstest::rstest]
+    #[case("7900", Some("7900"))]
+    #[case("5600.00 CHF", Some("5600"))]
+    #[case("12.3450", Some("12"))]
+    #[case("1,250.00 USD", Some("1250"))]
+    #[case("1.250,00 EUR", Some("1250"))]
+    #[case("1,250", Some("1250"))]
+    #[case("1.250.000", Some("1250000"))]
+    #[case("CHF", None)]
+    fn should_read_the_whole_units_of_a_json_ld_price(
+        #[case] price: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(whole_amount(price).as_deref(), expected, "{price}");
     }
 
     const PROSE: &str = "A Georgian oak chest of drawers with original brass handles, restored in 2019 and in very good condition.";

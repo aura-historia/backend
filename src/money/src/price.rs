@@ -1,5 +1,5 @@
 use crate::{Currency, HasMinorUnitExponent};
-use std::ops::{Add, Deref, Sub};
+use std::ops::{Deref, Sub};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -14,14 +14,6 @@ impl Deref for MonetaryAmount {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl Add for MonetaryAmount {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
     }
 }
 

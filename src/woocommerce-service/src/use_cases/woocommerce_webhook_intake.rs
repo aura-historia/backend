@@ -625,7 +625,7 @@ fn upsert_raw_values(
         title: ProductListingRawValuesPatch::Set(title.to_owned()),
         description: ProductListingRawValuesPatch::Unchanged,
         price_format: ProductListingRawValuesPriceFormat::MachineDecimal,
-        price: string_patch(product.price.clone()),
+        price: price_patch(product.price.as_deref()),
         price_estimate_min: ProductListingRawValuesPatch::Unchanged,
         price_estimate_max: ProductListingRawValuesPatch::Unchanged,
         availability: availability_patch(product.stock_status.as_deref()),
@@ -667,10 +667,13 @@ fn normalization_context(
         .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)
 }
 
-fn string_patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
+/// The provider's machine-decimal price without the whitespace around it, which the strict
+/// machine-decimal reading would reject; a blank price clears it.
+fn price_patch(value: Option<&str>) -> ProductListingRawValuesPatch<String> {
     value
-        .filter(|value| !value.trim().is_empty())
-        .map(ProductListingRawValuesPatch::Set)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| ProductListingRawValuesPatch::Set(value.to_owned()))
         .unwrap_or(ProductListingRawValuesPatch::Clear)
 }
 
@@ -1741,6 +1744,26 @@ mod tests {
             observation.input.source_payload().value(),
             alternative.input.source_payload().value()
         );
+    }
+
+    #[test]
+    fn should_capture_the_price_without_surrounding_whitespace() {
+        for (price, expected) in [
+            (
+                json!(" 42.00\n"),
+                json!({"action": "SET", "value": "42.00"}),
+            ),
+            (json!(" \t "), json!({"action": "CLEAR"})),
+        ] {
+            let mut product = published_product(Some("instock"));
+            product["price"] = price;
+            let observation = WoocommerceProductEventKind::Create
+                .raw_observation(&source(), product)
+                .unwrap_or_else(|error| panic!("mapping failed: {error}"))
+                .unwrap_or_else(|| panic!("published product must capture"));
+
+            assert_eq!(expected, observation.input.raw_values().value()["price"]);
+        }
     }
 
     #[test]

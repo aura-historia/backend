@@ -23,7 +23,9 @@ pub enum JsonLdOfferProperty {
     /// `price`, or `lowPrice` of an `AggregateOffer` without one, as written, followed by
     /// the offer's `priceCurrency` when it has one, so the worker reads the currency the
     /// offer states rather than the source's fallback currency. A price of zero digits only
-    /// is no value: templates publish it for price-on-request items, never for a sale.
+    /// is no value: templates publish it for price-on-request items, never for a sale. A price
+    /// with exactly three decimals is written so the worker reads it as schema.org means it,
+    /// or is no value when that meaning is in doubt (see [`offer_price`]).
     Price,
 }
 
@@ -116,21 +118,56 @@ fn offer_property(
     let value = property
         .keys()
         .iter()
-        .find_map(|key| offer.get(*key).and_then(scalar))?;
+        .find_map(|key| offer.get(*key).filter(|value| scalar(value).is_some()))?;
     match property {
-        JsonLdOfferProperty::Availability => Some(value),
-        JsonLdOfferProperty::Price if has_only_zero_digits(&value) => None,
-        JsonLdOfferProperty::Price => Some(
-            match offer
-                .get("priceCurrency")
-                .and_then(Value::as_str)
-                .map(str::trim)
-            {
-                Some(currency) if !currency.is_empty() => format!("{value} {currency}"),
-                _ => value,
-            },
-        ),
+        JsonLdOfferProperty::Availability => scalar(value),
+        JsonLdOfferProperty::Price => {
+            let price = offer_price(value).filter(|price| !has_only_zero_digits(price))?;
+            Some(
+                match offer
+                    .get("priceCurrency")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                {
+                    Some(currency) if !currency.is_empty() => format!("{price} {currency}"),
+                    _ => price,
+                },
+            )
+        }
     }
+}
+
+/// An offer price as the worker reads it. schema.org writes a price as a decimal with a dot
+/// (`1250.00`), which the worker's display-price reading agrees with, except that it groups
+/// thousands by a dot that exactly three digits follow. Such a price is therefore written as the
+/// decimal it is: without its trailing zeros (`1250.000` gives `1250`, the number `12.500` gives
+/// `12.5`), or with one more when it has none (`1250.345` gives `1250.3450`, which the worker
+/// rejects as excess precision). A JSON number is always such a decimal. A string of one to
+/// three whole digits and three decimals (`"12.500"`) is a decimal to schema.org but grouped
+/// thousands to many dealers, so it is no value and the rule's next selector decides. Every
+/// other price is as written.
+fn offer_price(value: &Value) -> Option<String> {
+    let written = scalar(value)?;
+    let Some((whole, decimals)) = written.split_once('.').filter(|(whole, decimals)| {
+        decimals.len() == 3
+            && !whole.is_empty()
+            && whole
+                .bytes()
+                .chain(decimals.bytes())
+                .all(|byte| byte.is_ascii_digit())
+    }) else {
+        return Some(written);
+    };
+    let reads_as_thousands = whole.len() <= 3 && !whole.starts_with('0');
+    if reads_as_thousands && !value.is_number() {
+        return None;
+    }
+    let decimals = decimals.trim_end_matches('0');
+    Some(match decimals.len() {
+        0 => whole.to_owned(),
+        3 => format!("{whole}.{decimals}0"),
+        _ => format!("{whole}.{decimals}"),
+    })
 }
 
 /// Whether `value` holds digits and every one of them is a zero, such as `0` or `0.00`.
@@ -251,6 +288,45 @@ mod tests {
         #[case] expected: Option<&str>,
     ) {
         assert_eq!(offer_value(json, property).as_deref(), expected);
+    }
+
+    #[rstest]
+    // A decimal whose three decimals a display price would read as grouped thousands.
+    #[case::trailing_zeros(r#""1250.000""#, Some("1250"))]
+    #[case::one_trailing_zero(r#""1250.500""#, Some("1250.5"))]
+    #[case::no_whole_units(r#""0.500""#, Some("0.5"))]
+    #[case::excess_precision(r#""1250.345""#, Some("1250.3450"))]
+    #[case::number(r#"12.345"#, Some("12.3450"))]
+    // A string schema.org reads as a decimal and many dealers as grouped thousands.
+    #[case::ambiguous_thousands(r#""125.000""#, None)]
+    #[case::ambiguous_decimal(r#""12.500""#, None)]
+    #[case::ambiguous_small(r#""1.250""#, None)]
+    // Every other price as written.
+    #[case::two_decimals(r#""1250.00""#, Some("1250.00"))]
+    #[case::one_decimal(r#""12.5""#, Some("12.5"))]
+    #[case::dealer_grouping(r#""1,250.00""#, Some("1,250.00"))]
+    #[case::four_decimals(r#""12.3450""#, Some("12.3450"))]
+    fn should_write_a_three_decimal_price_as_the_decimal_it_is(
+        #[case] price: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        let json = format!(r#"{{"@type":"Product","offers":{{"price":{price}}}}}"#);
+        assert_eq!(
+            offer_value(&json, JsonLdOfferProperty::Price).as_deref(),
+            expected,
+            "{price}"
+        );
+    }
+
+    #[test]
+    fn should_not_read_the_low_price_in_place_of_an_ambiguous_price() {
+        assert_eq!(
+            offer_value(
+                r#"{"offers":{"@type":"AggregateOffer","price":"12.500","lowPrice":"9.50"}}"#,
+                JsonLdOfferProperty::Price
+            ),
+            None
+        );
     }
 
     #[rstest]
