@@ -138,6 +138,7 @@ impl CurrentRawDescriptionReader for SqlxDescriptionBoilerplateStore {
               ON revision.product_listing_raw_stream_id = stream.product_listing_raw_stream_id
              AND revision.revision = stream.latest_revision
             WHERE revision.operation = 'UPSERT'
+              AND revision.payload_format = 'CRAWLER_EXTRACTED_PRODUCT'
               AND revision.raw_values -> 'description' ->> 'action' = 'SET'
               AND ($1::uuid IS NULL OR stream.listing_source_id = $1)
               AND ($2::uuid IS NULL

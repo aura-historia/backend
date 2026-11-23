@@ -271,8 +271,8 @@ impl ProductListingRawValuesNormalizer {
         }
     }
 
-    /// Strips the listing source's reviewed boilerplate from descriptions. Shipping evidence
-    /// still reads the unstripped description.
+    /// Strips the listing source's reviewed boilerplate from crawled descriptions. Shipping
+    /// evidence still reads the unstripped description.
     pub fn with_description_boilerplate(
         mut self,
         description_boilerplate: DescriptionBoilerplate,
@@ -283,6 +283,17 @@ impl ProductListingRawValuesNormalizer {
 
     pub const fn description_boilerplate(&self) -> &DescriptionBoilerplate {
         &self.description_boilerplate
+    }
+
+    /// Only crawled pages carry shop boilerplate around the item text. Shopify and WooCommerce
+    /// descriptions are the shop's own catalogue text and stay as sent.
+    pub const fn strips_description_boilerplate(
+        payload_format: crate::RawProductListingPayloadFormat,
+    ) -> bool {
+        matches!(
+            payload_format,
+            crate::RawProductListingPayloadFormat::CrawlerExtractedProduct
+        )
     }
 
     pub fn normalize(
@@ -399,7 +410,9 @@ impl ProductListingRawValuesNormalizer {
             .map_err(|error| envelope(error, report))?;
 
         let raw_description = match raw.description {
-            ProductListingRawValuesPatch::Set(fragments) => {
+            ProductListingRawValuesPatch::Set(fragments)
+                if Self::strips_description_boilerplate(input.payload_format()) =>
+            {
                 ProductListingRawValuesPatch::Set(self.description_boilerplate.strip(fragments))
             }
             patch => patch,
@@ -1053,6 +1066,46 @@ mod tests {
             ),
             resolved.shipping
         );
+    }
+
+    #[test]
+    fn should_keep_native_catalogue_descriptions_unstripped() {
+        let notice = "Free shipping has no tracking number.";
+        let mut values = base_values();
+        values["description"]["value"] = json!([format!("A restored ceramic vase. {notice}")]);
+        let crawled = input(values);
+        let normalizer = ProductListingRawValuesNormalizer::new().with_description_boilerplate(
+            [crate::BoilerplateSentence::new(notice).unwrap()]
+                .into_iter()
+                .collect(),
+        );
+        for format in [
+            RawProductListingPayloadFormat::ShopifyProduct,
+            RawProductListingPayloadFormat::WoocommerceProduct,
+        ] {
+            let native = ProductListingNormalizationInput::new(
+                crawled.operation(),
+                format,
+                1,
+                PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+                crawled.source_payload().clone(),
+                crawled.raw_values().clone(),
+                crawled.normalization_context().clone(),
+            )
+            .unwrap();
+            let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) =
+                normalizer.normalize(&native)
+            else {
+                panic!("native listing must resolve");
+            };
+            let ProductListingRawValuesPatch::Set(description) = resolved.description else {
+                panic!("description must stay set");
+            };
+            assert_eq!(
+                format!("A restored ceramic vase. {notice}"),
+                description.payload.as_ref()
+            );
+        }
     }
 
     fn base_values() -> serde_json::Value {

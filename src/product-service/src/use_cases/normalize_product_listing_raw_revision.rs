@@ -325,8 +325,9 @@ where
     ) -> StreamDrainResult {
         let mut results = Vec::new();
         // Every revision of a stream belongs to one listing source, so its boilerplate set is
-        // read once per drain.
-        let mut source_normalizer = None;
+        // read once per drain, and only for crawled revisions, the only ones it strips.
+        let native_normalizer = ProductListingRawValuesNormalizer::new();
+        let mut crawled_normalizer = None;
         for _ in 0..max_revisions {
             let candidate = match self
                 .pending_streams
@@ -342,12 +343,18 @@ where
             if let Err(error) = validate_stored_schema(&candidate.input) {
                 return StreamDrainResult::failed(results, error);
             }
-            let normalizer = match source_normalizer {
-                Some(ref normalizer) => normalizer,
-                None => match self.source_normalizer(candidate.listing_source_id).await {
-                    Ok(normalizer) => source_normalizer.insert(normalizer),
-                    Err(error) => return StreamDrainResult::failed(results, error),
-                },
+            let normalizer = if !ProductListingRawValuesNormalizer::strips_description_boilerplate(
+                candidate.input.payload_format(),
+            ) {
+                &native_normalizer
+            } else {
+                match crawled_normalizer {
+                    Some(ref normalizer) => normalizer,
+                    None => match self.source_normalizer(candidate.listing_source_id).await {
+                        Ok(normalizer) => crawled_normalizer.insert(normalizer),
+                        Err(error) => return StreamDrainResult::failed(results, error),
+                    },
+                }
             };
             let evaluation = normalizer.evaluate(&candidate.input);
             let evaluated = EvaluatedRevision {
@@ -2369,6 +2376,7 @@ mod tests {
     /// A bound listing whose stream holds one upsert with a shop notice in its description.
     fn listing_with_shop_notice(
         notice: &str,
+        payload_format: RawProductListingPayloadFormat,
     ) -> Result<(SharedState, ProductListingRawStreamId), Box<dyn std::error::Error>> {
         let stream_id = ProductListingRawStreamId::new();
         let listing_source_id = ListingSourceId::new();
@@ -2380,7 +2388,7 @@ mod tests {
         let reference = upsert_input("EUR 250")?;
         let input = ProductListingNormalizationInput::new(
             reference.operation(),
-            reference.payload_format(),
+            payload_format,
             reference.payload_schema_version(),
             reference.raw_values_schema_version(),
             reference.source_payload().clone(),
@@ -2428,7 +2436,10 @@ mod tests {
     async fn should_write_description_without_reviewed_boilerplate_and_record_its_set()
     -> Result<(), Box<dyn std::error::Error>> {
         let notice = "Free shipping has no tracking number.";
-        let (state, stream_id) = listing_with_shop_notice(notice)?;
+        let (state, stream_id) = listing_with_shop_notice(
+            notice,
+            RawProductListingPayloadFormat::CrawlerExtractedProduct,
+        )?;
         let boilerplate: product_listing_normalization::DescriptionBoilerplate =
             [product_listing_normalization::BoilerplateSentence::new(
                 notice,
@@ -2467,7 +2478,10 @@ mod tests {
     #[tokio::test]
     async fn should_leave_revision_pending_when_boilerplate_cannot_be_read()
     -> Result<(), Box<dyn std::error::Error>> {
-        let (state, stream_id) = listing_with_shop_notice("Free shipping.")?;
+        let (state, stream_id) = listing_with_shop_notice(
+            "Free shipping.",
+            RawProductListingPayloadFormat::CrawlerExtractedProduct,
+        )?;
 
         let result = handler(&state)
             .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Err(()))))
@@ -2482,6 +2496,39 @@ mod tests {
         assert_eq!(1, state.streams[0].revisions.len());
         assert!(state.completions.is_empty());
         assert_eq!(0, state.begins);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_read_boilerplate_for_native_catalogue_revisions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notice = "Free shipping has no tracking number.";
+        let (state, stream_id) =
+            listing_with_shop_notice(notice, RawProductListingPayloadFormat::ShopifyProduct)?;
+
+        handler(&state)
+            .with_description_boilerplate(Arc::new(DescriptionBoilerplateFake(Err(()))))
+            .execute(wake_up(stream_id))
+            .await?;
+
+        let state = lock(&state);
+        let description = state
+            .updated_products
+            .first()
+            .and_then(|listing| listing.description())
+            .ok_or_else(|| std::io::Error::other("description was not written"))?;
+        assert_eq!(
+            format!("A fresh description from the source. {notice}"),
+            description.payload.as_ref()
+        );
+        assert_eq!(
+            vec![None],
+            state
+                .completions
+                .iter()
+                .map(|completion| completion.description_boilerplate_sha256)
+                .collect::<Vec<_>>()
+        );
         Ok(())
     }
 }

@@ -78,8 +78,8 @@ cargo run --locked -p product-listing-normalization-replay -- boilerplate review
 
 ## Description boilerplate
 
-`boilerplate candidates` reads the latest raw description of every listing, one listing source at
-a time (`--listing-source` narrows it), and counts the listings that contain each sentence. An
+`boilerplate candidates` reads the latest raw description of every crawled listing, one listing
+source at a time (`--listing-source` narrows it), and counts the listings that contain each sentence. An
 unreviewed sentence in at least `--min-listings` listings (default 5) and `--min-share` of the
 source's listings (default 0.2) is written as a `candidate` record with its normalized `sentence`,
 an `example` as written, `listings` and `share`. A `source` record follows each source with its

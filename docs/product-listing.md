@@ -156,8 +156,10 @@ of the source.
 ### Description boilerplate
 
 Raw normalization strips each listing source's reviewed boilerplate sentences (shipping,
-invoice and payment notices) from the description before language detection, so the canonical
+invoice and payment notices) from crawled descriptions before language detection, so the canonical
 description, content assessment, embeddings and saved-search classification describe the item.
+Only crawled pages are stripped: Shopify and WooCommerce descriptions are the shop's own catalogue
+text and stay as sent, and their completions record no boilerplate set.
 Repetition alone never strips a sentence: a repeated sentence can be an item fact, such as whether
 a postcard was posted (`Gelaufen` / `Nicht gelaufen`). Only a sentence a reviewer decided `STRIP`
 for that source is removed; `KEEP` records a reviewed item fact so it is not proposed again.

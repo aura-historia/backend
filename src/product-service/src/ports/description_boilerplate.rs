@@ -80,7 +80,7 @@ pub trait DescriptionBoilerplateReviewWriter: Send + Sync {
     ) -> Result<(), DescriptionBoilerplatePortError>;
 }
 
-/// The description of a listing's latest raw revision, the unit candidate analysis counts.
+/// The description of a crawled listing's latest raw revision, the unit candidate analysis counts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentRawDescription {
     pub listing_source_id: ListingSourceId,
@@ -96,8 +96,9 @@ pub struct CurrentRawDescriptionCursor {
     pub product_listing_raw_stream_id: ProductListingRawStreamId,
 }
 
-/// Pages the set descriptions of every stream's latest UPSERT revision, ordered by listing source
-/// so analysis can finish one source before reading the next.
+/// Pages the set descriptions of every stream whose latest revision is a crawled UPSERT, the only
+/// descriptions boilerplate is stripped from, ordered by listing source so analysis can finish
+/// one source before reading the next.
 #[async_trait]
 pub trait CurrentRawDescriptionReader: Send + Sync {
     async fn page(

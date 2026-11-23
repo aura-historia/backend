@@ -1503,23 +1503,39 @@ async fn should_strip_reviewed_description_boilerplate_and_record_its_set() {
         capture(
             &unit_of_work,
             &SqlxProductListingRawCaptureWriterFactory::new(),
-            raw_write(
+            crawled(raw_write(
                 listing_source_id,
                 RawProductListingOperation::Upsert,
-                values,
+                values.clone(),
                 normalization_context(),
                 "boilerplate",
-            ),
+            )),
         )
         .await,
     );
-    let current = CurrentRawDescriptionReader::page(&store, Some(listing_source_id), None, 10)
+    // Native catalogue descriptions are never stripped, so analysis does not read them.
+    let native_source_id = seed_listing_source(&pool, "raw-boilerplate-native-source").await;
+    capture(
+        &unit_of_work,
+        &SqlxProductListingRawCaptureWriterFactory::new(),
+        raw_write(
+            native_source_id,
+            RawProductListingOperation::Upsert,
+            values,
+            normalization_context(),
+            "boilerplate-native",
+        ),
+    )
+    .await;
+    let current = CurrentRawDescriptionReader::page(&store, None, None, 10)
         .await
         .unwrap_or_else(|error| panic!("read current raw descriptions: {error}"));
-    assert_eq!(1, current.len());
     assert_eq!(
-        product_listing_raw_stream_id,
-        current[0].product_listing_raw_stream_id
+        vec![(listing_source_id, product_listing_raw_stream_id)],
+        current
+            .iter()
+            .map(|row| (row.listing_source_id, row.product_listing_raw_stream_id))
+            .collect::<Vec<_>>()
     );
 
     NormalizeProductListingRawRevisionHandler::new(
@@ -1565,6 +1581,30 @@ async fn should_strip_reviewed_description_boilerplate_and_record_its_set() {
         .await
         .unwrap_or_else(|error| panic!("read strip set: {error}"));
     assert_eq!(strip_set.sha256().map(|sha256| sha256.to_vec()), recorded);
+}
+
+/// The same write as captured by the crawler.
+fn crawled(write: ProductListingRawCaptureWrite) -> ProductListingRawCaptureWrite {
+    let native = write.input;
+    let input = ProductListingNormalizationInput::new(
+        native.operation(),
+        RawProductListingPayloadFormat::CrawlerExtractedProduct,
+        native.payload_schema_version(),
+        native.raw_values_schema_version(),
+        native.source_payload().clone(),
+        native.raw_values().clone(),
+        native.normalization_context().clone(),
+    )
+    .unwrap_or_else(|error| panic!("crawled normalization input: {error}"));
+    let input_sha256 = input
+        .hash()
+        .unwrap_or_else(|error| panic!("crawled normalization input hash: {error}"));
+    ProductListingRawCaptureWrite {
+        ingestion_method: ProductListingRawIngestionMethod::WebCrawl,
+        input,
+        input_sha256,
+        ..write
+    }
 }
 
 async fn create_auction(
