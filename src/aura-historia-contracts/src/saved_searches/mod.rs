@@ -963,6 +963,30 @@ mod tests {
     }
 
     #[test]
+    fn should_clear_listing_source_ids_with_an_empty_array_and_reject_null()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let clear: UpdateSearchFilterData = serde_json::from_str(
+            r#"{ "search": { "listingSourceId": [], "excludeListingSourceId": [] } }"#,
+        )?;
+        let (_, _, _, patch) = clear.into_fields()?;
+        assert_eq!(
+            PatchField::Set(HashSet::new().into()),
+            patch.listing_source_id_query
+        );
+        assert_eq!(
+            PatchField::Set(HashSet::new().into()),
+            patch.exclude_listing_source_id_query
+        );
+
+        for field in ["listingSourceId", "excludeListingSourceId"] {
+            let null: UpdateSearchFilterData =
+                serde_json::from_value(serde_json::json!({ "search": { field: null } }))?;
+            assert!(null.into_fields().is_err(), "{field}: null accepted");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn should_preserve_absent_and_configured_empty_availability_queries()
     -> Result<(), Box<dyn std::error::Error>> {
         let absent =

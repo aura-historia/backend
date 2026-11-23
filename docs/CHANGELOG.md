@@ -11,6 +11,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - **Notifications:** `WATCHLIST_PRICE_CHANGED` fires for any change of the asking price, including a range bound or a transition between kinds; `oldPrice`/`newPrice` may be `RANGE`.
 - **Crawled prices:** listings whose source states a range (`€ 1.000 – 1.500`, `from £1,200 to £1,500`) now store that range instead of one bound or failing; text that looks like a range but cannot be one is rejected with the persisted diagnostic `PRICE_RANGE_INVALID`.
 
+## 2026-11-23 — Search filter PATCH null rules in the OpenAPI contract (#3096)
+
+- **Contract correction, no behavior change:** `PatchProductListingSearchData` now documents the null rules `PATCH /v1/me/search-filters/{userSearchFilterId}` has always enforced. `language`, `currency`, `productQuery` and `listingSourceId` are no longer marked `nullable`; `null` for them (and for `excludeListingSourceId`) returns `400 BAD_BODY_VALUE`. Send `[]` to remove a `listingSourceId` or `excludeListingSourceId` restriction. `auctionId` is now marked `nullable`, since `null` clears it. Generated clients change their types accordingly.
+
 ## 2026-11-20 — Bounded Shopify trigger time (#3080)
 
 - **Behavior change:** `POST /v1/webhooks/shopify` rejects a forwarded delivery for a shop with a Shopify ListingSource whose `X-Shopify-Triggered-At` is more than five minutes in the future or more than six hours old with `400 BAD_HEADER_VALUE` and `source.field` `X-Shopify-Triggered-At`. The HMAC covers only the body, so the header is unauthenticated; the bound keeps a replayed body from ordering an observation, such as a removal, at a time Shopify would never send. A trigger time that is not RFC 3339 now also returns `400 BAD_HEADER_VALUE` instead of `BAD_BODY_VALUE`. Shopify's own deliveries and retries fall inside the bound.

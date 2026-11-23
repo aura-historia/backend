@@ -4,8 +4,8 @@
 //!
 //! A sitemap is untrusted input and is read fail-closed: a document whose root is not
 //! `<urlset>` or `<sitemapindex>`, such as an RSS or Atom feed or an HTML page a shop advertises
-//! as its sitemap, is no sitemap; a document that is not well-formed XML is malformed, and none
-//! of its entries are used. Only the `<loc>` of each entry is read; `<lastmod>`, `<priority>`,
+//! as its sitemap, is no sitemap; a document that is not well-formed XML or not UTF-8, as the
+//! protocol requires, is malformed, and none of its entries are used. Only the `<loc>` of each entry is read; `<lastmod>`, `<priority>`,
 //! `<changefreq>` and extensions such as image sitemaps are skipped, so a bad date never rejects
 //! an entry. An entry whose location cannot be read, such as one with an entity the XML
 //! standard does not define, is left out and counted. Entities are never expanded from a DTD.
@@ -95,8 +95,8 @@ pub fn parse_sitemap(body: &[u8], max_entries: usize) -> Result<ParsedSitemap, S
                     sitemap.invalid_entries += 1;
                 }
             }
-            Event::Text(text) => entries.text(text.xml10_content().ok().as_deref()),
-            Event::CData(data) => entries.text(data.decode().ok().as_deref()),
+            Event::Text(text) => entries.text(Some(&text.xml10_content())),
+            Event::CData(data) => entries.text(Some(data.as_ref())),
             Event::GeneralRef(reference) => entries.text(resolve_reference(&reference).as_deref()),
             Event::Eof => return Err(SitemapParseError::Unterminated),
             Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {}
@@ -110,8 +110,8 @@ fn read_root(reader: &mut Reader<&[u8]>) -> Result<SitemapKind, SitemapParseErro
         match reader.read_event().map_err(SitemapParseError::Malformed)? {
             Event::Start(root) => {
                 return match root.local_name().as_ref() {
-                    b"urlset" => Ok(SitemapKind::UrlSet),
-                    b"sitemapindex" => Ok(SitemapKind::Index),
+                    "urlset" => Ok(SitemapKind::UrlSet),
+                    "sitemapindex" => Ok(SitemapKind::Index),
                     other => Err(SitemapParseError::NotASitemap {
                         root: loggable_name(other),
                     }),
@@ -123,7 +123,7 @@ fn read_root(reader: &mut Reader<&[u8]>) -> Result<SitemapKind, SitemapParseErro
                     root: loggable_name(root.local_name().as_ref()),
                 });
             }
-            Event::Text(text) if text.iter().all(u8::is_ascii_whitespace) => {}
+            Event::Text(text) if text.trim_ascii().is_empty() => {}
             Event::Text(_) | Event::GeneralRef(_) | Event::CData(_) | Event::Eof => {
                 return Err(SitemapParseError::NoDocument);
             }
@@ -135,13 +135,13 @@ fn read_root(reader: &mut Reader<&[u8]>) -> Result<SitemapKind, SitemapParseErro
 
 /// An element name fit for the crawl diagnostics: short ASCII names as written, anything else
 /// replaced, since the name comes from an untrusted document.
-fn loggable_name(name: &[u8]) -> String {
+fn loggable_name(name: &str) -> String {
     let readable = name.len() <= 32
         && name
-            .iter()
+            .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
     match readable {
-        true => String::from_utf8_lossy(name).into_owned(),
+        true => name.to_owned(),
         false => "unreadable".to_owned(),
     }
 }
@@ -157,11 +157,11 @@ fn resolve_reference(reference: &BytesRef<'_>) -> Option<String> {
             .map(String::from);
     }
     let resolved = match reference.as_ref() {
-        b"amp" => "&",
-        b"lt" => "<",
-        b"gt" => ">",
-        b"quot" => "\"",
-        b"apos" => "'",
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
         _ => return None,
     };
     Some(resolved.to_owned())
@@ -178,7 +178,7 @@ enum Closed {
 /// Tracks where the reader is below the root: an entry (`<url>` or `<sitemap>`) directly below
 /// it, and that entry's `<loc>` directly below the entry. Elements anywhere else are skipped.
 struct EntryReader {
-    entry_name: &'static [u8],
+    entry_name: &'static str,
     /// Open elements below the root, the root not counted.
     depth: usize,
     in_entry: bool,
@@ -192,8 +192,8 @@ impl EntryReader {
     fn new(kind: SitemapKind) -> Self {
         Self {
             entry_name: match kind {
-                SitemapKind::UrlSet => b"url",
-                SitemapKind::Index => b"sitemap",
+                SitemapKind::UrlSet => "url",
+                SitemapKind::Index => "sitemap",
             },
             depth: 0,
             in_entry: false,
@@ -203,18 +203,15 @@ impl EntryReader {
         }
     }
 
-    fn is_entry(&self, name: &[u8]) -> bool {
+    fn is_entry(&self, name: &str) -> bool {
         self.depth == 0 && name == self.entry_name
     }
 
-    fn open(&mut self, name: &[u8]) {
+    fn open(&mut self, name: &str) {
         if self.is_entry(name) {
             self.in_entry = true;
             self.entry_location = None;
-        } else if self.in_entry
-            && self.depth == 1
-            && name == b"loc"
-            && self.entry_location.is_none()
+        } else if self.in_entry && self.depth == 1 && name == "loc" && self.entry_location.is_none()
         {
             self.in_location = true;
             self.location = LocationText::default();
@@ -429,6 +426,16 @@ mod tests {
 
             assert_eq!(error.as_str(), "malformed", "{body}: {error:?}");
         }
+    }
+
+    #[test]
+    fn should_use_no_entry_of_a_sitemap_that_is_not_utf8() {
+        let body = b"<urlset><url><loc>https://shop.example/a</loc></url>\
+            <url><loc>https://shop.example/m\xfcller</loc></url></urlset>";
+
+        let error = parse_sitemap(body, 100).unwrap_err();
+
+        assert_eq!(error.as_str(), "malformed", "{error:?}");
     }
 
     #[test]

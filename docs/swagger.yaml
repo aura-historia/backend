@@ -24420,8 +24420,10 @@ components:
       type: object
       description:
         Partial ProductListing search criteria. Omitted fields are unchanged. `enhancedSearchDescription`, `auctionId`, price,
-        date ranges, and the availability query may be cleared with `null`; availability, orderability, and includeUnspecifiedAvailability`
-        must be supplied together or all be `null`.
+        date ranges, shipping, geography, and the availability query may be cleared with `null`; `availability`, `orderability`, and
+        `includeUnspecifiedAvailability` must be supplied together or all be `null`. `language`, `currency`, `productQuery`,
+        `listingSourceId`, and `excludeListingSourceId` reject `null`; send `[]` to clear `listingSourceId` or
+        `excludeListingSourceId`.
       properties:
         shipping:
           anyOf:
@@ -24434,14 +24436,11 @@ components:
             values pin their reference release and interpretation independently of browsing preferences.
         language:
           $ref: "#/components/schemas/LanguageData"
-          nullable: true
         currency:
           $ref: "#/components/schemas/CurrencyData"
-          nullable: true
         productQuery:
           type: array
           items: *id001
-          nullable: true
         enhancedSearchDescription:
           type: string
           minLength: 1
@@ -24451,13 +24450,12 @@ components:
           type: array
           items: *id002
           uniqueItems: true
-          description: ListingSource IDs to include.
-          nullable: true
+          description: ListingSource IDs to include. `[]` removes the restriction.
         excludeListingSourceId:
           type: array
           items: *id003
           uniqueItems: true
-          description: ListingSource IDs to exclude.
+          description: ListingSource IDs to exclude. `[]` removes the restriction.
         auctionId:
           type: array
           items:
@@ -24465,6 +24463,7 @@ components:
           uniqueItems: true
           maxItems: 100
           description: Exact resolved Auction membership IDs. Values use strict `auc_` TypeIDs and OR together.
+          nullable: true
         price:
           allOf: *id004
           nullable: true
