@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-23 — Sold, out-of-stock and unavailable listings leave discovery (#3113)
+
+- **Behavior change:** search (`GET /v1/product-listings` and the search MCP tool), similar listings (`GET /v1/product-listings/{productListingId}/similar`), saved-search previews and saved-search matching no longer return listings whose availability is `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`. Listings without an availability assertion and `RESERVED` listings are still returned. A listing reappears when its availability changes back, for example from `OUT_OF_STOCK` to `IN_STOCK`. Totals shrink accordingly. Detail, history, watchlists, auction catalogues and existing saved-search matches are unchanged.
+- **Filters:** `availability` still accepts `SOLD_OUT`, `OUT_OF_STOCK` and `UNAVAILABLE` in search, similar listings and saved searches, including saved searches that already use them, but these values match nothing. `orderability=NOT_ORDERABLE` now matches only `RESERVED` listings. Request shapes are unchanged.
+- **Valuation:** search, similar-listing and preview results are always valued at current FX (`priceValuation.type` `CURRENT`); `SALE_OBSERVATION` remains possible only where a sold listing is still shown, such as detail and watchlists. A `price` filter compares only current asking prices.
+- **Public overview:** `GET /v1/overview` counts are unchanged and still include `ACTIVE` listings whatever their availability, so they include listings search omits.
+
 ## 2026-11-23 — Asking-price ranges (#3107)
 
 - **New price kind:** `ProductListingPriceData` gains `{"type":"RANGE","currency","min","max"}`, an asking price between two amounts in minor units. It appears wherever a listing price does: listing detail, search, similar listings, watchlist, saved-search matches, auction catalogues, notifications, admin and partner management reads, and the matching MCP tools. Clients that switch on `type` must handle `RANGE` (for example render `€1,000.00 – €1,500.00`). Converted display prices of a range keep its shape; a range whose bounds round to one amount in the display currency is shown as `MONETARY`.
