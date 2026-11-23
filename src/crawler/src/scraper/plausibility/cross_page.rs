@@ -3,9 +3,9 @@
 //! identity or an image that two pages share names the shop, the category or a default share
 //! image rather than the product. A shared `title` is a finding only when the pages that share
 //! it also share an identity or an image, or when every page shares it; otherwise it is the name
-//! two different products have in common. A segment every title starts or ends with, and the
-//! ListingSource's name in a title, are what the title rule reads besides the product's name
-//! ([`title_affix`]). Runtime extraction sees one page at a time and cannot run them.
+//! two different products have in common. A segment after a bar that every title starts or ends
+//! with, and the ListingSource's name at a title's start or end, are what the title rule reads
+//! besides the product's name ([`title_affix`]). Runtime extraction sees one page at a time and cannot run them.
 
 use super::PlausibilityField;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -28,11 +28,11 @@ pub enum CrossPageCheck {
     /// container, such as a customer review box, would. A single page without images may
     /// show a product without photos, so only every page counts.
     NoImageOnAnyPage,
-    /// Every review page's title starts or ends with the same segment after a separator, such
+    /// Every review page's title starts or ends with the same segment after a bar, such
     /// as the shop's name or a constant SEO tail that a document `<title>` or `og:title` adds
     /// to the product's name.
     SharedTitleSegment,
-    /// The title holds the ListingSource's name.
+    /// The title starts or ends with the ListingSource's name.
     ListingSourceName,
 }
 
@@ -52,7 +52,7 @@ impl CrossPageCheck {
             Self::RepeatedAcrossPages => "repeats a value of another product page",
             Self::NoImageOnAnyPage => "yields no capturable image on any review page",
             Self::SharedTitleSegment => "starts or ends with the same segment on every review page",
-            Self::ListingSourceName => "contains the name of the shop",
+            Self::ListingSourceName => "starts or ends with the name of the shop",
         }
     }
 }
@@ -63,7 +63,7 @@ pub struct CrossPageFinding {
     pub field: PlausibilityField,
     pub check: CrossPageCheck,
     /// This page's values the check names, as extracted from this page: the values another
-    /// page shares, the shared title segments or the title that holds the shop's name; empty
+    /// page shares, the shared title segments or the title affixed with the shop's name; empty
     /// for [`CrossPageCheck::NoImageOnAnyPage`], whose page has no image to name.
     pub values: Vec<String>,
 }
@@ -207,8 +207,8 @@ impl CrossPageFindings {
 }
 
 /// For each page, the segments every page's title starts or ends with
-/// ([`title_affix::shared_segments`]); none when every page shares the whole title, which the
-/// repeated-title check reports.
+/// ([`title_affix::shared_segments`]); none when every page spells the whole title alike, which
+/// the repeated-title check reports.
 fn shared_title_segments(
     pages: &[PageExtraction<'_>],
     title_groups: &HashMap<&str, Vec<usize>>,
@@ -223,13 +223,13 @@ fn shared_title_segments(
     title_affix::shared_segments(&titles)
 }
 
-/// The page's title when it holds the ListingSource's name
-/// ([`title_affix::holds_listing_source_name`]).
+/// The page's title when it starts or ends with the ListingSource's name
+/// ([`title_affix::affixes_listing_source_name`]).
 fn title_holding_name(page: &PageExtraction<'_>, listing_source_name: Option<&str>) -> Vec<String> {
     page.raw
         .title()
         .zip(listing_source_name)
-        .filter(|(title, name)| title_affix::holds_listing_source_name(title, name))
+        .filter(|(title, name)| title_affix::affixes_listing_source_name(title, name))
         .map(|(title, _)| title.trim().to_owned())
         .into_iter()
         .collect()
@@ -505,9 +505,8 @@ mod tests {
         use super::*;
         use PlausibilityField::{Images, SourceListingId, Title};
 
-        /// Navarro's untitled sold items share the document `<title>`, which ends with the
-        /// shop's name on every page, and Vauclair's `<body id>` is the same on every product
-        /// page.
+        /// Navarro's untitled sold items share the document `<title>`, and Vauclair's
+        /// `<body id>` is the same on every product page.
         #[test]
         fn should_report_an_identity_and_a_title_that_another_page_repeats() {
             let findings = findings_of(&[
@@ -531,17 +530,12 @@ mod tests {
                     vec![
                         repeated(SourceListingId, &["top"]),
                         repeated(Title, &["Sold items - Navarro"]),
-                        shared_segment(&["Navarro"]),
                     ],
                     vec![
                         repeated(SourceListingId, &["top"]),
                         repeated(Title, &["Sold items  -\nNavarro"]),
-                        shared_segment(&["Navarro"]),
                     ],
-                    vec![
-                        repeated(SourceListingId, &["top"]),
-                        shared_segment(&["Navarro"]),
-                    ],
+                    vec![repeated(SourceListingId, &["top"])],
                 ]
             );
         }
@@ -776,8 +770,8 @@ mod tests {
         #[test]
         fn should_report_a_leading_and_a_trailing_segment_together() {
             let findings = findings_of(&titled(&[
-                "Shop: Oak table | Antiques",
-                "Shop: Walnut chair | Antiques",
+                "Shop | Oak table | Antiques",
+                "Shop | Walnut chair | Antiques",
             ]));
 
             assert_eq!(
@@ -802,17 +796,18 @@ mod tests {
             assert!(findings.iter().all(Vec::is_empty), "{findings:?}");
         }
 
-        /// A title every page shares is repeated whole: naming its segments too would say
-        /// the same twice.
+        /// A title every page spells alike is repeated whole: naming its segments too would
+        /// say the same twice. One that only some pages spell in other letter case is no
+        /// repeated title, so its segments are named.
         #[test]
-        fn should_report_a_title_every_page_shares_only_as_repeated() {
-            let findings = findings_of(&titled(&["Antiques - Shop", "Antiques - Shop"]));
+        fn should_report_a_title_every_page_spells_alike_only_as_repeated() {
+            let findings = findings_of(&titled(&["Antiques | Shop", "Antiques | Shop"]));
 
             assert_eq!(
                 findings,
                 vec![
-                    vec![repeated(Title, &["Antiques - Shop"])],
-                    vec![repeated(Title, &["Antiques - Shop"])],
+                    vec![repeated(Title, &["Antiques | Shop"])],
+                    vec![repeated(Title, &["Antiques | Shop"])],
                 ]
             );
         }

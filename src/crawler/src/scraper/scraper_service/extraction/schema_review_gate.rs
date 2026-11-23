@@ -81,7 +81,12 @@ impl ScraperServiceImpl {
                 .await?;
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
         };
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let listing_source_name = review_repository
+            .listing_source_name(listing_source_id)
+            .await
+            .map_err(review_error_to_schema_service_error)?;
+        let matrix =
+            evaluate_schema_matrix_for_inputs(Some(&listing_source_name), &schemas, &pages);
         let keeps_captured_identities =
             derives_captured_identities(&matrix, &pages, &captured_identities);
         let deterministic_approval_ok =
@@ -454,7 +459,7 @@ mod tests {
             other_sold_page,
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, std::slice::from_ref(&schema), &pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let summary = with_schema_matrix_summary(
             json!({ "schema_count": 1 }),
@@ -523,7 +528,7 @@ mod tests {
             seed_page(PAGE_ROLE_SEED, "other-product", Some("Walnut chair")),
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, std::slice::from_ref(&schema), &pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let summary = with_schema_matrix_summary(
             json!({ "schema_count": 1 }),
@@ -558,7 +563,7 @@ mod tests {
             seed_page(PAGE_ROLE_SEED, "third", None),
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, std::slice::from_ref(&schema), &pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let summary = with_schema_matrix_summary(
             json!({ "schema_count": 1 }),
@@ -806,7 +811,7 @@ mod tests {
 
         fn kept(captured_identities: &HashMap<String, String>) -> bool {
             let pages = vec![seed_page(PAGE_ROLE_PRIMARY, "chair", None)];
-            let matrix = evaluate_schema_matrix_for_inputs(&[optional_miss_schema()], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[optional_miss_schema()], &pages);
             derives_captured_identities(&matrix, &pages, captured_identities)
         }
 

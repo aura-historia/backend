@@ -1,16 +1,20 @@
-//! What a title rule captures besides the product's name: a segment every review page's title
-//! starts or ends with, such as the shop's name, a constant SEO tail or a section label, and the
-//! ListingSource's name anywhere in a title. A document `<title>`, an `og:title` or an image
-//! `alt` usually carries them; the product heading does not.
+//! What a title rule captures besides the product's name: a segment after a bar that every review
+//! page's title starts or ends with, such as the shop's name or a constant SEO tail, and the
+//! ListingSource's name at the start or the end of a title. A document `<title>`, an `og:title` or
+//! an image `alt` usually carries them; the product heading does not.
+//!
+//! Both checks block approval, so they stay narrow enough not to refuse a correct product
+//! heading. Commas, colons and dashes are no separators here: a heading joins the product's own
+//! facts with them, as in "Chair, 19th century", "Tea bowl - Edo period" or "Beloved: A Novel",
+//! which a specialist dealer's review pages may all share. A shop name after such a separator is
+//! still found by the name check, and a tail that differs per page is left to the reviewer.
 
 use regex::regex;
 
-/// The segments of `title` between the separators shops put between a product's name and
-/// what they add to it: `|` and `｜` anywhere, a dash (`-`, `–`, `—`) with whitespace on both
-/// sides, and `:`, `;` or `,` before whitespace, so hyphenated words, date ranges such as
-/// `1860–1949` and times keep together. Empty segments are left out.
+/// The segments of `title` between the bars (`|`, `｜`) that shops put between a product's name
+/// and what they add to it. Empty segments are left out.
 fn segments(title: &str) -> Vec<&str> {
-    regex!(r"\s*[|｜]\s*|\s+[-–—]\s+|[:;,]\s+")
+    regex!(r"\s*[|｜]\s*")
         .split(title)
         .map(str::trim)
         .filter(|segment| !segment.is_empty())
@@ -84,24 +88,32 @@ fn last_segment<'t>(segments: &[&'t str]) -> &'t str {
     segments[segments.len() - 1]
 }
 
-/// Whether `title` holds the ListingSource `name` as whole words, ignoring case and how
-/// whitespace runs: `Holztisch | VIADUKT*3` holds `Viadukt*3`, while `Antiquariat` does not
-/// hold `Antiquar`. A blank name is held by no title.
-pub(super) fn holds_listing_source_name(title: &str, name: &str) -> bool {
+/// Whether `title` ends with the ListingSource `name` as whole words, or starts with it before a
+/// separator (`|`, `｜`, a dash, `:`, `;` or `,`), ignoring case, how whitespace runs and the
+/// punctuation around them, besides naming something else: `Holztisch | VIADUKT*3` and
+/// `Zitrone – Emmanuel Walderdorff Galerie.` do, while `Thonet bentwood chair` does not affix the
+/// dealer `Thonet`, which names the maker, nor `Antiquariatsbestand` the shop `Antiquariat`. A
+/// blank name is affixed to no title.
+pub(super) fn affixes_listing_source_name(title: &str, name: &str) -> bool {
+    let is_word_char = |character: char| character.is_alphanumeric();
     let name = comparison_key(name);
-    if name.is_empty() {
+    let name = name.trim_matches(|character: char| !is_word_char(character));
+    let title = comparison_key(title);
+    let title = title.trim_matches(|character: char| !is_word_char(character));
+    if name.is_empty() || title.len() <= name.len() {
         return false;
     }
-    let title = comparison_key(title);
-    let is_word_char = |character: char| character.is_alphanumeric();
-    title.match_indices(&name).any(|(start, _)| {
-        let end = start + name.len();
-        let joins_before = title[..start].chars().next_back().is_some_and(is_word_char)
-            && name.starts_with(is_word_char);
-        let joins_after =
-            title[end..].chars().next().is_some_and(is_word_char) && name.ends_with(is_word_char);
-        !joins_before && !joins_after
-    })
+    let ends_with_name = title
+        .strip_suffix(name)
+        .and_then(|rest| rest.chars().next_back())
+        .is_some_and(|before| !is_word_char(before));
+    let starts_with_name = title.strip_prefix(name).is_some_and(|rest| {
+        rest.trim_start_matches(|character: char| {
+            character.is_whitespace() || matches!(character, '.' | ')' | '"' | '\'')
+        })
+        .starts_with(['|', '｜', '-', '–', '—', ':', ';', ','])
+    });
+    ends_with_name || starts_with_name
 }
 
 #[cfg(test)]
@@ -135,19 +147,17 @@ mod tests {
         #[test]
         fn should_name_a_leading_segment_spelled_differently_per_page() {
             assert_eq!(
-                shared(&["Shop Navarro: Oak table", "SHOP  navarro: Walnut chair"]),
+                shared(&["Shop Navarro | Oak table", "SHOP  navarro|Walnut chair"]),
                 vec![values(&["Shop Navarro"]), values(&["SHOP  navarro"])]
             );
         }
 
-        /// LIGHTO's `og:title` ends with a full-width bar and no space, Galerie Maurer's with
-        /// a spaced em dash after a range that keeps a spaced hyphen.
+        /// LIGHTO's `og:title` ends with a full-width bar and no space; Ven y Empieza's document
+        /// `<title>` adds a byline after a dash and the publisher after a bar.
         #[rstest::rstest]
         #[case(&["花瓶｜LIGHTO", "茶碗｜LIGHTO"], "LIGHTO")]
-        #[case(&["Landschaften 1970 - 90 — Galerie Maurer", "Akt — Galerie Maurer"], "Galerie Maurer")]
         #[case(&["La voz interior - Libro de Jordi Sierra i Fabra | SM", "El lector - Libro de Ana Alcolea | SM"], "SM")]
-        #[case(&["Zitrone – Emmanuel Walderdorff Galerie", "Apfel – Emmanuel Walderdorff Galerie"], "Emmanuel Walderdorff Galerie")]
-        fn should_split_at_each_kind_of_separator(#[case] titles: &[&str], #[case] tail: &str) {
+        fn should_split_at_each_kind_of_bar(#[case] titles: &[&str], #[case] tail: &str) {
             assert!(
                 shared(titles)
                     .iter()
@@ -176,10 +186,15 @@ mod tests {
             );
         }
 
+        /// Product headings join the product's own facts with commas, colons and dashes, and a
+        /// dealer's review pages may all share one of them.
         #[rstest::rstest]
+        #[case::shared_origin(&["Pair of armchairs, France", "Writing desk, France"])]
+        #[case::shared_period(&["Tea bowl - Edo period", "Sake bottle - Edo period"])]
+        #[case::shared_artist(&["Max Ernst: Lithographie", "Max Ernst: Radierung"])]
+        #[case::shared_subtitle(&["Beloved: A Novel", "Jazz: A Novel"])]
         #[case::hyphenated_words(&["Leder-Sofa", "Leder-Sessel"])]
-        #[case::date_ranges(&["James Ensor (1860–1949)", "Paul Klee (1879–1940)"])]
-        #[case::shared_year(&["Chair - 1900", "Table - 1900"])]
+        #[case::shared_year(&["Chair | 1900", "Table | 1900"])]
         #[case::single_title(&["Chair | Shop"])]
         fn should_name_no_segment_that_is_no_affix(#[case] titles: &[&str]) {
             assert!(shared(titles).iter().all(Vec::is_empty), "{titles:?}");
@@ -216,26 +231,34 @@ mod tests {
             "Bauman  rare books"
         )]
         #[case(
-            "… – ABC Antiquariat Marco Pinkus & Büchersuchdienst",
+            "Atlas – ABC Antiquariat Marco Pinkus & Büchersuchdienst",
             "ABC Antiquariat Marco Pinkus & Büchersuchdienst"
         )]
         #[case(
             "Mappe; Roth, Benno; Offered by Antiquariat Immanuel",
             "Antiquariat Immanuel"
         )]
-        fn should_find_the_name_as_whole_words(#[case] title: &str, #[case] name: &str) {
-            assert!(holds_listing_source_name(title, name), "{title}");
+        #[case(
+            "Zitrone – Emmanuel Walderdorff Galerie.",
+            "Emmanuel Walderdorff Galerie"
+        )]
+        #[case("Horgenglarus Stapel 1-680 Stuhl – Stuzh38", "STUZH38")]
+        #[case("Shop & Co. | Oak table", "Shop & Co.")]
+        fn should_find_the_name_at_the_start_or_the_end(#[case] title: &str, #[case] name: &str) {
+            assert!(affixes_listing_source_name(title, name), "{title}");
         }
 
+        /// A dealer named after the maker it sells, or a shop named with a word its products
+        /// share, is named in a product heading as the maker or the word.
         #[rstest::rstest]
-        #[case("Antiquariatsbestand", "Antiquariat")]
-        #[case("Oak table", "Navarro")]
-        #[case("Oak table", " ")]
-        fn should_not_find_a_name_inside_another_word_or_a_blank_name(
-            #[case] title: &str,
-            #[case] name: &str,
-        ) {
-            assert!(!holds_listing_source_name(title, name), "{title}");
+        #[case::maker("Thonet bentwood chair No. 14", "Thonet")]
+        #[case::word_in_the_middle("Vienna Antik clock", "Antik")]
+        #[case::inside_another_word("Mappe aus dem Antiquariatsbestand", "Antiquariat")]
+        #[case::other_name("Oak table", "Navarro")]
+        #[case::name_alone("Navarro", "Navarro")]
+        #[case::blank_name("Oak table", " ")]
+        fn should_not_find_a_name_that_is_no_affix(#[case] title: &str, #[case] name: &str) {
+            assert!(!affixes_listing_source_name(title, name), "{title}");
         }
     }
 }

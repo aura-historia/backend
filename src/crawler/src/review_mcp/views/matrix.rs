@@ -32,21 +32,21 @@ pub struct MatrixView {
 pub struct LiveEvaluationView {
     pub candidate_version: i64,
     pub fetched_at: String,
-    /// Sampled captured product pages of the shop from which the candidate extracts other titles
-    /// than the live schemas: approving it retitles their listings. A title may rightly improve,
+    /// Sampled captured product pages of the shop from which the candidate would capture another
+    /// title than the live schemas: approving it retitles their listings. A title may rightly improve,
     /// so this blocks nothing; check that the candidate's titles name only the product.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[schemars(default)]
     pub title_changes: Vec<TitleChangeView>,
 }
 
-/// The titles the live schemas and the candidate extract from one captured product page.
+/// The titles the live schemas and the candidate would capture from one captured product page.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct TitleChangeView {
     pub url: String,
-    pub live_titles: Vec<String>,
-    /// Empty when the candidate extracts no title from the page.
-    pub candidate_titles: Vec<String>,
+    pub live_title: String,
+    /// Absent when the candidate would capture no title from the page.
+    pub candidate_title: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -139,7 +139,7 @@ pub enum FindingKind {
     /// A check of the page's own extraction.
     Page,
     /// A check against the schema's extractions of the other review pages and the ListingSource,
-    /// such as a value another product's page repeats or a title that holds the shop's name.
+    /// such as a value another product's page repeats or a title that ends with the shop's name.
     CrossPage,
     /// The extracted identity contradicts another schema's or the captured one.
     Identity,
@@ -237,7 +237,6 @@ impl MatrixView {
 
 impl LiveEvaluationView {
     fn of(evaluation: LiveMatrixEvaluation) -> Self {
-        let titles = |titles: &[String]| titles.iter().map(|title| value(title)).collect();
         Self {
             candidate_version: evaluation.candidate_version,
             fetched_at: timestamp(evaluation.fetched_at),
@@ -245,10 +244,12 @@ impl LiveEvaluationView {
                 .captured_identity_sample
                 .iter()
                 .flat_map(|sample| sample.title_changes())
-                .map(|page| TitleChangeView {
-                    url: page.url.clone(),
-                    live_titles: titles(&page.live_titles),
-                    candidate_titles: titles(&page.candidate_titles),
+                .filter_map(|page| {
+                    Some(TitleChangeView {
+                        url: page.url.clone(),
+                        live_title: value(page.live_title.as_deref()?),
+                        candidate_title: page.candidate_title.as_deref().map(value),
+                    })
                 })
                 .collect(),
         }
@@ -645,10 +646,10 @@ mod tests {
     /// sample adds nothing to the answer.
     #[test]
     fn should_list_the_sampled_pages_whose_title_the_candidate_changes() {
-        let sampled = |url: &str, live: &[&str], candidate: &[&str]| {
+        let sampled = |url: &str, live: Option<&str>, candidate: Option<&str>| {
             json!({
                 "url": url, "captured_identity": "1", "outcome": "AGREES",
-                "live_titles": live, "candidate_titles": candidate,
+                "live_title": live, "candidate_title": candidate,
             })
         };
         let matrix = decoded(json!({
@@ -658,9 +659,9 @@ mod tests {
                 "candidate_version": 3, "configuration_sha256": "x",
                 "fetched_at": "2026-11-23T12:00:00Z",
                 "captured_identity_sample": { "pages": [
-                    sampled("https://shop.example/a", &["Holztisch"], &["Holztisch | VIADUKT*3"]),
-                    sampled("https://shop.example/b", &["Stuhl"], &["Stuhl"]),
-                    sampled("https://shop.example/c", &[], &["Lampe | VIADUKT*3"]),
+                    sampled("https://shop.example/a", Some("Holztisch"), Some("Holztisch | VIADUKT*3")),
+                    sampled("https://shop.example/b", Some("Stuhl"), Some("Stuhl")),
+                    sampled("https://shop.example/c", None, Some("Lampe | VIADUKT*3")),
                 ]},
             },
             "not_evaluated_pages": [],
@@ -672,8 +673,8 @@ mod tests {
             view["live_evaluation"]["title_changes"],
             json!([{
                 "url": "https://shop.example/a",
-                "live_titles": ["Holztisch"],
-                "candidate_titles": ["Holztisch | VIADUKT*3"],
+                "live_title": "Holztisch",
+                "candidate_title": "Holztisch | VIADUKT*3",
             }])
         );
     }

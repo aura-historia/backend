@@ -1452,8 +1452,8 @@ mod tests {
                     outcome: CapturedIdentityOutcome::Differs {
                         identities: vec!["lamp-0815".to_owned()],
                     },
-                    live_titles: Vec::new(),
-                    candidate_titles: vec!["Lamp".to_owned()],
+                    live_title: None,
+                    candidate_title: Some("Lamp".to_owned()),
                 }],
             }]
         );
