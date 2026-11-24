@@ -545,6 +545,7 @@ mod tests {
             Some(EmbeddingImage {
                 mime_type: "image/jpeg",
                 bytes: b"jpeg bytes".to_vec(),
+                hash: None,
             }),
         );
 

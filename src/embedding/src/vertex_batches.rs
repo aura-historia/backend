@@ -10,9 +10,9 @@
 //! identically.
 
 use crate::{
-    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingVector,
-    EndedEmbeddingBatch, ProductEmbeddingBatches, ProductEmbeddingRequest, UnansweredEmbeddings,
-    VertexAiEmbeddingConfig,
+    EMBEDDING_DIMENSIONS, EmbeddedImage, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError,
+    EmbeddingVector, EndedEmbeddingBatch, ProductEmbeddingBatches, ProductEmbeddingRequest,
+    SubmittedEmbeddingBatch, UnansweredEmbeddings, VertexAiEmbeddingConfig,
     cloud_storage::CloudStorageBucket,
     product_image::fetch_embedding_image,
     vertex::{
@@ -104,13 +104,13 @@ impl VertexAiProductEmbeddingBatches {
     }
 
     /// Fetches the request's image and stages it; one that cannot be fetched is left out, as on
-    /// the synchronous path.
+    /// the synchronous path. Returns the JSONL line and the staged image.
     async fn batch_line(
         &self,
         token: &str,
         prefix: &str,
         request: &ProductEmbeddingRequest,
-    ) -> Result<String, EmbeddingError> {
+    ) -> Result<(String, Option<EmbeddedImage>), EmbeddingError> {
         let mut parts = vec![BatchPart::Text {
             text: product_text(&request.title, request.additional_text.as_ref()),
         }];
@@ -118,6 +118,10 @@ impl VertexAiProductEmbeddingBatches {
             Some(url) => fetch_embedding_image(&self.image_fetcher, url).await,
             None => None,
         };
+        let embedded_image = image.as_ref().map(|image| EmbeddedImage {
+            key: request.key,
+            hash: image.hash,
+        });
         if let Some(image) = image {
             let object = format!("{prefix}/images/{}", request.key);
             self.bucket
@@ -130,7 +134,7 @@ impl VertexAiProductEmbeddingBatches {
                 },
             });
         }
-        serde_json::to_string(&BatchLine {
+        let line = serde_json::to_string(&BatchLine {
             key: request.key.to_string(),
             request: BatchRequest {
                 content: BatchContent { parts },
@@ -141,7 +145,8 @@ impl VertexAiProductEmbeddingBatches {
         })
         .map_err(|_| EmbeddingError::InvalidInput {
             reason: "embedding batch request cannot be serialized",
-        })
+        })?;
+        Ok((line, embedded_image))
     }
 
     async fn create_job(
@@ -241,7 +246,7 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
         &self,
         label: &str,
         requests: &[ProductEmbeddingRequest],
-    ) -> Result<EmbeddingBatchId, EmbeddingError> {
+    ) -> Result<SubmittedEmbeddingBatch, EmbeddingError> {
         if label.is_empty()
             || !label
                 .bytes()
@@ -258,10 +263,12 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
             .iter()
             .map(|request| self.batch_line(&token, &prefix, request))
             .collect::<Vec<_>>();
-        let lines = stream::iter(staging)
+        let (lines, images): (Vec<_>, Vec<_>) = stream::iter(staging)
             .buffered(STAGING_CONCURRENCY)
             .try_collect::<Vec<_>>()
-            .await?;
+            .await?
+            .into_iter()
+            .unzip();
         let mut input = lines.join("\n");
         input.push('\n');
         self.bucket
@@ -273,7 +280,10 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
                 input.into_bytes(),
             )
             .await?;
-        self.create_job(&token, label, &prefix).await
+        Ok(SubmittedEmbeddingBatch {
+            id: self.create_job(&token, label, &prefix).await?,
+            images: images.into_iter().flatten().collect(),
+        })
     }
 
     async fn poll(&self, batch: &EmbeddingBatchId) -> Result<EmbeddingBatchPoll, EmbeddingError> {
@@ -520,14 +530,15 @@ mod tests {
             .await;
         let batches = batches(&server).await?;
 
-        let id = batches
+        let submitted = batches
             .submit(
                 "0b7e-label",
                 &[request(1, Some("adjustable arm")), request(2, None)],
             )
             .await?;
 
-        assert_eq!(JOB, id.as_str());
+        assert_eq!(JOB, submitted.id.as_str());
+        assert!(submitted.images.is_empty(), "no request has an image");
         let received = server.received_requests().await.unwrap();
         let upload = &received[0];
         assert_eq!(

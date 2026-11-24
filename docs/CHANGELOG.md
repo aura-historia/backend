@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-24 — Listings stay in semantic search while their content changes (#3115)
+
+- **Behavior change:** after a title, description or image change, a listing keeps its previous embedding until the new one is ready, instead of losing it until then. Semantic product search, saved-search matching and `GET /v1/product-listings/{productListingId}/similar` (MCP `getSimilarProductListings`) therefore keep finding the listing, and its similar listings keep answering `200` rather than `202 Accepted` (MCP: `EMBEDDING_PENDING`), while the change is processed.
+- **Behavior change:** a change that does not alter what the embedding sees meaningfully, such as different case, punctuation or whitespace, a small edit of the description, a change to images after the first or the same first image under a new URL, keeps the current embedding instead of computing a new one.
+
 ## 2026-11-24 — No enrichment for listings that are not for sale (#3114)
 
 - **Behavior change:** listings whose availability is `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`, and withdrawn listings, are no longer embedded or title-translated, including after a title, description or image change. When such a listing returns to sale, for example from `SOLD_OUT` to `IN_STOCK` or to no availability, or is restored for sale, it is embedded and translated then. Embeddings and translations a listing already has are kept until its content changes.

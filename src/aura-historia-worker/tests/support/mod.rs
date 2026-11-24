@@ -159,8 +159,12 @@ impl LargeLanguageModel for FakeFallback {
     }
 }
 
+/// The hash [`FakeEmbeddingBatches`] reports for every image it stages.
+pub const STAGED_IMAGE_HASH: [u8; embedding::ImageHash::BYTES] = [1; embedding::ImageHash::BYTES];
+
 /// Answers every request of a batch with a unit vector once it is polled, unless told to leave
-/// the next poll's requests unprocessed. Records what each submission requested.
+/// the next poll's requests unprocessed. Records what each submission requested and stages every
+/// request's image with [`STAGED_IMAGE_HASH`].
 #[derive(Clone, Default)]
 pub struct FakeEmbeddingBatches {
     pub submitted: Arc<Mutex<Vec<Vec<embedding::ProductEmbeddingRequest>>>>,
@@ -173,13 +177,23 @@ impl embedding::ProductEmbeddingBatches for FakeEmbeddingBatches {
         &self,
         _: &str,
         requests: &[embedding::ProductEmbeddingRequest],
-    ) -> Result<embedding::EmbeddingBatchId, embedding::EmbeddingError> {
+    ) -> Result<embedding::SubmittedEmbeddingBatch, embedding::EmbeddingError> {
         let mut submitted = self.submitted.lock().unwrap();
         submitted.push(requests.to_vec());
-        embedding::EmbeddingBatchId::new(format!(
-            "projects/p/locations/eu/batchPredictionJobs/{}",
-            submitted.len()
-        ))
+        Ok(embedding::SubmittedEmbeddingBatch {
+            id: embedding::EmbeddingBatchId::new(format!(
+                "projects/p/locations/eu/batchPredictionJobs/{}",
+                submitted.len()
+            ))?,
+            images: requests
+                .iter()
+                .filter(|request| request.image_url.is_some())
+                .map(|request| embedding::EmbeddedImage {
+                    key: request.key,
+                    hash: embedding::ImageHash::from_bytes(&STAGED_IMAGE_HASH),
+                })
+                .collect(),
+        })
     }
 
     async fn poll(
@@ -238,4 +252,21 @@ pub async fn append_change(
         .await?;
     tx.commit().await?;
     Ok(event)
+}
+
+/// Reports the configured hash per image URL; any other image cannot be fetched.
+#[derive(Clone, Default)]
+pub struct FakeImageHasher {
+    pub hashes: Arc<Mutex<std::collections::HashMap<String, embedding::ImageHash>>>,
+}
+
+#[async_trait::async_trait]
+impl embedding::EmbeddingImageHasher for FakeImageHasher {
+    async fn image_hash(&self, url: &embedding::EmbeddingImageUrl) -> Option<embedding::ImageHash> {
+        self.hashes
+            .lock()
+            .unwrap()
+            .get(url.as_url().as_str())
+            .copied()
+    }
 }

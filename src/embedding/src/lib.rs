@@ -1,5 +1,6 @@
 mod batches;
 mod cloud_storage;
+mod image_hasher;
 mod product_image;
 #[cfg(test)]
 mod test_support;
@@ -7,9 +8,12 @@ mod vertex;
 mod vertex_batches;
 
 pub use batches::{
-    EmbeddingBatchId, EmbeddingBatchPoll, EndedEmbeddingBatch, ProductEmbeddingBatches,
-    ProductEmbeddingRequest, UnansweredEmbeddings,
+    EmbeddedImage, EmbeddingBatchId, EmbeddingBatchPoll, EndedEmbeddingBatch,
+    ProductEmbeddingBatches, ProductEmbeddingRequest, SubmittedEmbeddingBatch,
+    UnansweredEmbeddings,
 };
+pub use image_fetcher::ImageHash;
+pub use image_hasher::{EmbeddingImageHasher, FetchingEmbeddingImageHasher};
 pub use vertex::VertexAiEmbeddingGenerator;
 pub use vertex_batches::{VertexAiBatchConfig, VertexAiProductEmbeddingBatches};
 

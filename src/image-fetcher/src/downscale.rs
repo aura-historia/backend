@@ -9,6 +9,8 @@ use image::{
 };
 use std::io::Cursor;
 
+use crate::ImageHash;
+
 /// Images with more pixels are not decoded.
 const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_DECODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
@@ -57,16 +59,29 @@ pub fn downscale(
     bytes: &[u8],
     budget: PixelBudget,
 ) -> Result<Downscaled, DownscaleError> {
-    let decoded = decode(mime_type, bytes)?;
-    Ok(reencoded(decoded, bytes.len(), budget).map_or(Downscaled::Original, Downscaled::Jpeg))
+    Ok(decode(mime_type, bytes)?.downscale(bytes.len(), budget))
 }
 
-struct DecodedImage {
+/// A JPEG, PNG or WebP file decoded within fixed memory limits.
+pub struct DecodedImage {
     image: DynamicImage,
     orientation: Orientation,
 }
 
-fn decode(mime_type: &str, bytes: &[u8]) -> Result<DecodedImage, DownscaleError> {
+impl DecodedImage {
+    /// The hash of the upright picture, which matches rescaled and re-encoded copies.
+    pub fn perceptual_hash(&self) -> ImageHash {
+        ImageHash::of(&self.image, self.orientation)
+    }
+
+    /// What to send for the image within `budget`, given its file's size in bytes.
+    pub fn downscale(self, file_bytes: usize, budget: PixelBudget) -> Downscaled {
+        reencoded(self, file_bytes, budget).map_or(Downscaled::Original, Downscaled::Jpeg)
+    }
+}
+
+/// Decodes `bytes`, a JPEG, PNG or WebP file, within fixed memory limits.
+pub fn decode(mime_type: &str, bytes: &[u8]) -> Result<DecodedImage, DownscaleError> {
     let format = match mime_type {
         "image/jpeg" => ImageFormat::Jpeg,
         "image/png" => ImageFormat::Png,
@@ -141,7 +156,7 @@ fn within_pixel_budget(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
 }
 
 /// JPEG has no transparency: transparent pixels become white, as product photos usually show.
-fn opaque_rgb(image: DynamicImage) -> RgbImage {
+pub(crate) fn opaque_rgb(image: DynamicImage) -> RgbImage {
     if !image.color().has_alpha() {
         return image.into_rgb8();
     }

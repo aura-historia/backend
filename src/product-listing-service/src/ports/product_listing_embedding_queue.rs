@@ -10,8 +10,12 @@ use product_listing_core::{
 use std::time::Duration;
 use url::Url;
 
+/// The image a submitted batch request embeds, by the request's key: the work's position.
+pub use embedding::EmbeddedImage;
 /// The provider's handle of a submitted embedding batch.
 pub use embedding::EmbeddingBatchId;
+/// The perceptual hash of an embedded image.
+pub use embedding::ImageHash;
 
 /// The work for one embedding revision of one listing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,6 +35,30 @@ pub struct PendingProductEmbedding {
     pub image_url: Option<Url>,
     /// Failed attempts so far.
     pub attempts: u16,
+    /// The input behind the listing's current vector; `None` without a vector or a recorded
+    /// input of the current [`EMBEDDING_INPUT_VERSION`](crate::use_cases::EMBEDDING_INPUT_VERSION).
+    pub embedded: Option<EmbeddedProductInput>,
+}
+
+/// The input a listing's current vector was computed from, as embedded: later revisions confirmed
+/// against it keep it, so changes are always measured from what the vector shows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddedProductInput {
+    /// The latest revision the vector stands for: the one it was computed for, or a later one
+    /// confirmed to have the same input.
+    pub source_event_id: EventId,
+    pub title: String,
+    pub description: Option<String>,
+    /// The first image, when it was part of the input.
+    pub image: Option<EmbeddedProductImage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedProductImage {
+    /// The latest URL known to serve the embedded picture.
+    pub url: Url,
+    /// `None` for an image embedded without being decoded, such as HEIC.
+    pub hash: Option<ImageHash>,
 }
 
 /// Work's place in a provider batch: the key of its request.
@@ -44,6 +72,15 @@ pub struct ProductEmbeddingAssignment {
 pub struct BatchedProductEmbedding {
     pub position: u32,
     pub embedding: PendingProductEmbedding,
+    /// The first image, when its request embeds it.
+    pub staged_image: Option<StagedProductImage>,
+}
+
+/// A first image that is part of an embedding's input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StagedProductImage {
+    /// `None` for an image embedded without being decoded, such as HEIC.
+    pub hash: Option<ImageHash>,
 }
 
 /// The local identity of a batch, assigned before the provider knows it.
@@ -86,6 +123,9 @@ pub struct SubmittedProductEmbeddingBatch {
     pub provider_batch_id: EmbeddingBatchId,
     /// Time since the provider accepted the batch.
     pub age: Duration,
+    /// The [`EMBEDDING_INPUT_VERSION`](crate::use_cases::EMBEDDING_INPUT_VERSION) the batch was
+    /// submitted with.
+    pub input_version: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,7 +155,8 @@ pub enum ProductListingEmbeddingQueueError {
 #[async_trait::async_trait]
 pub trait ProductListingEmbeddingQueue: Send {
     /// Records the listing's embedding revision `source_event_id` as pending, replacing older
-    /// work of the listing, when the listing still holds that revision and it is not embedded.
+    /// work of the listing, when the listing still holds that revision and its vector does not
+    /// stand for it yet.
     async fn schedule(
         &mut self,
         work: ProductEmbeddingWorkRef,
@@ -131,17 +172,21 @@ pub trait ProductListingEmbeddingQueue: Send {
         limit: u32,
     ) -> Result<Vec<PendingProductEmbedding>, ProductListingEmbeddingQueueError>;
 
-    /// Creates a batch the provider does not know yet and assigns the work to it.
+    /// Creates a batch the provider does not know yet, stamped with the current
+    /// [`EMBEDDING_INPUT_VERSION`](crate::use_cases::EMBEDDING_INPUT_VERSION), and assigns the
+    /// work to it.
     async fn create_batch(
         &mut self,
         key: ProductEmbeddingBatchKey,
         assignments: &[ProductEmbeddingAssignment],
     ) -> Result<(), ProductListingEmbeddingQueueError>;
 
+    /// Records the provider's ID of the batch and which of its requests embed their image.
     async fn record_submission(
         &mut self,
         key: ProductEmbeddingBatchKey,
         provider_batch_id: &EmbeddingBatchId,
+        images: &[EmbeddedImage],
     ) -> Result<(), ProductListingEmbeddingQueueError>;
 
     /// Returns the batch's unsettled work to the pending queue and deletes the batch.

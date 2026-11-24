@@ -6,6 +6,7 @@ pub(crate) mod product_listing_change;
 pub mod create_product_listing;
 pub mod embed_product_listing_batches;
 pub mod embed_product_listing_event;
+mod embedding_input_change;
 pub mod generate_watchlist_notifications;
 pub mod process_product_listing_ingestion;
 pub mod product_listing_ingestion;

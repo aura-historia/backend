@@ -1,27 +1,34 @@
 //! One round of batched product embedding: collect ended provider batches and commit their
 //! vectors under the embedding source-marker guard, then submit pending work as a new batch.
 //!
+//! Before submission each pending revision is compared with the input behind the listing's
+//! current vector ([`embedding_input_change`]). A revision that does not change it meaningfully
+//! is confirmed without a provider call; the vector keeps serving until a new one replaces it.
+//!
 //! Work is durable in the embedding queue, so a round that fails part-way leaves every
 //! embedding pending, submitted or settled, and the next round continues from there.
 
+use super::embedding_input_change::{EmbeddingInputChange, embedding_input_change};
 use crate::ports::{
-    BatchedProductEmbedding, PendingProductEmbedding, ProductEmbeddingAssignment,
+    BatchedProductEmbedding, ImageHash, PendingProductEmbedding, ProductEmbeddingAssignment,
     ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingWorkRef,
+    ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingConfirmation,
     ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
     ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
     ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
-    ProductListingEmbeddingWriterFactory, SubmittedProductEmbeddingBatch,
+    ProductListingEmbeddingWriterFactory, StagedProductImage, SubmittedProductEmbeddingBatch,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use embedding::{
-    EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingImageUrl, EmbeddingText,
-    EmbeddingVector, EndedEmbeddingBatch, ProductEmbeddingBatches, ProductEmbeddingRequest,
-    UnansweredEmbeddings,
+    EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingImageHasher, EmbeddingImageUrl,
+    EmbeddingText, EmbeddingVector, EndedEmbeddingBatch, ProductEmbeddingBatches,
+    ProductEmbeddingRequest, SubmittedEmbeddingBatch, UnansweredEmbeddings,
 };
+use futures::{StreamExt, stream};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -30,10 +37,18 @@ use std::time::Duration;
 pub const MAX_EMBEDDINGS_PER_BATCH: u32 = 10_000;
 /// A batch whose submission was not recorded within this time never reached the provider, or
 /// reached it without its ID being kept; either way its work returns to the queue. It exceeds
-/// the time staging a full batch's images takes.
+/// the time comparing new first-image URLs and staging a full batch's images take, even when
+/// every fetch runs into the fetcher's 10-second bound.
 const ABANDONED_SUBMISSION_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 /// Failed attempts after which an embedding is parked until the listing's content changes.
 pub const MAX_EMBEDDING_ATTEMPTS: u16 = 3;
+/// The model and request format product embeddings are computed with. Bump it with any change of
+/// either: an input recorded with another version counts as none, so every revision is embedded
+/// again instead of confirmed, and a batch submitted with another version is submitted again
+/// when collected (docs/durable-worker-runbook.md#forced-re-embedding).
+pub const EMBEDDING_INPUT_VERSION: u16 = 1;
+/// New first-image URLs fetched at once to compare their picture with the embedded one.
+const IMAGE_COMPARISON_CONCURRENCY: usize = 32;
 
 type Error = EmbedProductListingBatchesError;
 
@@ -104,10 +119,13 @@ impl From<ProductListingEmbeddingWriteError> for EmbedProductListingBatchesError
     }
 }
 
-/// How settled work ended,, for a round's and a batch's log records.
+/// How settled work ended, for a round's and a batch's log records.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProductEmbeddingSettlements {
     pub applied: usize,
+    /// Revisions whose input did not change meaningfully: the current vector stands for them
+    /// without a provider call.
+    pub confirmed: usize,
     pub duplicate: usize,
     /// Results for a revision the listing moved past, or for a deleted listing.
     pub stale: usize,
@@ -131,6 +149,7 @@ impl ProductEmbeddingSettlements {
 impl std::ops::AddAssign for ProductEmbeddingSettlements {
     fn add_assign(&mut self, other: Self) {
         self.applied += other.applied;
+        self.confirmed += other.confirmed;
         self.duplicate += other.duplicate;
         self.stale += other.stale;
         self.requeued += other.requeued;
@@ -161,19 +180,21 @@ pub trait EmbedProductListingBatchesUseCase: Send + Sync {
     ) -> Result<ProductEmbeddingRoundReport, EmbedProductListingBatchesError>;
 }
 
-pub struct EmbedProductListingBatchesHandler<R, B, U, Q, W> {
+pub struct EmbedProductListingBatchesHandler<R, B, H, U, Q, W> {
     reader: R,
     batches: B,
+    images: H,
     unit_of_work: U,
     queue: Q,
     embeddings: W,
 }
 
-impl<R, B, U, Q, W> EmbedProductListingBatchesHandler<R, B, U, Q, W> {
-    pub fn new(reader: R, batches: B, unit_of_work: U, queue: Q, embeddings: W) -> Self {
+impl<R, B, H, U, Q, W> EmbedProductListingBatchesHandler<R, B, H, U, Q, W> {
+    pub fn new(reader: R, batches: B, images: H, unit_of_work: U, queue: Q, embeddings: W) -> Self {
         Self {
             reader,
             batches,
+            images,
             unit_of_work,
             queue,
             embeddings,
@@ -182,11 +203,12 @@ impl<R, B, U, Q, W> EmbedProductListingBatchesHandler<R, B, U, Q, W> {
 }
 
 #[async_trait::async_trait]
-impl<R, B, U, Q, W> EmbedProductListingBatchesUseCase
-    for EmbedProductListingBatchesHandler<R, B, U, Q, W>
+impl<R, B, H, U, Q, W> EmbedProductListingBatchesUseCase
+    for EmbedProductListingBatchesHandler<R, B, H, U, Q, W>
 where
     R: ProductListingEmbeddingQueueReader,
     B: ProductEmbeddingBatches,
+    H: EmbeddingImageHasher,
     U: UnitOfWork,
     Q: ProductListingEmbeddingQueueFactory<U::Tx>,
     W: ProductListingEmbeddingWriterFactory<U::Tx>,
@@ -226,10 +248,11 @@ where
     }
 }
 
-impl<R, B, U, Q, W> EmbedProductListingBatchesHandler<R, B, U, Q, W>
+impl<R, B, H, U, Q, W> EmbedProductListingBatchesHandler<R, B, H, U, Q, W>
 where
     R: ProductListingEmbeddingQueueReader,
     B: ProductEmbeddingBatches,
+    H: EmbeddingImageHasher,
     U: UnitOfWork,
     Q: ProductListingEmbeddingQueueFactory<U::Tx>,
     W: ProductListingEmbeddingWriterFactory<U::Tx>,
@@ -266,14 +289,27 @@ where
                 }
             }
         };
+        let ended = if batch.input_version == EMBEDDING_INPUT_VERSION {
+            ended
+        } else {
+            tracing::warn!(
+                event = "product.embedding.batch_outdated",
+                provider_batch_id = %batch.provider_batch_id,
+                input_version = batch.input_version,
+                "Embedding batch used another input version; its embeddings are submitted again"
+            );
+            EndedEmbeddingBatch {
+                results: Vec::new(),
+                unanswered: UnansweredEmbeddings::NotProcessed,
+            }
+        };
         let items = self.reader.batch_items(batch.key).await?;
         let size = items.len();
         let answered = ended.results.len();
         let claim = ProductEmbeddingClaim::Batch(batch.key);
         let mut settlements = ProductEmbeddingSettlements::default();
         for (item, result) in settlements_of(items, ended) {
-            self.settle(&item.embedding, claim, result, &mut settlements)
-                .await?;
+            self.settle(&item, claim, result, &mut settlements).await?;
         }
         self.close_batch(batch.key).await?;
         log_collected(
@@ -288,55 +324,50 @@ where
         Ok(())
     }
 
+    /// Confirms pending revisions whose input is unchanged and submits the others as one batch.
     async fn submit_pending(&self, report: &mut ProductEmbeddingRoundReport) -> Result<(), Error> {
         let key = ProductEmbeddingBatchKey::new();
-        let mut tx = self.begin().await?;
-        let requests = {
-            let mut queue = self.queue.in_transaction(&mut tx);
-            report.superseded_discarded = queue.discard_superseded().await?;
-            let mut requests = Vec::new();
-            let mut assignments = Vec::new();
-            for pending in queue.lock_pending(MAX_EMBEDDINGS_PER_BATCH).await? {
-                let Ok(document) = EmbeddingDocument::of(&pending) else {
-                    // No provider embeds this document; only a content change can fix it.
-                    let attempts = pending.attempts.saturating_add(1);
-                    queue
-                        .park(pending.work, ProductEmbeddingClaim::Pending, attempts)
-                        .await?;
-                    report.settlements.parked += 1;
-                    continue;
-                };
-                let position = u32::try_from(requests.len() + 1).unwrap_or(u32::MAX);
-                assignments.push(ProductEmbeddingAssignment {
-                    work: pending.work,
-                    position,
-                });
-                requests.push(ProductEmbeddingRequest {
-                    key: position,
-                    title: document.title,
-                    additional_text: document.additional_text,
-                    image_url: document.image_url,
-                });
+        let triage = self.triage_pending(key, report).await?;
+        for pending in &triage.unchanged {
+            // A failed confirmation leaves the work pending for the next round.
+            let _ = self
+                .confirm(
+                    pending,
+                    ProductEmbeddingClaim::Pending,
+                    &mut report.settlements,
+                )
+                .await;
+        }
+        let mut requests = triage.changed;
+        for (comparison, matches) in self.compare_new_image_urls(triage.new_image_urls).await {
+            let claim = ProductEmbeddingClaim::Batch(key);
+            // A failed confirmation embeds the revision instead, so the batch is not held back.
+            if !matches
+                || self
+                    .confirm(&comparison.pending, claim, &mut report.settlements)
+                    .await
+                    .is_err()
+            {
+                requests.push(comparison.request);
             }
-            if !assignments.is_empty() {
-                queue.create_batch(key, &assignments).await?;
-            }
-            requests
-        };
-        commit(tx).await?;
+        }
         if requests.is_empty() {
+            if triage.batch_created {
+                self.close_batch(key).await?;
+            }
             return Ok(());
         }
+        requests.sort_by_key(|request| request.key);
         match self
             .batches
             .submit(&key.as_uuid().to_string(), &requests)
             .await
         {
-            Ok(provider_batch_id) => {
-                self.record_submission(key, &provider_batch_id).await?;
+            Ok(submitted) => {
+                self.record_submission(key, &submitted).await?;
                 tracing::info!(
                     event = "product.embedding.batch.submitted",
-                    provider_batch_id = %provider_batch_id,
+                    provider_batch_id = %submitted.id,
                     size = requests.len(),
                 );
                 report.submitted_embeddings = requests.len();
@@ -349,6 +380,145 @@ where
                 })
             }
         }
+    }
+
+    /// Locks the pending work and sorts it by how its revision changes the embedded input. Work
+    /// that may need a provider call is assigned to the batch `key`, so no other round takes it
+    /// while its images are compared; unchanged work stays pending until it is confirmed.
+    async fn triage_pending(
+        &self,
+        key: ProductEmbeddingBatchKey,
+        report: &mut ProductEmbeddingRoundReport,
+    ) -> Result<PendingTriage, Error> {
+        let mut tx = self.begin().await?;
+        let mut triage = PendingTriage::default();
+        {
+            let mut queue = self.queue.in_transaction(&mut tx);
+            report.superseded_discarded = queue.discard_superseded().await?;
+            let mut assignments = Vec::new();
+            for pending in queue.lock_pending(MAX_EMBEDDINGS_PER_BATCH).await? {
+                let Ok(document) = EmbeddingDocument::of(&pending) else {
+                    // No provider embeds this document; only a content change can fix it.
+                    let attempts = pending.attempts.saturating_add(1);
+                    queue
+                        .park(pending.work, ProductEmbeddingClaim::Pending, attempts)
+                        .await?;
+                    report.settlements.parked += 1;
+                    continue;
+                };
+                let change = embedding_input_change(&pending);
+                if change == EmbeddingInputChange::Unchanged {
+                    triage.unchanged.push(pending);
+                    continue;
+                }
+                let position = u32::try_from(assignments.len() + 1).unwrap_or(u32::MAX);
+                assignments.push(ProductEmbeddingAssignment {
+                    work: pending.work,
+                    position,
+                });
+                let request = document.request(position);
+                match (change, document.image_url) {
+                    (EmbeddingInputChange::NewImageUrl { embedded }, Some(image_url)) => {
+                        triage.new_image_urls.push(ImageUrlComparison {
+                            pending,
+                            request,
+                            image_url,
+                            embedded,
+                        });
+                    }
+                    _ => triage.changed.push(request),
+                }
+            }
+            if !assignments.is_empty() {
+                queue.create_batch(key, &assignments).await?;
+                triage.batch_created = true;
+            }
+        }
+        commit(tx).await?;
+        Ok(triage)
+    }
+
+    /// Whether each new first-image URL serves the embedded picture. An image that cannot be
+    /// fetched or decoded counts as changed, so its revision is embedded again.
+    async fn compare_new_image_urls(
+        &self,
+        comparisons: Vec<ImageUrlComparison>,
+    ) -> Vec<(ImageUrlComparison, bool)> {
+        stream::iter(comparisons)
+            .map(|comparison| async move {
+                let matches = self
+                    .images
+                    .image_hash(&comparison.image_url)
+                    .await
+                    .is_some_and(|current| comparison.embedded.matches(&current));
+                (comparison, matches)
+            })
+            .buffer_unordered(IMAGE_COMPARISON_CONCURRENCY)
+            .collect()
+            .await
+    }
+
+    /// Records that the listing's vector stands for the pending revision, while the work is still
+    /// `claim`ed. Work whose embedded input changed since it was compared is decided again by a
+    /// later round. A failure is logged and leaves the work where it is.
+    async fn confirm(
+        &self,
+        pending: &PendingProductEmbedding,
+        claim: ProductEmbeddingClaim,
+        settlements: &mut ProductEmbeddingSettlements,
+    ) -> Result<(), Error> {
+        self.try_confirm(pending, claim, settlements)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    event = "product.embedding.confirm_failed",
+                    product_listing_id = %pending.work.product_listing_id,
+                    source_event_id = %pending.work.source_event_id,
+                    error_kind = error.kind(),
+                    "Embedding confirmation failed"
+                );
+            })
+    }
+
+    async fn try_confirm(
+        &self,
+        pending: &PendingProductEmbedding,
+        claim: ProductEmbeddingClaim,
+        settlements: &mut ProductEmbeddingSettlements,
+    ) -> Result<(), Error> {
+        let Some(embedded) = &pending.embedded else {
+            return Ok(());
+        };
+        let work = pending.work;
+        let mut tx = self.begin().await?;
+        let outcome = self
+            .embeddings
+            .in_transaction(&mut tx)
+            .confirm(&ProductListingEmbeddingConfirmation {
+                product_listing_id: work.product_listing_id,
+                source_event_id: work.source_event_id,
+                embedded_source_event_id: embedded.source_event_id,
+                image_url: pending.image_url.clone(),
+            })
+            .await?;
+        {
+            let mut queue = self.queue.in_transaction(&mut tx);
+            match outcome {
+                ProductListingEmbeddingConfirmOutcome::Confirmed => {
+                    queue.complete(work, claim).await?;
+                    settlements.confirmed += 1;
+                }
+                ProductListingEmbeddingConfirmOutcome::Superseded => {
+                    queue.complete(work, claim).await?;
+                    settlements.stale += 1;
+                }
+                ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged => {
+                    queue.requeue(work, claim, pending.attempts).await?;
+                    settlements.requeued += 1;
+                }
+            }
+        }
+        commit(tx).await
     }
 
     async fn close_abandoned_submissions(&self) -> Result<u64, Error> {
@@ -365,12 +535,12 @@ where
     async fn record_submission(
         &self,
         key: ProductEmbeddingBatchKey,
-        provider_batch_id: &EmbeddingBatchId,
+        submitted: &SubmittedEmbeddingBatch,
     ) -> Result<(), Error> {
         let mut tx = self.begin().await?;
         self.queue
             .in_transaction(&mut tx)
-            .record_submission(key, provider_batch_id)
+            .record_submission(key, &submitted.id, &submitted.images)
             .await?;
         commit(tx).await
     }
@@ -385,15 +555,16 @@ where
     /// still `claim`ed. A write the listing's state rejects fails only this work.
     async fn settle(
         &self,
-        pending: &PendingProductEmbedding,
+        item: &BatchedProductEmbedding,
         claim: ProductEmbeddingClaim,
         result: Result<EmbeddingVector, Retry>,
         settlements: &mut ProductEmbeddingSettlements,
     ) -> Result<(), Error> {
+        let pending = &item.embedding;
         let work = pending.work;
         let retry = match result {
             Err(retry) => retry,
-            Ok(vector) => match self.commit(work, claim, vector).await {
+            Ok(vector) => match self.commit(work, claim, vector, item.staged_image).await {
                 Ok(outcome) => {
                     settlements.count(outcome);
                     if outcome == ProductListingEmbeddingWriteOutcome::Applied {
@@ -466,6 +637,7 @@ where
         work: ProductEmbeddingWorkRef,
         claim: ProductEmbeddingClaim,
         vector: EmbeddingVector,
+        image: Option<StagedProductImage>,
     ) -> Result<ProductListingEmbeddingWriteOutcome, Error> {
         let mut tx = self.begin().await?;
         let outcome = self
@@ -476,6 +648,7 @@ where
                 source_event_id: work.source_event_id,
                 enrichment_event_id: EventId::new(),
                 embedding: vector.into_values(),
+                image,
             })
             .await?;
         self.queue
@@ -503,7 +676,35 @@ struct EmbeddingDocument {
     image_url: Option<EmbeddingImageUrl>,
 }
 
+/// Pending work sorted by how its revision changes the embedded input.
+#[derive(Default)]
+struct PendingTriage {
+    unchanged: Vec<PendingProductEmbedding>,
+    /// Requests of work assigned to the batch to embed it again.
+    changed: Vec<ProductEmbeddingRequest>,
+    /// Work assigned to the batch whose only change may be its first image's URL.
+    new_image_urls: Vec<ImageUrlComparison>,
+    batch_created: bool,
+}
+
+struct ImageUrlComparison {
+    pending: PendingProductEmbedding,
+    /// The request that embeds the revision when its picture changed.
+    request: ProductEmbeddingRequest,
+    image_url: EmbeddingImageUrl,
+    embedded: ImageHash,
+}
+
 impl EmbeddingDocument {
+    fn request(&self, key: u32) -> ProductEmbeddingRequest {
+        ProductEmbeddingRequest {
+            key,
+            title: self.title.clone(),
+            additional_text: self.additional_text.clone(),
+            image_url: self.image_url.clone(),
+        }
+    }
+
     /// Fails for a document no provider can embed, such as a blank title.
     fn of(pending: &PendingProductEmbedding) -> Result<Self, EmbeddingError> {
         Ok(Self {
@@ -615,15 +816,17 @@ fn log_collected(
 mod tests {
     use super::super::test_support::{PROVIDER_BATCH, World, system, vector};
     use super::*;
+    use crate::ports::{EmbeddedImage, EmbeddedProductImage, EmbeddedProductInput};
     use product_listing_core::{
         description::Description, product_listing_id::ProductListingId, title::Title,
     };
     use url::Url;
 
-    type Handler = EmbedProductListingBatchesHandler<World, World, World, World, World>;
+    type Handler = EmbedProductListingBatchesHandler<World, World, World, World, World, World>;
 
     fn handler(world: &World) -> Handler {
         EmbedProductListingBatchesHandler::new(
+            world.clone(),
             world.clone(),
             world.clone(),
             world.clone(),
@@ -770,6 +973,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_submit_again_unspent_the_results_of_a_batch_of_another_input_version() {
+        let world = World::default();
+        let work = world.add_pending("Ancient vase");
+        world.submitted(&[work]);
+        {
+            let mut state = world.state();
+            state.batch_input_version = Some(EMBEDDING_INPUT_VERSION + 1);
+            state
+                .polls
+                .push_back(ended(vec![(1, Ok(vector()))], UnansweredEmbeddings::Failed));
+        }
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (0, 1, 1),
+            (
+                report.settlements.applied,
+                report.settlements.requeued,
+                report.submitted_embeddings
+            )
+        );
+        assert!(world.state().writes.is_empty());
+        assert_eq!(0, world.row(work).unwrap().pending.attempts);
+    }
+
+    #[tokio::test]
+    async fn should_embed_instead_when_a_matching_image_cannot_be_confirmed() {
+        let world = World::default();
+        let work = add_embedded(&world, NEW_IMAGE_URL);
+        {
+            let mut state = world.state();
+            state
+                .image_hashes
+                .insert(NEW_IMAGE_URL.to_owned(), image_hash(0));
+            state.confirm_fails = true;
+        }
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (0, 1),
+            (report.settlements.confirmed, report.submitted_embeddings)
+        );
+        assert!(world.row(work).unwrap().batch.is_some());
+    }
+
+    #[tokio::test]
     async fn should_leave_a_batch_for_the_next_round_while_its_provider_is_unavailable() {
         let world = World::default();
         let work = world.add_pending("Ancient vase");
@@ -883,6 +1134,194 @@ mod tests {
         assert_eq!(0, world.row(work).unwrap().pending.attempts);
     }
 
+    const IMAGE: &str = "https://example.test/vase.jpg?v=1";
+    const NEW_IMAGE_URL: &str = "https://example.test/vase.jpg?v=2";
+
+    fn image_hash(seed: u8) -> ImageHash {
+        ImageHash::from_bytes(&[seed; ImageHash::BYTES]).unwrap()
+    }
+
+    /// Adds pending work whose listing's vector was computed from the same title, description and
+    /// first image `IMAGE`, and whose revision has the first image `image_url`.
+    fn add_embedded(world: &World, image_url: &str) -> ProductEmbeddingWorkRef {
+        let work = world.add_pending("Ancient vase");
+        let mut state = world.state();
+        let row = &mut state.work.last_mut().unwrap().pending;
+        row.image_url = Some(Url::parse(image_url).unwrap());
+        row.embedded = Some(EmbeddedProductInput {
+            source_event_id: EventId::new(),
+            title: "Ancient vase".to_owned(),
+            description: Some("Painted clay".to_owned()),
+            image: Some(EmbeddedProductImage {
+                url: Url::parse(IMAGE).unwrap(),
+                hash: Some(image_hash(0)),
+            }),
+        });
+        work
+    }
+
+    #[tokio::test]
+    async fn should_confirm_an_unchanged_input_without_a_provider_call() {
+        let world = World::default();
+        let work = add_embedded(&world, IMAGE);
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (1, 0),
+            (report.settlements.confirmed, report.submitted_embeddings)
+        );
+        let state = world.state();
+        assert!(state.submitted.is_empty() && state.hashed_urls.is_empty());
+        assert!(state.batches.is_empty(), "no batch is left behind");
+        let [confirmation] = state.confirmations.as_slice() else {
+            panic!("one confirmation");
+        };
+        assert_eq!(work.source_event_id, confirmation.source_event_id);
+        assert_eq!(
+            Some(IMAGE),
+            confirmation.image_url.as_ref().map(Url::as_str)
+        );
+        drop(state);
+        assert!(world.row(work).is_none());
+    }
+
+    #[tokio::test]
+    async fn should_confirm_a_new_image_url_that_shows_the_embedded_picture() {
+        let world = World::default();
+        let work = add_embedded(&world, NEW_IMAGE_URL);
+        // A rescaled copy: a few bits apart.
+        let mut copy = [0; ImageHash::BYTES];
+        copy[0] = 0b111;
+        world.state().image_hashes.insert(
+            NEW_IMAGE_URL.to_owned(),
+            ImageHash::from_bytes(&copy).unwrap(),
+        );
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(1, report.settlements.confirmed);
+        let state = world.state();
+        assert_eq!(vec![NEW_IMAGE_URL.to_owned()], state.hashed_urls);
+        assert!(state.submitted.is_empty());
+        assert!(state.batches.is_empty(), "the emptied batch is closed");
+        assert_eq!(
+            Some(NEW_IMAGE_URL),
+            state.confirmations[0].image_url.as_ref().map(Url::as_str)
+        );
+        drop(state);
+        assert!(world.row(work).is_none());
+    }
+
+    #[tokio::test]
+    async fn should_embed_again_when_a_new_image_url_shows_another_picture_or_none() {
+        let world = World::default();
+        let other_picture = add_embedded(&world, NEW_IMAGE_URL);
+        let unfetchable = add_embedded(&world, "https://example.test/gone.jpg");
+        let unchanged = add_embedded(&world, IMAGE);
+        world
+            .state()
+            .image_hashes
+            .insert(NEW_IMAGE_URL.to_owned(), image_hash(0xff));
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (1, 2),
+            (report.settlements.confirmed, report.submitted_embeddings)
+        );
+        let state = world.state();
+        let requests = &state.submitted[0].1;
+        assert_eq!(
+            vec![
+                (1, Some(NEW_IMAGE_URL)),
+                (2, Some("https://example.test/gone.jpg"))
+            ],
+            requests
+                .iter()
+                .map(|request| (
+                    request.key,
+                    request.image_url.as_ref().map(|url| url.as_url().as_str())
+                ))
+                .collect::<Vec<_>>()
+        );
+        drop(state);
+        assert!(world.row(other_picture).unwrap().batch.is_some());
+        assert!(world.row(unfetchable).unwrap().batch.is_some());
+        assert!(world.row(unchanged).is_none());
+    }
+
+    #[tokio::test]
+    async fn should_settle_a_confirmation_the_listing_moved_past_or_whose_vector_changed() {
+        let world = World::default();
+        let superseded = add_embedded(&world, IMAGE);
+        world.state().confirm_outcome = Some(ProductListingEmbeddingConfirmOutcome::Superseded);
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (0, 1),
+            (report.settlements.confirmed, report.settlements.stale)
+        );
+        assert!(world.row(superseded).is_none());
+
+        let world = World::default();
+        let decided_again = add_embedded(&world, NEW_IMAGE_URL);
+        {
+            let mut state = world.state();
+            state.confirm_outcome =
+                Some(ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged);
+            state
+                .image_hashes
+                .insert(NEW_IMAGE_URL.to_owned(), image_hash(0));
+        }
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(1, report.settlements.requeued);
+        let row = world.row(decided_again).unwrap();
+        assert_eq!(
+            (None, 0, false),
+            (row.batch, row.pending.attempts, row.parked),
+            "back to pending, without spending an attempt, for the next round to decide"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_write_the_staged_image_with_its_vector() {
+        let world = World::default();
+        let with_image = world.add_pending("Ancient vase");
+        let without_image = world.add_pending("Brass lamp");
+        world.state().staged_images = vec![EmbeddedImage {
+            key: 1,
+            hash: Some(image_hash(7)),
+        }];
+        handler(&world).execute(&system()).await.unwrap();
+        world.state().polls.push_back(ended(
+            vec![(1, Ok(vector())), (2, Ok(vector()))],
+            UnansweredEmbeddings::Failed,
+        ));
+
+        handler(&world).execute(&system()).await.unwrap();
+
+        let state = world.state();
+        let image_of = |work: ProductEmbeddingWorkRef| {
+            state
+                .writes
+                .iter()
+                .find(|write| write.source_event_id == work.source_event_id)
+                .unwrap()
+                .image
+        };
+        assert_eq!(
+            Some(StagedProductImage {
+                hash: Some(image_hash(7))
+            }),
+            image_of(with_image)
+        );
+        assert_eq!(None, image_of(without_image));
+    }
+
     fn pending(attempts: u16) -> PendingProductEmbedding {
         PendingProductEmbedding {
             work: ProductEmbeddingWorkRef {
@@ -893,6 +1332,7 @@ mod tests {
             description: Some(Description::from("Painted clay")),
             image_url: Some(Url::parse("https://example.test/vase.jpg").unwrap()),
             attempts,
+            embedded: None,
         }
     }
 

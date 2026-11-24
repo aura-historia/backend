@@ -1,26 +1,29 @@
-//! An in-memory embedding queue, writer and batch provider for the embedding round's unit tests.
-//! The queue follows the claim rules of the PostgreSQL adapter.
+//! An in-memory embedding queue, writer, batch provider and image hasher for the embedding round's
+//! unit tests. The queue follows the claim rules of the PostgreSQL adapter.
 
 use crate::ports::{
-    BatchedProductEmbedding, PendingProductEmbedding, ProductEmbeddingAssignment,
-    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
-    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
+    BatchedProductEmbedding, EmbeddedImage, ImageHash, PendingProductEmbedding,
+    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
+    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef,
+    ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingConfirmation,
+    ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
     ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
     ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
-    ProductListingEmbeddingWriterFactory, SubmittedProductEmbeddingBatch,
+    ProductListingEmbeddingWriterFactory, StagedProductImage, SubmittedProductEmbeddingBatch,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use embedding::{
-    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingVector,
-    ProductEmbeddingBatches, ProductEmbeddingRequest,
+    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError,
+    EmbeddingImageHasher, EmbeddingImageUrl, EmbeddingVector, ProductEmbeddingBatches,
+    ProductEmbeddingRequest, SubmittedEmbeddingBatch,
 };
 use product_listing_core::{
     description::Description, product_listing_id::ProductListingId, title::Title,
 };
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -31,6 +34,7 @@ pub(crate) struct WorkRow {
     pub pending: PendingProductEmbedding,
     pub batch: Option<(ProductEmbeddingBatchKey, u32)>,
     pub parked: bool,
+    pub staged_image: Option<StagedProductImage>,
 }
 
 #[derive(Default)]
@@ -39,9 +43,19 @@ pub(crate) struct State {
     pub batches: Vec<(ProductEmbeddingBatchKey, Option<EmbeddingBatchId>)>,
     pub writes: Vec<ProductListingEmbeddingWrite>,
     pub write_outcome: Option<ProductListingEmbeddingWriteOutcome>,
+    pub confirmations: Vec<ProductListingEmbeddingConfirmation>,
+    pub confirm_outcome: Option<ProductListingEmbeddingConfirmOutcome>,
+    pub confirm_fails: bool,
+    /// The hash the hasher reports per URL; an absent URL cannot be fetched.
+    pub image_hashes: HashMap<String, ImageHash>,
+    pub hashed_urls: Vec<String>,
+    /// The images each submitted request embeds, by key.
+    pub staged_images: Vec<EmbeddedImage>,
     pub write_fails: bool,
     pub submitted: Vec<(String, Vec<ProductEmbeddingRequest>)>,
     pub submission_fails: bool,
+    /// The input version submitted batches report; the current one by default.
+    pub batch_input_version: Option<u16>,
     pub polls: VecDeque<Result<EmbeddingBatchPoll, EmbeddingError>>,
 }
 
@@ -69,9 +83,11 @@ impl World {
                 description: Some(Description::from("Painted clay")),
                 image_url: None,
                 attempts: 0,
+                embedded: None,
             },
             batch: None,
             parked: false,
+            staged_image: None,
         });
         work
     }
@@ -194,10 +210,21 @@ impl ProductListingEmbeddingQueue for World {
         &mut self,
         key: ProductEmbeddingBatchKey,
         provider_batch_id: &EmbeddingBatchId,
+        images: &[EmbeddedImage],
     ) -> QueueResult<()> {
         let mut state = self.state();
         let batch = state.batches.iter_mut().find(|(batch, _)| *batch == key);
         batch.unwrap().1 = Some(provider_batch_id.clone());
+        for row in &mut state.work {
+            if let Some((batch, position)) = row.batch
+                && batch == key
+            {
+                row.staged_image = images
+                    .iter()
+                    .find(|image| image.key == position)
+                    .map(|image| StagedProductImage { hash: image.hash });
+            }
+        }
         Ok(())
     }
 
@@ -259,8 +286,11 @@ impl ProductListingEmbeddingQueue for World {
 #[async_trait::async_trait]
 impl ProductListingEmbeddingQueueReader for World {
     async fn submitted_batches(&self) -> QueueResult<Vec<SubmittedProductEmbeddingBatch>> {
-        Ok(self
-            .state()
+        let state = self.state();
+        let input_version = state
+            .batch_input_version
+            .unwrap_or(crate::use_cases::EMBEDDING_INPUT_VERSION);
+        Ok(state
             .batches
             .iter()
             .filter_map(|(key, provider_batch_id)| {
@@ -268,6 +298,7 @@ impl ProductListingEmbeddingQueueReader for World {
                     key: *key,
                     provider_batch_id: provider_batch_id.clone()?,
                     age: Duration::from_secs(600),
+                    input_version,
                 })
             })
             .collect())
@@ -285,6 +316,7 @@ impl ProductListingEmbeddingQueueReader for World {
                 Some((batch, position)) if batch == key => Some(BatchedProductEmbedding {
                     position,
                     embedding: row.pending.clone(),
+                    staged_image: row.staged_image,
                 }),
                 _ => None,
             })
@@ -315,6 +347,31 @@ impl ProductListingEmbeddingWriter for World {
             .write_outcome
             .unwrap_or(ProductListingEmbeddingWriteOutcome::Applied))
     }
+
+    async fn confirm(
+        &mut self,
+        confirmation: &ProductListingEmbeddingConfirmation,
+    ) -> Result<ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingWriteError> {
+        let mut state = self.state();
+        if state.confirm_fails {
+            return Err(ProductListingEmbeddingWriteError::WriteFailed {
+                source: Box::new(std::io::Error::other("rejected")),
+            });
+        }
+        state.confirmations.push(confirmation.clone());
+        Ok(state
+            .confirm_outcome
+            .unwrap_or(ProductListingEmbeddingConfirmOutcome::Confirmed))
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingImageHasher for World {
+    async fn image_hash(&self, url: &EmbeddingImageUrl) -> Option<ImageHash> {
+        let mut state = self.state();
+        state.hashed_urls.push(url.as_url().to_string());
+        state.image_hashes.get(url.as_url().as_str()).copied()
+    }
 }
 
 #[async_trait::async_trait]
@@ -323,13 +380,22 @@ impl ProductEmbeddingBatches for World {
         &self,
         label: &str,
         requests: &[ProductEmbeddingRequest],
-    ) -> Result<EmbeddingBatchId, EmbeddingError> {
+    ) -> Result<SubmittedEmbeddingBatch, EmbeddingError> {
         let mut state = self.state();
         state.submitted.push((label.to_owned(), requests.to_vec()));
         if state.submission_fails {
             return Err(EmbeddingError::InvalidResponse { reason: "test" });
         }
-        EmbeddingBatchId::new(PROVIDER_BATCH)
+        let images = state
+            .staged_images
+            .iter()
+            .filter(|image| requests.iter().any(|request| request.key == image.key))
+            .copied()
+            .collect();
+        Ok(SubmittedEmbeddingBatch {
+            id: EmbeddingBatchId::new(PROVIDER_BATCH)?,
+            images,
+        })
     }
 
     async fn poll(&self, _: &EmbeddingBatchId) -> Result<EmbeddingBatchPoll, EmbeddingError> {

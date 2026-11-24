@@ -94,10 +94,11 @@ pub use product_listing_details_reader::{
     ProductListingDetailsReaderFactory, ProductListingLot,
 };
 pub use product_listing_embedding_queue::{
-    BatchedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding, ProductEmbeddingAssignment,
+    BatchedProductEmbedding, EmbeddedImage, EmbeddedProductImage, EmbeddedProductInput,
+    EmbeddingBatchId, ImageHash, PendingProductEmbedding, ProductEmbeddingAssignment,
     ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
     ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
-    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
+    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader, StagedProductImage,
     SubmittedProductEmbeddingBatch,
 };
 pub use product_listing_embedding_reader::{
@@ -109,6 +110,7 @@ pub use product_listing_embedding_source_reader::{
     ProductListingEmbeddingSourceReadError, ProductListingEmbeddingSourceReader,
 };
 pub use product_listing_embedding_writer::{
+    ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingConfirmation,
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
     ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
     ProductListingEmbeddingWriterFactory,

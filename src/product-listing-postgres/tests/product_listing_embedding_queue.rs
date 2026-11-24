@@ -7,11 +7,13 @@ use product_listing_postgres::{
     SqlxProductListingEmbeddingWriterFactory, oldest_unembedded_age,
 };
 use product_listing_service::ports::{
-    EmbeddingBatchId, ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
-    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
-    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
-    ProductListingEmbeddingWrite, ProductListingEmbeddingWriter,
-    ProductListingEmbeddingWriterFactory,
+    EmbeddedImage, EmbeddedProductImage, EmbeddedProductInput, EmbeddingBatchId, ImageHash,
+    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
+    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef,
+    ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingConfirmation,
+    ProductListingEmbeddingQueue, ProductListingEmbeddingQueueFactory,
+    ProductListingEmbeddingQueueReader, ProductListingEmbeddingWrite,
+    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory, StagedProductImage,
 };
 use std::time::Duration;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -31,7 +33,7 @@ async fn should_schedule_only_the_current_unembedded_revision_and_keep_redeliver
             ProductEmbeddingScheduleOutcome::Scheduled,
             schedule(&unit_of_work, work).await?
         );
-        let key = submit(&unit_of_work, 10).await?;
+        let key = submit(&unit_of_work, 10, &[]).await?;
         assert_eq!(
             ProductEmbeddingScheduleOutcome::Scheduled,
             schedule(&unit_of_work, work).await?,
@@ -66,7 +68,7 @@ async fn should_schedule_only_the_current_unembedded_revision_and_keep_redeliver
             pending[0].image_url.as_ref().map(url::Url::as_str)
         );
 
-        commit_embedding(&unit_of_work, newer).await?;
+        commit_embedding(&unit_of_work, newer, None).await?;
         assert_eq!(
             ProductEmbeddingScheduleOutcome::AlreadyEmbedded,
             schedule(&unit_of_work, newer).await?
@@ -99,7 +101,7 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
         }
         advance_content(&pool, superseded.product_listing_id, "Neue Vase").await?;
 
-        let key = submit(&unit_of_work, 10).await?;
+        let key = submit(&unit_of_work, 10, &[]).await?;
 
         let batches = reader.submitted_batches().await?;
         assert_eq!(
@@ -107,6 +109,10 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
             batches.iter().map(|batch| batch.key).collect::<Vec<_>>()
         );
         assert_eq!(PROVIDER_BATCH, batches[0].provider_batch_id.as_str());
+        assert_eq!(
+            product_listing_service::use_cases::EMBEDDING_INPUT_VERSION,
+            batches[0].input_version
+        );
         assert!(batches[0].age < Duration::from_secs(60));
         let items = reader.batch_items(key).await?;
         assert_eq!(
@@ -171,6 +177,135 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
                 .collect::<Vec<_>>(),
             "a newer revision replaces parked work"
         );
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_record_the_embedded_input_and_measure_later_revisions_against_it() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let reader = SqlxProductListingEmbeddingQueueReader::new(pool.clone());
+        let work = insert_listing(&pool, "Antiker Stuhl").await?;
+        schedule(&unit_of_work, work).await?;
+        assert_eq!(
+            None,
+            lock(&unit_of_work, 10).await?[0].embedded,
+            "nothing embedded yet"
+        );
+        let hash = ImageHash::from_bytes(&[7; ImageHash::BYTES]).unwrap();
+
+        let key = submit(
+            &unit_of_work,
+            10,
+            &[EmbeddedImage {
+                key: 1,
+                hash: Some(hash),
+            }],
+        )
+        .await?;
+        let staged = reader.batch_items(key).await?[0].staged_image;
+        assert_eq!(Some(StagedProductImage { hash: Some(hash) }), staged);
+        commit_embedding(&unit_of_work, work, staged).await?;
+
+        let newer = advance_content(&pool, work.product_listing_id, "Antiker Stuhl!").await?;
+        assert_eq!(
+            ProductEmbeddingScheduleOutcome::Scheduled,
+            schedule(&unit_of_work, newer).await?
+        );
+        let embedded = lock(&unit_of_work, 10).await?.remove(0).embedded;
+        assert_eq!(
+            Some(EmbeddedProductInput {
+                source_event_id: work.source_event_id,
+                title: "Antiker Stuhl".to_owned(),
+                description: Some("Bemaltes Holz".to_owned()),
+                image: Some(EmbeddedProductImage {
+                    url: url::Url::parse("https://example.test/chair.jpg")?,
+                    hash: Some(hash),
+                }),
+            }),
+            embedded,
+            "the vector kept serving and its input is what the new revision is compared with"
+        );
+
+        let mut tx = unit_of_work.begin().await?;
+        let outcome = SqlxProductListingEmbeddingWriterFactory::new()
+            .in_transaction(&mut tx)
+            .confirm(&ProductListingEmbeddingConfirmation {
+                product_listing_id: newer.product_listing_id,
+                source_event_id: newer.source_event_id,
+                embedded_source_event_id: work.source_event_id,
+                image_url: Some(url::Url::parse("https://example.test/chair.jpg?v=2")?),
+            })
+            .await?;
+        SqlxProductListingEmbeddingQueueFactory::new()
+            .in_transaction(&mut tx)
+            .complete(newer, ProductEmbeddingClaim::Pending)
+            .await?;
+        tx.commit().await?;
+        assert_eq!(ProductListingEmbeddingConfirmOutcome::Confirmed, outcome);
+        assert_eq!(
+            ProductEmbeddingScheduleOutcome::AlreadyEmbedded,
+            schedule(&unit_of_work, newer).await?,
+            "a redelivered job of the confirmed revision"
+        );
+
+        let latest = advance_content(&pool, work.product_listing_id, "Antiker Stuhl!!").await?;
+        schedule(&unit_of_work, latest).await?;
+        let embedded = lock(&unit_of_work, 10).await?.remove(0).embedded.unwrap();
+        sqlx::query(
+            "UPDATE product_listing_embedding_inputs SET input_version = input_version + 1",
+        )
+        .execute(&pool)
+        .await?;
+        assert_eq!(
+            None,
+            lock(&unit_of_work, 10).await?.remove(0).embedded,
+            "an input of another version counts as none"
+        );
+        assert_eq!(
+            (
+                newer.source_event_id,
+                "Antiker Stuhl",
+                "https://example.test/chair.jpg?v=2"
+            ),
+            (
+                embedded.source_event_id,
+                embedded.title.as_str(),
+                embedded.image.unwrap().url.as_str()
+            ),
+            "a confirmation keeps the embedded text and records the new image URL"
+        );
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_forget_a_staged_image_when_work_leaves_its_batch() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+        let work = insert_listing(&pool, "Antiker Stuhl").await?;
+        schedule(&unit_of_work, work).await?;
+        let key = submit(&unit_of_work, 10, &[EmbeddedImage { key: 1, hash: None }]).await?;
+
+        in_queue(&unit_of_work, |queue| {
+            Box::pin(queue.requeue(work, ProductEmbeddingClaim::Batch(key), 1))
+        })
+        .await?;
+
+        let staged: (bool, Option<Vec<u8>>) = sqlx::query_as(
+            "SELECT image_staged, image_hash FROM product_listing_embedding_work WHERE product_listing_id = $1",
+        )
+        .bind(work.product_listing_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!((false, None), staged);
         Ok(())
     }
     .await;
@@ -338,10 +473,11 @@ async fn lock(
 }
 
 /// Discards superseded work, assigns every pending embedding to a new batch in order, and
-/// records its submission.
+/// records its submission with the staged `images`.
 async fn submit(
     unit_of_work: &SqlxUnitOfWork,
     limit: u32,
+    images: &[EmbeddedImage],
 ) -> Result<ProductEmbeddingBatchKey, Box<dyn std::error::Error + Send + Sync>> {
     let key = ProductEmbeddingBatchKey::new();
     let mut tx = unit_of_work.begin().await?;
@@ -358,7 +494,7 @@ async fn submit(
             .collect::<Vec<_>>();
         queue.create_batch(key, &assignments).await?;
         queue
-            .record_submission(key, &EmbeddingBatchId::new(PROVIDER_BATCH)?)
+            .record_submission(key, &EmbeddingBatchId::new(PROVIDER_BATCH)?, images)
             .await?;
     }
     tx.commit().await?;
@@ -368,6 +504,7 @@ async fn submit(
 async fn commit_embedding(
     unit_of_work: &SqlxUnitOfWork,
     work: ProductEmbeddingWorkRef,
+    image: Option<StagedProductImage>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut tx = unit_of_work.begin().await?;
     SqlxProductListingEmbeddingWriterFactory::new()
@@ -377,6 +514,7 @@ async fn commit_embedding(
             source_event_id: work.source_event_id,
             enrichment_event_id: EventId::new(),
             embedding: vec![0.5; 768],
+            image,
         })
         .await?;
     tx.commit().await?;
