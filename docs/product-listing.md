@@ -354,12 +354,9 @@ provider can embed, such as a blank title or an invalid image URL, are parked al
 content changes. A round settles work only while it is still where
 the round found it, so several workers may run rounds side by side.
 
-A listing without an embedding is still found lexically. Saved-search matching runs daily at
-15:00 UTC, so the host's `embedding-sweep` job embeds every embedding still unsettled at 14:00
-UTC synchronously, including work inside a batch that has not ended; that batch's result then
-settles as a duplicate. Only this leftover pays the synchronous price, and the work in flight at
-14:00 once more at the batch price. The sweep stops after 45 minutes. An embedding that lands
-after the match advances the listing's `updated`, so the next match picks it up. Operations are in the
+A listing without an embedding is still found lexically. Saved-search matching runs daily and
+does not wait for embeddings: one that lands after a match advances the listing's `updated`, so
+the next match picks it up. Operations are in the
 [runbook](durable-worker-runbook.md#product-embedding-recovery).
 
 ## Source anti-corruption rules

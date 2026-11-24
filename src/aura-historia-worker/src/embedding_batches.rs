@@ -19,8 +19,8 @@ use product_listing_postgres::{
     SqlxProductListingEmbeddingWriterFactory,
 };
 use product_listing_service::use_cases::{
-    EmbedProductListingBatchesHandler, EmbedProductListingBatchesUseCase,
-    ProductEmbeddingRoundReport, ProductEmbeddingWorkError,
+    EmbedProductListingBatchesError, EmbedProductListingBatchesHandler,
+    EmbedProductListingBatchesUseCase, ProductEmbeddingRoundReport,
 };
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
@@ -31,7 +31,7 @@ const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 const VERTEX_AI_EMBEDDING_BATCH_BUCKET_ENV: &str = "VERTEX_AI_EMBEDDING_BATCH_BUCKET";
 /// How often a round runs. Pending work accumulates in between; nothing needs its embedding
-/// within minutes, and the daily sweep embeds what is still pending before the match.
+/// within minutes. A listing still unembedded at the daily match is found by the next one.
 pub const ROUND_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
 /// Builds the PostgreSQL-backed round with Vertex AI batch prediction.
@@ -120,7 +120,7 @@ fn log_round(report: &ProductEmbeddingRoundReport) {
 }
 
 /// Records the failed stage and safe cause facts; the error chain itself is never logged.
-fn log_failed_round(error: &ProductEmbeddingWorkError) {
+fn log_failed_round(error: &EmbedProductListingBatchesError) {
     let Some(failure) = round_failure(error) else {
         tracing::error!(
             event = "product.embedding.round.failed",
@@ -140,8 +140,8 @@ fn log_failed_round(error: &ProductEmbeddingWorkError) {
     );
 }
 
-fn round_failure(error: &ProductEmbeddingWorkError) -> Option<FailureDiagnostic> {
-    use ProductEmbeddingWorkError as E;
+fn round_failure(error: &EmbedProductListingBatchesError) -> Option<FailureDiagnostic> {
+    use EmbedProductListingBatchesError as E;
     match error {
         E::SystemPrincipalRequired => None,
         E::SubmissionFailed { .. } => {
@@ -177,9 +177,9 @@ mod tests {
         async fn execute(
             &self,
             _: &OperationContext,
-        ) -> Result<ProductEmbeddingRoundReport, ProductEmbeddingWorkError> {
+        ) -> Result<ProductEmbeddingRoundReport, EmbedProductListingBatchesError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            Err(ProductEmbeddingWorkError::SubmissionFailed {
+            Err(EmbedProductListingBatchesError::SubmissionFailed {
                 source: Box::new(EmbeddingError::AuthenticationFailed {
                     source: Box::new(std::io::Error::other("SENTINEL token detail")),
                 }),

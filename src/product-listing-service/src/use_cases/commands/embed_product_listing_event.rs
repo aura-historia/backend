@@ -1,7 +1,6 @@
 //! Schedules the embedding of a listing's embedding revision. Embedding itself runs in provider
-//! batches ([`super::embed_product_listing_batches`]), and whatever is still pending before the
-//! daily match in the [sweep](super::sweep_product_listing_embeddings); this use case only
-//! records the revision as pending work.
+//! batches ([`super::embed_product_listing_batches`]); this use case only records the revision as
+//! pending work.
 
 use crate::ports::{
     ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,

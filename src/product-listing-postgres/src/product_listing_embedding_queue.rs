@@ -11,11 +11,11 @@ use application::error::{box_error, static_error};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{description::Description, title::Title};
 use product_listing_service::ports::{
-    BatchedProductEmbedding, ClaimedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding,
-    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
-    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
-    ProductListingEmbeddingQueueError, ProductListingEmbeddingQueueFactory,
-    ProductListingEmbeddingQueueReader, SubmittedProductEmbeddingBatch,
+    BatchedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding, ProductEmbeddingAssignment,
+    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
+    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
+    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
+    SubmittedProductEmbeddingBatch,
 };
 use product_listing_service::use_cases::MAX_EMBEDDING_ATTEMPTS as MAX_ATTEMPTS;
 use sqlx::{PgConnection, PgPool};
@@ -27,7 +27,7 @@ type QueueResult<T> = Result<T, ProductListingEmbeddingQueueError>;
 /// Selects current work: the work row joined with its listing at the work's revision.
 macro_rules! select_current_work {
     () => {
-        "SELECT work.product_listing_id, work.source_event_id, work.attempts, work.batch_id,
+        "SELECT work.product_listing_id, work.source_event_id, work.attempts,
                 work.batch_position, listing.title_text, listing.title_language,
                 listing.description_text, listing.description_language, listing.product_images
          FROM product_listing_embedding_work work
@@ -69,7 +69,6 @@ struct CurrentWorkRow {
     product_listing_id: uuid::Uuid,
     source_event_id: uuid::Uuid,
     attempts: i16,
-    batch_id: Option<uuid::Uuid>,
     batch_position: Option<i32>,
     title_text: String,
     title_language: String,
@@ -112,13 +111,6 @@ impl CurrentWorkRow {
         })
     }
 
-    fn claim(&self) -> ProductEmbeddingClaim {
-        self.batch_id
-            .map_or(ProductEmbeddingClaim::Pending, |batch| {
-                ProductEmbeddingClaim::Batch(ProductEmbeddingBatchKey::from_uuid(batch))
-            })
-    }
-
     fn pending(self) -> MappedRow<PendingProductEmbedding> {
         let work = self.work()?;
         let attempts = u16::try_from(self.attempts)
@@ -157,13 +149,6 @@ impl CurrentWorkRow {
             position,
             embedding,
         }))
-    }
-
-    fn claimed(self) -> MappedRow<ClaimedProductEmbedding> {
-        let claim = self.claim();
-        Ok(self
-            .pending()?
-            .map(|embedding| ClaimedProductEmbedding { claim, embedding }))
     }
 }
 
@@ -555,22 +540,6 @@ impl ProductListingEmbeddingQueueReader for SqlxProductListingEmbeddingQueueRead
         .await
         .map_err(sql)?;
         valid(rows.into_iter().map(CurrentWorkRow::batched).collect())
-    }
-
-    async fn unsettled(&self, limit: u32) -> QueueResult<Vec<ClaimedProductEmbedding>> {
-        let rows = sqlx::query_as::<_, CurrentWorkRow>(concat!(
-            select_current_work!(),
-            "
-            WHERE work.parked IS NULL
-            ORDER BY work.enqueued, work.product_listing_id
-            LIMIT $1
-            "
-        ))
-        .bind(i64::from(limit))
-        .fetch_all(&self.pool)
-        .await
-        .map_err(sql)?;
-        valid(rows.into_iter().map(CurrentWorkRow::claimed).collect())
     }
 }
 

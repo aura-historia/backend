@@ -273,7 +273,6 @@ going when the next is due is not started twice.
 | --- | --- |
 | `aura-prod-backend-cleanup` | `ops backend-cleanup`, hourly |
 | `aura-prod-fx-refresh` | `ops fx-refresh`, 06:00 and 18:00 |
-| `aura-prod-embedding-sweep` | `ops embedding-sweep`, 14:00, before the match |
 | `aura-prod-periodic-match` | `ops periodic-match`, 15:00 |
 | `aura-prod-backup-full` | full backup, Sundays 02:30 |
 | `aura-prod-backup-diff` | differential backup, Monday to Saturday 02:30 |

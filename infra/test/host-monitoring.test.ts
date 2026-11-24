@@ -77,7 +77,7 @@ describe("monitoring stacks", () => {
     const worker = readFileSync(join(__dirname, "../../src/aura-historia-worker/src/health_metrics.rs"), "utf8");
     for (const name of Object.values(HOST_METRICS)) expect(worker).toContain(`: &str = "${name}";`);
     const hostAlarms = alarmsIn(monitoring, config.host.metricNamespace);
-    expect(hostAlarms).toHaveLength(13);
+    expect(hostAlarms).toHaveLength(12);
     for (const resource of hostAlarms) {
       expect(resource.Properties.AlarmName.startsWith("aura-historia-prod-host-")).toBe(true);
       const metrics = resource.Properties.Metrics
@@ -222,7 +222,7 @@ describe("monitoring stacks", () => {
       const paths = stack.node.findAll().map((construct) => construct.node.path);
       expect(paths.filter((path) => path.includes("resolve"))).toEqual([]);
     }
-    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(16);
+    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(15);
     expect(resources(edge, "AWS::CloudWatch::Alarm")).toHaveLength(2);
   });
 });

@@ -1,23 +1,21 @@
-//! An in-memory embedding queue, writer and provider for the embedding use cases' unit tests.
+//! An in-memory embedding queue, writer and batch provider for the embedding round's unit tests.
 //! The queue follows the claim rules of the PostgreSQL adapter.
 
 use crate::ports::{
-    BatchedProductEmbedding, ClaimedProductEmbedding, PendingProductEmbedding,
-    ProductEmbeddingAssignment, ProductEmbeddingBatchKey, ProductEmbeddingClaim,
-    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
-    ProductListingEmbeddingQueueError, ProductListingEmbeddingQueueFactory,
-    ProductListingEmbeddingQueueReader, ProductListingEmbeddingWrite,
-    ProductListingEmbeddingWriteError, ProductListingEmbeddingWriteOutcome,
-    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory,
-    SubmittedProductEmbeddingBatch,
+    BatchedProductEmbedding, PendingProductEmbedding, ProductEmbeddingAssignment,
+    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
+    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
+    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
+    ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
+    ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
+    ProductListingEmbeddingWriterFactory, SubmittedProductEmbeddingBatch,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use embedding::{
-    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingGenerator,
-    EmbeddingImageUrl, EmbeddingText, EmbeddingVector, ProductEmbeddingBatches,
-    ProductEmbeddingRequest,
+    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingVector,
+    ProductEmbeddingBatches, ProductEmbeddingRequest,
 };
 use product_listing_core::{
     description::Description, product_listing_id::ProductListingId, title::Title,
@@ -42,15 +40,9 @@ pub(crate) struct State {
     pub writes: Vec<ProductListingEmbeddingWrite>,
     pub write_outcome: Option<ProductListingEmbeddingWriteOutcome>,
     pub write_fails: bool,
-    /// Fails the next transaction to begin, as an unreachable PostgreSQL would.
-    pub begin_fails_once: bool,
     pub submitted: Vec<(String, Vec<ProductEmbeddingRequest>)>,
     pub submission_fails: bool,
     pub polls: VecDeque<Result<EmbeddingBatchPoll, EmbeddingError>>,
-    pub generated: Vec<String>,
-    pub generation_error: Option<fn() -> EmbeddingError>,
-    /// Never answers a product embedding.
-    pub generation_stalls: bool,
 }
 
 /// Every port of the embedding use cases over one shared state.
@@ -149,11 +141,6 @@ impl Transaction for Tx {
 impl UnitOfWork for World {
     type Tx = Tx;
     async fn begin(&self) -> Result<Tx, TransactionError> {
-        if std::mem::take(&mut self.state().begin_fails_once) {
-            return Err(TransactionError::BeginFailed(Box::new(
-                std::io::Error::other("connection lost"),
-            )));
-        }
         Ok(Tx)
     }
 }
@@ -172,7 +159,7 @@ impl ProductListingEmbeddingQueue for World {
         &mut self,
         _: ProductEmbeddingWorkRef,
     ) -> QueueResult<ProductEmbeddingScheduleOutcome> {
-        unreachable!("rounds and sweeps never schedule")
+        unreachable!("rounds never schedule")
     }
 
     async fn discard_superseded(&mut self) -> QueueResult<u64> {
@@ -303,24 +290,6 @@ impl ProductListingEmbeddingQueueReader for World {
             })
             .collect())
     }
-
-    async fn unsettled(&self, limit: u32) -> QueueResult<Vec<ClaimedProductEmbedding>> {
-        Ok(self
-            .state()
-            .work
-            .iter()
-            .filter(|row| !row.parked)
-            .take(limit as usize)
-            .map(|row| ClaimedProductEmbedding {
-                claim: row
-                    .batch
-                    .map_or(ProductEmbeddingClaim::Pending, |(key, _)| {
-                        ProductEmbeddingClaim::Batch(key)
-                    }),
-                embedding: row.pending.clone(),
-            })
-            .collect())
-    }
 }
 
 impl ProductListingEmbeddingWriterFactory<Tx> for World {
@@ -368,32 +337,5 @@ impl ProductEmbeddingBatches for World {
             .polls
             .pop_front()
             .unwrap_or(Ok(EmbeddingBatchPoll::InProgress))
-    }
-}
-
-#[async_trait::async_trait]
-impl EmbeddingGenerator for World {
-    async fn embed_product(
-        &self,
-        title: &EmbeddingText,
-        _: Option<&EmbeddingText>,
-        _: Option<&EmbeddingImageUrl>,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        if self.state().generation_stalls {
-            std::future::pending::<()>().await;
-        }
-        let mut state = self.state();
-        state.generated.push(title.as_str().to_owned());
-        match state.generation_error {
-            Some(error) => Err(error()),
-            None => Ok(vector()),
-        }
-    }
-
-    async fn embed_search_query(
-        &self,
-        _: &EmbeddingText,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        unreachable!("sweeps embed products only")
     }
 }

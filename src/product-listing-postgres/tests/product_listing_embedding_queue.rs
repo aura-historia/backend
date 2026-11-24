@@ -121,16 +121,6 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
             lock(&unit_of_work, 10).await?.is_empty(),
             "batched work is not pending"
         );
-        assert_eq!(
-            vec![ProductEmbeddingClaim::Batch(key); 2],
-            reader
-                .unsettled(10)
-                .await?
-                .iter()
-                .map(|item| item.claim)
-                .collect::<Vec<_>>(),
-            "batched work is unsettled"
-        );
 
         in_queue(&unit_of_work, |queue| {
             Box::pin(async move {
@@ -168,7 +158,7 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
             Box::pin(queue.complete(first, ProductEmbeddingClaim::Pending))
         })
         .await?;
-        assert!(reader.unsettled(10).await?.is_empty());
+        assert!(lock(&unit_of_work, 10).await?.is_empty());
 
         let newer = advance_content(&pool, second.product_listing_id, "Barocke Truhe").await?;
         schedule(&unit_of_work, newer).await?;
@@ -244,7 +234,6 @@ async fn should_park_work_with_an_invalid_document_without_holding_back_the_rest
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-        let reader = SqlxProductListingEmbeddingQueueReader::new(pool.clone());
         let invalid = insert_listing(&pool, "Antiker Stuhl").await?;
         let valid = insert_listing(&pool, "Barocke Kommode").await?;
         for work in [invalid, valid] {
@@ -255,11 +244,6 @@ async fn should_park_work_with_an_invalid_document_without_holding_back_the_rest
             .execute(&pool)
             .await?;
 
-        assert_eq!(
-            vec![valid],
-            reader.unsettled(10).await?.iter().map(|item| item.embedding.work).collect::<Vec<_>>(),
-            "the sweep skips it"
-        );
         assert_eq!(
             vec![valid],
             lock(&unit_of_work, 10).await?.iter().map(|item| item.work).collect::<Vec<_>>()

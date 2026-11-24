@@ -21,7 +21,6 @@ domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
-futures = { workspace = true, features = ["std"] }
 indexmap = { workspace = true }
 
 localization = { workspace = true }

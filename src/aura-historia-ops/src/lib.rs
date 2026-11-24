@@ -5,14 +5,12 @@
 mod cleanup;
 mod command;
 mod database;
-mod embedding_sweep;
 mod fx_refresh;
 mod periodic_match;
 mod queue;
 mod reprojection;
 
 pub use command::{Command, OUTBOX, Selection};
-pub use embedding_sweep::sweep_pending_embeddings;
 pub use fx_refresh::{FxRefreshRun, capture_fx_rate_snapshot};
 
 use application::error::BoxError;
@@ -68,7 +66,6 @@ pub async fn run(command: Command) -> Result<serde_json::Value, OpsError> {
             start_after,
         } => reprojection::reproject_all(&pool().await?, &target, page_size, start_after).await,
         Command::BackendCleanup => cleanup::run().await,
-        Command::EmbeddingSweep => embedding_sweep::run().await,
         Command::FxRefresh => fx_refresh::run().await,
         Command::PeriodicMatch => periodic_match::run().await,
     }

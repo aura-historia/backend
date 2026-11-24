@@ -30,8 +30,6 @@ pub enum Command {
     },
     /// Expired-data cleanup and recovery maintenance.
     BackendCleanup,
-    /// Embeds pending product embeddings synchronously before the periodic match.
-    EmbeddingSweep,
     /// Captures the current FX rate snapshot.
     FxRefresh,
     /// Periodic saved-search matching.
@@ -89,7 +87,6 @@ commands:
   reproject-all (--live | --generation <g>) [--page-size <n>] [--start-after <listing-id>]
                                  enqueue one projector job per listing
   backend-cleanup                expired-data cleanup and recovery maintenance
-  embedding-sweep                embed pending product embeddings before the periodic match
   fx-refresh                     capture the current FX rate snapshot
   periodic-match                 periodic saved-search matching";
 
@@ -102,7 +99,6 @@ commands:
             Self::Redrive { .. } => "redrive",
             Self::ReprojectAll { .. } => "reproject-all",
             Self::BackendCleanup => "backend-cleanup",
-            Self::EmbeddingSweep => "embedding-sweep",
             Self::FxRefresh => "fx-refresh",
             Self::PeriodicMatch => "periodic-match",
         }
@@ -132,7 +128,6 @@ commands:
             "redrive" => parse_redrive(&rest),
             "reproject-all" => parse_reprojection(&rest),
             "backend-cleanup" => no_arguments(Self::BackendCleanup),
-            "embedding-sweep" => no_arguments(Self::EmbeddingSweep),
             "fx-refresh" => no_arguments(Self::FxRefresh),
             "periodic-match" => no_arguments(Self::PeriodicMatch),
             other => Err(format!("unknown command {other}")),
@@ -222,7 +217,6 @@ mod tests {
             ("bootstrap", "bootstrap"),
             ("inspect", "inspect"),
             ("backend-cleanup", "backend-cleanup"),
-            ("embedding-sweep", "embedding-sweep"),
             ("fx-refresh", "fx-refresh"),
             ("periodic-match", "periodic-match"),
         ] {

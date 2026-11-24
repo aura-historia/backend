@@ -200,17 +200,15 @@ export function stageConfig(stage: StageName): StageConfig {
       minimumFreeDiskPercent: 20,
       // A daily backup plus two hours' slack.
       maximumBackupAgeSeconds: 26 * 60 * 60,
-      // One missed run of the twice-daily FX refresh, the daily embedding sweep or the daily
-      // matching (which stops itself after two hours) alarms; the hourly cleanup alarms after two.
+      // One missed run of the twice-daily FX refresh or the daily matching (which stops itself
+      // after two hours) alarms; the hourly cleanup alarms after two.
       maximumJobAgeSeconds: {
         "backend-cleanup": 150 * 60,
-        "embedding-sweep": 27 * 60 * 60,
         "fx-refresh": 13 * 60 * 60,
         "periodic-match": 27 * 60 * 60,
       },
       // A batch job's 24-hour target turnaround, the 30-minute round interval and half a day's
-      // slack. The daily sweep embeds everything unsettled, so only a failing sweep, or work that
-      // keeps failing, gets this old.
+      // slack; only a stuck round, or jobs that keep failing, let work get this old.
       maximumPendingEmbeddingAgeSeconds: 36 * 60 * 60,
       crawler: {
         logGroupName: `/aura-historia/${stage}/host/crawler`,

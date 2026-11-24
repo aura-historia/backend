@@ -281,11 +281,6 @@ which is ever purged except by settlement.
 - The staging bucket's lifecycle rule deletes objects after 7 days, longer than a job may queue
   and run (72 hours) plus a round. A job whose output can no longer be read returns its work
   unspent, and it is submitted again.
-- `ops embedding-sweep` runs at 14:00 UTC (`aura-prod-embedding-sweep`) and logs
-  `product.embedding.sweep.completed`. It fails when Vertex AI answered none of the work it swept
-  or a result could not be settled; that work stays where it was for the rounds. It stops after
-  45 minutes and then logs `product.embedding.sweep.out_of_time`. A manual run is safe at any
-  time; it pays the synchronous price, also for work in running batches.
 - Parked work (`parked IS NOT NULL`) spent three attempts or cannot be embedded. It waits for a
   content change. To retry it after fixing a cause, set `parked` to `NULL` and `attempts` to `0`
   for the selected listings; never delete work to silence it.
