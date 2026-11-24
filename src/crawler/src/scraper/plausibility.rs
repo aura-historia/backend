@@ -733,12 +733,15 @@ pub(crate) fn is_price_text(text: &str) -> bool {
 /// Whether `text` holds a whole amount written with a dash in place of the cents, as German, Swiss
 /// and Dutch shops print it (`195,-`, `1250.-`, `1.200,–`, `1'250.--`), the way the ProductListing
 /// normalization drops that dash before it reads the amount. The dash ends the amount: what follows
-/// is the end, a currency or punctuation, or a word after a space (`195,- EUR`), never a digit or a
-/// letter run into it, so a day range (`12.-14. Mai`, `24.- 26.`) or an ordinal compound
-/// (`2.-Klasse`) is no amount.
+/// is the end, a currency or punctuation, or after a space a currency code or word or a lowercase
+/// word (`195,- EUR`, `195,- inkl. MwSt.`), never a digit or a letter run into it nor a capitalised
+/// word, so a day range (`12.-14. Mai`, `24.- 26.`), an ordinal compound (`2.-Klasse`) or a
+/// century range (`Ende 19.- Anfang 20. Jh.`) is no amount.
 fn has_zero_cents_dash_amount(text: &str) -> bool {
-    regex!(r"\d[.,](?:--?|[\u{2013}\u{2014}])(?:\s*(?:$|[^\s\w\-\u{2013}\u{2014}])|\s+[^\d\s\-\u{2013}\u{2014}])")
-        .is_match(text)
+    regex!(
+        r"\d[.,](?:--?|[\u{2013}\u{2014}])(?:\s*(?:$|[^\s\w\-\u{2013}\u{2014}])|\s+(?:\p{Ll}|[A-Z]{3}\b|(?i:euros?|sfr|fr)\b))"
+    )
+    .is_match(text)
 }
 
 /// Compares the primary candidate of each ordered image candidate group, so the same
@@ -1131,6 +1134,10 @@ mod tests {
                 "1'250.--",
                 "€ 195,-",
                 "195,- EUR",
+                "195,- Euro",
+                "1250.- Fr.",
+                "195,- inkl. MwSt.",
+                "1.200,- (differenzbesteuert)",
                 "2490,-€",
             ] {
                 let mut raw = plausible();
@@ -1156,6 +1163,8 @@ mod tests {
         #[case("Mo.-Fr. 10-18 Uhr")]
         #[case("Sold")]
         #[case("Lot 57-8150")]
+        #[case("Ende 19.- Anfang 20. Jh.")]
+        #[case("Mitte 18.- Ende 19. Jahrhundert")]
         fn should_not_read_other_dashes_or_dates_as_an_amount(#[case] text: &str) {
             assert!(!is_price_text(text), "{text}");
         }
