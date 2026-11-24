@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::title_translation_revision;
 use crate::{
     object_id::try_from_uuid,
     product_listing_auction::{
@@ -29,8 +30,9 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_service::ports::product_listing_repository::{
-    ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
-    ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
+    ProductListingContentSourceEffect, ProductListingRepository, ProductListingRepositoryError,
+    ProductListingRepositoryFactory, ProductListingStorageVersion, ProductListingWriteEffects,
+    VersionedProductListing,
 };
 use serde::{Deserialize, Serialize};
 
@@ -109,7 +111,32 @@ impl ProductListingRepositoryFactory<platform_postgres::SqlxTransaction>
     }
 }
 
+enum TitleTranslationEffect {
+    Keep,
+    Carry { replaced: EventId },
+    Discard,
+}
+
 impl SqlxProductListingRepository<'_> {
+    /// The listing's content revision at `expected_version`; a newer version is a conflict.
+    async fn content_source_at_version(
+        &mut self,
+        id: ProductListingId,
+        expected_version: i64,
+    ) -> Result<EventId, ProductListingRepositoryError> {
+        let content_source = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT content_source_event_id FROM product_listings WHERE product_listing_id = $1 AND version = $2 FOR UPDATE",
+        )
+        .bind(id.as_uuid())
+        .bind(expected_version)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(ProductListingUpdateSqlxError)?
+        .ok_or(ProductListingRepositoryError::ConcurrencyConflict)?;
+        try_from_uuid(content_source, "content source event ID")
+            .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)
+    }
+
     async fn find_by_id_scoped(
         &mut self,
         id: ProductListingId,
@@ -311,6 +338,20 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let auction = auction_write_parts(product.auction());
         let expected_version = i64::try_from(expected_version.into_inner())
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
+        // The replaced revision is read before the update overwrites it.
+        let translations = match effects.content_source {
+            ProductListingContentSourceEffect::Keep => TitleTranslationEffect::Keep,
+            ProductListingContentSourceEffect::AdvanceKeepingTitle => {
+                TitleTranslationEffect::Carry {
+                    replaced: self
+                        .content_source_at_version(product.id(), expected_version)
+                        .await?,
+                }
+            }
+            ProductListingContentSourceEffect::AdvanceWithNewTitle => {
+                TitleTranslationEffect::Discard
+            }
+        };
         let version = sqlx::query_scalar::<_, i64>(
             r#"
             UPDATE product_listings
@@ -399,20 +440,33 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                     |source| ProductListingRepositoryError::InvalidDeliveryPersisted { source },
                 )?,
         )
-        .bind(effects.advance_content_source)
+        .bind(effects.content_source.advances())
         .bind(price_max_amount)
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingUpdateSqlxError)?
         .ok_or(ProductListingRepositoryError::ConcurrencyConflict)?;
 
-        if effects.advance_content_source {
-            sqlx::query("DELETE FROM product_listing_translations WHERE product_listing_id = $1")
-                .bind(product.id().as_uuid())
-                .execute(&mut *self.connection)
+        match translations {
+            TitleTranslationEffect::Keep => Ok(()),
+            TitleTranslationEffect::Carry { replaced } => {
+                title_translation_revision::carry_title_translations(
+                    self.connection,
+                    product.id(),
+                    replaced,
+                    current_event_id,
+                )
                 .await
-                .map_err(ProductListingUpdateSqlxError)?;
+            }
+            TitleTranslationEffect::Discard => {
+                title_translation_revision::discard_title_translations(
+                    self.connection,
+                    product.id(),
+                )
+                .await
+            }
         }
+        .map_err(ProductListingUpdateSqlxError)?;
 
         let version = ProductListingStorageVersion::try_from(version)
             .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;

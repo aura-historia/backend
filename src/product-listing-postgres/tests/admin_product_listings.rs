@@ -935,7 +935,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
         .unwrap();
     tx.commit().await.unwrap();
 
-    // A description revision must also recover title translation under the shared content guard.
+    // A description revision advances the shared content guard but carries the title's translations.
     let description = Localized::new(
         Language::Fr,
         Description::from("Nouveau texte\n\nDeuxième paragraphe"),
@@ -958,14 +958,14 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
     assert_eq!(content, embedding);
     assert_ne!(content, initial.into_uuid());
     assert!(vector.is_none());
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_listing_translations WHERE product_listing_id=$1",
+    let carried: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT source_event_id FROM product_listing_translations WHERE product_listing_id=$1",
     )
     .bind(id.as_uuid())
-    .fetch_one(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(carried, vec![content]);
     assert!(
         SqlxProductListingContentAssessmentReader::new(pool.clone())
             .find_current_assessments(&[id])
@@ -1045,7 +1045,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
     assert_eq!(detail(&pool, id).await, stored);
     assert_eq!(stored_description(&pool, id).await, stored_text);
 
-    // Completion for the current description revision is accepted, then a source-language edit invalidates it.
+    // The description revision already holds its carried completion, then a source-language edit invalidates it.
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     assert_eq!(
         SqlxProductListingTranslationWriterFactory::new()
@@ -1053,7 +1053,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
             .apply(&translations(revision))
             .await
             .unwrap(),
-        ProductListingTranslationWriteOutcome::Applied
+        ProductListingTranslationWriteOutcome::Duplicate
     );
     tx.commit().await.unwrap();
     let changed = UpdateAdminProductListingUseCase::execute(
