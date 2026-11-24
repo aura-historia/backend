@@ -128,8 +128,11 @@ impl Allocation {
     }
 
     pub async fn reserve(&self, runner: Runner, isolation: Isolation) -> Result<Reservation> {
-        let mut permit =
-            tokio::time::timeout(WAIT, self.semaphore.clone().acquire_owned()).await??;
+        let permit = tokio::time::timeout(WAIT, self.semaphore.clone().acquire_owned()).await??;
+        let mut waiting = Waiting {
+            permit,
+            queue_place: None,
+        };
         let started = Instant::now();
         loop {
             let request = Request {
@@ -139,13 +142,13 @@ impl Allocation {
                 invocation: runner.invocation.clone(),
                 isolation,
             };
-            // Transfer the permit into the operation: cancellation cannot release it while
-            // a lock attempt is still running on the blocking pool.
+            // Transfer the permit and queue place into the operation: cancellation cannot
+            // release them while a lock attempt is still running on the blocking pool.
             let attempt =
-                tokio::task::spawn_blocking(move || request.try_reserve(permit)).await??;
+                tokio::task::spawn_blocking(move || request.try_reserve(waiting)).await??;
             match attempt {
                 ReservationAttempt::Reserved(reservation) => return Ok(reservation),
-                ReservationAttempt::Busy(returned) => permit = returned,
+                ReservationAttempt::Busy(returned) => waiting = returned,
             }
             if started.elapsed() >= WAIT {
                 return Err(failure(
@@ -158,8 +161,15 @@ impl Allocation {
 }
 
 enum ReservationAttempt {
-    Busy(OwnedSemaphorePermit),
+    Busy(Waiting),
     Reserved(Reservation),
+}
+
+/// What a request keeps between polls: its in-process permit and, for an exclusive request,
+/// its place in the cross-process queue.
+struct Waiting {
+    permit: OwnedSemaphorePermit,
+    queue_place: Option<FileLock>,
 }
 
 /// One owned, non-blocking attempt to take the gate and a slot, so it can run on the blocking pool.
@@ -172,33 +182,77 @@ struct Request {
 }
 
 impl Request {
-    fn try_reserve(self, permit: OwnedSemaphorePermit) -> Result<ReservationAttempt> {
+    /// An exclusive request needs the gate to itself, but ordinary leases overlap and a steady
+    /// stream of them never leaves it empty. So an exclusive request first takes the queue and
+    /// keeps it while it waits and while it runs, and an ordinary request only passes through
+    /// the queue while taking the gate. Once an exclusive request is queued, no new ordinary
+    /// lease starts and the running ones drain.
+    ///
+    /// The holder of a reservation must not request another one: the second request would
+    /// wait behind a queued exclusive request that in turn waits for the first to end.
+    fn try_reserve(self, waiting: Waiting) -> Result<ReservationAttempt> {
+        let Waiting {
+            permit,
+            queue_place,
+        } = waiting;
+        let isolation = self.isolation;
+        let Some(place) = self.join_queue(queue_place)? else {
+            return Ok(ReservationAttempt::Busy(Waiting {
+                permit,
+                queue_place: None,
+            }));
+        };
         let gate = lock_file(&self.directory.join("tests.lock"))?;
-        if let Some(gate) = FileLock::attempt(gate, self.isolation)? {
-            for slot in self.candidate_slots() {
-                if slot >= self.slots {
-                    return Err(failure("requested slot exceeds supervisor capacity"));
-                }
-                let file = lock_file(&self.directory.join(format!("slot-{slot}.lock")))?;
-                if let Some(file) = FileLock::attempt(file, Isolation::Exclusive)? {
-                    return Ok(ReservationAttempt::Reserved(Reservation {
-                        slot,
-                        invocation: self.invocation,
-                        directory: self.directory,
-                        _gate: gate,
-                        _slot: file,
-                        _permit: permit,
-                    }));
-                }
+        let Some(gate) = FileLock::attempt(gate, isolation)? else {
+            return Ok(ReservationAttempt::Busy(Waiting {
+                permit,
+                queue_place: keep_if_exclusive(isolation, place),
+            }));
+        };
+        for slot in self.candidate_slots() {
+            if slot >= self.slots {
+                return Err(failure("requested slot exceeds supervisor capacity"));
+            }
+            let file = lock_file(&self.directory.join(format!("slot-{slot}.lock")))?;
+            if let Some(file) = FileLock::attempt(file, Isolation::Exclusive)? {
+                return Ok(ReservationAttempt::Reserved(Reservation {
+                    slot,
+                    invocation: self.invocation,
+                    directory: self.directory,
+                    _gate: gate,
+                    _slot: file,
+                    _permit: permit,
+                    _queue_place: keep_if_exclusive(isolation, place),
+                }));
             }
         }
-        Ok(ReservationAttempt::Busy(permit))
+        Ok(ReservationAttempt::Busy(Waiting {
+            permit,
+            queue_place: keep_if_exclusive(isolation, place),
+        }))
+    }
+
+    /// Exclusive requests hold the queue exclusively and ordinary ones share it, so an ordinary
+    /// request is refused exactly while an exclusive one is queued or running.
+    fn join_queue(&self, held: Option<FileLock>) -> Result<Option<FileLock>> {
+        match held {
+            Some(place) => Ok(Some(place)),
+            None => FileLock::attempt(
+                lock_file(&self.directory.join("exclusive-queue.lock"))?,
+                self.isolation,
+            ),
+        }
     }
 
     fn candidate_slots(&self) -> Vec<u16> {
         self.requested
             .map_or_else(|| (0..self.slots).collect(), |slot| vec![slot])
     }
+}
+
+/// An ordinary request only passes through the queue and releases it with the attempt.
+fn keep_if_exclusive(isolation: Isolation, place: FileLock) -> Option<FileLock> {
+    (isolation == Isolation::Exclusive).then_some(place)
 }
 
 /// Short metadata/lock attempts run off the async workers and keep the file owned
@@ -230,6 +284,8 @@ pub(super) struct Reservation {
     _gate: FileLock,
     _slot: FileLock,
     _permit: OwnedSemaphorePermit,
+    // Declared last so the gate is released first: no request can slip in between.
+    _queue_place: Option<FileLock>,
 }
 
 /// Explicit unlock matters even with close-on-exec: a concurrent fork can briefly
@@ -501,6 +557,64 @@ mod bounded_tests {
         assert_eq!(free, third.slot);
         drop(third);
         drop(second);
+        tokio::fs::remove_dir_all(directory).await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod exclusive_queue_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_not_let_ordinary_leases_overtake_a_waiting_exclusive_reservation() {
+        let directory =
+            std::env::temp_dir().join(format!("aura-queue-unit-{}", uuid::Uuid::new_v4().simple()));
+        let create_directory = directory.clone();
+        tokio::task::spawn_blocking(move || private_directory(&create_directory))
+            .await
+            .unwrap()
+            .unwrap();
+        let allocation = Allocation {
+            run: "0".repeat(32),
+            directory: directory.clone(),
+            slots: 3,
+            semaphore: Arc::new(Semaphore::new(3)),
+        };
+        let runner = || Runner::parse(None, None, None, None, 3).unwrap();
+        let pause = Duration::from_millis(100);
+        let patience = Duration::from_secs(5);
+
+        let running = allocation
+            .reserve(runner(), Isolation::Isolated)
+            .await
+            .unwrap();
+        let exclusive = allocation.reserve(runner(), Isolation::Exclusive);
+        tokio::pin!(exclusive);
+        assert!(
+            tokio::time::timeout(pause, &mut exclusive).await.is_err(),
+            "an exclusive reservation waits for the running ordinary lease"
+        );
+        let late = allocation.reserve(runner(), Isolation::Isolated);
+        tokio::pin!(late);
+        assert!(
+            tokio::time::timeout(pause, &mut late).await.is_err(),
+            "an ordinary request made after an exclusive one waits behind it"
+        );
+
+        drop(running);
+        let exclusive = tokio::time::timeout(patience, &mut exclusive)
+            .await
+            .expect("the exclusive reservation proceeds once the ordinary lease ends")
+            .unwrap();
+        assert!(
+            tokio::time::timeout(pause, &mut late).await.is_err(),
+            "ordinary requests wait while the exclusive reservation is live"
+        );
+        drop(exclusive);
+        tokio::time::timeout(patience, &mut late)
+            .await
+            .expect("the ordinary request proceeds once the exclusive reservation ends")
+            .unwrap();
         tokio::fs::remove_dir_all(directory).await.unwrap();
     }
 }
