@@ -363,6 +363,24 @@ mod tests {
             assert!(findings.is_empty(), "{findings:?}");
         }
 
+        /// Napoli Antic's live `state` rule reads a form button that every captured page shows,
+        /// so none of its listings gets an availability (#2878).
+        #[test]
+        fn should_report_a_state_rule_that_reads_the_same_unresolved_value_on_every_page() {
+            let sampled = vec![
+                captured("131033", "Human Condition", "Valider"),
+                captured("130034", "Suttree", "Valider"),
+            ];
+
+            let findings = audit_live_schemas(
+                "Bauman Rare Books",
+                &[schema_with_title(text("h4"))],
+                &sampled,
+            );
+
+            assert_eq!(findings.codes(), vec!["state CONSTANT_UNRESOLVED_STATE"]);
+        }
+
         /// Runtime capture accepts price text in a `state`, and an approval may have accepted it
         /// on a status slot whose sold page is not in the sample.
         #[test]
