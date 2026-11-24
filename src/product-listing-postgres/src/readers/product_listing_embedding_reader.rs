@@ -1,4 +1,6 @@
 use crate::object_id::try_from_uuid;
+use crate::product_listing_repository::parse_listing_availability;
+use application::error::box_error;
 use product_listing_service::ports::{
     ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,
     ProductListingEmbeddingReader, ProductListingEmbeddingReaderFactory,
@@ -16,6 +18,7 @@ struct SqlxProductListingEmbeddingReader<'tx> {
 struct ProductListingEmbeddingRow {
     product_listing_id: uuid::Uuid,
     embedding: Option<Vec<f32>>,
+    availability: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -23,12 +26,15 @@ struct ProductListingEmbeddingRow {
 struct ProductListingEmbeddingQuerySqlxError(#[source] sqlx::Error);
 
 impl TryFrom<ProductListingEmbeddingRow> for ProductListingEmbedding {
-    type Error = crate::object_id::PersistedObjectIdError;
+    type Error = application::error::BoxError;
 
     fn try_from(row: ProductListingEmbeddingRow) -> Result<Self, Self::Error> {
         Ok(Self {
-            product_listing_id: try_from_uuid(row.product_listing_id, "ProductListing ID")?,
+            product_listing_id: try_from_uuid(row.product_listing_id, "ProductListing ID")
+                .map_err(box_error)?,
             embedding: row.embedding,
+            availability: parse_listing_availability(row.availability.as_deref())
+                .map_err(box_error)?,
         })
     }
 }
@@ -60,11 +66,11 @@ impl ProductListingEmbeddingReader for SqlxProductListingEmbeddingReader<'_> {
     ) -> Result<Option<ProductListingEmbedding>, ProductListingEmbeddingReadError> {
         let query = match lookup {
             ProductListingEmbeddingLookup::ById(product_listing_id) => sqlx::query_as::<_, ProductListingEmbeddingRow>(
-                "SELECT product_listing_id, embedding FROM product_listings WHERE product_listing_id = $1",
+                "SELECT product_listing_id, embedding, availability FROM product_listings WHERE product_listing_id = $1",
             )
             .bind(product_listing_id.as_uuid()),
             ProductListingEmbeddingLookup::ByTitleSlug(product_listing_title_slug_id) => sqlx::query_as::<_, ProductListingEmbeddingRow>(
-                "SELECT p.product_listing_id, p.embedding FROM product_listings p WHERE p.product_listing_title_slug_id = $1",
+                "SELECT p.product_listing_id, p.embedding, p.availability FROM product_listings p WHERE p.product_listing_title_slug_id = $1",
             )
             .bind(product_listing_title_slug_id.as_ref()),
         };
@@ -77,9 +83,7 @@ impl ProductListingEmbeddingReader for SqlxProductListingEmbeddingReader<'_> {
                 }
             })?;
         row.map(TryInto::try_into).transpose().map_err(|source| {
-            ProductListingEmbeddingReadError::ProductListingEmbeddingQueryFailed {
-                source: Box::new(source),
-            }
+            ProductListingEmbeddingReadError::ProductListingEmbeddingQueryFailed { source }
         })
     }
 }
@@ -94,6 +98,7 @@ mod tests {
         let embedding = ProductListingEmbedding::try_from(ProductListingEmbeddingRow {
             product_listing_id: product_listing_id.into_uuid(),
             embedding: None,
+            availability: None,
         })
         .unwrap_or_else(|error| panic!("valid embedding row: {error}"));
 
@@ -109,6 +114,7 @@ mod tests {
         let result = ProductListingEmbedding::try_from(ProductListingEmbeddingRow {
             product_listing_id: invalid_uuid,
             embedding: None,
+            availability: None,
         });
 
         assert!(result.is_err());

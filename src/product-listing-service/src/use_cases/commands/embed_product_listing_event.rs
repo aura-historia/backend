@@ -1,6 +1,10 @@
 //! Schedules the embedding of a listing's embedding revision. Embedding itself runs in provider
 //! batches ([`super::embed_product_listing_batches`]); this use case only records the revision as
 //! pending work.
+//!
+//! Embeddings serve only discovery, so a revision waits while the listing is not
+//! [for sale](is_for_sale); the change that returns the listing to sale schedules its current
+//! revision.
 
 use crate::ports::{
     ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
@@ -12,6 +16,7 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
+use product_listing_core::listing_discoverability::is_for_sale;
 use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +35,9 @@ pub enum EmbedProductListingEventOutcome {
     ProductListingNotFound,
     IgnoredEvent,
     MissingTitle,
+    /// The listing is currently sold out, out of stock or unavailable. Its current revision is
+    /// scheduled when it returns to sale.
+    NotForSale,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,15 +137,22 @@ where
                 EmbedProductListingEventOutcome::ProductListingNotFound,
             ));
         };
-        if source.embedding_source_event_id != command.event_id {
-            return Ok(result(EmbedProductListingEventOutcome::Stale));
-        }
-        if !matches!(
-            source.event,
+        let revision = match source.event {
             ProductListingEmbeddingSourceEvent::Discovered
-                | ProductListingEmbeddingSourceEvent::ChangedContent
-        ) {
-            return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
+            | ProductListingEmbeddingSourceEvent::ChangedContent => {
+                if source.embedding_source_event_id != command.event_id {
+                    return Ok(result(EmbedProductListingEventOutcome::Stale));
+                }
+                command.event_id
+            }
+            // The event left the content alone, so it catches up whichever revision is current.
+            ProductListingEmbeddingSourceEvent::ReturnedToSale => source.embedding_source_event_id,
+            ProductListingEmbeddingSourceEvent::Other => {
+                return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
+            }
+        };
+        if !is_for_sale(source.availability) {
+            return Ok(result(EmbedProductListingEventOutcome::NotForSale));
         }
         if source.title.is_none() {
             return Ok(result(EmbedProductListingEventOutcome::MissingTitle));
@@ -153,7 +168,7 @@ where
             .in_transaction(&mut tx)
             .schedule(ProductEmbeddingWorkRef {
                 product_listing_id: command.product_listing_id,
-                source_event_id: command.event_id,
+                source_event_id: revision,
             })
             .await?;
         tx.commit().await.map_err(|source| {
@@ -211,7 +226,9 @@ mod tests {
     use application::transaction::TransactionError;
     use embedding::EmbeddingBatchId;
     use localization::{Language, Localized};
-    use product_listing_core::{description::Description, title::Title};
+    use product_listing_core::{
+        description::Description, listing_availability::ListingAvailability, title::Title,
+    };
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use url::Url;
@@ -244,6 +261,7 @@ mod tests {
                 event_id,
                 embedding_source_event_id: event_id,
                 event: ProductListingEmbeddingSourceEvent::Discovered,
+                availability: Some(ListingAvailability::InStock),
                 title: Some(Localized::new(Language::De, Title::from("Ancient vase"))),
                 description: Some(Localized::new(
                     Language::De,
@@ -462,6 +480,64 @@ mod tests {
 
             assert_eq!(expected, execute(&state).await.unwrap());
             assert_eq!(0, lock(&state).begins);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_schedule_nothing_while_the_listing_is_not_for_sale() {
+        for event in [
+            ProductListingEmbeddingSourceEvent::Discovered,
+            ProductListingEmbeddingSourceEvent::ChangedContent,
+            ProductListingEmbeddingSourceEvent::ReturnedToSale,
+        ] {
+            for availability in [
+                ListingAvailability::SoldOut,
+                ListingAvailability::OutOfStock,
+                ListingAvailability::Unavailable,
+            ] {
+                let state = state();
+                {
+                    let mut state = lock(&state);
+                    let source = state.source.as_mut().unwrap();
+                    source.event = event;
+                    source.availability = Some(availability);
+                }
+
+                assert_eq!(
+                    EmbedProductListingEventOutcome::NotForSale,
+                    execute(&state).await.unwrap()
+                );
+                assert!(lock(&state).scheduled.is_empty());
+                assert_eq!(0, lock(&state).begins);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_catch_up_the_current_revision_when_the_listing_returns_to_sale() {
+        for availability in [None, Some(ListingAvailability::Reserved)] {
+            let state = state();
+            let current_revision = EventId::new();
+            {
+                let mut state = lock(&state);
+                let source = state.source.as_mut().unwrap();
+                source.event = ProductListingEmbeddingSourceEvent::ReturnedToSale;
+                source.embedding_source_event_id = current_revision;
+                source.availability = availability;
+            }
+            let command = command(&state);
+
+            assert_eq!(
+                EmbedProductListingEventOutcome::Scheduled,
+                execute(&state).await.unwrap()
+            );
+            assert_eq!(
+                vec![ProductEmbeddingWorkRef {
+                    product_listing_id: command.product_listing_id,
+                    source_event_id: current_revision,
+                }],
+                lock(&state).scheduled
+            );
         }
     }
 

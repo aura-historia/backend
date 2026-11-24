@@ -121,6 +121,7 @@ pub fn embedding_disposition(
         O::Stale => ProductEmbeddingJobDisposition::Complete("stale"),
         O::IgnoredEvent => ProductEmbeddingJobDisposition::Complete("ignored_event"),
         O::MissingTitle => ProductEmbeddingJobDisposition::Complete("missing_title"),
+        O::NotForSale => ProductEmbeddingJobDisposition::Complete("not_for_sale"),
         O::ProductListingNotFound => ProductEmbeddingJobDisposition::Retry("missing_source"),
     }
 }
@@ -223,6 +224,7 @@ mod tests {
             FakeResult::Outcome(O::Stale),
             FakeResult::Outcome(O::IgnoredEvent),
             FakeResult::Outcome(O::MissingTitle),
+            FakeResult::Outcome(O::NotForSale),
             FakeResult::Outcome(O::ProductListingNotFound),
             FakeResult::Unavailable,
             FakeResult::PrincipalRejected,
@@ -230,13 +232,14 @@ mod tests {
         let handler = ProductEmbeddingJobs::new(use_case.clone());
 
         let mut dispositions = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..9 {
             dispositions.push(handler.handle(&claimed_job(VALID_BODY)).await);
         }
         dispositions.push(handler.handle(&claimed_job("not-json")).await);
 
         assert_eq!(
             vec![
+                Disposition::Complete,
                 Disposition::Complete,
                 Disposition::Complete,
                 Disposition::Complete,
@@ -249,7 +252,7 @@ mod tests {
             ],
             dispositions
         );
-        assert_eq!(use_case.calls(), 8);
+        assert_eq!(use_case.calls(), 9);
     }
 
     #[test]

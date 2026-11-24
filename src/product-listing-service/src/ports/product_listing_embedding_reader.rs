@@ -1,13 +1,15 @@
 use application::error::BoxError;
 
 use product_listing_core::{
-    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingEmbedding {
     pub product_listing_id: ProductListingId,
     pub embedding: Option<Vec<f32>>,
+    pub availability: Option<ListingAvailability>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

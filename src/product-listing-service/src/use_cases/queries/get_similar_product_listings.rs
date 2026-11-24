@@ -23,6 +23,7 @@ use fxrate_service::ports::{
 use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
+use product_listing_core::listing_discoverability::is_for_sale;
 
 use time::OffsetDateTime;
 
@@ -206,7 +207,12 @@ where
                 GetSimilarProductListingsError::CommitTransactionFailed(Box::new(source))
             })?;
 
-            return Ok(GetSimilarProductListingsResult::EmbeddingPending);
+            // A listing is not embedded while it is not for sale, so nothing is pending.
+            return Ok(if is_for_sale(seed.availability) {
+                GetSimilarProductListingsResult::EmbeddingPending
+            } else {
+                GetSimilarProductListingsResult::Ready(Vec::new())
+            });
         };
 
         let snapshot = self
@@ -801,6 +807,7 @@ mod tests {
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
             product_listing_id: ProductListingId::new(),
             embedding: None,
+            availability: None,
         })));
 
         let result = handler(&state).execute(&context(), request.clone()).await;
@@ -817,6 +824,25 @@ mod tests {
             lock_state(&state).requested_product_listing_ids
         );
         assert_eq!(1, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_return_no_similar_listings_when_an_unembedded_listing_is_not_for_sale() {
+        let state = state();
+        lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
+            product_listing_id: ProductListingId::new(),
+            embedding: None,
+            availability: Some(ListingAvailability::SoldOut),
+        })));
+
+        let result = handler(&state).execute(&context(), request()).await;
+
+        assert!(
+            matches!(result, Ok(GetSimilarProductListingsResult::Ready(products)) if products.is_empty())
+        );
+        let state = lock_state(&state);
+        assert_eq!(1, state.commit_count);
+        assert!(state.requested_similar_products.is_empty());
     }
 
     #[tokio::test]
@@ -839,6 +865,7 @@ mod tests {
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
             product_listing_id,
             embedding: Some(vec![0.1_f32]),
+            availability: None,
         })));
 
         let result = handler(&state).execute(&context(), request()).await;
@@ -896,6 +923,7 @@ mod tests {
             lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
                 product_listing_id: ProductListingId::new(),
                 embedding: Some(vec![0.1_f32]),
+                availability: None,
             })));
             lock_state(&state).find_similar_product_listings_result =
                 Some(Ok(vec![product_search_item(product_listing_id)?]));
@@ -955,6 +983,7 @@ mod tests {
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
             product_listing_id: ProductListingId::new(),
             embedding: Some(vec![0.1_f32]),
+            availability: None,
         })));
         lock_state(&state).find_similar_product_listings_result = Some(Ok(vec![item]));
         let handler = GetSimilarProductListingsHandler::new(
@@ -1014,6 +1043,7 @@ mod tests {
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
             product_listing_id: ProductListingId::new(),
             embedding: Some(vec![0.1_f32]),
+            availability: None,
         })));
         lock_state(&state).find_similar_product_listings_result = Some(Err(
             ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {

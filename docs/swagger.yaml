@@ -4062,7 +4062,9 @@ paths:
 
         When the product embedding is ready, the endpoint returns matching product-listings. If it is absent,
 
-        the endpoint returns `202 Accepted` with a polling location.
+        the endpoint returns `202 Accepted` with a polling location, unless the listing is `SOLD_OUT`, `OUT_OF_STOCK`
+
+        or `UNAVAILABLE`: such a listing is not embedded until it returns to sale, so the endpoint returns `200` with an empty list.
 
 
         Ready entries return `displayPrice` in the requested currency and `priceValuation` metadata.

@@ -17,6 +17,7 @@ use product_listing_core::product_listing_raw_id::{
 use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
+    listing_discoverability::{is_for_sale, returns_to_sale},
     product_listing_auction::LotNumber,
     product_listing_id::{ProductListingId, ProductListingKey},
     source_listing_id::SourceListingId,
@@ -255,6 +256,10 @@ struct ProductListingChangeFacts {
     has_availability_change: bool,
     has_image_change: bool,
     has_text_change: bool,
+    /// The listing was not for sale and is again; see [`ProductListingChanged::returns_to_sale`].
+    ///
+    /// [`ProductListingChanged::returns_to_sale`]: product_listing_core::product_listing_event::ProductListingChanged::returns_to_sale
+    returns_to_sale: bool,
 }
 
 fn product_event_routing_facts(
@@ -412,19 +417,26 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
                 ));
             }
             if facts.changes.has_text_change {
-                for target_queue in [
+                jobs.push(domain_job(
                     WorkerQueue::ProductListingContentAssessment,
-                    WorkerQueue::ProductListingTranslate,
-                ] {
-                    jobs.push(domain_job(
-                        target_queue,
-                        idempotency_key.clone(),
-                        ordering_key.clone(),
-                        DomainJobPayload::ProductListingEvent(base_job.clone()),
-                    ));
-                }
+                    idempotency_key.clone(),
+                    ordering_key.clone(),
+                    DomainJobPayload::ProductListingEvent(base_job.clone()),
+                ));
             }
-            if facts.changes.has_image_change || facts.changes.has_text_change {
+            // A listing back on sale catches up the enrichment skipped while it was not for sale.
+            if facts.changes.has_text_change || facts.changes.returns_to_sale {
+                jobs.push(domain_job(
+                    WorkerQueue::ProductListingTranslate,
+                    idempotency_key.clone(),
+                    ordering_key.clone(),
+                    DomainJobPayload::ProductListingEvent(base_job.clone()),
+                ));
+            }
+            if facts.changes.has_image_change
+                || facts.changes.has_text_change
+                || facts.changes.returns_to_sale
+            {
                 jobs.push(domain_job(
                     WorkerQueue::ProductListingEmbed,
                     idempotency_key,
@@ -602,6 +614,14 @@ fn validate_changed_payload(value: &Value) -> Result<ProductListingChangeFacts, 
         }
         _ => {}
     }
+    changes.returns_to_sale = match (lifecycle_change, availability_change) {
+        (Some(ProductListingLifecycleRoutingChange::Withdrawn), _) => false,
+        (Some(ProductListingLifecycleRoutingChange::Restored), availability) => {
+            is_for_sale(availability.and_then(|(_, current)| current))
+        }
+        (None, Some((previous, current))) => returns_to_sale(previous, current),
+        (None, None) => false,
+    };
 
     Ok(changes)
 }
@@ -1611,6 +1631,79 @@ mod tests {
             assert_eq!(
                 queues.contains(&WorkerQueue::WatchlistNotification),
                 payload.get("pricing").is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn returns_to_sale_route_embedding_and_translation_catch_up() {
+        let catch_up = vec![
+            WorkerQueue::ProductListingOpenSearch,
+            WorkerQueue::WatchlistNotification,
+            WorkerQueue::ProductListingTranslate,
+            WorkerQueue::ProductListingEmbed,
+        ];
+        let watchlist_only = vec![
+            WorkerQueue::ProductListingOpenSearch,
+            WorkerQueue::WatchlistNotification,
+        ];
+        let availability =
+            |previous: Value, current: Value| json!({"previous": previous, "current": current});
+        for (payload, expected) in [
+            (
+                json!({"availability": availability(json!("SOLD_OUT"), json!("IN_STOCK"))}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!("OUT_OF_STOCK"), json!(null))}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!("UNAVAILABLE"), json!("RESERVED"))}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!("SOLD_OUT"), json!("OUT_OF_STOCK"))}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!("IN_STOCK"), json!("SOLD_OUT"))}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!(null), json!("AVAILABLE"))}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!("SOLD_OUT"), json!(null)),
+                    "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "SOLD_OUT"}}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!(null), json!("AVAILABLE")),
+                    "lifecycle": {"transition": "RESTORED"}}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!(null), json!("SOLD_OUT")),
+                    "lifecycle": {"transition": "RESTORED"}}),
+                &watchlist_only,
+            ),
+            (
+                json!({"lifecycle": {"transition": "RESTORED"}}),
+                &vec![
+                    WorkerQueue::ProductListingOpenSearch,
+                    WorkerQueue::ProductListingTranslate,
+                    WorkerQueue::ProductListingEmbed,
+                ],
+            ),
+        ] {
+            let row = json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":payload});
+            let jobs = route_change(&change("product_listing_events", row)).unwrap();
+            assert_eq!(
+                *expected,
+                jobs.iter().map(|job| job.target_queue).collect::<Vec<_>>(),
+                "{payload}"
             );
         }
     }

@@ -268,6 +268,7 @@ impl ProductListingEmbeddingReader for ListingFixture {
         Ok(Some(ProductListingEmbedding {
             product_listing_id: self.id(),
             embedding: Some(vec![1.0]),
+            availability: None,
         }))
     }
 }

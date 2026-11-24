@@ -1,6 +1,7 @@
 use crate::delivery::ListingDelivery;
 use crate::description::Description;
 use crate::listing_availability::ListingAvailability;
+use crate::listing_discoverability::{is_for_sale, returns_to_sale};
 use crate::product_listing::{
     ListingSaleObservation, ProductListingAuction, ProductListingPricing,
 };
@@ -426,6 +427,21 @@ impl ProductListingChanged {
     }
     pub fn has_text_change(&self) -> bool {
         self.title.is_some() || self.description.is_some()
+    }
+    /// Whether this revision puts a listing that was not for sale back on sale: an active
+    /// listing's availability leaves `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`, or a withdrawn
+    /// listing is restored for sale. A withdrawal clears availability but never returns to sale.
+    pub fn returns_to_sale(&self) -> bool {
+        let availability = self.availability.as_ref();
+        match self.lifecycle {
+            Some(ProductListingLifecycleChange::Withdrawn { .. }) => false,
+            // A withdrawn listing has no availability, so its previous one is unknown here.
+            Some(ProductListingLifecycleChange::Restored) => {
+                is_for_sale(availability.and_then(|change| *change.current()))
+            }
+            None => availability
+                .is_some_and(|change| returns_to_sale(*change.previous(), *change.current())),
+        }
     }
     pub(crate) fn change_title(
         &mut self,
@@ -885,6 +901,60 @@ mod tests {
                     sale_observation: None,
                 })
                 .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn should_return_to_sale_on_leaving_an_unbuyable_availability_or_restoring_for_sale() {
+        use ListingAvailability::{InStock, SoldOut};
+        let withdrawn = |previous_availability| ProductListingLifecycleChange::Withdrawn {
+            previous_availability,
+        };
+        for (availability, lifecycle, expected) in [
+            (Some((Some(SoldOut), Some(InStock))), None, true),
+            (Some((Some(SoldOut), None)), None, true),
+            (Some((Some(InStock), Some(SoldOut))), None, false),
+            (
+                Some((Some(SoldOut), None)),
+                Some(withdrawn(Some(SoldOut))),
+                false,
+            ),
+            (None, Some(withdrawn(Some(SoldOut))), false),
+            (None, Some(ProductListingLifecycleChange::Restored), true),
+            (
+                Some((None, Some(InStock))),
+                Some(ProductListingLifecycleChange::Restored),
+                true,
+            ),
+            (
+                Some((None, Some(SoldOut))),
+                Some(ProductListingLifecycleChange::Restored),
+                false,
+            ),
+        ] {
+            let Ok(ProductListingEventPayload::Changed(changed)) =
+                ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                    title: None,
+                    description: None,
+                    delivery: None,
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    availability,
+                    url: None,
+                    images: None,
+                    auction: None,
+                    lifecycle: lifecycle.clone(),
+                    sale_observation: None,
+                })
+            else {
+                panic!("valid change {availability:?} {lifecycle:?}");
+            };
+            assert_eq!(
+                expected,
+                changed.returns_to_sale(),
+                "{availability:?} {lifecycle:?}"
             );
         }
     }

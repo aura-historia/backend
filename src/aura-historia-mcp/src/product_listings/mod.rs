@@ -193,7 +193,7 @@ fn similar(
     OperationDefinition::new(
         "getSimilarProductListings",
         "Find similar listings",
-        "Find listings similar to one listing, identified by its productListingId. Returns up to `size` neighbours (default 20; values outside 1 to 50 are clamped) in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
+        "Find listings similar to one listing, identified by its productListingId. Returns up to `size` neighbours (default 20; values outside 1 to 50 are clamped) in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found, or the listing is sold out, out of stock or unavailable and is not compared. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
         move |input: SimilarInput, context| {
             let service = service.clone();

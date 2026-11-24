@@ -1,12 +1,17 @@
 use application::error::BoxError;
 use domain_primitives::event_id::EventId;
 use localization::Language;
-use product_listing_core::{product_listing_id::ProductListingId, title::Title};
+use product_listing_core::{
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId, title::Title,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingTranslationSourceEvent {
     Discovered,
     ChangedText,
+    /// A change that put a listing back on sale without changing its text; it catches up the
+    /// current content revision.
+    ReturnedToSale,
     Other,
 }
 
@@ -16,6 +21,8 @@ pub struct ProductListingTranslationSource {
     pub event_id: EventId,
     pub content_source_event_id: EventId,
     pub event: ProductListingTranslationSourceEvent,
+    /// The listing's current availability, not the one the event recorded.
+    pub availability: Option<ListingAvailability>,
     pub title: Option<Title>,
     pub title_language: Option<Language>,
 }

@@ -191,6 +191,130 @@ async fn refused_group_is_split_and_only_its_refused_title_reaches_the_fallback(
     assert!(result.is_ok(), "refusal splitting failed: {result:?}");
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn listing_not_for_sale_waits_until_it_returns_to_sale_and_then_translates_its_current_revision()
+ {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let handler =
+            ProductTranslationJobs::new(compose_product_translation_use_case(pool.clone()));
+        let rounds = compose_round_use_case(
+            pool.clone(),
+            FakeBatches::new(translation),
+            FakeFallback::new(fallback_translation),
+        );
+        let (product, discovery) = seed_discovery(&pool, "Antiker Eichenstuhl").await?;
+        sqlx::query(
+            "UPDATE product_listings SET availability = 'SOLD_OUT' WHERE product_listing_id = $1",
+        )
+        .bind(product.as_uuid())
+        .execute(&pool)
+        .await?;
+        let discovery_job = job_body(product, discovery)?;
+        assert_eq!(
+            Disposition::Complete,
+            handler.handle(&job(&discovery_job)).await
+        );
+        let retitled = append_change(
+            &pool,
+            product,
+            json!({"title": {"previous": {"language": "de", "text": "Antiker Eichenstuhl"},
+                "current": {"language": "de", "text": "Antiker Stuhl"}}}),
+            "UPDATE product_listings SET title_text = 'Antiker Stuhl', content_source_event_id = $1, current_event_id = $1, version = version + 1 WHERE product_listing_id = $2",
+        )
+        .await?;
+        assert_eq!(
+            Disposition::Complete,
+            handler.handle(&job(&job_body(product, retitled)?)).await
+        );
+        assert_eq!(
+            None,
+            scheduled_revision(&pool, product).await?,
+            "nothing is scheduled while sold"
+        );
+
+        let restocked = append_change(
+            &pool,
+            product,
+            json!({"availability": {"previous": "SOLD_OUT", "current": "IN_STOCK"}}),
+            "UPDATE product_listings SET availability = 'IN_STOCK', current_event_id = $1, version = version + 1 WHERE product_listing_id = $2",
+        )
+        .await?;
+        let restocked_job = job_body(product, restocked)?;
+        assert_eq!(
+            Disposition::Complete,
+            handler.handle(&job(&restocked_job)).await
+        );
+        assert_eq!(
+            Some(*retitled.as_uuid()),
+            scheduled_revision(&pool, product).await?,
+            "the catch-up targets the current content revision, not its own event"
+        );
+        assert_eq!(
+            Disposition::Complete,
+            handler.handle(&job(&discovery_job)).await,
+            "the late discovery job is stale"
+        );
+        assert_eq!(
+            Some(*retitled.as_uuid()),
+            scheduled_revision(&pool, product).await?
+        );
+
+        assert_eq!(1, round(rounds.as_ref()).await.submitted_titles);
+        assert_eq!(1, round(rounds.as_ref()).await.applied);
+        let committed = translations(&pool, product).await?;
+        assert_eq!(4, committed.len());
+        assert!(
+            committed
+                .iter()
+                .all(|(_, _, source)| source == retitled.as_uuid())
+        );
+        assert_eq!(
+            Disposition::Complete,
+            handler.handle(&job(&restocked_job)).await
+        );
+        assert_eq!(
+            None,
+            scheduled_revision(&pool, product).await?,
+            "a translated revision is a duplicate"
+        );
+        assert_eq!(1, completion_count(&pool, product).await?);
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "return-to-sale catch-up failed: {result:?}");
+}
+
+/// Appends a changed event and runs `update` for it, which binds the event ID to `$1` and the
+/// listing ID to `$2`.
+async fn append_change(
+    pool: &sqlx::PgPool,
+    product: ProductListingId,
+    payload: serde_json::Value,
+    update: &'static str,
+) -> Result<EventId, sqlx::Error> {
+    let event = EventId::new();
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
+        .bind(event.as_uuid()).bind(product.as_uuid()).bind(payload)
+        .execute(&mut *tx).await?;
+    sqlx::query(update)
+        .bind(event.as_uuid())
+        .bind(product.as_uuid())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(event)
+}
+
+async fn scheduled_revision(
+    pool: &sqlx::PgPool,
+    product: ProductListingId,
+) -> Result<Option<uuid::Uuid>, sqlx::Error> {
+    sqlx::query_scalar("SELECT source_event_id FROM product_listing_title_translation_work WHERE product_listing_id = $1")
+        .bind(product.as_uuid()).fetch_optional(pool).await
+}
+
 async fn translations(
     pool: &sqlx::PgPool,
     product: ProductListingId,
