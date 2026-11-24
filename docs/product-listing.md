@@ -374,9 +374,12 @@ revision, without a provider call, when nothing the embedding sees changed meani
 
 - Texts are compared after Unicode compatibility normalization, case folding and removal of
   punctuation, symbols and extra whitespace. A title must reach a character-trigram similarity of
-  0.95 to the embedded title, a description 0.9, which lets a description gain or lose about a
-  fifth of its text. A text set or cleared is a change. The thresholds are provisional until they
-  are calibrated against the model's own similarity of old and new input.
+  0.97 to the embedded title, a description 0.9, which lets a description gain or lose about a
+  fifth of its text. A text set or cleared is a change, as is any changed, added or removed
+  number. The thresholds are
+  [calibrated](https://github.com/aura-historia/backend/issues/3115#issuecomment-7143408661)
+  against the model's own cosine of old and new input on sampled prod changes: skipped changes
+  stay about as close as changes of case and punctuation alone.
 - Only the first image counts; later images and their order never re-embed. An unchanged URL is
   the same image. A new URL is fetched with the bounded image fetcher and its
   [perceptual hash](../src/image-fetcher/src/perceptual_hash.rs), which survives resizing and

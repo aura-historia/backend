@@ -10,10 +10,11 @@ use std::collections::HashMap;
 use unicode_normalization::UnicodeNormalization;
 
 /// Titles at least this similar to the embedded title keep the vector. Titles are short and weigh
-/// most in the embedding, so only small edits of longer titles pass.
-const TITLE_SIMILARITY: f64 = 0.95;
+/// most in the embedding, so only small edits of long titles pass: a one-letter edit needs about
+/// 100 characters. Calibrated against the model on prod changes (docs/product-listing.md#embeddings).
+const TITLE_SIMILARITY: f64 = 0.97;
 /// Descriptions at least this similar to the embedded description keep the vector, such as one
-/// whose text grew or shrank by about a fifth.
+/// whose text grew or shrank by about a fifth. Calibrated like [`TITLE_SIMILARITY`].
 const DESCRIPTION_SIMILARITY: f64 = 0.9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,7 +294,8 @@ mod tests {
 
     #[test]
     fn should_embed_again_when_a_number_changes_in_a_long_text() {
-        let long_title = "Bemalter Bauernschrank aus Weichholz mit zwei Türen, Tirol, um 1850";
+        let long_title = "Bemalter Bauernschrank aus Weichholz mit zwei Türen, originaler Bemalung und \
+            geschmiedeten Beschlägen, Tirol, um 1850";
         let embedded_long_title = |pending: &mut PendingProductEmbedding| {
             pending.embedded.as_mut().unwrap().title = long_title.to_owned();
         };
