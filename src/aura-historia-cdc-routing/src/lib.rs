@@ -17,6 +17,7 @@ use product_listing_core::product_listing_raw_id::{
 use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
+    listing_discoverability::{is_for_sale, returns_to_sale},
     product_listing_auction::LotNumber,
     product_listing_id::{ProductListingId, ProductListingKey},
     source_listing_id::SourceListingId,
@@ -245,10 +246,20 @@ struct ProductListingEventRoutingFacts {
     event_id: EventId,
     product_listing_id: ProductListingId,
     event_kind: ProductListingRoutingEventKind,
+    changes: ProductListingChangeFacts,
+}
+
+/// What a `PRODUCT_LISTING_CHANGED` payload changed, as far as routing cares.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ProductListingChangeFacts {
     has_main_price_change: bool,
     has_availability_change: bool,
     has_image_change: bool,
     has_text_change: bool,
+    /// The listing was not for sale and is again; see [`ProductListingChanged::returns_to_sale`].
+    ///
+    /// [`ProductListingChanged::returns_to_sale`]: product_listing_core::product_listing_event::ProductListingChanged::returns_to_sale
+    returns_to_sale: bool,
 }
 
 fn product_event_routing_facts(
@@ -302,20 +313,16 @@ fn product_event_routing_facts(
             ProductListingRoutingEventKind::Discovered
         }
         ("PRODUCT_LISTING_CHANGED", "DOMAIN") => {
-            let (has_main_price_change, has_availability_change, has_image_change, has_text_change) =
-                if delivery_changed && payload.as_object().is_some_and(|o| o.is_empty()) {
-                    (false, false, false, false)
-                } else {
-                    validate_changed_payload(payload)?
-                };
+            let changes = if delivery_changed && payload.as_object().is_some_and(|o| o.is_empty()) {
+                ProductListingChangeFacts::default()
+            } else {
+                validate_changed_payload(payload)?
+            };
             return Ok(ProductListingEventRoutingFacts {
                 event_id,
                 product_listing_id,
                 event_kind: ProductListingRoutingEventKind::Changed,
-                has_main_price_change,
-                has_availability_change,
-                has_image_change,
-                has_text_change,
+                changes,
             });
         }
         ("ENRICHMENT_GEOGRAPHY_UPDATED", "ENRICHMENT") => {
@@ -369,10 +376,7 @@ fn product_event_routing_facts(
         event_id,
         product_listing_id,
         event_kind,
-        has_main_price_change: false,
-        has_availability_change: false,
-        has_image_change: false,
-        has_text_change: false,
+        changes: ProductListingChangeFacts::default(),
     })
 }
 
@@ -404,7 +408,7 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
             }
         }
         ProductListingRoutingEventKind::Changed => {
-            if facts.has_main_price_change || facts.has_availability_change {
+            if facts.changes.has_main_price_change || facts.changes.has_availability_change {
                 jobs.push(domain_job(
                     WorkerQueue::WatchlistNotification,
                     idempotency_key.clone(),
@@ -412,20 +416,27 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
                     DomainJobPayload::ProductListingEvent(base_job.clone()),
                 ));
             }
-            if facts.has_text_change {
-                for target_queue in [
+            if facts.changes.has_text_change {
+                jobs.push(domain_job(
                     WorkerQueue::ProductListingContentAssessment,
-                    WorkerQueue::ProductListingTranslate,
-                ] {
-                    jobs.push(domain_job(
-                        target_queue,
-                        idempotency_key.clone(),
-                        ordering_key.clone(),
-                        DomainJobPayload::ProductListingEvent(base_job.clone()),
-                    ));
-                }
+                    idempotency_key.clone(),
+                    ordering_key.clone(),
+                    DomainJobPayload::ProductListingEvent(base_job.clone()),
+                ));
             }
-            if facts.has_image_change || facts.has_text_change {
+            // A listing back on sale catches up the enrichment skipped while it was not for sale.
+            if facts.changes.has_text_change || facts.changes.returns_to_sale {
+                jobs.push(domain_job(
+                    WorkerQueue::ProductListingTranslate,
+                    idempotency_key.clone(),
+                    ordering_key.clone(),
+                    DomainJobPayload::ProductListingEvent(base_job.clone()),
+                ));
+            }
+            if facts.changes.has_image_change
+                || facts.changes.has_text_change
+                || facts.changes.returns_to_sale
+            {
                 jobs.push(domain_job(
                     WorkerQueue::ProductListingEmbed,
                     idempotency_key,
@@ -518,7 +529,7 @@ fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
     Ok(())
 }
 
-fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), CdcRouteError> {
+fn validate_changed_payload(value: &Value) -> Result<ProductListingChangeFacts, CdcRouteError> {
     let object = required_payload_object(value)?;
     if object.is_empty() {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
@@ -539,17 +550,14 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
         "payload",
     )?;
 
-    let mut has_main_price_change = false;
-    let mut has_availability_change = false;
-    let mut has_image_change = false;
-    let mut has_text_change = false;
+    let mut changes = ProductListingChangeFacts::default();
     let mut availability_change = None;
     let mut lifecycle_change = None;
     for (field, value) in object {
         match field.as_str() {
             "title" | "description" => {
                 validate_text_change(value, field)?;
-                has_text_change = true;
+                changes.has_text_change = true;
             }
             "pricing" => {
                 let pricing = required_object(value)?;
@@ -565,7 +573,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
                     match pricing_field.as_str() {
                         "price" => {
                             validate_product_listing_price_change(value)?;
-                            has_main_price_change = true;
+                            changes.has_main_price_change = true;
                         }
                         "priceEstimateMin" | "priceEstimateMax" => {
                             validate_price_change(value)?;
@@ -576,7 +584,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
             }
             "availability" => {
                 availability_change = Some(validate_code_change(value)?);
-                has_availability_change = true;
+                changes.has_availability_change = true;
             }
             "url" => validate_string_change(value)?,
             "images" => {
@@ -584,7 +592,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
                 require_exact_keys(images, &["previousCount", "currentCount"], "images")?;
                 require_u64(images, "previousCount")?;
                 require_u64(images, "currentCount")?;
-                has_image_change = true;
+                changes.has_image_change = true;
             }
             "auction" => validate_auction_change(value)?,
             "lifecycle" => lifecycle_change = Some(validate_lifecycle(value)?),
@@ -606,13 +614,16 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
         }
         _ => {}
     }
+    changes.returns_to_sale = match (lifecycle_change, availability_change) {
+        (Some(ProductListingLifecycleRoutingChange::Withdrawn), _) => false,
+        (Some(ProductListingLifecycleRoutingChange::Restored), availability) => {
+            is_for_sale(availability.and_then(|(_, current)| current))
+        }
+        (None, Some((previous, current))) => returns_to_sale(previous, current),
+        (None, None) => false,
+    };
 
-    Ok((
-        has_main_price_change,
-        has_availability_change,
-        has_image_change,
-        has_text_change,
-    ))
+    Ok(changes)
 }
 
 fn validate_text_change(value: &Value, field: &str) -> Result<(), CdcRouteError> {
@@ -1620,6 +1631,79 @@ mod tests {
             assert_eq!(
                 queues.contains(&WorkerQueue::WatchlistNotification),
                 payload.get("pricing").is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn returns_to_sale_route_embedding_and_translation_catch_up() {
+        let catch_up = vec![
+            WorkerQueue::ProductListingOpenSearch,
+            WorkerQueue::WatchlistNotification,
+            WorkerQueue::ProductListingTranslate,
+            WorkerQueue::ProductListingEmbed,
+        ];
+        let watchlist_only = vec![
+            WorkerQueue::ProductListingOpenSearch,
+            WorkerQueue::WatchlistNotification,
+        ];
+        let availability =
+            |previous: Value, current: Value| json!({"previous": previous, "current": current});
+        for (payload, expected) in [
+            (
+                json!({"availability": availability(json!("SOLD_OUT"), json!("IN_STOCK"))}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!("OUT_OF_STOCK"), json!(null))}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!("UNAVAILABLE"), json!("RESERVED"))}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!("SOLD_OUT"), json!("OUT_OF_STOCK"))}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!("IN_STOCK"), json!("SOLD_OUT"))}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!(null), json!("AVAILABLE"))}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!("SOLD_OUT"), json!(null)),
+                    "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "SOLD_OUT"}}),
+                &watchlist_only,
+            ),
+            (
+                json!({"availability": availability(json!(null), json!("AVAILABLE")),
+                    "lifecycle": {"transition": "RESTORED"}}),
+                &catch_up,
+            ),
+            (
+                json!({"availability": availability(json!(null), json!("SOLD_OUT")),
+                    "lifecycle": {"transition": "RESTORED"}}),
+                &watchlist_only,
+            ),
+            (
+                json!({"lifecycle": {"transition": "RESTORED"}}),
+                &vec![
+                    WorkerQueue::ProductListingOpenSearch,
+                    WorkerQueue::ProductListingTranslate,
+                    WorkerQueue::ProductListingEmbed,
+                ],
+            ),
+        ] {
+            let row = json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":payload});
+            let jobs = route_change(&change("product_listing_events", row)).unwrap();
+            assert_eq!(
+                *expected,
+                jobs.iter().map(|job| job.target_queue).collect::<Vec<_>>(),
+                "{payload}"
             );
         }
     }

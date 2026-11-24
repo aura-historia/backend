@@ -1003,6 +1003,25 @@ async fn should_return_pending_similar_products_by_id() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_return_no_similar_products_for_an_unembedded_listing_that_is_not_for_sale() {
+    let product_listing_id = seed_product().await;
+    sqlx::query(
+        "UPDATE product_listings SET availability = 'SOLD_OUT' WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&get_postgres_client().await)
+    .await
+    .unwrap_or_else(|error| panic!("failed to sell product fixture: {error}"));
+
+    let (response, _) =
+        get_json(format!("/v1/product-listings/{product_listing_id}/similar")).await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+    assert_eq!(serde_json::json!([]), body);
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let products = [
         search_document(

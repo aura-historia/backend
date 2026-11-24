@@ -139,7 +139,8 @@ revision, invalidate embeddings atomically, and refresh content assessment and e
 asynchronously; assessments of older revisions are no longer current. Translation remains
 titles-only. A title change, including a title language change, also invalidates the title
 translations and refreshes them asynchronously; reads fall back to the current original title until
-they arrive. A description-only change [carries](#title-translation) the title's translations onto
+they arrive. The embedding and translation refresh [waits](#enrichment-of-listings-not-for-sale)
+while the listing is not for sale. A description-only change [carries](#title-translation) the title's translations onto
 the new revision instead.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
@@ -287,8 +288,9 @@ Assessment does not block ingestion, change aggregate revision/history or become
 
 A listing's title is translated into German, English, French, Spanish and Italian, except its
 own language, asynchronously and in bulk. The `product-translation` job only records the content
-revision as pending work in PostgreSQL, unless the listing has moved past it or already holds its
-translations; a newer revision replaces older pending or parked work. A translation round every
+revision as pending work in PostgreSQL, unless the listing has moved past it, already holds its
+translations or is [not for sale](#enrichment-of-listings-not-for-sale); a newer revision replaces
+older pending or parked work. A translation round every
 15 minutes in the worker then:
 
 1. collects ended [Message Batches](https://platform.claude.com/docs/en/build-with-claude/batch-processing)
@@ -334,8 +336,9 @@ A listing's embedding is one `gemini-embedding-2` vector of 768 dimensions for i
 description and first image, computed in Vertex AI batch prediction at half the synchronous
 price. Search queries and saved-search filters stay synchronous because they are interactive.
 The `product-embedding` job only records the embedding revision as pending work in PostgreSQL,
-unless the listing has moved past it or already holds its embedding; a newer revision replaces
-older pending or parked work. A round every 30 minutes in the worker:
+unless the listing has moved past it, already holds its embedding or is
+[not for sale](#enrichment-of-listings-not-for-sale); a newer revision replaces older pending or
+parked work. A round every 30 minutes in the worker:
 
 1. collects ended batch prediction jobs and commits each vector under the embedding
    source-marker guard, so a result for a superseded revision is dropped as stale;
@@ -362,6 +365,31 @@ A listing without an embedding is still found lexically. Saved-search matching r
 does not wait for embeddings: one that lands after a match advances the listing's `updated`, so
 the next match picks it up. Operations are in the
 [runbook](durable-worker-runbook.md#product-embedding-recovery).
+
+## Enrichment of listings not for sale
+
+Embeddings and title translations serve discovery, which omits withdrawn listings and listings that
+are not for sale: `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`
+([`listing_discoverability.rs`](../src/product-listing-core/src/listing_discoverability.rs)). An
+embedding or translation job of a listing that is currently either therefore completes as
+`not_for_sale` without recording work, whether a discovery (such as a new shop's archive of sold
+items) or a text or image change scheduled it. The job decides on the listing's current state, not
+the event's, so a listing back on sale before its job runs is enriched normally.
+Content assessment still runs for every listing: it decides image visibility on detail pages, which
+stay reachable through watchlists and direct links.
+
+A change that returns a listing to sale schedules embedding and translation of its current
+revision: its availability leaves those values, including by being cleared, or a withdrawn listing
+is restored for sale. These jobs target the listing's current source markers rather than their own
+event, so the marker guards do not drop them as stale, and a revision that is already embedded or
+translated completes as a duplicate. Enrichment a listing already holds, and work recorded before it
+stopped being for sale, are kept; a content change while it is not for sale still invalidates them
+as usual, and their replacement waits for the return to sale.
+
+Until then, reads of a listing without translations of its current title show the original title
+in every language. Similar listings for a listing without an embedding are an empty list rather
+than `202` pending, because none is scheduled; work recorded before it stopped being for sale can
+still land and make them non-empty.
 
 ## Source anti-corruption rules
 

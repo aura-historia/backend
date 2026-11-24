@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-24 — No enrichment for listings that are not for sale (#3114)
+
+- **Behavior change:** listings whose availability is `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`, and withdrawn listings, are no longer embedded or title-translated, including after a title, description or image change. When such a listing returns to sale, for example from `SOLD_OUT` to `IN_STOCK` or to no availability, or is restored for sale, it is embedded and translated then. Embeddings and translations a listing already has are kept until its content changes.
+- **Similar listings:** `GET /v1/product-listings/{productListingId}/similar` and the `getSimilarProductListings` MCP tool return `200` with an empty list (MCP: `READY` with no items) for such a listing without an embedding, instead of `202 Accepted` (MCP: `EMBEDDING_PENDING`), because no embedding is scheduled.
+- **Titles:** detail, watchlist and other reads of such a listing without translations of its current title show the original title in every language until it returns to sale.
+
 ## 2026-11-23 — Submitted subdivisions no longer block address geocoding (#3122)
 
 - **Behavior change:** a user address or Party location submitted with a `subdivision` can now be accepted by geocoding. The provider usually derives no subdivision, and that missing fact used to count as a contradiction, so the location always stayed `AMBIGUOUS` and a user address had no accepted geography. Only a known, different subdivision now contradicts a submitted one, for a picked `placeId` as well.

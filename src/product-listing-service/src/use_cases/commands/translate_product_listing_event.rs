@@ -1,6 +1,10 @@
 //! Schedules title translation for a listing's content revision. Translation itself runs in
 //! provider batches ([`super::translate_product_listing_title_batches`]); this use case only
 //! records the revision as pending work.
+//!
+//! Translations serve only discovery, so a revision waits while the listing is not
+//! [discoverable](is_discoverable): withdrawn, or not for sale. The change that returns the
+//! listing to sale schedules its current revision.
 
 use crate::ports::{
     ProductListingTitleTranslationQueue, ProductListingTitleTranslationQueueError,
@@ -12,6 +16,7 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
+use product_listing_core::listing_discoverability::is_discoverable;
 use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +40,9 @@ pub enum TranslateProductListingEventOutcome {
     /// The source already replaced most of the title's letters with `?`. Readers keep the
     /// original title in every language instead of a translation the model would invent.
     MostlyQuestionMarksTitle,
+    /// The listing is currently withdrawn, sold out, out of stock or unavailable. Its current
+    /// revision is scheduled when it returns to sale.
+    NotForSale,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,15 +143,22 @@ where
             ));
         };
 
-        if source.content_source_event_id != command.event_id {
-            return Ok(result(TranslateProductListingEventOutcome::Stale));
-        }
-        if !matches!(
-            source.event,
+        let revision = match source.event {
             ProductListingTranslationSourceEvent::Discovered
-                | ProductListingTranslationSourceEvent::ChangedText
-        ) {
-            return Ok(result(TranslateProductListingEventOutcome::IgnoredEvent));
+            | ProductListingTranslationSourceEvent::ChangedText => {
+                if source.content_source_event_id != command.event_id {
+                    return Ok(result(TranslateProductListingEventOutcome::Stale));
+                }
+                command.event_id
+            }
+            // The event left the text alone, so it catches up whichever revision is current.
+            ProductListingTranslationSourceEvent::ReturnedToSale => source.content_source_event_id,
+            ProductListingTranslationSourceEvent::Other => {
+                return Ok(result(TranslateProductListingEventOutcome::IgnoredEvent));
+            }
+        };
+        if !is_discoverable(source.lifecycle, source.availability) {
+            return Ok(result(TranslateProductListingEventOutcome::NotForSale));
         }
         let Some(title) = source.title else {
             return Ok(result(TranslateProductListingEventOutcome::MissingTitle));
@@ -172,7 +187,7 @@ where
             .in_transaction(&mut tx)
             .schedule(TitleTranslationWorkRef {
                 product_listing_id: command.product_listing_id,
-                source_event_id: command.event_id,
+                source_event_id: revision,
             })
             .await?;
         tx.commit().await.map_err(|source| {
@@ -232,6 +247,8 @@ mod tests {
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
     use localization::Language;
+    use product_listing_core::listing_availability::ListingAvailability;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::title::Title;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -379,6 +396,8 @@ mod tests {
                 event_id,
                 content_source_event_id: event_id,
                 event: ProductListingTranslationSourceEvent::Discovered,
+                lifecycle: ListingLifecycle::Active,
+                availability: Some(ListingAvailability::InStock),
                 title: Some(Title::from("Ancient vase")),
                 title_language: Some(Language::De),
             }),
@@ -511,6 +530,72 @@ mod tests {
             TranslateProductListingEventOutcome::ProductListingNotFound,
             execute(&state, Principal::System).await.unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn should_schedule_nothing_while_the_listing_is_withdrawn_or_not_for_sale() {
+        for event in [
+            ProductListingTranslationSourceEvent::Discovered,
+            ProductListingTranslationSourceEvent::ChangedText,
+            ProductListingTranslationSourceEvent::ReturnedToSale,
+        ] {
+            for (lifecycle, availability) in [
+                (ListingLifecycle::Active, Some(ListingAvailability::SoldOut)),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::OutOfStock),
+                ),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::Unavailable),
+                ),
+                (ListingLifecycle::Withdrawn, None),
+            ] {
+                let state = state_with_source();
+                {
+                    let mut state = lock(&state);
+                    let source = state.source.as_mut().unwrap();
+                    source.event = event;
+                    source.lifecycle = lifecycle;
+                    source.availability = availability;
+                }
+
+                assert_eq!(
+                    TranslateProductListingEventOutcome::NotForSale,
+                    execute(&state, Principal::System).await.unwrap()
+                );
+                assert!(lock(&state).scheduled.is_empty());
+                assert_eq!(0, lock(&state).commits);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_catch_up_the_current_revision_when_the_listing_returns_to_sale() {
+        for availability in [None, Some(ListingAvailability::Reserved)] {
+            let state = state_with_source();
+            let current_revision = EventId::new();
+            {
+                let mut state = lock(&state);
+                let source = state.source.as_mut().unwrap();
+                source.event = ProductListingTranslationSourceEvent::ReturnedToSale;
+                source.content_source_event_id = current_revision;
+                source.availability = availability;
+            }
+            let command = command(&state);
+
+            assert_eq!(
+                TranslateProductListingEventOutcome::Scheduled,
+                execute(&state, Principal::System).await.unwrap()
+            );
+            assert_eq!(
+                vec![TitleTranslationWorkRef {
+                    product_listing_id: command.product_listing_id,
+                    source_event_id: current_revision,
+                }],
+                lock(&state).scheduled
+            );
+        }
     }
 
     #[tokio::test]

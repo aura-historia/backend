@@ -3,7 +3,8 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::{
-    description::Description, product_listing_id::ProductListingId, title::Title,
+    description::Description, listing_availability::ListingAvailability,
+    listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId, title::Title,
 };
 use url::Url;
 
@@ -11,6 +12,9 @@ use url::Url;
 pub enum ProductListingEmbeddingSourceEvent {
     Discovered,
     ChangedContent,
+    /// A change that put a listing back on sale without changing its content; it catches up the
+    /// current embedding revision.
+    ReturnedToSale,
     Other,
 }
 
@@ -20,6 +24,9 @@ pub struct ProductListingEmbeddingSource {
     pub event_id: EventId,
     pub embedding_source_event_id: EventId,
     pub event: ProductListingEmbeddingSourceEvent,
+    /// The listing's current lifecycle and availability, not the ones the event recorded.
+    pub lifecycle: ListingLifecycle,
+    pub availability: Option<ListingAvailability>,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub image_url: Option<Url>,

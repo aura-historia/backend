@@ -1,6 +1,7 @@
 use application::error::BoxError;
 
 use product_listing_core::{
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
     product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
 };
 
@@ -8,6 +9,8 @@ use product_listing_core::{
 pub struct ProductListingEmbedding {
     pub product_listing_id: ProductListingId,
     pub embedding: Option<Vec<f32>>,
+    pub lifecycle: ListingLifecycle,
+    pub availability: Option<ListingAvailability>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

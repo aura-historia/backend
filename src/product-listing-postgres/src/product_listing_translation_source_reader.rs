@@ -12,6 +12,7 @@ use product_listing_service::ports::{
 use sqlx::PgPool;
 
 use crate::product_listing_event_codec;
+use crate::product_listing_repository::{parse_listing_availability, parse_listing_lifecycle};
 
 #[derive(Clone)]
 pub struct SqlxProductListingTranslationSourceReader {
@@ -27,6 +28,8 @@ struct ProductListingTranslationSourceRow {
     event_group: String,
     event_type_schema_version: i16,
     payload: serde_json::Value,
+    lifecycle: String,
+    availability: Option<String>,
     title_text: Option<String>,
     title_language: Option<String>,
 }
@@ -74,6 +77,8 @@ impl ProductListingTranslationSourceReader for SqlxProductListingTranslationSour
                 event.event_type_schema_version,
                 event.payload,
                 product.content_source_event_id,
+                product.lifecycle,
+                product.availability,
                 product.title_text,
                 product.title_language
             FROM product_listing_events event
@@ -123,6 +128,9 @@ impl TryFrom<ProductListingTranslationSourceRow> for ProductListingTranslationSo
             )
             .map_err(mapping_error_source)?,
             event,
+            lifecycle: parse_listing_lifecycle(&row.lifecycle).map_err(mapping_error_source)?,
+            availability: parse_listing_availability(row.availability.as_deref())
+                .map_err(mapping_error_source)?,
             title,
             title_language,
         })
@@ -151,6 +159,9 @@ fn translation_event(
                 }
                 ProductListingEventPayload::Changed(changed) if changed.has_text_change() => {
                     ProductListingTranslationSourceEvent::ChangedText
+                }
+                ProductListingEventPayload::Changed(changed) if changed.returns_to_sale() => {
+                    ProductListingTranslationSourceEvent::ReturnedToSale
                 }
                 ProductListingEventPayload::Changed(_) => {
                     ProductListingTranslationSourceEvent::Other

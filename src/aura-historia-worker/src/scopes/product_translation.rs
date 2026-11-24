@@ -122,6 +122,7 @@ pub fn translation_disposition(
         O::Stale => ProductTranslationJobDisposition::Complete("stale"),
         O::IgnoredEvent => ProductTranslationJobDisposition::Complete("ignored_event"),
         O::MissingTitle => ProductTranslationJobDisposition::Complete("missing_title"),
+        O::NotForSale => ProductTranslationJobDisposition::Complete("not_for_sale"),
         O::MissingTitleLanguage => {
             ProductTranslationJobDisposition::Complete("missing_title_language")
         }
@@ -234,6 +235,7 @@ mod tests {
             FakeResult::Outcome(O::MissingTitleLanguage),
             FakeResult::Outcome(O::EmptyTitle),
             FakeResult::Outcome(O::MostlyQuestionMarksTitle),
+            FakeResult::Outcome(O::NotForSale),
             FakeResult::Outcome(O::ProductListingNotFound),
             FakeResult::Unavailable,
             FakeResult::PrincipalRejected,
@@ -241,13 +243,14 @@ mod tests {
         let handler = ProductTranslationJobs::new(use_case.clone());
 
         let mut dispositions = Vec::new();
-        for _ in 0..11 {
+        for _ in 0..12 {
             dispositions.push(handler.handle(&claimed_job(VALID_BODY)).await);
         }
         dispositions.push(handler.handle(&claimed_job("not-json")).await);
 
         assert_eq!(
             vec![
+                Disposition::Complete,
                 Disposition::Complete,
                 Disposition::Complete,
                 Disposition::Complete,
@@ -263,7 +266,7 @@ mod tests {
             ],
             dispositions
         );
-        assert_eq!(use_case.calls(), 11);
+        assert_eq!(use_case.calls(), 12);
     }
 
     #[test]
