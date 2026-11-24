@@ -286,8 +286,11 @@ impl ProductListingEmbeddingQueue for World {
 #[async_trait::async_trait]
 impl ProductListingEmbeddingQueueReader for World {
     async fn submitted_batches(&self) -> QueueResult<Vec<SubmittedProductEmbeddingBatch>> {
-        Ok(self
-            .state()
+        let state = self.state();
+        let input_version = state
+            .batch_input_version
+            .unwrap_or(crate::use_cases::EMBEDDING_INPUT_VERSION);
+        Ok(state
             .batches
             .iter()
             .filter_map(|(key, provider_batch_id)| {
@@ -295,10 +298,7 @@ impl ProductListingEmbeddingQueueReader for World {
                     key: *key,
                     provider_batch_id: provider_batch_id.clone()?,
                     age: Duration::from_secs(600),
-                    input_version: self
-                        .state()
-                        .batch_input_version
-                        .unwrap_or(crate::use_cases::EMBEDDING_INPUT_VERSION),
+                    input_version,
                 })
             })
             .collect())

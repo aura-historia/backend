@@ -301,7 +301,7 @@ mod tests {
             EmbeddingInputChange::Unchanged,
             change(|pending| {
                 embedded_long_title(pending);
-                pending.title = Title::from(long_title.replace("Türen", "Tueren").as_str());
+                pending.title = Title::from(long_title.replace("Bemalter", "Bemalte").as_str());
             }),
             "a small edit of a long title"
         );
