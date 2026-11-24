@@ -183,10 +183,11 @@ struct Request {
 
 impl Request {
     /// An exclusive request needs the gate to itself, but ordinary leases overlap and a steady
-    /// stream of them never leaves it empty. So an exclusive request first takes the queue and
-    /// keeps it while it waits and while it runs, and an ordinary request only passes through
-    /// the queue while taking the gate. Once an exclusive request is queued, no new ordinary
-    /// lease starts and the running ones drain.
+    /// stream of them never leaves it empty. So an exclusive request first joins the queue and
+    /// stays in it while it waits and while it runs, and an ordinary request must pass through
+    /// the queue while taking the gate. As long as any exclusive request is queued, no new
+    /// ordinary lease starts: the running ones drain, then the queued exclusive requests go
+    /// one after another.
     ///
     /// The holder of a reservation must not request another one: the second request would
     /// wait behind a queued exclusive request that in turn waits for the first to end.
@@ -232,14 +233,19 @@ impl Request {
         }))
     }
 
-    /// Exclusive requests hold the queue exclusively and ordinary ones share it, so an ordinary
-    /// request is refused exactly while an exclusive one is queued or running.
+    /// Exclusive requests hold the queue shared, so they never exclude each other and it is not
+    /// empty between two of them. An ordinary request takes it exclusively just to pass, so it
+    /// is refused exactly while any exclusive request is queued or running.
     fn join_queue(&self, held: Option<FileLock>) -> Result<Option<FileLock>> {
+        let mode = match self.isolation {
+            Isolation::Exclusive => Isolation::Isolated,
+            Isolation::Isolated => Isolation::Exclusive,
+        };
         match held {
             Some(place) => Ok(Some(place)),
             None => FileLock::attempt(
                 lock_file(&self.directory.join("exclusive-queue.lock"))?,
-                self.isolation,
+                mode,
             ),
         }
     }
@@ -564,9 +570,12 @@ mod bounded_tests {
 #[cfg(test)]
 mod exclusive_queue_tests {
     use super::*;
+    use std::future::Future;
 
-    #[tokio::test]
-    async fn should_not_let_ordinary_leases_overtake_a_waiting_exclusive_reservation() {
+    const PAUSE: Duration = Duration::from_millis(100);
+    const PATIENCE: Duration = Duration::from_secs(5);
+
+    async fn allocation(slots: u16) -> Allocation {
         let directory =
             std::env::temp_dir().join(format!("aura-queue-unit-{}", uuid::Uuid::new_v4().simple()));
         let create_directory = directory.clone();
@@ -574,48 +583,113 @@ mod exclusive_queue_tests {
             .await
             .unwrap()
             .unwrap();
-        let allocation = Allocation {
+        Allocation {
             run: "0".repeat(32),
-            directory: directory.clone(),
-            slots: 3,
-            semaphore: Arc::new(Semaphore::new(3)),
-        };
-        let runner = || Runner::parse(None, None, None, None, 3).unwrap();
-        let pause = Duration::from_millis(100);
-        let patience = Duration::from_secs(5);
+            directory,
+            slots,
+            semaphore: Arc::new(Semaphore::new(usize::from(slots))),
+        }
+    }
 
+    fn runner(allocation: &Allocation) -> Runner {
+        Runner::parse(None, None, None, None, allocation.slots).unwrap()
+    }
+
+    /// A request that is still waiting after a pause keeps its state and can be awaited later.
+    async fn still_waiting<F: Future + Unpin>(request: &mut F) -> bool {
+        tokio::time::timeout(PAUSE, request).await.is_err()
+    }
+
+    async fn reserved(request: &mut (impl Future<Output = Result<Reservation>> + Unpin)) {
+        let reservation = tokio::time::timeout(PATIENCE, request)
+            .await
+            .expect("the request proceeds once nothing blocks it")
+            .unwrap();
+        drop(reservation);
+    }
+
+    #[tokio::test]
+    async fn should_not_let_ordinary_leases_overtake_a_waiting_exclusive_reservation() {
+        let allocation = allocation(3).await;
         let running = allocation
-            .reserve(runner(), Isolation::Isolated)
+            .reserve(runner(&allocation), Isolation::Isolated)
             .await
             .unwrap();
-        let exclusive = allocation.reserve(runner(), Isolation::Exclusive);
+        let exclusive = allocation.reserve(runner(&allocation), Isolation::Exclusive);
         tokio::pin!(exclusive);
         assert!(
-            tokio::time::timeout(pause, &mut exclusive).await.is_err(),
+            still_waiting(&mut exclusive).await,
             "an exclusive reservation waits for the running ordinary lease"
         );
-        let late = allocation.reserve(runner(), Isolation::Isolated);
+        let late = allocation.reserve(runner(&allocation), Isolation::Isolated);
         tokio::pin!(late);
         assert!(
-            tokio::time::timeout(pause, &mut late).await.is_err(),
+            still_waiting(&mut late).await,
             "an ordinary request made after an exclusive one waits behind it"
         );
 
         drop(running);
-        let exclusive = tokio::time::timeout(patience, &mut exclusive)
+        let live = tokio::time::timeout(PATIENCE, &mut exclusive)
             .await
             .expect("the exclusive reservation proceeds once the ordinary lease ends")
             .unwrap();
         assert!(
-            tokio::time::timeout(pause, &mut late).await.is_err(),
+            still_waiting(&mut late).await,
             "ordinary requests wait while the exclusive reservation is live"
         );
-        drop(exclusive);
-        tokio::time::timeout(patience, &mut late)
+        drop(live);
+        reserved(&mut late).await;
+        tokio::fs::remove_dir_all(&allocation.directory)
             .await
-            .expect("the ordinary request proceeds once the exclusive reservation ends")
             .unwrap();
-        tokio::fs::remove_dir_all(directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_not_let_an_ordinary_lease_slip_in_between_queued_exclusive_reservations() {
+        let allocation = allocation(4).await;
+        let running = allocation
+            .reserve(runner(&allocation), Isolation::Isolated)
+            .await
+            .unwrap();
+        let first = allocation.reserve(runner(&allocation), Isolation::Exclusive);
+        tokio::pin!(first);
+        assert!(still_waiting(&mut first).await);
+        let second = allocation.reserve(runner(&allocation), Isolation::Exclusive);
+        tokio::pin!(second);
+        assert!(still_waiting(&mut second).await);
+        let late = allocation.reserve(runner(&allocation), Isolation::Isolated);
+        tokio::pin!(late);
+        assert!(still_waiting(&mut late).await);
+
+        drop(running);
+        let live = tokio::time::timeout(PATIENCE, &mut first)
+            .await
+            .expect("the first exclusive reservation proceeds once the ordinary lease ends")
+            .unwrap();
+        assert!(
+            still_waiting(&mut second).await,
+            "exclusive reservations never overlap"
+        );
+        // Both poll for the freed gate at once, as separate test processes do.
+        drop(live);
+        let live = tokio::select! {
+            biased;
+            result = &mut late => {
+                drop(result);
+                panic!("an ordinary request slipped in between queued exclusive reservations")
+            }
+            result = &mut second => result.unwrap(),
+            () = tokio::time::sleep(PATIENCE) => panic!("no queued request proceeded"),
+        };
+        assert!(
+            still_waiting(&mut late).await,
+            "ordinary requests wait while the last queued exclusive reservation is live"
+        );
+        drop(live);
+        reserved(&mut late).await;
+        tokio::fs::remove_dir_all(&allocation.directory)
+            .await
+            .unwrap();
     }
 }
 
