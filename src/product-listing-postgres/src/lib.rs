@@ -23,6 +23,7 @@ pub mod product_listing_translation_writer;
 pub mod public_catalogue_overview_refresher;
 pub mod readers;
 mod title;
+mod title_translation_revision;
 mod url;
 
 pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerFactory;

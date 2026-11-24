@@ -30,7 +30,7 @@ use std::time::Duration;
 
 /// Titles one batch submits at most.
 pub const MAX_TITLES_PER_BATCH: u32 = 10_000;
-/// Failed attempts after which a title is parked until its content changes.
+/// Failed attempts after which a title is parked until its title changes.
 pub const MAX_TRANSLATION_ATTEMPTS: u16 = 3;
 /// Refused titles one round translates synchronously at most.
 const REFUSAL_FALLBACKS_PER_ROUND: u32 = 50;
@@ -149,7 +149,7 @@ enum Settlement {
     Retry(Retry),
 }
 
-/// Work that is not settled yet: another attempt later, or none until its content changes.
+/// Work that is not settled yet: another attempt later, or none until its title changes.
 #[derive(Debug, PartialEq)]
 enum Retry {
     Requeue(TitleTranslationMode, u16),
@@ -465,7 +465,7 @@ where
                     product_listing_id = %work.product_listing_id,
                     source_event_id = %work.source_event_id,
                     attempts,
-                    "Title translation parked until the listing's content changes"
+                    "Title translation parked until the listing's title changes"
                 );
             }
         }

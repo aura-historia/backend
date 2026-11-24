@@ -7,9 +7,13 @@
 //! `tests/fixtures/same_product.json` holds shop-shaped cases the rule must answer as recorded.
 
 use crate::spider::utils::url::CrawledUrl;
-use crate::spider::utils::url::canonical::without_language_segment;
 use regex::regex;
 use url::Url;
+
+mod language_codes;
+mod language_version;
+
+use language_version::VersionedPage;
 
 /// Query parameters that name the language a page is shown in (`?Sprache=fr`, `?l=en`) when
 /// their value is a language tag. They do not tell two products apart, so two URLs that differ
@@ -45,6 +49,13 @@ pub enum SameProductEvidence {
     /// The page identity is a whole path segment or query value of the URL's captured identity,
     /// which a rule read from the page URL (`/ukiyoe_detail.php?print_id=40475` and `40475`).
     IdentityToken,
+    /// The URLs name the same page in two language versions: spelled alike, their directories
+    /// differ in one language directory, inserted or dropped (`/shop/de/item?id=88` and
+    /// `/shop/item?id=88`), or swapped for another directory when the two titles are written in
+    /// different writing systems (`/ukiyoe/ukiyoe_detail.php?print_id=24689`, titled in Japanese,
+    /// and `/english/ukiyoe_detail.php?print_id=24689`), and the page identity is part of what
+    /// they share ([`language_version`]).
+    LanguageDirectory,
     /// The captured titles are equal and name something ([`title_names_something`]), and
     /// neither URL is a list page ([`is_list_page`]). A missing title shows nothing: a captured
     /// removal clears it.
@@ -57,6 +68,7 @@ impl SameProductEvidence {
         match self {
             Self::Spelling => "spelling",
             Self::IdentityToken => "identity_token",
+            Self::LanguageDirectory => "language_directory",
             Self::Title => "title",
         }
     }
@@ -64,7 +76,8 @@ impl SameProductEvidence {
 
 /// The signal that shows `page`, whose page derives `page_identity`, and `carrier`, which carries
 /// that identity, show one product; `None` when no signal does, and the shared identity alone
-/// proves nothing. Spelling is checked first, then the identity token, then the titles.
+/// proves nothing. Spelling is checked first, then the identity token, the language directory
+/// and the titles.
 pub fn same_product_evidence(
     page: ProductUrlIdentity<'_>,
     page_identity: &str,
@@ -77,6 +90,18 @@ pub fn same_product_evidence(
         .is_some_and(|captured| is_identity_token_of(page_identity, captured))
     {
         Some(SameProductEvidence::IdentityToken)
+    } else if language_version::are_language_versions(
+        VersionedPage {
+            spelling: &page_spelling(page.url),
+            title: page.title,
+        },
+        VersionedPage {
+            spelling: &page_spelling(carrier.url),
+            title: carrier.title,
+        },
+        page_identity,
+    ) {
+        Some(SameProductEvidence::LanguageDirectory)
     } else if titles_agree(page.title, carrier.title)
         && !is_list_page(page.url)
         && !is_list_page(carrier.url)
@@ -111,16 +136,39 @@ pub fn same_product_after_identity_change(
     }
 }
 
-/// `url` in the spelling two URLs of one product share: the [stored spelling](CrawledUrl)
-/// without a trailing slash, doubled slashes in its path collapsed, without a language segment
-/// before its path and without language and pager parameters ([`is_noise_parameter`]).
+/// `url` in the spelling two URLs of one product share: its [page spelling](page_spelling)
+/// without a locale before its path ([`language_codes::is_locale`]): `/en/x`, `/eng/x`,
+/// `/de-at/x` and `/x` are one spelling, `/art/x` and `/x` are not.
 fn product_spelling(url: &Url) -> Url {
+    let mut spelling = page_spelling(url);
+    let unprefixed = spelling
+        .path()
+        .trim_start_matches('/')
+        .split_once('/')
+        .filter(|(first, rest)| !rest.is_empty() && language_codes::is_locale(first))
+        .map(|(_, rest)| format!("/{rest}"));
+    if let Some(path) = unprefixed {
+        spelling.set_path(&path);
+    }
+    spelling
+}
+
+/// `url` in the spelling of the page it names: the [stored spelling](CrawledUrl) without a
+/// trailing slash, doubled slashes in its path collapsed and without language and pager
+/// parameters ([`is_noise_parameter`]).
+fn page_spelling(url: &Url) -> Url {
+    without_noise_parameters(collapsed(url).page_spelling())
+}
+
+/// The [stored spelling](CrawledUrl) of `url` with doubled slashes in its path collapsed.
+fn collapsed(url: &Url) -> CrawledUrl {
     let mut collapsed = CrawledUrl::new(url.clone()).as_url().clone();
     let path = collapse_slashes(collapsed.path());
     collapsed.set_path(&path);
-    let crawled = CrawledUrl::new(collapsed);
-    let mut spelling =
-        without_language_segment(&crawled).unwrap_or_else(|| crawled.page_spelling());
+    CrawledUrl::new(collapsed)
+}
+
+fn without_noise_parameters(mut spelling: Url) -> Url {
     let kept = spelling.query().map(|query| {
         query
             .split('&')
@@ -284,6 +332,60 @@ mod tests {
         assert_eq!(
             evidence(url, Some("A"), Some("Vase"), "B", carrier, Some("Vaas")),
             Some(SameProductEvidence::Spelling)
+        );
+    }
+
+    /// A shop names its language and regional versions by standard codes before the path.
+    #[rstest::rstest]
+    #[case::three_letter_languages(
+        "https://shop.example/eng/products/vase",
+        "https://shop.example/ita/products/vase"
+    )]
+    #[case::bibliographic_language(
+        "https://shop.example/ger/products/vase",
+        "https://shop.example/products/vase"
+    )]
+    #[case::countries(
+        "https://shop.example/us/products/vase",
+        "https://shop.example/gb/products/vase"
+    )]
+    #[case::language_with_region(
+        "https://shop.example/de-at/products/vase",
+        "https://shop.example/products/vase"
+    )]
+    #[case::country_with_language(
+        "https://shop.example/us-en/products/vase",
+        "https://shop.example/fr-fr/products/vase"
+    )]
+    fn should_take_a_locale_before_the_path_for_one_spelling(
+        #[case] url: &str,
+        #[case] carrier: &str,
+    ) {
+        assert_eq!(
+            evidence(url, Some("A"), Some("Vase"), "B", carrier, Some("Vaas")),
+            Some(SameProductEvidence::Spelling)
+        );
+    }
+
+    /// Two or three letters that name no language or country are a section of the shop, which may
+    /// number its products on its own: Vinterior's `/art/` is no language.
+    #[rstest::rstest]
+    #[case::two_sections(
+        "https://shop.example/art/item.php?id=5",
+        "https://shop.example/map/item.php?id=5"
+    )]
+    #[case::section_and_none(
+        "https://www.vinterior.example/art/period/1700s",
+        "https://www.vinterior.example/period/1700s"
+    )]
+    #[case::words(
+        "https://shop.example/new/products/vase",
+        "https://shop.example/old/products/vase"
+    )]
+    fn should_not_take_a_short_section_for_a_locale(#[case] url: &str, #[case] carrier: &str) {
+        assert_eq!(
+            evidence(url, Some("A"), Some("Vase"), "B", carrier, Some("Dish")),
+            None
         );
     }
 
@@ -656,6 +758,10 @@ mod tests {
         assert_eq!(
             SameProductEvidence::IdentityToken.as_str(),
             "identity_token"
+        );
+        assert_eq!(
+            SameProductEvidence::LanguageDirectory.as_str(),
+            "language_directory"
         );
         assert_eq!(SameProductEvidence::Title.as_str(), "title");
     }
