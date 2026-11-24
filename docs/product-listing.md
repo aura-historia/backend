@@ -390,9 +390,10 @@ the recorded input is the one compared, under the same lock as a vector write; o
 is decided again or dropped as stale. A vector's recorded input is replaced with the vector, and a
 request whose image the embedding could not send records no image. Vectors stored before the
 input was recorded got their listing's current text and first image without a hash, so a new image
-URL embeds them again once. Changing the model or the input format must embed every listing again
-whatever the comparison says; the [runbook](durable-worker-runbook.md#forced-re-embedding) holds
-the procedure.
+URL embeds them again once. The recorded input and every batch carry the version of the model and
+request format; an input of another version counts as none and results of a batch of another
+version are submitted again, so a [forced re-embedding](durable-worker-runbook.md#forced-re-embedding)
+after a model or format change cannot be confirmed away.
 
 A listing without an embedding is still found lexically. Saved-search matching runs daily and
 does not wait for embeddings: one that lands after a match advances the listing's `updated`, so

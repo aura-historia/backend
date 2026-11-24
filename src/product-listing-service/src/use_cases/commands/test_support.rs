@@ -45,6 +45,7 @@ pub(crate) struct State {
     pub write_outcome: Option<ProductListingEmbeddingWriteOutcome>,
     pub confirmations: Vec<ProductListingEmbeddingConfirmation>,
     pub confirm_outcome: Option<ProductListingEmbeddingConfirmOutcome>,
+    pub confirm_fails: bool,
     /// The hash the hasher reports per URL; an absent URL cannot be fetched.
     pub image_hashes: HashMap<String, ImageHash>,
     pub hashed_urls: Vec<String>,
@@ -53,6 +54,8 @@ pub(crate) struct State {
     pub write_fails: bool,
     pub submitted: Vec<(String, Vec<ProductEmbeddingRequest>)>,
     pub submission_fails: bool,
+    /// The input version submitted batches report; the current one by default.
+    pub batch_input_version: Option<u16>,
     pub polls: VecDeque<Result<EmbeddingBatchPoll, EmbeddingError>>,
 }
 
@@ -292,6 +295,10 @@ impl ProductListingEmbeddingQueueReader for World {
                     key: *key,
                     provider_batch_id: provider_batch_id.clone()?,
                     age: Duration::from_secs(600),
+                    input_version: self
+                        .state()
+                        .batch_input_version
+                        .unwrap_or(crate::use_cases::EMBEDDING_INPUT_VERSION),
                 })
             })
             .collect())
@@ -346,6 +353,11 @@ impl ProductListingEmbeddingWriter for World {
         confirmation: &ProductListingEmbeddingConfirmation,
     ) -> Result<ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingWriteError> {
         let mut state = self.state();
+        if state.confirm_fails {
+            return Err(ProductListingEmbeddingWriteError::WriteFailed {
+                source: Box::new(std::io::Error::other("rejected")),
+            });
+        }
         state.confirmations.push(confirmation.clone());
         Ok(state
             .confirm_outcome

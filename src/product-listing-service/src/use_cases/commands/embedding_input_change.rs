@@ -33,6 +33,10 @@ pub(super) fn embedding_input_change(pending: &PendingProductEmbedding) -> Embed
     let Some(embedded) = &pending.embedded else {
         return EmbeddingInputChange::Changed;
     };
+    if embedded.source_event_id == pending.work.source_event_id {
+        // The vector already stands for this revision.
+        return EmbeddingInputChange::Unchanged;
+    }
     if !text_unchanged(embedded, pending) {
         return EmbeddingInputChange::Changed;
     }
@@ -62,18 +66,27 @@ fn text_unchanged(embedded: &EmbeddedProductInput, pending: &PendingProductEmbed
     )
 }
 
-/// Whether the texts are equivalent after normalization or at least `threshold` similar. An
-/// absent text equals an empty one.
+/// Whether the texts are equivalent after normalization or, with the same numbers, at least
+/// `threshold` similar. An absent text equals an empty one. A changed, added or removed number,
+/// such as a year, a count or a dimension, alters few characters but what the text says, so it is
+/// always a change.
 fn similar(embedded: Option<&str>, current: Option<&str>, threshold: f64) -> bool {
     let embedded = normalized(embedded.unwrap_or_default());
     let current = normalized(current.unwrap_or_default());
     if embedded == current {
         return true;
     }
-    if embedded.is_empty() || current.is_empty() {
+    if embedded.is_empty() || current.is_empty() || numbers(&embedded) != numbers(&current) {
         return false;
     }
     similarity(&embedded, &current) >= threshold
+}
+
+/// The text's runs of digits, in any script, in order.
+fn numbers(text: &str) -> Vec<&str> {
+    text.split(|character: char| !character.is_numeric())
+        .filter(|number| !number.is_empty())
+        .collect()
 }
 
 /// The text without differences an embedding does not see: Unicode compatibility forms, case,
@@ -275,6 +288,49 @@ mod tests {
                 pending.embedded.as_mut().unwrap().description = None;
             }),
             "a description set"
+        );
+    }
+
+    #[test]
+    fn should_embed_again_when_a_number_changes_in_a_long_text() {
+        let long_title = "Bemalter Bauernschrank aus Weichholz mit zwei Türen, Tirol, um 1850";
+        let embedded_long_title = |pending: &mut PendingProductEmbedding| {
+            pending.embedded.as_mut().unwrap().title = long_title.to_owned();
+        };
+        assert_eq!(
+            EmbeddingInputChange::Unchanged,
+            change(|pending| {
+                embedded_long_title(pending);
+                pending.title = Title::from(long_title.replace("Türen", "Tueren").as_str());
+            }),
+            "a small edit of a long title"
+        );
+        assert_eq!(
+            EmbeddingInputChange::Changed,
+            change(|pending| {
+                embedded_long_title(pending);
+                pending.title = Title::from(long_title.replace("1850", "1880").as_str());
+            })
+        );
+        assert_eq!(
+            EmbeddingInputChange::Changed,
+            change(|pending| {
+                pending.description = Some(Description::from(
+                    DESCRIPTION.replace("um 1850", "um 1860").as_str(),
+                ));
+            }),
+            "a description is as strict about numbers"
+        );
+    }
+
+    #[test]
+    fn should_keep_the_vector_of_a_revision_it_already_stands_for() {
+        assert_eq!(
+            EmbeddingInputChange::Unchanged,
+            change(|pending| {
+                pending.work.source_event_id = pending.embedded.as_ref().unwrap().source_event_id;
+                pending.image_url = None;
+            })
         );
     }
 

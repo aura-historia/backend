@@ -8,6 +8,9 @@ CREATE TABLE product_listing_embedding_inputs (
         REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
     -- The latest embedding revision the vector stands for: embedded, or confirmed later.
     source_event_id uuid NOT NULL,
+    -- The model and request format the vector was computed with; an input of another version
+    -- counts as none.
+    input_version smallint NOT NULL,
     title_text text NOT NULL,
     description_text text,
     -- The latest URL serving the embedded first image; NULL when the vector has no image.
@@ -24,12 +27,17 @@ CREATE TABLE product_listing_embedding_inputs (
 -- that image could be sent then, and its hash, are unknown: it is recorded without a hash, so a
 -- new image URL embeds the listing again.
 INSERT INTO product_listing_embedding_inputs (
-    product_listing_id, source_event_id, title_text, description_text, image_url
+    product_listing_id, source_event_id, input_version, title_text, description_text, image_url
 )
-SELECT product_listing_id, embedding_source_event_id, title_text, description_text,
+SELECT product_listing_id, embedding_source_event_id, 1, title_text, description_text,
        product_images -> 0 ->> 'url'
 FROM product_listings
 WHERE embedding IS NOT NULL AND title_text IS NOT NULL;
+
+-- The input version a batch is submitted with; results of another version are submitted again.
+-- Code that does not set it embeds version 1.
+ALTER TABLE product_listing_embedding_batches
+    ADD COLUMN input_version smallint NOT NULL DEFAULT 1;
 
 -- Whether a submitted request embeds its first image, and that image's hash, until its result
 -- records them with the vector.

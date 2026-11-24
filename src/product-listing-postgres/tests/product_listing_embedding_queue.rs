@@ -109,6 +109,10 @@ async fn should_carry_work_through_a_batch_and_settle_it_only_under_its_claim() 
             batches.iter().map(|batch| batch.key).collect::<Vec<_>>()
         );
         assert_eq!(PROVIDER_BATCH, batches[0].provider_batch_id.as_str());
+        assert_eq!(
+            product_listing_service::use_cases::EMBEDDING_INPUT_VERSION,
+            batches[0].input_version
+        );
         assert!(batches[0].age < Duration::from_secs(60));
         let items = reader.batch_items(key).await?;
         assert_eq!(
@@ -252,6 +256,16 @@ async fn should_record_the_embedded_input_and_measure_later_revisions_against_it
         let latest = advance_content(&pool, work.product_listing_id, "Antiker Stuhl!!").await?;
         schedule(&unit_of_work, latest).await?;
         let embedded = lock(&unit_of_work, 10).await?.remove(0).embedded.unwrap();
+        sqlx::query(
+            "UPDATE product_listing_embedding_inputs SET input_version = input_version + 1",
+        )
+        .execute(&pool)
+        .await?;
+        assert_eq!(
+            None,
+            lock(&unit_of_work, 10).await?.remove(0).embedded,
+            "an input of another version counts as none"
+        );
         assert_eq!(
             (
                 newer.source_event_id,

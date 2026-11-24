@@ -294,14 +294,17 @@ which is ever purged except by settlement. The input behind each listing's vecto
 
 A round confirms a revision whose input did not change meaningfully, so a change of the
 embedding model or of what a request sends (text layout, image preparation) never reaches
-listings by itself. Ship such a change with a migration that, in one transaction, deletes the
-rows of `product_listing_embedding_inputs` and records pending work for every listing that is
+listings by itself. Ship such a change with a bump of `EMBEDDING_INPUT_VERSION`
+([`embed_product_listing_batches.rs`](../src/product-listing-service/src/use_cases/commands/embed_product_listing_batches.rs))
+and a migration that records pending work for every listing that is
 [discoverable](product-listing.md#enrichment-of-listings-not-for-sale) at its current
 `embedding_source_event_id`, leaving existing work alone (`ON CONFLICT (product_listing_id) DO
-NOTHING`). Without a recorded input every revision counts as changed and is embedded again; the
-old vectors keep serving until then. Rounds submit at most 10,000 embeddings each, so plan the
-backlog alarm and provider quota for the catalogue's size. Vectors of different models are not
-comparable: a model switch also needs its own search plan, which this procedure does not cover.
+NOTHING`). An input recorded with another version counts as none, so every revision is embedded
+again rather than confirmed, and a batch submitted with another version, such as by a worker
+still running the previous release, is submitted again when collected; the old vectors keep
+serving until then. Rounds submit at most 10,000 embeddings each, so plan the backlog alarm and
+provider quota for the catalogue's size. Vectors of different models are not comparable: a model
+switch also needs its own search plan, which this procedure does not cover.
 
 ## Listing shipping recovery
 

@@ -19,7 +19,9 @@ use product_listing_service::ports::{
     ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader, StagedProductImage,
     SubmittedProductEmbeddingBatch,
 };
-use product_listing_service::use_cases::MAX_EMBEDDING_ATTEMPTS as MAX_ATTEMPTS;
+use product_listing_service::use_cases::{
+    EMBEDDING_INPUT_VERSION, MAX_EMBEDDING_ATTEMPTS as MAX_ATTEMPTS,
+};
 use sqlx::{PgConnection, PgPool};
 use std::time::Duration;
 use url::Url;
@@ -35,6 +37,7 @@ macro_rules! select_current_work {
                 listing.title_text, listing.title_language,
                 listing.description_text, listing.description_language, listing.product_images,
                 input.source_event_id AS embedded_source_event_id,
+                input.input_version AS embedded_input_version,
                 input.title_text AS embedded_title_text,
                 input.description_text AS embedded_description_text,
                 input.image_url AS embedded_image_url,
@@ -97,6 +100,7 @@ struct CurrentWorkRow {
     description_language: Option<String>,
     product_images: serde_json::Value,
     embedded_source_event_id: Option<uuid::Uuid>,
+    embedded_input_version: Option<i16>,
     embedded_title_text: Option<String>,
     embedded_description_text: Option<String>,
     embedded_image_url: Option<String>,
@@ -155,10 +159,13 @@ impl CurrentWorkRow {
             .map_err(|reason| InvalidWork { work, reason }))
     }
 
-    /// The input recorded for the listing's vector. An invalid record counts as none, so the
-    /// revision is embedded again and the record replaced.
+    /// The input recorded for the listing's vector. A record of another input version, or an
+    /// invalid one, counts as none, so the revision is embedded again and the record replaced.
     fn embedded(&self, work: ProductEmbeddingWorkRef) -> Option<EmbeddedProductInput> {
         let source_event_id = self.embedded_source_event_id?;
+        if self.embedded_input_version != Some(db_input_version()) {
+            return None;
+        }
         let input = (|| {
             let image = match (&self.embedded_image_url, &self.embedded_image_hash) {
                 (None, None) => None,
@@ -241,6 +248,11 @@ fn valid<T>(rows: Vec<MappedRow<T>>) -> QueueResult<Vec<T>> {
     Ok(items)
 }
 
+/// The current input version as stored; it is a small constant.
+pub(crate) fn db_input_version() -> i16 {
+    i16::try_from(EMBEDDING_INPUT_VERSION).unwrap_or(i16::MAX)
+}
+
 fn to_db_attempts(attempts: u16) -> QueueResult<i16> {
     i16::try_from(attempts).map_err(|_| invalid_state("embedding attempts are out of range"))
 }
@@ -305,12 +317,14 @@ impl ProductListingEmbeddingQueue for SqlxProductListingEmbeddingQueue<'_> {
                 JOIN product_listings listing USING (product_listing_id)
                 WHERE input.product_listing_id = $1
                   AND input.source_event_id = $2
+                  AND input.input_version = $3
                   AND listing.embedding IS NOT NULL
             )
             "#,
         )
         .bind(work.product_listing_id.as_uuid())
         .bind(work.source_event_id.as_uuid())
+        .bind(db_input_version())
         .fetch_one(&mut *self.connection)
         .await
         .map_err(sql)?;
@@ -392,8 +406,11 @@ impl ProductListingEmbeddingQueue for SqlxProductListingEmbeddingQueue<'_> {
         key: ProductEmbeddingBatchKey,
         assignments: &[ProductEmbeddingAssignment],
     ) -> QueueResult<()> {
-        sqlx::query("INSERT INTO product_listing_embedding_batches (batch_id) VALUES ($1)")
-            .bind(key.as_uuid())
+        sqlx::query(
+            "INSERT INTO product_listing_embedding_batches (batch_id, input_version) VALUES ($1, $2)",
+        )
+        .bind(key.as_uuid())
+        .bind(db_input_version())
             .execute(&mut *self.connection)
             .await
             .map_err(sql)?;
@@ -600,10 +617,10 @@ impl SqlxProductListingEmbeddingQueueReader {
 #[async_trait::async_trait]
 impl ProductListingEmbeddingQueueReader for SqlxProductListingEmbeddingQueueReader {
     async fn submitted_batches(&self) -> QueueResult<Vec<SubmittedProductEmbeddingBatch>> {
-        sqlx::query_as::<_, (uuid::Uuid, String, f64)>(
+        sqlx::query_as::<_, (uuid::Uuid, String, f64, i16)>(
             r#"
             SELECT batch_id, provider_batch_id,
-                   GREATEST(EXTRACT(EPOCH FROM now() - submitted), 0)::float8
+                   GREATEST(EXTRACT(EPOCH FROM now() - submitted), 0)::float8, input_version
             FROM product_listing_embedding_batches
             WHERE provider_batch_id IS NOT NULL
             ORDER BY submitted, batch_id
@@ -613,13 +630,15 @@ impl ProductListingEmbeddingQueueReader for SqlxProductListingEmbeddingQueueRead
         .await
         .map_err(sql)?
         .into_iter()
-        .map(|(key, provider_batch_id, age)| {
+        .map(|(key, provider_batch_id, age, input_version)| {
             Ok(SubmittedProductEmbeddingBatch {
                 key: ProductEmbeddingBatchKey::from_uuid(key),
                 provider_batch_id: EmbeddingBatchId::new(provider_batch_id)
                     .map_err(|_| invalid_state("persisted provider batch ID is invalid"))?,
                 age: Duration::try_from_secs_f64(age)
                     .map_err(|_| invalid_state("persisted batch submission time is invalid"))?,
+                input_version: u16::try_from(input_version)
+                    .map_err(|_| invalid_state("persisted batch input version is invalid"))?,
             })
         })
         .collect()

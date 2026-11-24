@@ -36,7 +36,7 @@ pub struct PendingProductEmbedding {
     /// Failed attempts so far.
     pub attempts: u16,
     /// The input behind the listing's current vector; `None` without a vector or a recorded
-    /// input.
+    /// input of the current [`EMBEDDING_INPUT_VERSION`](crate::use_cases::EMBEDDING_INPUT_VERSION).
     pub embedded: Option<EmbeddedProductInput>,
 }
 
@@ -123,6 +123,9 @@ pub struct SubmittedProductEmbeddingBatch {
     pub provider_batch_id: EmbeddingBatchId,
     /// Time since the provider accepted the batch.
     pub age: Duration,
+    /// The [`EMBEDDING_INPUT_VERSION`](crate::use_cases::EMBEDDING_INPUT_VERSION) the batch was
+    /// submitted with.
+    pub input_version: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +172,9 @@ pub trait ProductListingEmbeddingQueue: Send {
         limit: u32,
     ) -> Result<Vec<PendingProductEmbedding>, ProductListingEmbeddingQueueError>;
 
-    /// Creates a batch the provider does not know yet and assigns the work to it.
+    /// Creates a batch the provider does not know yet, stamped with the current
+    /// [`EMBEDDING_INPUT_VERSION`](crate::use_cases::EMBEDDING_INPUT_VERSION), and assigns the
+    /// work to it.
     async fn create_batch(
         &mut self,
         key: ProductEmbeddingBatchKey,

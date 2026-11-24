@@ -1,4 +1,5 @@
 use crate::object_id::try_from_uuid;
+use crate::product_listing_embedding_queue::db_input_version;
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use product_listing_service::ports::{
@@ -57,7 +58,7 @@ impl SqlxProductListingEmbeddingWriter<'_> {
     }
 
     /// The revision the listing's vector stands for and whether its input has an image; `None`
-    /// without a vector or a recorded input.
+    /// without a vector or a recorded input of the current input version.
     async fn embedded_input(
         &mut self,
         product_listing_id: &uuid::Uuid,
@@ -67,10 +68,13 @@ impl SqlxProductListingEmbeddingWriter<'_> {
             SELECT input.source_event_id, input.image_url IS NOT NULL
             FROM product_listing_embedding_inputs input
             JOIN product_listings listing USING (product_listing_id)
-            WHERE input.product_listing_id = $1 AND listing.embedding IS NOT NULL
+            WHERE input.product_listing_id = $1
+              AND input.input_version = $2
+              AND listing.embedding IS NOT NULL
             "#,
         )
         .bind(product_listing_id)
+        .bind(db_input_version())
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)
@@ -85,16 +89,17 @@ impl SqlxProductListingEmbeddingWriter<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listing_embedding_inputs (
-                product_listing_id, source_event_id, title_text, description_text, image_url,
-                image_hash
+                product_listing_id, source_event_id, input_version, title_text, description_text,
+                image_url, image_hash
             )
-            SELECT product_listing_id, embedding_source_event_id, title_text, description_text,
+            SELECT product_listing_id, embedding_source_event_id, $4, title_text, description_text,
                    CASE WHEN $2 THEN product_images -> 0 ->> 'url' END,
                    CASE WHEN $2 AND product_images -> 0 ->> 'url' IS NOT NULL THEN $3::bytea END
             FROM product_listings
             WHERE product_listing_id = $1
             ON CONFLICT (product_listing_id) DO UPDATE SET
                 source_event_id = EXCLUDED.source_event_id,
+                input_version = EXCLUDED.input_version,
                 title_text = EXCLUDED.title_text,
                 description_text = EXCLUDED.description_text,
                 image_url = EXCLUDED.image_url,
@@ -109,6 +114,7 @@ impl SqlxProductListingEmbeddingWriter<'_> {
                 .and_then(|image| image.hash)
                 .map(|hash| hash.as_bytes().to_vec()),
         )
+        .bind(db_input_version())
         .execute(&mut *self.connection)
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
@@ -199,16 +205,26 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         {
             return Ok(ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged);
         }
-        sqlx::query(
-            "UPDATE product_listing_embedding_inputs SET source_event_id = $2, image_url = $3 WHERE product_listing_id = $1",
+        // Writers of the input hold the listing lock; the guard also covers one that does not.
+        let confirmed = sqlx::query(
+            r#"
+            UPDATE product_listing_embedding_inputs SET source_event_id = $2, image_url = $3
+            WHERE product_listing_id = $1 AND source_event_id = $4 AND input_version = $5
+            "#,
         )
         .bind(listing)
         .bind(revision)
         .bind(confirmation.image_url.as_ref().map(url::Url::as_str))
+        .bind(embedded)
+        .bind(db_input_version())
         .execute(&mut *self.connection)
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
-        Ok(ProductListingEmbeddingConfirmOutcome::Confirmed)
+        Ok(if confirmed.rows_affected() == 1 {
+            ProductListingEmbeddingConfirmOutcome::Confirmed
+        } else {
+            ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged
+        })
     }
 }
 

@@ -42,6 +42,11 @@ pub const MAX_EMBEDDINGS_PER_BATCH: u32 = 10_000;
 const ABANDONED_SUBMISSION_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 /// Failed attempts after which an embedding is parked until the listing's content changes.
 pub const MAX_EMBEDDING_ATTEMPTS: u16 = 3;
+/// The model and request format product embeddings are computed with. Bump it with any change of
+/// either: an input recorded with another version counts as none, so every revision is embedded
+/// again instead of confirmed, and a batch submitted with another version is submitted again
+/// when collected (docs/durable-worker-runbook.md#forced-re-embedding).
+pub const EMBEDDING_INPUT_VERSION: u16 = 1;
 /// New first-image URLs fetched at once to compare their picture with the embedded one.
 const IMAGE_COMPARISON_CONCURRENCY: usize = 32;
 
@@ -284,6 +289,20 @@ where
                 }
             }
         };
+        let ended = if batch.input_version == EMBEDDING_INPUT_VERSION {
+            ended
+        } else {
+            tracing::warn!(
+                event = "product.embedding.batch_outdated",
+                provider_batch_id = %batch.provider_batch_id,
+                input_version = batch.input_version,
+                "Embedding batch used another input version; its embeddings are submitted again"
+            );
+            EndedEmbeddingBatch {
+                results: Vec::new(),
+                unanswered: UnansweredEmbeddings::NotProcessed,
+            }
+        };
         let items = self.reader.batch_items(batch.key).await?;
         let size = items.len();
         let answered = ended.results.len();
@@ -310,23 +329,25 @@ where
         let key = ProductEmbeddingBatchKey::new();
         let triage = self.triage_pending(key, report).await?;
         for pending in &triage.unchanged {
-            self.confirm(
-                pending,
-                ProductEmbeddingClaim::Pending,
-                &mut report.settlements,
-            )
-            .await?;
+            // A failed confirmation leaves the work pending for the next round.
+            let _ = self
+                .confirm(
+                    pending,
+                    ProductEmbeddingClaim::Pending,
+                    &mut report.settlements,
+                )
+                .await;
         }
         let mut requests = triage.changed;
         for (comparison, matches) in self.compare_new_image_urls(triage.new_image_urls).await {
-            if matches {
-                self.confirm(
-                    &comparison.pending,
-                    ProductEmbeddingClaim::Batch(key),
-                    &mut report.settlements,
-                )
-                .await?;
-            } else {
+            let claim = ProductEmbeddingClaim::Batch(key);
+            // A failed confirmation embeds the revision instead, so the batch is not held back.
+            if !matches
+                || self
+                    .confirm(&comparison.pending, claim, &mut report.settlements)
+                    .await
+                    .is_err()
+            {
                 requests.push(comparison.request);
             }
         }
@@ -439,8 +460,27 @@ where
 
     /// Records that the listing's vector stands for the pending revision, while the work is still
     /// `claim`ed. Work whose embedded input changed since it was compared is decided again by a
-    /// later round.
+    /// later round. A failure is logged and leaves the work where it is.
     async fn confirm(
+        &self,
+        pending: &PendingProductEmbedding,
+        claim: ProductEmbeddingClaim,
+        settlements: &mut ProductEmbeddingSettlements,
+    ) -> Result<(), Error> {
+        self.try_confirm(pending, claim, settlements)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(
+                    event = "product.embedding.confirm_failed",
+                    product_listing_id = %pending.work.product_listing_id,
+                    source_event_id = %pending.work.source_event_id,
+                    error_kind = error.kind(),
+                    "Embedding confirmation failed"
+                );
+            })
+    }
+
+    async fn try_confirm(
         &self,
         pending: &PendingProductEmbedding,
         claim: ProductEmbeddingClaim,
@@ -930,6 +970,54 @@ mod tests {
         assert!(!rejected.parked && rejected.batch.is_some());
         let unanswered = world.row(unanswered).unwrap();
         assert_eq!((true, None), (unanswered.parked, unanswered.batch));
+    }
+
+    #[tokio::test]
+    async fn should_submit_again_unspent_the_results_of_a_batch_of_another_input_version() {
+        let world = World::default();
+        let work = world.add_pending("Ancient vase");
+        world.submitted(&[work]);
+        {
+            let mut state = world.state();
+            state.batch_input_version = Some(EMBEDDING_INPUT_VERSION + 1);
+            state
+                .polls
+                .push_back(ended(vec![(1, Ok(vector()))], UnansweredEmbeddings::Failed));
+        }
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (0, 1, 1),
+            (
+                report.settlements.applied,
+                report.settlements.requeued,
+                report.submitted_embeddings
+            )
+        );
+        assert!(world.state().writes.is_empty());
+        assert_eq!(0, world.row(work).unwrap().pending.attempts);
+    }
+
+    #[tokio::test]
+    async fn should_embed_instead_when_a_matching_image_cannot_be_confirmed() {
+        let world = World::default();
+        let work = add_embedded(&world, NEW_IMAGE_URL);
+        {
+            let mut state = world.state();
+            state
+                .image_hashes
+                .insert(NEW_IMAGE_URL.to_owned(), image_hash(0));
+            state.confirm_fails = true;
+        }
+
+        let report = handler(&world).execute(&system()).await.unwrap();
+
+        assert_eq!(
+            (0, 1),
+            (report.settlements.confirmed, report.submitted_embeddings)
+        );
+        assert!(world.row(work).unwrap().batch.is_some());
     }
 
     #[tokio::test]

@@ -251,6 +251,22 @@ async fn should_confirm_only_the_held_revision_against_the_compared_input() {
             "the confirmed revision is embedded"
         );
 
+        sqlx::query("UPDATE product_listing_embedding_inputs SET input_version = input_version + 1 WHERE product_listing_id = $1")
+            .bind(product_id.into_uuid()).execute(&pool).await?;
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged,
+            confirm(&pool, &ProductListingEmbeddingConfirmation {
+                embedded_source_event_id: revision,
+                ..confirmation.clone()
+            }).await?,
+            "an input of another version cannot be confirmed"
+        );
+        assert_eq!(
+            ProductListingEmbeddingWriteOutcome::Applied,
+            apply(&pool, &new_write(product_id, revision, EventId::new())).await?,
+            "nor does it stand for its revision, so a forced re-embed applies"
+        );
+
         advance_product_current_event(&pool, product_id).await?;
         assert_eq!(
             ProductListingEmbeddingConfirmOutcome::Superseded,
