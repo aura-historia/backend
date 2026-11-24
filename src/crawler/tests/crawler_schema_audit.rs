@@ -684,3 +684,83 @@ async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_au
         "every source is audited"
     );
 }
+
+/// A `state` that reads the price on most of a source's pages, as a status slot that shows the
+/// amount until the item sells, reopens the source; once a human approves the live schemas as they
+/// are, the next week's audit finds the same price text and opens nothing.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_reopen_a_majority_of_price_text_a_human_approved() {
+    use crawler::scraper::scraper_service::{FetchedHtml, MockHtmlFetcher};
+    use crawler::service::cron::CronStop;
+    use crawler::service::schema_audit::SchemaAudit;
+    use std::sync::Arc;
+
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let source = insert_source(&pool, "Snackers", "snackers.example", &[schema("h1")]).await;
+    for item in ["portrait", "christ", "wanli"] {
+        insert_product_url(
+            &pool,
+            source,
+            &format!("https://snackers.example/p/{item}"),
+            Some(item),
+        )
+        .await;
+    }
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().returning(|url| {
+        let item = url.path().trim_start_matches("/p/").to_owned();
+        let state = if item == "wanli" { "Sold" } else { "475,-" };
+        let html = format!(
+            "<html><body><h1>{item}</h1><span class=\"id\">{item}</span>\
+             <span class=\"state\">{state}</span><img src=\"/images/{item}.jpg\"></body></html>"
+        );
+        let url = url.clone();
+        Box::pin(async move { Ok(FetchedHtml::new(html, url, reqwest::StatusCode::OK)) })
+    });
+    let audit = SchemaAudit::new(repository.clone(), Arc::new(fetcher));
+    let audit_reviews = || async {
+        sqlx::query_as::<_, (uuid::Uuid, serde_json::Value)>(
+            "SELECT review_id, validation_summary->'schema_audit'->'findings' \
+             FROM crawler_reviews WHERE listing_source_id = $1 ORDER BY created",
+        )
+        .bind(source.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+    };
+
+    audit.run_once(&CronStop::default()).await;
+    let opened = audit_reviews().await;
+    let [(review_id, opened_findings)] = opened.as_slice() else {
+        panic!("the audit must open one review: {opened:?}");
+    };
+    decide(
+        &pool,
+        crawler::CrawlerReviewId::try_from(*review_id).unwrap(),
+        "APPROVED",
+        "HUMAN",
+    )
+    .await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET reviewed = NOW() - interval '8 days' WHERE review_id = $1",
+    )
+    .bind(review_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    set_audited_days_ago(&pool, source, 8).await;
+    audit.run_once(&CronStop::default()).await;
+
+    assert_eq!(*opened_findings, serde_json::json!(["state PRICE_TEXT"]));
+    assert_eq!(
+        audit_reviews().await.len(),
+        1,
+        "the approved price text reopens nothing"
+    );
+    assert_eq!(
+        repository.schema_audit_due_sources(WEEK, 10).await.unwrap(),
+        vec![],
+        "the source was audited again"
+    );
+}
