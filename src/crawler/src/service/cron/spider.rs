@@ -136,6 +136,18 @@ fn crawl_budget_scale(candidate: &SpiderCandidate, extended_slot_free: bool) -> 
     )
 }
 
+/// From this many consecutive truncations that ran out of time on, about three days of
+/// continuations, a ListingSource is reported as truncated repeatedly: its truncation event logs at
+/// WARN and the pass summary counts the run, so a log query can alert on it
+/// (`docs/crawler/operations.md#metrics-and-alarms`).
+pub(crate) const REPEATED_TRUNCATION_COUNT: i32 = 12;
+
+/// Whether a ListingSource whose consecutive truncation count is now `truncation_count` is
+/// truncated repeatedly.
+fn is_truncated_repeatedly(truncation_count: i32) -> bool {
+    truncation_count >= REPEATED_TRUNCATION_COUNT
+}
+
 /// The truncation count counts consecutive crawls that ran out of time with URLs left, which
 /// [`crawl_budget_scale`] extends the next crawl by; any other truncated crawl ends the run of
 /// them, so a shop that fits one crawl but leaves pages it cannot fetch gets no extended budget.
@@ -277,6 +289,9 @@ const URL_PATTERN_REVIEW_WAIT: Duration = SPIDER_RECRAWL_INTERVAL;
 enum SpiderSlotStatus {
     Succeeded,
     Truncated,
+    /// A truncated full crawl whose ListingSource has now been truncated
+    /// [`REPEATED_TRUNCATION_COUNT`] or more times in a row.
+    TruncatedRepeatedly,
     /// The crawler's shutdown ended the crawl.
     Stopped,
     /// A shop's rate-limit answer ended the crawl.
@@ -418,6 +433,45 @@ async fn record_review_wait_run(
     SpiderSlotStatus::AwaitingReview
 }
 
+/// What the truncation event of a run logs.
+struct TruncatedRunLog<'a> {
+    candidate: &'a SpiderCandidate,
+    result: &'a SpiderRunResult,
+    truncation_count: i32,
+    next_crawl_at: time::OffsetDateTime,
+    cooldown: Duration,
+}
+
+/// Logs [`CRAWL_TRUNCATED_EVENT`] at `$level`: the frontier the run continued and what it left
+/// of it, so an operator can follow a large shop from one continuation to the next.
+macro_rules! log_truncated_run {
+    ($log:expr, $level:ident, $message:literal) => {{
+        let log = &$log;
+        let frontier = log.result.frontier;
+        $level!(
+            event = CRAWL_TRUNCATED_EVENT,
+            listing_source_id = %log.candidate.listing_source_id,
+            listing_source_name = %log.candidate.listing_source_name,
+            domain = %log.candidate.crawl_root.host(),
+            completion = %log.result.completion,
+            total_crawled = log.result.total_links,
+            product_urls_count = log.result.product_urls_count,
+            frontier_carried = frontier.carried,
+            frontier_deferred = frontier.deferred,
+            frontier_left = frontier.left,
+            frontier_dropped = frontier.dropped,
+            ran_out_of_time = log.result.ran_out_of_time,
+            db_wait_ms = u64::try_from(log.result.db_wait.as_millis()).unwrap_or(u64::MAX),
+            truncation_count = log.truncation_count,
+            truncated_repeatedly = is_truncated_repeatedly(log.truncation_count),
+            crawl_failure_count = log.candidate.crawl_failure_count,
+            next_crawl_at = %log.next_crawl_at,
+            cooldown_seconds = log.cooldown.as_secs(),
+            $message
+        )
+    }};
+}
+
 /// Failure metadata stays untouched: a truncated crawl neither proves
 /// recovery nor counts as a failure.
 async fn record_truncated_run(
@@ -449,24 +503,20 @@ async fn record_truncated_run(
             "Failed to persist crawl truncation metadata"
         ),
     }
-    info!(
-        event = CRAWL_TRUNCATED_EVENT,
-        listing_source_id = %candidate.listing_source_id,
-        listing_source_name = %candidate.listing_source_name,
-        domain = %candidate.crawl_root.host(),
-        completion = %result.completion,
-        total_crawled = result.total_links,
-        product_urls_count = result.product_urls_count,
-        frontier_left = result.frontier.left,
-        ran_out_of_time = result.ran_out_of_time,
-        db_wait_ms = u64::try_from(result.db_wait.as_millis()).unwrap_or(u64::MAX),
+    let log = TruncatedRunLog {
+        candidate,
+        result,
         truncation_count,
-        crawl_failure_count = candidate.crawl_failure_count,
-        next_crawl_at = %next_crawl_at,
-        cooldown_seconds = cooldown.as_secs(),
-        "Spider run truncated by hard timeout"
-    );
-    SpiderSlotStatus::Truncated
+        next_crawl_at,
+        cooldown,
+    };
+    if is_truncated_repeatedly(truncation_count) {
+        log_truncated_run!(log, warn, "Spider run truncated by hard timeout again");
+        SpiderSlotStatus::TruncatedRepeatedly
+    } else {
+        log_truncated_run!(log, info, "Spider run truncated by hard timeout");
+        SpiderSlotStatus::Truncated
+    }
 }
 
 /// A crawl the crawler's shutdown ended, or whose too small sample the shutdown caused, is
@@ -1122,6 +1172,7 @@ impl CrawlerCronJob {
         let mut total = 0usize;
         let mut succeeded = 0usize;
         let mut truncated = 0usize;
+        let mut truncated_repeatedly = 0usize;
         let mut stopped = 0usize;
         let mut rate_limited = 0usize;
         let mut awaiting_review = 0usize;
@@ -1221,6 +1272,10 @@ impl CrawlerCronJob {
                     match outcome.status {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
+                        SpiderSlotStatus::TruncatedRepeatedly => {
+                            truncated += 1;
+                            truncated_repeatedly += 1;
+                        }
                         SpiderSlotStatus::Stopped => stopped += 1,
                         SpiderSlotStatus::RateLimited => rate_limited += 1,
                         SpiderSlotStatus::AwaitingReview => awaiting_review += 1,
@@ -1251,6 +1306,7 @@ impl CrawlerCronJob {
             total,
             succeeded,
             truncated,
+            truncated_repeatedly,
             stopped,
             rate_limited,
             awaiting_review,
@@ -1639,30 +1695,46 @@ mod tests {
         use super::*;
         use crate::test_support::logged_events::LoggedEvents;
 
-        #[tokio::test]
-        async fn should_log_the_frontier_left_and_the_database_wait_of_a_truncated_run() {
-            let (events, _guard) = LoggedEvents::capture();
+        fn recording_truncations() -> MockSpiderCandidateService {
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
                 .expect_mark_crawl_truncated()
                 .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            spider_candidates
+        }
+
+        #[tokio::test]
+        async fn should_log_the_frontier_progress_and_the_database_wait_of_a_truncated_run() {
+            let (events, _guard) = LoggedEvents::capture();
             let result = SpiderRunResult {
-                frontier: FrontierProgress { left: Some(1_500) },
+                frontier: FrontierProgress {
+                    carried: 25_000,
+                    deferred: 5_000,
+                    left: Some(24_000),
+                    dropped: 7,
+                },
                 db_wait: Duration::from_millis(42_000),
                 ran_out_of_time: true,
                 ..run_result(CrawlCompletion::HardTimeoutTruncated)
             };
 
-            record_truncated_run(
-                &spider_candidates,
+            let slot = record_truncated_run(
+                &recording_truncations(),
                 &spider_candidate(ListingSourceId::new()),
                 &result,
             )
             .await;
 
+            assert!(matches!(slot, SpiderSlotStatus::Truncated));
             let truncated = events.named(CRAWL_TRUNCATED_EVENT);
             assert_eq!(truncated.len(), 1);
-            assert_eq!(truncated[0].field("frontier_left"), Some("1500"));
+            assert_eq!(truncated[0].level, tracing::Level::INFO);
+            assert_eq!(truncated[0].field("frontier_carried"), Some("25000"));
+            assert_eq!(truncated[0].field("frontier_deferred"), Some("5000"));
+            assert_eq!(truncated[0].field("frontier_left"), Some("24000"));
+            assert_eq!(truncated[0].field("frontier_dropped"), Some("7"));
+            assert_eq!(truncated[0].field("truncation_count"), Some("1"));
+            assert_eq!(truncated[0].field("truncated_repeatedly"), Some("false"));
             assert_eq!(truncated[0].field("db_wait_ms"), Some("42000"));
             assert_eq!(truncated[0].field("ran_out_of_time"), Some("true"));
             assert_eq!(
@@ -1674,6 +1746,47 @@ mod tests {
                         .as_str()
                 )
             );
+        }
+
+        /// The run that brings a ListingSource's consecutive truncations to
+        /// [`REPEATED_TRUNCATION_COUNT`] reports it, and so does every later one, until a full
+        /// crawl resets the count.
+        #[tokio::test]
+        async fn should_report_a_source_truncated_repeatedly_from_the_threshold_on() {
+            let result = truncated_run(true, Some(1_000));
+            for (count_before, repeatedly) in [
+                (REPEATED_TRUNCATION_COUNT - 2, false),
+                (REPEATED_TRUNCATION_COUNT - 1, true),
+                (REPEATED_TRUNCATION_COUNT + 4, true),
+            ] {
+                let (events, _guard) = LoggedEvents::capture();
+                let candidate = SpiderCandidate {
+                    crawl_truncation_count: count_before,
+                    ..spider_candidate(ListingSourceId::new())
+                };
+
+                let slot =
+                    record_truncated_run(&recording_truncations(), &candidate, &result).await;
+
+                assert_eq!(
+                    matches!(slot, SpiderSlotStatus::TruncatedRepeatedly),
+                    repeatedly,
+                    "after {count_before} truncations"
+                );
+                let truncated = events.named(CRAWL_TRUNCATED_EVENT);
+                assert_eq!(
+                    truncated[0].field("truncated_repeatedly"),
+                    Some(repeatedly.to_string().as_str())
+                );
+                let level = match repeatedly {
+                    true => tracing::Level::WARN,
+                    false => tracing::Level::INFO,
+                };
+                assert_eq!(
+                    truncated[0].level, level,
+                    "after {count_before} truncations"
+                );
+            }
         }
     }
 
@@ -2798,6 +2911,7 @@ mod tests {
             ran_out_of_time,
             frontier: FrontierProgress {
                 left: frontier_left,
+                ..FrontierProgress::default()
             },
             ..run_result(CrawlCompletion::HardTimeoutTruncated)
         }
@@ -3986,9 +4100,9 @@ mod tests {
             assert!(record.get("listing_source_id").is_none());
         }
 
-        #[tokio::test]
-        async fn should_count_no_failed_run_when_a_crawl_is_truncated() {
-            let (metrics, _guard) = capture_metrics();
+        /// Runs a pass whose one crawl, of a source truncated `truncations_before` times in a
+        /// row, is truncated again after running out of time.
+        async fn run_pass_truncating(truncations_before: i32) {
             let listing_source_id = ListingSourceId::new();
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
@@ -3997,7 +4111,10 @@ mod tests {
                     let first_call = excluded.is_empty();
                     Box::pin(async move {
                         Ok(if first_call {
-                            vec![spider_candidate(listing_source_id)]
+                            vec![SpiderCandidate {
+                                crawl_truncation_count: truncations_before,
+                                ..spider_candidate(listing_source_id)
+                            }]
                         } else {
                             vec![]
                         })
@@ -4007,15 +4124,43 @@ mod tests {
                 .expect_mark_crawl_truncated()
                 .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             let mut spider_service = MockSpiderService::new();
-            spider_service.expect_run().returning(|_, _, _, _, _, _| {
-                Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
-            });
+            spider_service
+                .expect_run()
+                .returning(|_, _, _, _, _, _| Box::pin(async { Ok(truncated_run(true, Some(1))) }));
 
             spider_job(spider_candidates, spider_service, 1)
                 .run_spider_once()
                 .await;
+        }
+
+        #[tokio::test]
+        async fn should_count_no_failed_run_when_a_crawl_is_truncated() {
+            let (metrics, _guard) = capture_metrics();
+
+            run_pass_truncating(REPEATED_TRUNCATION_COUNT).await;
 
             assert_one_dimensionless_record(&metrics, 0);
+        }
+
+        /// The pass summary counts the runs that truncated a source repeatedly among its
+        /// truncated runs, so one log query finds the passes that did.
+        #[tokio::test]
+        async fn should_count_a_run_that_truncates_a_source_repeatedly_in_the_pass_summary() {
+            for (truncations_before, repeatedly) in [(0, "0"), (REPEATED_TRUNCATION_COUNT - 1, "1")]
+            {
+                let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+
+                run_pass_truncating(truncations_before).await;
+
+                let pass = events.named("crawler.spider.pass_completed");
+                assert_eq!(pass.len(), 1);
+                assert_eq!(pass[0].field("truncated"), Some("1"));
+                assert_eq!(
+                    pass[0].field("truncated_repeatedly"),
+                    Some(repeatedly),
+                    "after {truncations_before} truncations"
+                );
+            }
         }
 
         /// A crawl that stops its source for an operator is a failed run: the pass counts it in
@@ -4256,6 +4401,7 @@ mod tests {
                     discovery_tx
                         .send(CrawlDiscovery {
                             frontier: vec![page("/category/2").url.as_url().clone()],
+                            ..CrawlDiscovery::default()
                         })
                         .unwrap();
                     Ok(SpiderCrawl {

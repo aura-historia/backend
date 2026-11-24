@@ -400,6 +400,13 @@ impl SpiderServiceImpl {
             warn_in_source!("Spider crawl reported no frontier; keeping the previous one");
             return;
         };
+        if discovery.dropped > 0 {
+            warn_in_source!(
+                frontier_urls = discovery.frontier.len(),
+                frontier_dropped = discovery.dropped,
+                "The crawl frontier exceeds its cap; the newest unvisited links are not kept"
+            );
+        }
         match self
             .frontier_repository
             .replace_frontier(root, &discovery.frontier)
@@ -1185,7 +1192,7 @@ impl SpiderServiceImpl {
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
             known_product_urls_skipped: ended.skipped_known_products(),
-            frontier: FrontierProgress::after(discovery),
+            frontier: frontier_progress(diagnostics, discovery),
             db_wait,
             ran_out_of_time: diagnostics.ran_out_of_time,
         })
@@ -1311,6 +1318,14 @@ fn log_pattern_classified(
     }
 }
 
+/// The frontier the crawl continued and what it left of it.
+fn frontier_progress(
+    diagnostics: &CrawlDiagnostics,
+    discovery: Option<&CrawlDiscovery>,
+) -> FrontierProgress {
+    FrontierProgress::after(diagnostics.seeds, diagnostics.frontier_deferred, discovery)
+}
+
 /// Coverage losses on a crawl that delivered pages are only visible here.
 fn log_crawl_outcome(
     state: &CrawlRunState,
@@ -1321,6 +1336,7 @@ fn log_crawl_outcome(
     db_wait: Duration,
 ) {
     let completion = diagnostics.completion;
+    let frontier = frontier_progress(diagnostics, discovery);
     info!(
         event = CRAWL_COMPLETED_EVENT,
         listing_source_id = %state.source.listing_source_id,
@@ -1342,6 +1358,9 @@ fn log_crawl_outcome(
         query_url_share = state.query_url_share(),
         status_counts = ?diagnostics.status_counts,
         frontier_left = discovery.map(|discovery| discovery.frontier.len()),
+        frontier_carried = frontier.carried,
+        frontier_deferred = frontier.deferred,
+        frontier_dropped = frontier.dropped,
         db_wait_ms = u64::try_from(db_wait.as_millis()).unwrap_or(u64::MAX),
         diagnostic_reason = diagnostics.diagnostic_reason,
         stopped_early = diagnostics.stopped_early.map(CrawlStopReason::as_str),
@@ -1410,7 +1429,9 @@ fn log_failed_run_frontier(
         completion = %diagnostics.completion,
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
+        frontier_deferred = diagnostics.frontier_deferred,
         frontier_left = discovery.map(|discovery| discovery.frontier.len()),
+        frontier_dropped = discovery.map(|discovery| discovery.dropped),
         root_reroot = ?diagnostics.root_reroot,
         pages_received = diagnostics.pages_received,
         bot_challenge_pages = diagnostics.bot_challenge_pages,
@@ -1821,6 +1842,7 @@ mod service_tests {
             one_product_and_listing_pages(),
             CrawlDiscovery {
                 frontier: vec![example("/deep/2")],
+                ..CrawlDiscovery::default()
             },
         );
         let service = SpiderServiceImpl::new(
@@ -2243,6 +2265,7 @@ mod service_tests {
             vec!["/".to_string()],
             CrawlDiscovery {
                 frontier: vec![example("/deep/1")],
+                ..CrawlDiscovery::default()
             },
         );
         let service = SpiderServiceImpl::new(
@@ -2293,6 +2316,7 @@ mod service_tests {
             paths,
             CrawlDiscovery {
                 frontier: vec![example("/deep/2")],
+                ..CrawlDiscovery::default()
             },
             diagnostics,
         );

@@ -34,7 +34,7 @@ use crate::network::robots::RobotsPolicy;
 use crate::network::robots_directives::PageDirectives;
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
-    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, MAX_FRONTIER_URLS, SeedAdmission,
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, MAX_SEED_URLS, SeedAdmission,
 };
 use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
@@ -423,6 +423,9 @@ pub struct CrawlDiagnostics {
     /// Seed URLs carried over from the previous crawl, which the crawl visits
     /// after link discovery from the root.
     pub seeds: usize,
+    /// URLs of the stored frontier beyond the seeds Spider takes, carried over without being
+    /// seeded (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    pub frontier_deferred: usize,
     /// Known product pages the delivered pages link that the crawl did not
     /// fetch, each page once: the stored ones an incremental crawl skips and
     /// those the crawl's sitemaps registered.
@@ -1522,7 +1525,7 @@ struct CrawlSeedUrls {
 
 /// The sitemap seeds a crawl may hand Spider besides its `frontier` seeds: admitted like any
 /// seed, without those already among the frontier seeds, so that both together stay within
-/// [`MAX_FRONTIER_URLS`].
+/// [`MAX_SEED_URLS`].
 fn sitemap_seeds(
     admission: &SeedAdmission<'_>,
     listed: &[Url],
@@ -1530,10 +1533,10 @@ fn sitemap_seeds(
 ) -> Vec<String> {
     let carried: HashSet<&str> = frontier.iter().map(String::as_str).collect();
     admission
-        .admit_all(listed)
+        .admit_up_to(listed, MAX_SEED_URLS)
         .into_iter()
         .filter(|seed| !carried.contains(seed.as_str()))
-        .take(MAX_FRONTIER_URLS.saturating_sub(frontier.len()))
+        .take(MAX_SEED_URLS.saturating_sub(frontier.len()))
         .collect()
 }
 
@@ -1612,7 +1615,11 @@ async fn run_library_crawl(
     if root_accepted && completion == CrawlCompletion::Completed && !seeds.sitemaps.is_empty() {
         found.stop_recording();
         let visited = website.get_links();
-        let pending = found.unvisited_among(&seeds.sitemaps, |link| visited.contains(link));
+        let pending = found.unvisited_among(
+            &seeds.sitemaps,
+            |link| visited.contains(link),
+            MAX_SEED_URLS,
+        );
         stopped = crawl_extra_links(&mut website, pending, &bounds, remaining(), &stop).await;
     }
     let completion = match stopped {
@@ -2078,10 +2085,11 @@ impl SpiderImpl {
                 .iter()
                 .map(|page| page.as_url().clone()),
         );
-        let seed_urls = admission.admit_all(&seeds.frontier);
-        let sitemap_seed_urls = sitemap_seeds(&admission, &registration.seeds, &seed_urls);
+        let frontier_seeds = admission.frontier_seeds(&seeds.frontier);
+        let sitemap_seed_urls =
+            sitemap_seeds(&admission, &registration.seeds, &frontier_seeds.seeded);
         sitemap_listing.diagnostics.seeds = sitemap_seed_urls.len();
-        let link_discovery_duration = match seed_urls.is_empty() {
+        let link_discovery_duration = match frontier_seeds.seeded.is_empty() {
             true => crawl_duration,
             false => crawl_duration / LINK_DISCOVERY_BUDGET_DIVISOR,
         };
@@ -2136,9 +2144,10 @@ impl SpiderImpl {
         let stop_crawl = Arc::new(Notify::new());
         let crawl_stop = Arc::clone(&stop_crawl);
         let (root_verdict, root_judgement) = watch::channel(None);
-        let seed_count = seed_urls.len();
+        let seed_count = frontier_seeds.seeded.len();
+        let frontier_deferred = frontier_seeds.deferred.len();
         let crawl_found_links = found_links.clone();
-        let frontier_seeds = seed_urls.clone();
+        let seed_urls = frontier_seeds.seeded.clone();
         let sitemap_rate_limit = sitemap_listing.rate_limit;
         // A rate-limit answer to a sitemap request, or the crawler's shutdown while the crawl read
         // the sitemaps, stops the crawl before Spider starts.
@@ -2193,6 +2202,7 @@ impl SpiderImpl {
             request_delay_ms: delay_millis,
             crawl_budget_ms: u64::try_from(full_crawl_duration.as_millis()).unwrap_or(u64::MAX),
             seeds: seed_count,
+            frontier_deferred,
             root_reroot,
             sitemaps: sitemap_listing.diagnostics,
             ..CrawlDiagnostics::default()
@@ -2231,9 +2241,7 @@ impl SpiderImpl {
                         diagnostics.stopped_early = stop_requested;
                     }
                     // Every page is relayed by now, so its links are known.
-                    let discovery = CrawlDiscovery {
-                        frontier: found_links.frontier(&frontier_seeds, known_pages.known()),
-                    };
+                    let discovery = found_links.frontier(&frontier_seeds, known_pages.known());
                     diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
                     diagnostics.known_fetches_saved = known_pages.answered_links();
                     diagnostics.ran_out_of_time = !outcome.stopped
@@ -4919,6 +4927,46 @@ mod tests {
         assert_eq!(seeds_fetched, 2, "{requests:?}");
         assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
         assert_eq!(discovery.frontier.len(), 9, "{discovery:?}");
+    }
+
+    /// A frontier larger than the seeds Spider takes is not cut at the seed limit: the crawl
+    /// seeds the longest-waiting URLs and carries the rest over for a later crawl.
+    #[tokio::test]
+    async fn should_carry_the_frontier_beyond_the_seed_limit_over_unseeded() {
+        let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+            SiteResponse::Html("200 OK", "<p>p</p>".to_string())
+        }))
+        .await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 3,
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let frontier: Vec<Url> = (0..MAX_SEED_URLS + 2)
+            .map(|i| example(&format!("/seed/{i}")))
+            .collect();
+        let beyond_seed_limit = frontier[MAX_SEED_URLS..].to_vec();
+        let seeds = CrawlSeeds {
+            frontier,
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        site.finish().await;
+
+        assert_eq!(diagnostics.seeds, MAX_SEED_URLS);
+        assert_eq!(diagnostics.frontier_deferred, 2);
+        assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
+        assert_eq!(
+            discovery.frontier.len(),
+            MAX_SEED_URLS + 2 - (delivered.len() - 1),
+            "every seed the crawl did not deliver is left: {delivered:?}"
+        );
+        assert_eq!(
+            discovery.frontier[MAX_SEED_URLS - (delivered.len() - 1)..],
+            beyond_seed_limit
+        );
+        assert_eq!(discovery.dropped, 0);
     }
 
     /// Spider counts the link as written visited, while the page arrives under the spelling the

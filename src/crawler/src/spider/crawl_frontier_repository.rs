@@ -14,6 +14,7 @@ use crate::spider::classification::url_metadata_repository::{
     UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
 };
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
+use crate::spider::discovery::frontier::MAX_FRONTIER_URLS;
 use crate::spider::utils::url::CrawledUrl;
 
 /// Most known product URLs an incremental crawl skips; a larger shop's further product pages are
@@ -43,8 +44,9 @@ pub trait CrawlFrontierRepository: Send + Sync {
         listing_source_id: &ListingSourceId,
     ) -> Result<(), UrlMetadataRepositoryError>;
 
-    /// The URLs the source's previous crawl left unvisited, without any whose page the crawler
-    /// retired as a duplicate since, under either trailing-slash spelling.
+    /// The URLs the source's previous crawls left unvisited, the longest-waiting first, at most
+    /// [`MAX_FRONTIER_URLS`], without any whose page the crawler retired as a duplicate since,
+    /// under either trailing-slash spelling.
     async fn load_frontier(
         &self,
         listing_source_id: &ListingSourceId,
@@ -58,7 +60,8 @@ pub trait CrawlFrontierRepository: Send + Sync {
     ) -> Result<KnownUrls, sqlx::Error>;
 
     /// Replaces the source's frontier with what its latest crawl, of `root`, left unvisited,
-    /// while the source still has that crawl root.
+    /// while the source still has that crawl root. A URL already stored keeps the time it was
+    /// first left unvisited.
     async fn replace_frontier(
         &self,
         root: &CrawledRoot,
@@ -127,9 +130,11 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
             sqlx::query_scalar::<_, String>(
                 "SELECT url FROM listing_source_crawl_frontier
                  WHERE listing_source_id = $1
-                 ORDER BY url",
+                 ORDER BY found_at, url
+                 LIMIT $2",
             )
             .bind(listing_source_id.as_uuid())
+            .bind(i64::try_from(MAX_FRONTIER_URLS).unwrap_or(i64::MAX))
             .fetch_all(&self.pool)
             .await?,
         )?;
