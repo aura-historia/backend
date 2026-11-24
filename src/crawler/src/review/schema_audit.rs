@@ -14,6 +14,8 @@ use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::rule::{ExtractionKind, ExtractionRule};
 use std::collections::{BTreeSet, HashMap};
 
+mod title_hints;
+
 /// The reason of a product-schema review the audit opens. While one is pending, the
 /// ListingSource's listings that were never captured wait, so none takes the defect into its
 /// permanent slug; captured listings keep updating.
@@ -107,8 +109,9 @@ impl SchemaAuditFindings {
 /// Audits the ListingSource's `live_schemas` on its `sampled` captured product pages: every
 /// finding the approval guard refuses an agent's approval for, except price text in a `state`,
 /// which runtime capture accepts and an approval may have accepted on a status slot, and an
-/// identity that is the page URL the listings were captured under; and the title source of every
-/// schema. A page that could not be fetched is left out; with none fetched the audit finds nothing.
+/// identity that is the page URL the listings were captured under; the title source of every
+/// schema; and the [title hints](title_hints) the agents judge. A page that could not be fetched
+/// is left out; with none fetched the audit finds nothing.
 pub(crate) fn audit_live_schemas(
     listing_source_name: &str,
     live_schemas: &[ProductCssSelectorSchema],
@@ -157,7 +160,16 @@ pub(crate) fn audit_live_schemas(
         .iter()
         .filter_map(|schema| schema.title.as_ref().and_then(TitleSource::of))
         .map(|source| format!("title {}", source.code()));
-    SchemaAuditFindings(page_findings.into_iter().chain(title_sources).collect())
+    let title_hints = title_hints::title_hints(&matrix)
+        .into_iter()
+        .map(str::to_owned);
+    SchemaAuditFindings(
+        page_findings
+            .into_iter()
+            .chain(title_sources)
+            .chain(title_hints)
+            .collect(),
+    )
 }
 
 /// The `field CHECK` codes of the findings that keep `page` out of approval, price text in a
@@ -354,6 +366,27 @@ mod tests {
                 findings.codes(),
                 vec!["source_listing_id DIFFERS_FROM_CAPTURED_IDENTITY"]
             );
+        }
+
+        /// Burbri Antiek's heading adds the article number, which is also the product's identity.
+        /// The audit names it for the agents; it blocks no approval.
+        #[test]
+        fn should_hint_at_a_heading_that_holds_the_product_identity() {
+            let sampled: Vec<SampledCapturedPage> = ["2118031", "2118047"]
+                .into_iter()
+                .map(|id| {
+                    let mut page = captured(id, "Antiek hek", "In stock");
+                    page.html = page.html.map(|html| {
+                        html.replace("<h4>Antiek hek</h4>", &format!("<h4>Antiek hek {id}</h4>"))
+                    });
+                    page
+                })
+                .collect();
+
+            let findings =
+                audit_live_schemas("Burbri Antiek", &[schema_with_title(text("h4"))], &sampled);
+
+            assert_eq!(findings.codes(), vec![title_hints::HOLDS_IDENTITY]);
         }
 
         #[test]

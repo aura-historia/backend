@@ -18,6 +18,46 @@ use std::time::Duration;
 pub struct SchemaAuditSource {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: String,
+    /// What a human asked the audit to have repaired, when a human requested the audit.
+    pub request_note: Option<String>,
+}
+
+/// The note of a human's request for an audit: what the review agents should repair, trimmed,
+/// 1 to [`Self::MAX_CHARS`] characters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaAuditRequestNote(String);
+
+/// A request note that is blank or longer than [`SchemaAuditRequestNote::MAX_CHARS`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("a schema audit request needs a note of 1 to {max} characters", max = SchemaAuditRequestNote::MAX_CHARS)]
+pub struct InvalidSchemaAuditRequestNote;
+
+impl SchemaAuditRequestNote {
+    pub const MAX_CHARS: usize = 500;
+
+    pub fn parse(note: &str) -> Result<Self, InvalidSchemaAuditRequestNote> {
+        let note = note.trim();
+        if note.is_empty() || note.chars().count() > Self::MAX_CHARS {
+            return Err(InvalidSchemaAuditRequestNote);
+        }
+        Ok(Self(note.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Whether the ListingSource `listing_sources s` waits for an audit a human requested: no audit
+/// ran since the request, or the last one, which could not open the review, ran more than a day
+/// ago.
+macro_rules! requested_audit_due {
+    () => {
+        "(s.schema_audit_requested_at IS NOT NULL
+          AND (s.schema_audited_at IS NULL
+               OR s.schema_audited_at < s.schema_audit_requested_at
+               OR s.schema_audited_at < NOW() - INTERVAL '1 day'))"
+    };
 }
 
 /// Where an audit's review went.
@@ -52,17 +92,18 @@ impl CrawlerReviewRepository {
     }
 
     /// At most `limit` crawl-enabled ListingSources with live product schemas and no pending
-    /// product-schema review whose schemas were never audited, or not within `audit_age`: those
-    /// never audited first, then the longest ago. A source whose scrape circuit cools down is left
-    /// to the scraper, and one whose audit review was decided within `audit_age` is not due, so a
+    /// product-schema review whose schemas a human asked to have audited, or that were never
+    /// audited or not within `audit_age`: those a human asked for first, then those never audited,
+    /// then the longest ago. A source whose scrape circuit cools down is left to the scraper, and
+    /// one whose audit review was decided within `audit_age` is not due unless a human asks, so a
     /// review decided long after it was opened is not reopened at once.
     pub async fn schema_audit_due_sources(
         &self,
         audit_age: Duration,
         limit: i64,
     ) -> Result<Vec<SchemaAuditSource>, ReviewRepositoryError> {
-        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
-            "SELECT s.listing_source_id, s.listing_source_name
+        let rows: Vec<(uuid::Uuid, String, Option<String>)> = sqlx::query_as(concat!(
+            "SELECT s.listing_source_id, s.listing_source_name, s.schema_audit_request_note
              FROM listing_sources s
              WHERE s.crawl_enabled = TRUE
                AND s.crawl_host IS NOT NULL
@@ -79,28 +120,34 @@ impl CrawlerReviewRepository {
                AND (s.scrape_failure_streak = 0
                     OR s.next_scrape_at IS NULL
                     OR s.next_scrape_at <= NOW())
-               AND (s.schema_audited_at IS NULL
-                    OR s.schema_audited_at < NOW() - make_interval(secs => $1))
-               AND NOT EXISTS (
-                   SELECT 1 FROM crawler_reviews decided
-                   WHERE decided.listing_source_id = s.listing_source_id
-                     AND decided.artifact_type = 'PRODUCT_SCHEMA'
-                     AND decided.reason = $3
-                     AND decided.status IN ('APPROVED', 'REJECTED')
-                     AND decided.reviewed > NOW() - make_interval(secs => $1))
-             ORDER BY s.schema_audited_at ASC NULLS FIRST, s.listing_source_id
+               AND (",
+            requested_audit_due!(),
+            "
+                    OR ((s.schema_audited_at IS NULL
+                         OR s.schema_audited_at < NOW() - make_interval(secs => $1))
+                        AND NOT EXISTS (
+                            SELECT 1 FROM crawler_reviews decided
+                            WHERE decided.listing_source_id = s.listing_source_id
+                              AND decided.artifact_type = 'PRODUCT_SCHEMA'
+                              AND decided.reason = $3
+                              AND decided.status IN ('APPROVED', 'REJECTED')
+                              AND decided.reviewed > NOW() - make_interval(secs => $1))))
+             ORDER BY ",
+            requested_audit_due!(),
+            " DESC, s.schema_audited_at ASC NULLS FIRST, s.listing_source_id
              LIMIT $2",
-        )
+        ))
         .bind(audit_age.as_secs_f64())
         .bind(limit)
         .bind(SCHEMA_AUDIT_REASON)
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
-            .map(|(listing_source_id, listing_source_name)| {
+            .map(|(listing_source_id, listing_source_name, request_note)| {
                 Ok(SchemaAuditSource {
                     listing_source_id: listing_source_id_from_uuid(listing_source_id)?,
                     listing_source_name,
+                    request_note,
                 })
             })
             .collect()
@@ -118,6 +165,32 @@ impl CrawlerReviewRepository {
             self.live_schemas(listing_source_id).await?,
             self.captured_product_urls(listing_source_id, &[]).await?,
         ))
+    }
+
+    /// Records a human's request that the live schema audit reopen the ListingSource for the
+    /// review agents with `note`, what they should repair, replacing an earlier request. The audit
+    /// takes the source in its next pass, ahead of the others, once no product-schema review of it
+    /// is pending.
+    pub async fn request_schema_audit(
+        &self,
+        listing_source_id: &ListingSourceId,
+        note: &SchemaAuditRequestNote,
+    ) -> Result<(), ReviewRepositoryError> {
+        let updated = sqlx::query(
+            "UPDATE listing_sources
+             SET schema_audit_requested_at = NOW(), schema_audit_request_note = $2
+             WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(note.as_str())
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(ReviewRepositoryError::ListingSourceNotFound(
+                *listing_source_id,
+            ));
+        }
+        Ok(())
     }
 
     /// Records that the ListingSource's live schemas were audited now. The audit records it
@@ -181,8 +254,9 @@ impl CrawlerReviewRepository {
     }
 
     /// Opens the product-schema review of an audit that found `findings` in the ListingSource's
-    /// `live_schemas` on its captured product `pages`: the candidate is the live schemas, so the
-    /// review agents repair them as they stand, and the review records the findings. When the
+    /// `live_schemas` on its captured product `pages`, or that a human requested with
+    /// `request_note`: the candidate is the live schemas, so the review agents repair them as they
+    /// stand, and the review records the findings and the note. Opening it settles the request. When the
     /// scraper opened a product-schema review for the source since the audit took it, the audit
     /// opens none and clears its record, so the source is audited again once that review is
     /// decided; a scraper review opened in the moment between the check and the insert is joined,
@@ -193,6 +267,7 @@ impl CrawlerReviewRepository {
         live_schemas: &[ProductCssSelectorSchema],
         pages: Vec<SchemaReviewPageInput>,
         findings: &[String],
+        request_note: Option<&str>,
     ) -> Result<SchemaAuditReview, ReviewRepositoryError> {
         if self.has_pending_schema_review(listing_source_id).await? {
             self.clear_schema_audit(listing_source_id).await?;
@@ -208,6 +283,7 @@ impl CrawlerReviewRepository {
                 json!({
                     "schema_audit": {
                         "findings": findings,
+                        "request_note": request_note,
                         "page_count": page_count,
                     }
                 }),
@@ -219,6 +295,14 @@ impl CrawlerReviewRepository {
                 .fetch_one(&self.pool)
                 .await?;
         if reason == SCHEMA_AUDIT_REASON {
+            sqlx::query(
+                "UPDATE listing_sources
+                 SET schema_audit_requested_at = NULL, schema_audit_request_note = NULL
+                 WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&self.pool)
+            .await?;
             Ok(SchemaAuditReview::Opened(review_id))
         } else {
             self.clear_schema_audit(listing_source_id).await?;
@@ -257,6 +341,14 @@ impl CrawlerReviewRepository {
     }
 }
 
+/// What a human asked the audit review to repair, as its validation summary records it; `None`
+/// for a review the audit opened on its own, and for another review.
+pub(crate) fn audit_request_note_of(validation_summary: &serde_json::Value) -> Option<String> {
+    validation_summary["schema_audit"]["request_note"]
+        .as_str()
+        .map(str::to_owned)
+}
+
 /// The findings an audit review's validation summary records, as `field CHECK` codes; none for
 /// another review.
 pub(crate) fn audit_findings_of(validation_summary: &serde_json::Value) -> Vec<String> {
@@ -269,4 +361,28 @@ pub(crate) fn audit_findings_of(validation_summary: &serde_json::Value) -> Vec<S
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_take_a_trimmed_note_of_one_to_the_maximum_characters() {
+        let longest = "a".repeat(SchemaAuditRequestNote::MAX_CHARS);
+
+        assert_eq!(
+            SchemaAuditRequestNote::parse("  Titles lost the dating.  ").map(|note| note.0),
+            Ok("Titles lost the dating.".to_owned())
+        );
+        assert!(SchemaAuditRequestNote::parse(&longest).is_ok());
+        assert_eq!(
+            SchemaAuditRequestNote::parse(&format!("{longest}a")),
+            Err(InvalidSchemaAuditRequestNote)
+        );
+        assert_eq!(
+            SchemaAuditRequestNote::parse(" \n"),
+            Err(InvalidSchemaAuditRequestNote)
+        );
+    }
 }

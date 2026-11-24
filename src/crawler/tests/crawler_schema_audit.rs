@@ -161,7 +161,7 @@ async fn open(
     host: &str,
 ) -> crawler::CrawlerReviewId {
     match repository
-        .open_schema_audit_review(source, live, audited_pages(host), &findings())
+        .open_schema_audit_review(source, live, audited_pages(host), &findings(), None)
         .await
         .unwrap()
     {
@@ -174,6 +174,7 @@ fn due_source(listing_source_id: ListingSourceId, name: &str) -> SchemaAuditSour
     SchemaAuditSource {
         listing_source_id,
         listing_source_name: name.to_owned(),
+        request_note: None,
     }
 }
 
@@ -311,7 +312,13 @@ async fn should_defer_to_a_schema_review_the_scraper_opened_meanwhile() {
         .unwrap();
 
     let opened = repository
-        .open_schema_audit_review(&source, &live, audited_pages("shop.example"), &findings())
+        .open_schema_audit_review(
+            &source,
+            &live,
+            audited_pages("shop.example"),
+            &findings(),
+            None,
+        )
         .await
         .unwrap();
 
@@ -363,6 +370,7 @@ async fn should_accept_the_findings_of_every_audit_review_that_judged_the_same_l
             &live,
             audited_pages("shop.example"),
             &["images NO_IMAGE_ON_ANY_PAGE".to_owned()],
+            None,
         )
         .await
         .unwrap()
@@ -378,6 +386,7 @@ async fn should_accept_the_findings_of_every_audit_review_that_judged_the_same_l
             &live,
             audited_pages("shop.example"),
             &["price TOO_LONG".to_owned()],
+            None,
         )
         .await
         .unwrap()
@@ -400,6 +409,74 @@ async fn should_accept_the_findings_of_every_audit_review_that_judged_the_same_l
             "title READS_DOCUMENT_TITLE".to_owned(),
         ]
     );
+}
+
+/// A human's request puts the source ahead of the others even right after an audit and a decided
+/// audit review, carries the note into the review it opens, and is settled by that review.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_audit_a_requested_source_first_and_carry_the_note_into_its_review() {
+    use crawler::review::repository::SchemaAuditRequestNote;
+
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let live = [schema("h1")];
+    let never = insert_source(&pool, "Never", "never.example", &live).await;
+    let requested = insert_source(&pool, "Ronald Phillips", "phillips.example", &live).await;
+    let earlier = open(&repository, &requested, &live, "phillips.example").await;
+    decide(&pool, earlier, "APPROVED", "AGENT_REVIEWER").await;
+    repository.record_schema_audit(&requested).await.unwrap();
+    let note = SchemaAuditRequestNote::parse(
+        "Titles dropped the dating and origin the page shows; keep them or capture them in rawPeriod.",
+    )
+    .unwrap();
+
+    repository
+        .request_schema_audit(&requested, &note)
+        .await
+        .unwrap();
+    let due = repository.schema_audit_due_sources(WEEK, 10).await.unwrap();
+    let review = repository
+        .open_schema_audit_review(
+            &requested,
+            &live,
+            audited_pages("phillips.example"),
+            &[],
+            Some(note.as_str()),
+        )
+        .await
+        .unwrap();
+    let missing = repository
+        .request_schema_audit(&ListingSourceId::new(), &note)
+        .await;
+
+    assert_eq!(
+        due,
+        vec![
+            SchemaAuditSource {
+                listing_source_id: requested,
+                listing_source_name: "Ronald Phillips".to_owned(),
+                request_note: Some(note.as_str().to_owned()),
+            },
+            due_source(never, "Never"),
+        ]
+    );
+    let SchemaAuditReview::Opened(review_id) = review else {
+        panic!("the audit must open its own review");
+    };
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        detail.review.validation_summary["schema_audit"]["request_note"],
+        serde_json::json!(note.as_str())
+    );
+    let request: (Option<String>,) = sqlx::query_as(
+        "SELECT schema_audit_request_note FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(requested.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(request, (None,), "the opened review settles the request");
+    assert!(missing.is_err(), "a source that does not exist is refused");
 }
 
 /// A pass audits each due source on its captured pages as the shared fetcher serves them: a title
@@ -456,11 +533,38 @@ async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_au
     });
     let audit = SchemaAudit::new(repository.clone(), Arc::new(fetcher));
 
+    let requested = insert_source(
+        &pool,
+        "Ronald Phillips",
+        "phillips.example",
+        &[schema("h1")],
+    )
+    .await;
+    for item in ["cabinet", "table"] {
+        insert_product_url(
+            &pool,
+            requested,
+            &format!("https://phillips.example/p/{item}"),
+            Some(item),
+        )
+        .await;
+    }
+    repository
+        .request_schema_audit(
+            &requested,
+            &crawler::review::repository::SchemaAuditRequestNote::parse(
+                "Titles dropped the dating the page shows.",
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
     audit.run_once(&CronStop::default()).await;
 
     let reasons: Vec<(uuid::Uuid, String, serde_json::Value)> = sqlx::query_as(
         "SELECT listing_source_id, reason, validation_summary->'schema_audit'->'findings' \
-         FROM crawler_reviews",
+         FROM crawler_reviews WHERE validation_summary->'schema_audit'->'request_note' = 'null'",
     )
     .fetch_all(&pool)
     .await
@@ -472,6 +576,23 @@ async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_au
             SCHEMA_AUDIT_REASON.to_owned(),
             serde_json::json!(["title LISTING_SOURCE_NAME", "title READS_DOCUMENT_TITLE"])
         )]
+    );
+    let requested_review: (String, serde_json::Value) = sqlx::query_as(
+        "SELECT validation_summary->'schema_audit'->>'request_note', \
+                validation_summary->'schema_audit'->'findings' \
+         FROM crawler_reviews WHERE listing_source_id = $1",
+    )
+    .bind(requested.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        requested_review,
+        (
+            "Titles dropped the dating the page shows.".to_owned(),
+            serde_json::json!([])
+        ),
+        "a requested audit opens its review though the live schemas pass every check"
     );
     assert_eq!(
         repository.schema_audit_due_sources(WEEK, 10).await.unwrap(),

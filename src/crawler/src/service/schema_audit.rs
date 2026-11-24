@@ -126,7 +126,8 @@ impl SchemaAudit {
     }
 
     /// Audits the live schemas of `source` on its sampled captured product pages and opens the
-    /// audit review when it finds what no review of these schemas accepted. The audit is recorded
+    /// audit review when it finds what no review of these schemas accepted, or when a human
+    /// requested the audit, whatever it finds. The audit is recorded
     /// first, so a source whose audit fails waits for its next audit instead of taking a place in
     /// every pass.
     async fn audit(
@@ -160,7 +161,9 @@ impl SchemaAudit {
             return Ok(AuditOutcome::Unfetched);
         }
         let findings = audit_live_schemas(&source.listing_source_name, &live_schemas, &sampled);
-        if findings.is_empty() {
+        let codes = findings.codes();
+        let request_note = source.request_note.as_deref();
+        if request_note.is_none() && findings.is_empty() {
             info!(
                 event = "crawler.schema_audit.passed",
                 listing_source_id = %listing_source_id,
@@ -170,12 +173,14 @@ impl SchemaAudit {
             );
             return Ok(AuditOutcome::Passed);
         }
-        let codes = findings.codes();
-        let accepted = self
-            .repository
-            .accepted_schema_audit_findings(listing_source_id, &live_schemas)
-            .await?;
-        if findings.accepted_by(&accepted) {
+        if request_note.is_none()
+            && findings.accepted_by(
+                &self
+                    .repository
+                    .accepted_schema_audit_findings(listing_source_id, &live_schemas)
+                    .await?,
+            )
+        {
             info!(
                 event = "crawler.schema_audit.accepted",
                 listing_source_id = %listing_source_id,
@@ -196,7 +201,13 @@ impl SchemaAudit {
             .collect();
         let review = self
             .repository
-            .open_schema_audit_review(listing_source_id, &live_schemas, pages, &codes)
+            .open_schema_audit_review(
+                listing_source_id,
+                &live_schemas,
+                pages,
+                &codes,
+                request_note,
+            )
             .await?;
         let SchemaAuditReview::Opened(review_id) = review else {
             info!(
@@ -212,6 +223,7 @@ impl SchemaAudit {
             listing_source_id = %listing_source_id,
             review_id = %review_id,
             findings = ?codes,
+            requested_by_human = request_note.is_some(),
             fetched_pages,
             "Schema audit opened a review of the live schemas; the source's new listings wait for it"
         );

@@ -15,7 +15,7 @@ use crate::review::model::{
 };
 use crate::review::page_projection::PageView;
 use crate::review::product_markup::JsonLdProductIds;
-use crate::review::repository::audit_findings_of;
+use crate::review::repository::{audit_findings_of, audit_request_note_of};
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -113,6 +113,10 @@ pub struct ReviewView {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[schemars(default)]
     pub schema_audit_findings: Vec<String>,
+    /// On a live schema audit review a human requested, what the human asked to have repaired,
+    /// such as titles that lost the dating the shop shows. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_audit_request_note: Option<String>,
     pub listing_source_id: String,
     pub listing_source_name: Option<String>,
     /// The host the review's ListingSource is crawled on, the only host whose URLs the review
@@ -627,6 +631,8 @@ impl ReviewView {
             artifact_type: review.artifact_type,
             reason: review.reason,
             schema_audit_findings: audit_findings_of(&review.validation_summary),
+            schema_audit_request_note: audit_request_note_of(&review.validation_summary)
+                .map(|text| note(&text)),
             listing_source_id: review.listing_source_id.to_string(),
             listing_source_name: review.listing_source_name,
             crawl_host: review.listing_source_crawl_host,

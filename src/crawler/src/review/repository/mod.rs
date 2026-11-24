@@ -70,8 +70,10 @@ pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
-pub(crate) use schema_audit::audit_findings_of;
-pub use schema_audit::{SchemaAuditReview, SchemaAuditSource};
+pub use schema_audit::{
+    InvalidSchemaAuditRequestNote, SchemaAuditRequestNote, SchemaAuditReview, SchemaAuditSource,
+};
+pub(crate) use schema_audit::{audit_findings_of, audit_request_note_of};
 pub use schema_payload::ProductSchemaCandidateFailure;
 pub use source_park::MAX_PARK_RETRIES_PER_CALL;
 pub(crate) use source_qualification::{AGENT_RETRY_DUE, agent_final_round_due};
