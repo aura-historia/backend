@@ -35,6 +35,11 @@ const MAX_LABEL_CHARS: usize = 100;
 /// product; a label and its code, such as "Ref A12", stay below it.
 const MIN_WORD_LIST_WORDS: usize = 3;
 
+/// Fewest pages whose `state` reads price text before that is how a schema reads its `state`
+/// rather than an odd page, as long as they are also more than half of the pages it applied to
+/// ([`price_text_on_most_states`]). One page is never enough, however few pages were checked.
+const MIN_PRICE_TEXT_STATE_PAGES: usize = 2;
+
 /// A raw extracted field, named as in the product schema.
 ///
 /// A stored name reads back through [`PlausibilityField::from_stored`]: a core field name or a
@@ -211,7 +216,9 @@ impl PlausibilityFinding {
         };
         match (&self.field, self.check) {
             // Live schemas that read a price element keep capturing; the matrix shows the finding
-            // and `blocks_approval` keeps such a candidate out of approval.
+            // and `blocks_approval` keeps such a candidate out of approval. Where it is on most
+            // of a schema's pages (`price_text_on_most_states`) the live schema audit reopens the
+            // source for repair, but a page never rejects the candidate.
             (State, PlausibilityCheck::PriceText) => PlausibilityImpact::ReportOnly,
             // Every field is optional: a page that leaves its title or state empty is captured
             // without it, as without the element.
@@ -400,6 +407,28 @@ impl fmt::Display for PlausibilityFindings {
         }
         Ok(())
     }
+}
+
+/// Whether price text in `state` is how a schema reads its `state` rather than an odd page: of
+/// the `applied_pages`, the findings of each page the schema applied to, more than half and at
+/// least [`MIN_PRICE_TEXT_STATE_PAGES`] report it. Such a schema leaves most listings without an
+/// availability, so neither an approval nor the live schema audit accepts it, not even on a
+/// status slot; a smaller share is a page variant, such as a sold page whose label the price
+/// element shows.
+pub fn price_text_on_most_states<'a>(
+    applied_pages: impl IntoIterator<Item = &'a PlausibilityFindings>,
+) -> bool {
+    let (pages, price_text_pages) = applied_pages.into_iter().fold(
+        (0_usize, 0_usize),
+        |(pages, price_text_pages), findings| {
+            let price_text = findings
+                .as_slice()
+                .iter()
+                .any(PlausibilityFinding::is_price_text_on_state);
+            (pages + 1, price_text_pages + usize::from(price_text))
+        },
+    );
+    price_text_pages >= MIN_PRICE_TEXT_STATE_PAGES && price_text_pages * 2 > pages
 }
 
 /// Runs on the extracted identity, before the URL-hash fallback replaces a blank one.
@@ -658,12 +687,13 @@ fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
 }
 
 /// Whether the ProductListing normalization resolves `state`, or what is left of it once the
-/// amount and its connectors are taken away ("Sold for £500" leaves "Sold"), to an availability.
+/// amount, a dash in place of its cents, and its connectors are taken away ("Sold for £500" and
+/// "Verkocht 195,-" leave "Sold" and "Verkocht"), to an availability.
 /// The labels are the normalization's, so the exemption cannot drift from what it resolves;
 /// the cart and enquiry actions it does not resolve stay with the caller.
 fn is_status_label_beside_amount(state: &str) -> bool {
     let amount_and_connectors = regex!(
-        r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
+        r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b(?:[.,](?:--?|[–—]))?|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
     );
     resolves_to_availability(state)
         || resolves_to_availability(&amount_and_connectors.replace_all(state, " "))
@@ -678,9 +708,11 @@ fn resolves_to_availability(text: &str) -> bool {
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113",
-/// "Sold for £500" or a range such as "1.000 bis 1.500 €": the amount detector of the `state`
-/// check, which the review's page signals reuse to tell that a page shows a price. Unlike the `state` check it ignores status labels,
-/// because a price element that says "Sold for £500" still shows a price.
+/// "Sold for £500" or a range such as "1.000 bis 1.500 €", or a whole amount with a dash in place
+/// of the cents, such as "195,-" or "1250.-", which the ProductListing normalization reads as a
+/// price without a currency marker: the amount detector of the `state` check, which the review's
+/// page signals reuse to tell that a page shows a price. Unlike the `state` check it ignores
+/// status labels, because a price element that says "Sold for £500" still shows a price.
 pub(crate) fn is_price_text(text: &str) -> bool {
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
     let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪円원]");
@@ -691,10 +723,22 @@ pub(crate) fn is_price_text(text: &str) -> bool {
     );
     let labelled = regex!(r"(?i)\b(?:price|prijs|preis|prix|precio|prezzo)\b\W{0,3}\d");
     symbol_before.is_match(text)
+        || has_zero_cents_dash_amount(text)
         || symbol_after.is_match(text)
         || code_before.is_match(text)
         || code_or_word_after.is_match(text)
         || labelled.is_match(text)
+}
+
+/// Whether `text` holds a whole amount written with a dash in place of the cents, as German, Swiss
+/// and Dutch shops print it (`195,-`, `1250.-`, `1.200,–`, `1'250.--`), the way the ProductListing
+/// normalization drops that dash before it reads the amount. The dash ends the amount: what follows
+/// is the end, a currency or punctuation, or a word after a space (`195,- EUR`), never a digit or a
+/// letter run into it, so a day range (`12.-14. Mai`, `24.- 26.`) or an ordinal compound
+/// (`2.-Klasse`) is no amount.
+fn has_zero_cents_dash_amount(text: &str) -> bool {
+    regex!(r"\d[.,](?:--?|[\u{2013}\u{2014}])(?:\s*(?:$|[^\s\w\-\u{2013}\u{2014}])|\s+[^\d\s\-\u{2013}\u{2014}])")
+        .is_match(text)
 }
 
 /// Compares the primary candidate of each ordered image candidate group, so the same
@@ -879,7 +923,6 @@ mod tests {
         /// A status slot shows a bare amount on a live page, and a stock count is a number.
         #[rstest::rstest]
         #[case("450")]
-        #[case("1.200,-")]
         #[case("0")]
         #[case("1")]
         fn should_accept_a_letterless_state_with_a_digit(#[case] state: &str) {
@@ -1081,6 +1124,14 @@ mod tests {
                 "€ 1.000 – 1.500",
                 "1.000 bis 1.500 €",
                 "700円",
+                "195,-",
+                "1250.-",
+                "1.200,-",
+                "1.250,–",
+                "1'250.--",
+                "€ 195,-",
+                "195,- EUR",
+                "2490,-€",
             ] {
                 let mut raw = plausible();
                 raw.state = Some(price.to_owned());
@@ -1089,6 +1140,24 @@ mod tests {
 
                 assert_eq!(findings.as_slice(), [finding(State, PriceText)], "{price}");
             }
+        }
+
+        /// A dash ends a whole amount only where nothing but a currency, punctuation, a word after
+        /// a space or the end follows it; a day range, an ordinal compound, a date or a reference
+        /// is no amount.
+        #[rstest::rstest]
+        #[case("12.-14. Mai")]
+        #[case("24.- 26. Oktober")]
+        #[case("2.-Klasse")]
+        #[case("100,-200")]
+        #[case("Art.-Nr. 12")]
+        #[case("2023-11-24")]
+        #[case("24.11.2026")]
+        #[case("Mo.-Fr. 10-18 Uhr")]
+        #[case("Sold")]
+        #[case("Lot 57-8150")]
+        fn should_not_read_other_dashes_or_dates_as_an_amount(#[case] text: &str) {
+            assert!(!is_price_text(text), "{text}");
         }
 
         #[test]
@@ -1104,6 +1173,7 @@ mod tests {
                 "Buy now - £1,800",
                 "Enquire about this item (£450)",
                 "In winkelwagen € 95",
+                "Verkocht 195,-",
             ] {
                 let mut raw = plausible();
                 raw.state = Some(state.to_owned());
@@ -1473,6 +1543,41 @@ mod tests {
             raw.raw_attributes = [("rawMaterial".to_owned(), vec!["Oak".to_owned()])].into();
 
             assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+    }
+
+    mod price_text_on_most_states {
+        use super::*;
+
+        fn pages(states: &[&str]) -> Vec<PlausibilityFindings> {
+            states
+                .iter()
+                .map(|state| {
+                    let mut raw = plausible();
+                    raw.state = Some((*state).to_owned());
+                    PlausibilityFindings::of(&raw)
+                })
+                .collect()
+        }
+
+        #[rstest::rstest]
+        #[case::every_page(&["2 800 €", "195,-", "£795.00"])]
+        #[case::most_pages(&["2 800 €", "Sold", "195,-"])]
+        #[case::three_of_five(&["€100.00", "Sold", "€85.00", "In stock", "€40.00"])]
+        fn should_find_price_text_on_most_states(#[case] states: &[&str]) {
+            assert!(price_text_on_most_states(&pages(states)), "{states:?}");
+        }
+
+        /// One odd page, or price text on no more than half the pages, such as a status slot whose
+        /// review pages include as many sold pages, is a page variant the finding reports.
+        #[rstest::rstest]
+        #[case::one_of_three(&["2 800 €", "Sold", "In stock"])]
+        #[case::half(&["2 800 €", "Sold", "195,-", "Reserved"])]
+        #[case::the_only_page(&["2 800 €"])]
+        #[case::none(&["Sold", "In stock"])]
+        #[case::no_page(&[])]
+        fn should_not_find_price_text_on_most_states(#[case] states: &[&str]) {
+            assert!(!price_text_on_most_states(&pages(states)), "{states:?}");
         }
     }
 

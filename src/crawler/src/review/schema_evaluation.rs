@@ -17,6 +17,7 @@ use crate::scraper::css_selector::removed_page_schema::{
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
+    price_text_on_most_states,
 };
 use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
 use scraper::{Html, Selector};
@@ -374,7 +375,9 @@ pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> 
 
 /// Which price text in a candidate's `state` a decision accepts. It is resolved per candidate
 /// ([`for_candidate`](Self::for_candidate)) into the [`PriceTextOnState`] the candidate's pages
-/// are judged by.
+/// are judged by. Price text on most of the pages the candidate applies to
+/// ([`price_text_on_most_states`]) is never accepted: such a rule leaves most listings without an
+/// availability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PriceTextAcceptance {
     /// None: deterministic approval refuses every page's price text.
@@ -382,14 +385,27 @@ pub(crate) enum PriceTextAcceptance {
     /// Price text on a status slot, a `state` rule that resolves to sold or unavailable on another
     /// page: the review agent's [approval guard](crate::review::approval_guard).
     OnStatusSlot,
+    /// Any price text short of most pages, which runtime capture accepts: the [live schema
+    /// audit](crate::review::schema_audit), so an odd page does not reopen a source.
+    ShortOfMostPages,
 }
 
 impl PriceTextAcceptance {
     /// Whether the price text in the `state` of the candidate evaluated on `pages` is accepted.
     pub(crate) fn for_candidate(self, pages: &[SchemaPageEvaluation]) -> PriceTextOnState {
-        match self {
-            Self::OnStatusSlot if candidate_has_sold_state(pages) => PriceTextOnState::Accepted,
-            Self::Never | Self::OnStatusSlot => PriceTextOnState::Blocks,
+        let accepted = match self {
+            Self::Never => false,
+            Self::OnStatusSlot => candidate_has_sold_state(pages),
+            Self::ShortOfMostPages => true,
+        };
+        let applied_pages = pages
+            .iter()
+            .filter(|page| page.apply_ok && page.extracted.is_some())
+            .map(|page| &page.plausibility_findings);
+        if accepted && !price_text_on_most_states(applied_pages) {
+            PriceTextOnState::Accepted
+        } else {
+            PriceTextOnState::Blocks
         }
     }
 }
