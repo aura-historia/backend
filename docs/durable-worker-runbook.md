@@ -526,6 +526,10 @@ resolution worker back past that release: an older recovery sweep stops for ever
 and older reads of an affected address fail. Fix forward, or first ship a reviewed release that
 detaches selected-place bindings.
 
+Likewise, once a resolution has been accepted although its submitted subdivision was not derived,
+older binaries re-validate that evidence as invalid persisted state. Do not roll the API or
+the resolution worker back past the release that relaxed the subdivision rule.
+
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
 deadline and circuit state. Monitor resolution reuse/outcomes, oldest pending age, maintenance
 counts, scope age, depth and custody, and cleanup failures. Structured log fields are observations, not
