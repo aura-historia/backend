@@ -19,7 +19,9 @@ use crate::spider::classification::url_pattern_service::{
 };
 use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrls};
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
-use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
+use crate::spider::discovery::frontier::{
+    CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds, FrontierProgress,
+};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::sitemap::locations::SitemapSource;
 use crate::spider::discovery::website_spider::{
@@ -53,9 +55,8 @@ pub struct SpiderRunResult {
     /// Product pages the ListingSource stores that an incremental crawl found linked
     /// and did not fetch again; never counted in `product_urls_count`.
     pub known_product_urls_skipped: usize,
-    /// The URLs the crawl left unvisited for the next one, its frontier; `None` when the crawl
-    /// could not tell, in which case the previously stored frontier is kept.
-    pub frontier_left: Option<usize>,
+    /// What the crawl left unvisited for the next one, its frontier.
+    pub frontier: FrontierProgress,
     /// Time the run spent awaiting the database for its seeds and its crawled URLs,
     /// connection-pool waits included; URL-pattern work is not counted.
     pub db_wait: Duration,
@@ -1184,7 +1185,7 @@ impl SpiderServiceImpl {
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
             known_product_urls_skipped: ended.skipped_known_products(),
-            frontier_left: discovery.map(|discovery| discovery.frontier.len()),
+            frontier: FrontierProgress::after(discovery),
             db_wait,
             ran_out_of_time: diagnostics.ran_out_of_time,
         })
@@ -1851,7 +1852,7 @@ mod service_tests {
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
         assert_eq!(result.product_urls_count, 1);
-        assert_eq!(result.frontier_left, Some(1));
+        assert_eq!(result.frontier.left, Some(1));
     }
 
     /// Runs a full crawl of a ListingSource that stores `frontier` and `known`, and checks the
@@ -2149,7 +2150,7 @@ mod service_tests {
             .unwrap();
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
-        assert_eq!(result.frontier_left, Some(0));
+        assert_eq!(result.frontier.left, Some(0));
     }
 
     /// Runs a full crawl that continues a stored frontier with `budget`, its URL storage taking

@@ -6,6 +6,7 @@
 //! like found links, within the same crawl budget.
 
 use regex::{Regex, RegexSet};
+use serde::{Deserialize, Serialize};
 use spider::CaseInsensitiveString;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -98,6 +99,29 @@ impl CrawlRequest {
 pub struct CrawlDiscovery {
     /// URLs the crawl found or was seeded with but did not visit, at most [`MAX_FRONTIER_URLS`].
     pub frontier: Vec<Url>,
+}
+
+/// The frontier figures of one spider run, which its logs carry and the scheduler reads to tell a
+/// shop too large for one crawl.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrontierProgress {
+    /// The URLs the crawl left unvisited for the next one; `None` when the crawl could not tell,
+    /// in which case the previously stored frontier is kept.
+    pub left: Option<usize>,
+}
+
+impl FrontierProgress {
+    /// The figures of a crawl that left `discovery`, or could not tell its frontier.
+    pub fn after(discovery: Option<&CrawlDiscovery>) -> Self {
+        Self {
+            left: discovery.map(|discovery| discovery.frontier.len()),
+        }
+    }
+
+    /// Whether the crawl left URLs unvisited.
+    pub fn has_urls_left(&self) -> bool {
+        self.left.is_some_and(|left| left > 0)
+    }
 }
 
 /// The links Spider follows, in the spelling it requests them: on the crawl root's host alone

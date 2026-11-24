@@ -57,10 +57,7 @@ fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32)
 /// not fetch, such as bot challenges, or that could not tell its frontier, is no such
 /// continuation (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 fn ran_out_of_time_with_frontier(result: &SpiderRunResult) -> bool {
-    result.ran_out_of_time
-        && result
-            .frontier_left
-            .is_some_and(|frontier_left| frontier_left > 0)
+    result.ran_out_of_time && result.frontier.has_urls_left()
 }
 
 /// A full crawl cut short continues from the frontier it left, however often it was cut short
@@ -460,7 +457,7 @@ async fn record_truncated_run(
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
-        frontier_left = result.frontier_left,
+        frontier_left = result.frontier.left,
         ran_out_of_time = result.ran_out_of_time,
         db_wait_ms = u64::try_from(result.db_wait.as_millis()).unwrap_or(u64::MAX),
         truncation_count,
@@ -1284,6 +1281,7 @@ mod tests {
         MockListingSourceRegistrationRepository, MockListingSourceRegistrationSource,
     };
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
+    use crate::spider::discovery::frontier::FrontierProgress;
     use crate::spider::discovery::website_spider::{CrawlCompletion, CrawlDiagnostics};
     use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::MockSpiderService;
@@ -1649,7 +1647,7 @@ mod tests {
                 .expect_mark_crawl_truncated()
                 .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             let result = SpiderRunResult {
-                frontier_left: Some(1_500),
+                frontier: FrontierProgress { left: Some(1_500) },
                 db_wait: Duration::from_millis(42_000),
                 ran_out_of_time: true,
                 ..run_result(CrawlCompletion::HardTimeoutTruncated)
@@ -2106,7 +2104,7 @@ mod tests {
             completion,
             pending_url_pattern_review: None,
             known_product_urls_skipped: 0,
-            frontier_left: None,
+            frontier: FrontierProgress::default(),
             db_wait: Duration::ZERO,
             ran_out_of_time: false,
         })
@@ -2210,7 +2208,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
-                        frontier_left: None,
+                        frontier: FrontierProgress::default(),
                         db_wait: Duration::ZERO,
                         ran_out_of_time: false,
                     })
@@ -2308,7 +2306,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
-                        frontier_left: None,
+                        frontier: FrontierProgress::default(),
                         db_wait: Duration::ZERO,
                         ran_out_of_time: false,
                     })
@@ -2374,7 +2372,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
-                        frontier_left: None,
+                        frontier: FrontierProgress::default(),
                         db_wait: Duration::ZERO,
                         ran_out_of_time: false,
                     })
@@ -2798,7 +2796,9 @@ mod tests {
     fn truncated_run(ran_out_of_time: bool, frontier_left: Option<usize>) -> SpiderRunResult {
         SpiderRunResult {
             ran_out_of_time,
-            frontier_left,
+            frontier: FrontierProgress {
+                left: frontier_left,
+            },
             ..run_result(CrawlCompletion::HardTimeoutTruncated)
         }
     }
@@ -3133,7 +3133,7 @@ mod tests {
             completion,
             pending_url_pattern_review: None,
             known_product_urls_skipped: 0,
-            frontier_left: None,
+            frontier: FrontierProgress::default(),
             db_wait: Duration::ZERO,
             ran_out_of_time: false,
         }
@@ -3526,7 +3526,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
-                        frontier_left: None,
+                        frontier: FrontierProgress::default(),
                         db_wait: Duration::ZERO,
                         ran_out_of_time: false,
                     })
