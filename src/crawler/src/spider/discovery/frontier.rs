@@ -3,8 +3,9 @@
 //!
 //! Link discovery from the root stays the authority on what a shop lists. Seeds, the URLs an
 //! earlier cut-short crawl left unvisited, only extend it: they are fetched, filtered and stored
-//! like found links, within the same crawl budget. A frontier larger than one crawl's seeds is
-//! kept, not dropped: the oldest URLs are seeded, the rest carried over to a later crawl.
+//! like found links, within the same crawl budget. A frontier larger than one batch of seeds is
+//! kept, not dropped: the oldest URLs are seeded first, the rest in later batches while the crawl
+//! has budget, and what it does not reach is carried over to a later crawl.
 
 use regex::{Regex, RegexSet};
 use serde::{Deserialize, Serialize};
@@ -21,11 +22,12 @@ use super::website_spider::{CrawlBudgetScale, CrawlPace};
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 
-/// Most URLs one crawl hands Spider as seeds. Spider keeps at most 25,000 seed links in memory.
+/// Most URLs one batch of a crawl hands Spider as seeds. Spider keeps at most 25,000 seed links
+/// in memory.
 pub const MAX_SEED_URLS: usize = 20_000;
 
 /// Most URLs a crawl leaves for the next ones, which bounds a ListingSource's stored frontier: a
-/// crawl seeds the oldest [`MAX_SEED_URLS`] of them and carries the rest over unseeded.
+/// crawl seeds the oldest [`MAX_SEED_URLS`] of them first and the rest in later batches.
 pub const MAX_FRONTIER_URLS: usize = 100_000;
 
 /// Most distinct links one crawl remembers having found, which bounds the frontier it can
@@ -114,11 +116,10 @@ pub struct CrawlDiscovery {
 /// to tell a shop too large for one crawl.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrontierProgress {
-    /// The stored frontier the crawl continued: the URLs it handed Spider as seeds and those it
-    /// carried over beyond [`MAX_SEED_URLS`].
+    /// The stored frontier the crawl continued.
     pub carried: usize,
-    /// Of `carried`, the URLs beyond [`MAX_SEED_URLS`] the crawl did not hand Spider; it visits
-    /// one only when a link leads there.
+    /// Of `carried`, the URLs beyond the crawl's first batch of seeds, which it seeds in later
+    /// batches only while it has time and pages left.
     pub deferred: usize,
     /// The URLs the crawl left unvisited for the next one; `None` when the crawl could not tell,
     /// in which case the previously stored frontier is kept.
@@ -128,8 +129,8 @@ pub struct FrontierProgress {
 }
 
 impl FrontierProgress {
-    /// The figures of a crawl that continued `carried`, of which it seeded `seeded`, and left
-    /// `discovery`, or could not tell its frontier.
+    /// The figures of a crawl that continued `seeded` URLs in its first batch of seeds and
+    /// `deferred` beyond it, and left `discovery`, or could not tell its frontier.
     pub fn after(seeded: usize, deferred: usize, discovery: Option<&CrawlDiscovery>) -> Self {
         Self {
             carried: seeded + deferred,
@@ -183,10 +184,10 @@ impl FollowRules {
 /// first.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct FrontierSeeds {
-    /// The oldest URLs, at most [`MAX_SEED_URLS`], handed to Spider as seeds.
+    /// The oldest URLs, the crawl's first batch of seeds.
     pub(super) seeded: Vec<String>,
-    /// The URLs beyond [`MAX_SEED_URLS`], carried over to the next crawl unless this one reaches
-    /// them through a link.
+    /// The URLs beyond the first batch, seeded in later batches while the crawl has budget and
+    /// carried over to the next crawl when it does not reach them.
     pub(super) deferred: Vec<String>,
 }
 
@@ -234,9 +235,9 @@ impl SeedAdmission<'_> {
             .collect()
     }
 
-    /// The admitted part of the stored `frontier`, in its order, split at [`MAX_SEED_URLS`].
-    pub(super) fn frontier_seeds(&self, frontier: &[Url]) -> FrontierSeeds {
-        FrontierSeeds::split(self.admit_up_to(frontier, MAX_FRONTIER_URLS), MAX_SEED_URLS)
+    /// The admitted part of the stored `frontier`, in its order, split at `seed_limit`.
+    pub(super) fn frontier_seeds(&self, frontier: &[Url], seed_limit: usize) -> FrontierSeeds {
+        FrontierSeeds::split(self.admit_up_to(frontier, MAX_FRONTIER_URLS), seed_limit)
     }
 }
 
@@ -275,17 +276,18 @@ impl FoundLinks {
         }
     }
 
-    /// The seeds and found links whose page the crawl neither delivered nor `visited` counts,
-    /// each once, at most [`MAX_SEED_URLS`]. A page arrives in the spelling the crawler
-    /// stores, which differs from the link Spider counts visited when the link carried
-    /// parameters that do not identify the page.
+    /// The carried frontier and the found links whose page the crawl neither delivered nor
+    /// `visited` counts, each once, at most `limit`: the next batch of seeds. A page arrives in
+    /// the spelling the crawler stores, which differs from the link Spider counts visited when
+    /// the link carried parameters that do not identify the page.
     pub(super) fn unvisited(
         &self,
-        seeds: &[String],
+        carried: &FrontierSeeds,
         visited: impl Fn(&CaseInsensitiveString) -> bool,
+        limit: usize,
     ) -> Vec<String> {
         let found = self.snapshot();
-        self.unvisited_among(seeds.iter().chain(found.iter()), visited, MAX_SEED_URLS)
+        self.unvisited_among(carried.carried().chain(found.iter()), visited, limit)
     }
 
     /// The `candidates` whose page the crawl neither delivered nor `visited` counts, each once,
@@ -493,7 +495,7 @@ mod tests {
         ];
 
         assert_eq!(
-            admission.frontier_seeds(&seeds).seeded,
+            admission.frontier_seeds(&seeds, MAX_SEED_URLS).seeded,
             [
                 "https://shop.example/product/1",
                 "https://shop.example/product/6"
