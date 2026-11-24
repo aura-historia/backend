@@ -343,10 +343,13 @@ older pending or parked work. A round every 30 minutes in the worker:
 
 Submission fetches each first image with the bounded image fetcher and stages it in a Cloud
 Storage bucket, because a batch cannot fetch HTTP URLs; the JSONL requests reference the staged
-objects by `gs://` URI and the job writes its output under the same prefix. A batch request
-carries the same text and image bytes as a synchronous request, without preprocessing on either
-path, so vectors from both paths share one index. An image that cannot be fetched is left out,
-as on the synchronous path. Requests a job did not judge, because it was canceled, expired or
+objects by `gs://` URI and the job writes its output under the same prefix. The model resizes
+every image to 768 × 768 pixels itself, so an image with more pixels than that is scaled down to
+that many, keeping its aspect ratio, by the [downscaling](../src/image-fetcher/src/downscale.rs)
+the classifier also uses; vectors of earlier, unscaled images stay comparable because the model
+saw them at the same resolution. HEIC and HEIF, which the model reads but the backend cannot
+decode, are staged as fetched. An image that cannot be fetched or decoded, or whose format the
+model does not read, such as GIF, is left out. Requests a job did not judge, because it was canceled, expired or
 failed as a whole, and failures where the provider could not be asked or did not answer, return
 to the queue unchanged; a rejected request, a request a succeeded job left unanswered, or a failed
 guarded write spends one of an embedding's three attempts. Spent work and persisted documents no

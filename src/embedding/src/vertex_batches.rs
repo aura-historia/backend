@@ -10,15 +10,15 @@ use crate::{
     EmbeddingText, EmbeddingVector, EndedEmbeddingBatch, ProductEmbeddingBatches,
     ProductEmbeddingRequest, UnansweredEmbeddings, VertexAiEmbeddingConfig,
     cloud_storage::CloudStorageBucket,
+    product_image::{EmbeddingImage, ImageOmission, embedding_image},
     vertex::{
         CONNECT_TIMEOUT, EmbedContentResponse, GEMINI_EMBEDDING_MODEL_RESOURCE, api_endpoint,
         location_resource,
     },
 };
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::{StreamExt, TryStreamExt, stream};
 use google_cloud_auth::credentials::AccessTokenCredentials;
-use image_fetcher::{FetchedImage, ImageFetcher};
+use image_fetcher::ImageFetcher;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::Duration};
 
@@ -110,24 +110,18 @@ impl VertexAiProductEmbeddingBatches {
             text: product_text(&request.title, request.additional_text.as_ref()),
         }];
         let image = match &request.image_url {
-            Some(url) => fetch_image(&self.image_fetcher, url).await,
+            Some(url) => self.image(url).await,
             None => None,
         };
         if let Some(image) = image {
-            let bytes =
-                BASE64
-                    .decode(image.base64_data())
-                    .map_err(|_| EmbeddingError::InvalidInput {
-                        reason: "fetched embedding image is not valid base64",
-                    })?;
             let object = format!("{prefix}/images/{}", request.key);
             self.bucket
-                .upload(&self.client, token, &object, image.mime_type(), bytes)
+                .upload(&self.client, token, &object, image.mime_type, image.bytes)
                 .await?;
             parts.push(BatchPart::FileData {
                 file_data: FileData {
                     file_uri: self.bucket.uri(&object),
-                    mime_type: image.mime_type(),
+                    mime_type: image.mime_type,
                 },
             });
         }
@@ -143,6 +137,43 @@ impl VertexAiProductEmbeddingBatches {
         .map_err(|_| EmbeddingError::InvalidInput {
             reason: "embedding batch request cannot be serialized",
         })
+    }
+
+    /// The listing's image at the model's resolution. An image that cannot be fetched or sent is
+    /// left out of the embedding; its bounded cause is logged.
+    async fn image(&self, image_url: &EmbeddingImageUrl) -> Option<EmbeddingImage> {
+        let fetched = self
+            .image_fetcher
+            .fetch(image_url.as_url())
+            .await
+            .inspect_err(|error| {
+                let fetch_failure = error.diagnostics();
+                tracing::info!(
+                    eventType = "EMBEDDING_IMAGE_OMITTED",
+                    imageOmissionReason = "fetch_failed",
+                    imageFetchFailure = fetch_failure.category,
+                    imageFetchHttpStatus = fetch_failure.http_status,
+                    imageFetchAttempts = fetch_failure.attempts,
+                    "Embedding image omitted."
+                );
+            })
+            .ok()?;
+        // Decoding and resizing are CPU-bound; they run off the async workers. A panic in the
+        // decoder leaves only this image out.
+        let prepared = tokio::task::spawn_blocking(move || {
+            embedding_image(fetched.mime_type(), fetched.base64_data())
+        })
+        .await
+        .unwrap_or(Err(ImageOmission::InvalidOrOversized));
+        prepared
+            .inspect_err(|omission| {
+                tracing::info!(
+                    eventType = "EMBEDDING_IMAGE_OMITTED",
+                    imageOmissionReason = omission.as_str(),
+                    "Embedding image omitted."
+                );
+            })
+            .ok()
     }
 
     async fn create_job(
@@ -296,28 +327,6 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
 fn product_text(title: &EmbeddingText, additional_text: Option<&EmbeddingText>) -> String {
     let additional_text = additional_text.map(EmbeddingText::as_str).unwrap_or("none");
     format!("title: {} | text: {additional_text}", title.as_str())
-}
-
-/// An image that cannot be fetched is left out of the embedding; its bounded cause is logged.
-async fn fetch_image(
-    fetcher: &ImageFetcher,
-    image_url: &EmbeddingImageUrl,
-) -> Option<FetchedImage> {
-    fetcher
-        .fetch(image_url.as_url())
-        .await
-        .inspect_err(|error| {
-            let fetch_failure = error.diagnostics();
-            tracing::info!(
-                eventType = "EMBEDDING_IMAGE_OMITTED",
-                imageOmissionReason = "fetch_failed",
-                imageFetchFailure = fetch_failure.category,
-                imageFetchHttpStatus = fetch_failure.http_status,
-                imageFetchAttempts = fetch_failure.attempts,
-                "Embedding image omitted."
-            );
-        })
-        .ok()
 }
 
 /// The job states, by what they mean for its unanswered requests.

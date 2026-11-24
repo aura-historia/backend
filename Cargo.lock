@@ -2968,6 +2968,7 @@ dependencies = [
  "futures",
  "google-cloud-auth",
  "http 1.5.0",
+ "image",
  "image-fetcher",
  "lru 0.19.1",
  "reqwest 0.12.28",

@@ -1,5 +1,6 @@
 mod batches;
 mod cloud_storage;
+mod product_image;
 #[cfg(test)]
 mod test_support;
 mod vertex;
