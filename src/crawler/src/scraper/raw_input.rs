@@ -52,8 +52,8 @@ pub(crate) fn pinned_source_listing_id(
 /// crawler-validated image projection and keep every supplied price, state and text
 /// value as extracted: the worker (the sole canonical normalization authority) parses
 /// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
-/// missing extraction clears a price, and so does a price that holds the item's status label,
-/// which is sent as its availability instead ([`OfferValues`]). A title or state the page left
+/// missing extraction clears a price; a price that holds the item's status label is sent
+/// unchanged and the label as its availability ([`OfferValues`]). A title or state the page left
 /// out or blank is sent unchanged, so the listing keeps the one it was last captured with, and a
 /// new listing starts without it; the source payload still shows the blank one. A raw attribute
 /// whose rule found only a blank value is left out of the generic raw values, which keep
@@ -140,9 +140,9 @@ pub(crate) fn crawler_provenance(
 
 /// The price and availability a capture sends. A price that holds the item's status label
 /// instead of an amount ([`price_status_label`]), such as the `Sold` a sold page prints in the
-/// price's place, is no price: the capture is the one a schema that reads the label in `state`
-/// makes, which clears the price, and the label is sent as the availability unless the page's
-/// `state` resolves to an item that is gone too, which wins. A `state` that resolves to an item
+/// price's place, is no price: it is sent unchanged, so the listing keeps the last amount it was
+/// captured with, and the label is sent as the availability unless the page's `state` resolves
+/// to an item that is gone too, which wins. A `state` that resolves to an item
 /// on offer, such as an enquiry or cart action a shop leaves on its sold pages, does not
 /// override the label. Any other price, free text included, is sent as extracted and the worker
 /// reports what it cannot read (`docs/crawler/extraction-and-review.md#price-status-labels`).
@@ -165,7 +165,7 @@ impl OfferValues {
             _ => label,
         };
         Self {
-            price: ProductListingRawValuesPatch::Clear,
+            price: ProductListingRawValuesPatch::Unchanged,
             availability: ProductListingRawValuesPatch::Set(availability.to_owned()),
         }
     }
@@ -477,10 +477,10 @@ mod tests {
         }
 
         #[test]
-        fn should_send_the_label_as_availability_and_clear_the_price_when_the_page_has_no_state() {
+        fn should_send_the_label_as_availability_and_keep_the_price_when_the_page_has_no_state() {
             let input = captured("VERKAUFT\u{a0}€", None);
 
-            assert_eq!(sent(&input, "price"), json!({"action": "CLEAR"}));
+            assert_eq!(sent(&input, "price"), json!({"action": "UNCHANGED"}));
             assert_eq!(
                 sent(&input, "availability"),
                 json!({"action": "SET", "value": "VERKAUFT"})
@@ -496,7 +496,7 @@ mod tests {
         fn should_send_the_label_when_the_state_resolves_to_no_availability() {
             let input = captured("Price: SOLD", Some("Inquire"));
 
-            assert_eq!(sent(&input, "price"), json!({"action": "CLEAR"}));
+            assert_eq!(sent(&input, "price"), json!({"action": "UNCHANGED"}));
             assert_eq!(
                 sent(&input, "availability"),
                 json!({"action": "SET", "value": "SOLD"})
@@ -508,7 +508,11 @@ mod tests {
             for state in ["Enquire", "Add to cart"] {
                 let input = captured("Sold", Some(state));
 
-                assert_eq!(sent(&input, "price"), json!({"action": "CLEAR"}), "{state}");
+                assert_eq!(
+                    sent(&input, "price"),
+                    json!({"action": "UNCHANGED"}),
+                    "{state}"
+                );
                 assert_eq!(
                     sent(&input, "availability"),
                     json!({"action": "SET", "value": "Sold"}),
@@ -518,10 +522,10 @@ mod tests {
         }
 
         #[test]
-        fn should_keep_a_state_that_resolves_to_a_gone_item_and_still_clear_the_price() {
+        fn should_keep_a_state_that_resolves_to_a_gone_item_and_still_keep_the_price() {
             let input = captured("Sold", Some("Reserved"));
 
-            assert_eq!(sent(&input, "price"), json!({"action": "CLEAR"}));
+            assert_eq!(sent(&input, "price"), json!({"action": "UNCHANGED"}));
             assert_eq!(
                 sent(&input, "availability"),
                 json!({"action": "SET", "value": "Reserved"})
