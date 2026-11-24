@@ -15,6 +15,7 @@ use crate::review::model::{
 };
 use crate::review::page_projection::PageView;
 use crate::review::product_markup::JsonLdProductIds;
+use crate::review::repository::audit_findings_of;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -104,6 +105,14 @@ pub struct ReviewView {
     /// `PRODUCT_SCHEMA` or `URL_PATTERN`.
     pub artifact_type: String,
     pub reason: String,
+    /// On a review the live schema audit opened (reason `schema_audit_required`), what it found
+    /// in the live schemas on captured product pages, as `field CHECK`: a matrix check such as
+    /// `title LISTING_SOURCE_NAME`, or `title READS_DOCUMENT_TITLE`, `READS_META_TITLE` or
+    /// `READS_IMAGE_ALT` for a title rule on the document `<title>`, an `og:title` or
+    /// `twitter:title` tag or an image `alt`. Absent on other reviews.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub schema_audit_findings: Vec<String>,
     pub listing_source_id: String,
     pub listing_source_name: Option<String>,
     /// The host the review's ListingSource is crawled on, the only host whose URLs the review
@@ -617,6 +626,7 @@ impl ReviewView {
             status: review.status,
             artifact_type: review.artifact_type,
             reason: review.reason,
+            schema_audit_findings: audit_findings_of(&review.validation_summary),
             listing_source_id: review.listing_source_id.to_string(),
             listing_source_name: review.listing_source_name,
             crawl_host: review.listing_source_crawl_host,

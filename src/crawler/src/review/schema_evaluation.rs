@@ -110,6 +110,30 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
     evaluate_matrix(None, listing_source_name, schemas, &[], &pages)
 }
 
+/// Evaluates a ListingSource's `schemas` on its product `pages` whose listings were captured,
+/// `captured_identities` mapping each page URL to the identity its listing was captured under, as
+/// the live schema audit evaluates the live schemas. The ListingSource is named
+/// `listing_source_name`; the pages are referred to as inputs by their position.
+pub(crate) fn evaluate_schema_matrix_for_captured_pages(
+    listing_source_name: &str,
+    schemas: &[ProductCssSelectorSchema],
+    pages: &[SchemaReviewPageInput],
+    captured_identities: &HashMap<String, String>,
+) -> SchemaMatrix {
+    let pages: Vec<MatrixPage<'_>> = pages
+        .iter()
+        .enumerate()
+        .map(|(page_index, page)| MatrixPage {
+            page_reference: SchemaPageReference::Input { page_index },
+            url: &page.url,
+            role: &page.role,
+            raw_html: &page.raw_html,
+            captured_identity: captured_identities.get(&page.url).map(String::as_str),
+        })
+        .collect();
+    evaluate_matrix(None, Some(listing_source_name), schemas, &[], &pages)
+}
+
 /// Evaluates every candidate and removed-page template on every page. Each page is parsed
 /// once: every candidate evaluates it, the identities they derive from it are compared and the
 /// removed-page templates are matched on it before the next page is parsed, so a single parsed

@@ -11,6 +11,9 @@ pub struct CrawlerCronConfig {
     pub spider_interval: Duration,
     pub scraper_interval: Duration,
     pub listing_source_sync_interval: Duration,
+    /// Pause between live schema audit passes, which run in `agent` authoring mode only
+    /// (`service::schema_audit`).
+    pub schema_audit_interval: Duration,
     /// Optional number of ListingSources fetched per scraper scheduler refill.
     /// Defaults to scraper concurrency.
     pub scraper_batch_size: Option<usize>,
@@ -59,6 +62,7 @@ impl Default for CrawlerCronConfig {
             spider_interval: Duration::from_secs(600), // 10 minutes
             scraper_interval: Duration::from_secs(60), // 1 minute
             listing_source_sync_interval: Duration::from_secs(10800), // 3 hours
+            schema_audit_interval: Duration::from_secs(3600), // 1 hour
             scraper_batch_size: None,
             scraper_urls_per_source: 100,
             scraper_batch_time_budget: Duration::from_secs(5 * 60),

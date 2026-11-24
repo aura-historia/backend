@@ -22,13 +22,14 @@ use crate::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crate::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crate::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crate::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
+use crate::scraper::scraper_service::{HtmlFetcher, ReqwestHtmlFetcher, ScraperServiceImpl};
 use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob, CronStop};
 use crate::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, QualificationGate,
 };
 use crate::service::raw_capture::ProductListingRawCaptureService;
+use crate::service::schema_audit::SchemaAudit;
 use crate::spider::candidate_service::SpiderCandidateServiceImpl;
 use crate::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crate::spider::classification::url_classifier::UrlClassifier;
@@ -331,6 +332,15 @@ where
         raw_capture,
     )
     .with_stop(cron_stop);
+    // The audit opens reviews for the review agents to repair, so it runs only where they do.
+    let cron_job = if authoring == CrawlerAuthoringMode::Agent {
+        cron_job.with_schema_audit(SchemaAudit::new(
+            review_repo.clone(),
+            Arc::clone(&fetcher) as Arc<dyn HtmlFetcher>,
+        ))
+    } else {
+        cron_job
+    };
 
     info!(
         db_max_connections,
