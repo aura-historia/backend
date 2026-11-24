@@ -1,10 +1,13 @@
-//! The synchronous Vertex AI Gemini Embedding adapter, for search queries.
+//! The synchronous Vertex AI Gemini Embedding adapter.
 
+use crate::product_image::{EmbeddingImage, fetch_embedding_image};
 use crate::{
-    EMBEDDING_DIMENSIONS, EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector,
-    SEARCH_QUERY_EMBEDDING_DEADLINE, VertexAiEmbeddingConfig,
+    EMBEDDING_DIMENSIONS, EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText,
+    EmbeddingVector, SEARCH_QUERY_EMBEDDING_DEADLINE, VertexAiEmbeddingConfig,
 };
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use google_cloud_auth::credentials::AccessTokenCredentials;
+use image_fetcher::ImageFetcher;
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroUsize, time::Duration};
@@ -14,19 +17,24 @@ pub(crate) const GEMINI_EMBEDDING_MODEL_RESOURCE: &str =
     "publishers/google/models/gemini-embedding-2";
 const QUERY_CACHE_CAPACITY: usize = 4096;
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// Product embeddings run in the background worker, after its separately bounded image fetch.
+const PRODUCT_EMBEDDING_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Vertex AI Gemini Embedding implementation of [`EmbeddingGenerator`].
 ///
-/// Callers supply the search text. This adapter owns Google prompt format, provider protocol,
-/// response validation, query cache, and deadline. Each provider exchange, including credential
-/// acquisition and the response body, is bounded by [`SEARCH_QUERY_EMBEDDING_DEADLINE`]; expiry
-/// yields [`EmbeddingError::DeadlineExceeded`].
+/// Callers supply semantic product or search fields. This adapter owns Google prompt
+/// format, provider protocol, image retrieval, response validation, query cache, and
+/// deadlines. Each provider exchange, including credential acquisition and the response body,
+/// is bounded by [`SEARCH_QUERY_EMBEDDING_DEADLINE`] for search queries and by a longer
+/// background deadline for products; expiry yields [`EmbeddingError::DeadlineExceeded`].
 pub struct VertexAiEmbeddingGenerator {
     embed_content_url: String,
     client: reqwest::Client,
+    image_fetcher: ImageFetcher,
     credentials: AccessTokenCredentials,
     query_cache: Mutex<LruCache<EmbeddingText, EmbeddingVector>>,
     search_query_deadline: Duration,
+    product_deadline: Duration,
 }
 
 impl VertexAiEmbeddingGenerator {
@@ -41,11 +49,13 @@ impl VertexAiEmbeddingGenerator {
         Ok(Self {
             embed_content_url: build_embed_content_url(&config),
             client,
+            image_fetcher: ImageFetcher::new(),
             credentials,
             query_cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(QUERY_CACHE_CAPACITY).unwrap_or(NonZeroUsize::MIN),
             )),
             search_query_deadline: SEARCH_QUERY_EMBEDDING_DEADLINE,
+            product_deadline: PRODUCT_EMBEDDING_DEADLINE,
         })
     }
 
@@ -68,6 +78,23 @@ impl VertexAiEmbeddingGenerator {
             .await
             .put(query.clone(), vector.clone());
         Ok(vector)
+    }
+
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        let image = match image_url {
+            Some(image_url) => fetch_embedding_image(&self.image_fetcher, image_url).await,
+            None => None,
+        };
+        self.request_embedding(
+            EmbedContentRequest::for_product(title, additional_text, image),
+            self.product_deadline,
+        )
+        .await
     }
 
     async fn request_embedding(
@@ -114,6 +141,15 @@ impl VertexAiEmbeddingGenerator {
 
 #[async_trait::async_trait]
 impl EmbeddingGenerator for VertexAiEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.embed_product(title, additional_text, image_url).await
+    }
+
     async fn embed_search_query(
         &self,
         query: &EmbeddingText,
@@ -152,6 +188,16 @@ pub(crate) fn location_resource(config: &VertexAiEmbeddingConfig) -> String {
     )
 }
 
+/// The product document text. Batch and synchronous requests share it, as they share the
+/// prepared image, so both embed a listing identically.
+pub(crate) fn product_text(
+    title: &EmbeddingText,
+    additional_text: Option<&EmbeddingText>,
+) -> String {
+    let additional_text = additional_text.map(EmbeddingText::as_str).unwrap_or("none");
+    format!("title: {} | text: {additional_text}", title.as_str())
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EmbedContentRequest {
@@ -164,6 +210,25 @@ impl EmbedContentRequest {
         Self::for_parts(vec![ContentPart::Text {
             text: format!("task: search result | query: {}", query.as_str()),
         }])
+    }
+
+    fn for_product(
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image: Option<EmbeddingImage>,
+    ) -> Self {
+        let mut parts = vec![ContentPart::Text {
+            text: product_text(title, additional_text),
+        }];
+        if let Some(image) = image {
+            parts.push(ContentPart::InlineData {
+                inline_data: InlineData {
+                    mime_type: image.mime_type,
+                    data: BASE64.encode(image.bytes),
+                },
+            });
+        }
+        Self::for_parts(parts)
     }
 
     fn for_parts(parts: Vec<ContentPart>) -> Self {
@@ -182,7 +247,20 @@ struct Content {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 enum ContentPart {
-    Text { text: String },
+    Text {
+        text: String,
+    },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: InlineData,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InlineData {
+    mime_type: &'static str,
+    data: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,6 +303,7 @@ mod tests {
     };
 
     const TEST_SEARCH_QUERY_DEADLINE: Duration = Duration::from_millis(500);
+    const TEST_PRODUCT_DEADLINE: Duration = Duration::from_millis(1000);
     const PROVIDER_STALL: Duration = Duration::from_secs(30);
     /// Fails an unbounded embedding instead of hanging the test on the stalled fixture.
     const TEST_GUARD: Duration = Duration::from_secs(5);
@@ -328,6 +407,7 @@ mod tests {
             .build()?;
         generator.embed_content_url = provider.url.clone();
         generator.search_query_deadline = TEST_SEARCH_QUERY_DEADLINE;
+        generator.product_deadline = TEST_PRODUCT_DEADLINE;
         Ok(generator)
     }
 
@@ -347,7 +427,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_bound_query_embeddings_when_provider_stalls_headers_or_body()
+    async fn should_bound_query_and_product_embeddings_when_provider_stalls_headers_or_body()
     -> Result<(), Box<dyn std::error::Error>> {
         for behavior in [ProviderBehavior::StallHeaders, ProviderBehavior::StallBody] {
             let provider = LocalProvider::start(behavior).await?;
@@ -359,7 +439,13 @@ mod tests {
                 TEST_SEARCH_QUERY_DEADLINE,
             )
             .await;
-            assert_eq!(1, provider.requests(), "{behavior:?}");
+            assert_deadline_exceeded(
+                generator.embed_product(&text, None, None),
+                TEST_PRODUCT_DEADLINE,
+            )
+            .await;
+
+            assert_eq!(2, provider.requests(), "{behavior:?}");
             assert!(generator.query_cache.lock().await.is_empty());
         }
         Ok(())
@@ -418,6 +504,55 @@ mod tests {
                 reason: "query request serialization failed"
             })?,
             serde_json::json!({"content":{"parts":[{"text":"task: search result | query: vintage brass lamp"}]},"outputDimensionality":768})
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_serialize_product_vertex_request_with_additional_text_or_none()
+    -> Result<(), EmbeddingError> {
+        let title = EmbeddingText::new("vintage brass lamp")?;
+        let additional_text = EmbeddingText::new("adjustable arm")?;
+
+        assert_eq!(
+            serde_json::to_value(EmbedContentRequest::for_product(
+                &title,
+                Some(&additional_text),
+                None,
+            ))
+            .map_err(|_| EmbeddingError::InvalidResponse {
+                reason: "product request serialization failed"
+            })?,
+            serde_json::json!({"content":{"parts":[{"text":"title: vintage brass lamp | text: adjustable arm"}]},"outputDimensionality":768})
+        );
+        assert_eq!(
+            serde_json::to_value(EmbedContentRequest::for_product(&title, None, None)).map_err(
+                |_| EmbeddingError::InvalidResponse {
+                    reason: "product request serialization failed"
+                }
+            )?,
+            serde_json::json!({"content":{"parts":[{"text":"title: vintage brass lamp | text: none"}]},"outputDimensionality":768})
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_inline_the_prepared_image_in_a_product_vertex_request() -> Result<(), EmbeddingError>
+    {
+        let request = EmbedContentRequest::for_product(
+            &EmbeddingText::new("vintage brass lamp")?,
+            None,
+            Some(EmbeddingImage {
+                mime_type: "image/jpeg",
+                bytes: b"jpeg bytes".to_vec(),
+            }),
+        );
+
+        assert_eq!(
+            serde_json::to_value(request).map_err(|_| EmbeddingError::InvalidResponse {
+                reason: "product request serialization failed"
+            })?["content"]["parts"][1],
+            serde_json::json!({"inlineData": {"mimeType": "image/jpeg", "data": "anBlZyBieXRlcw=="}})
         );
         Ok(())
     }

@@ -11,7 +11,9 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+};
 use oauth_core::resource::AuraResourcePolicy;
 use serde_json::{Map, Value, json};
 use std::{path::PathBuf, sync::Arc};
@@ -35,6 +37,15 @@ struct NoEmbeddings;
 
 #[async_trait::async_trait]
 impl EmbeddingGenerator for NoEmbeddings {
+    async fn embed_product(
+        &self,
+        _: &EmbeddingText,
+        _: Option<&EmbeddingText>,
+        _: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        panic!("tools/list requested an embedding")
+    }
+
     async fn embed_search_query(
         &self,
         _: &EmbeddingText,

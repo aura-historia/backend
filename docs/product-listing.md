@@ -346,7 +346,8 @@ Storage bucket, because a batch cannot fetch HTTP URLs; the JSONL requests refer
 objects by `gs://` URI and the job writes its output under the same prefix. The model resizes
 every image to 768 × 768 pixels itself, so an image with more pixels than that is scaled down to
 that many, keeping its aspect ratio, by the [downscaling](../src/image-fetcher/src/downscale.rs)
-the classifier also uses; vectors of earlier, unscaled images stay comparable because the model
+the classifier also uses; the unused synchronous product path prepares images the same way, so
+it stays interchangeable; vectors of earlier, unscaled images stay comparable because the model
 saw them at the same resolution. HEIC and HEIF, which the model reads but the backend cannot
 decode, are staged as fetched. An image that cannot be fetched or decoded, or whose format the
 model does not read, such as GIF, is left out. Requests a job did not judge, because it was canceled, expired or

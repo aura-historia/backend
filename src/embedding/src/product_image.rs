@@ -1,9 +1,11 @@
-//! The image a product embedding sends. `gemini-embedding-2` resizes every image to 768 × 768
-//! pixels itself and bills a flat 258 tokens per image, so an image is scaled down to about that
-//! many pixels: the model sees the same, and each staged image stays small.
+//! The image a product embedding sends, on the batch and the synchronous path alike.
+//! `gemini-embedding-2` resizes every image to 768 × 768 pixels itself and bills a flat 258
+//! tokens per image, so an image is scaled down to about that many pixels: the model sees the
+//! same, and each request stays small.
 
+use crate::EmbeddingImageUrl;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use image_fetcher::{DownscaleError, Downscaled, PixelBudget, downscale};
+use image_fetcher::{DownscaleError, Downscaled, ImageFetcher, PixelBudget, downscale};
 
 /// The model's input resolution in pixels. Images within it are re-encoded only when their file
 /// is larger than 512 KiB, which a JPEG of that size never needs.
@@ -17,14 +19,14 @@ pub(crate) struct EmbeddingImage {
 
 /// Why an embedding is computed without its listing's image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ImageOmission {
+enum ImageOmission {
     /// The model does not read the format, such as GIF.
     UnsupportedFormat,
     InvalidOrOversized,
 }
 
 impl ImageOmission {
-    pub(crate) fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             Self::UnsupportedFormat => "unsupported_format",
             Self::InvalidOrOversized => "invalid_or_oversized",
@@ -32,9 +34,48 @@ impl ImageOmission {
     }
 }
 
+/// The listing's image at the model's resolution. An image that cannot be fetched or sent is
+/// left out of the embedding; its bounded cause is logged.
+pub(crate) async fn fetch_embedding_image(
+    fetcher: &ImageFetcher,
+    image_url: &EmbeddingImageUrl,
+) -> Option<EmbeddingImage> {
+    let fetched = fetcher
+        .fetch(image_url.as_url())
+        .await
+        .inspect_err(|error| {
+            let fetch_failure = error.diagnostics();
+            tracing::info!(
+                eventType = "EMBEDDING_IMAGE_OMITTED",
+                imageOmissionReason = "fetch_failed",
+                imageFetchFailure = fetch_failure.category,
+                imageFetchHttpStatus = fetch_failure.http_status,
+                imageFetchAttempts = fetch_failure.attempts,
+                "Embedding image omitted."
+            );
+        })
+        .ok()?;
+    // Decoding and resizing are CPU-bound; they run off the async workers. A panic in the
+    // decoder leaves only this image out.
+    let prepared = tokio::task::spawn_blocking(move || {
+        embedding_image(fetched.mime_type(), fetched.base64_data())
+    })
+    .await
+    .unwrap_or(Err(ImageOmission::InvalidOrOversized));
+    prepared
+        .inspect_err(|omission| {
+            tracing::info!(
+                eventType = "EMBEDDING_IMAGE_OMITTED",
+                imageOmissionReason = omission.as_str(),
+                "Embedding image omitted."
+            );
+        })
+        .ok()
+}
+
 /// The fetched image at the model's resolution. HEIC and HEIF, which the model reads but this
 /// adapter cannot decode, are sent as fetched; the fetcher bounds their size.
-pub(crate) fn embedding_image(
+fn embedding_image(
     mime_type: &'static str,
     base64_data: &str,
 ) -> Result<EmbeddingImage, ImageOmission> {

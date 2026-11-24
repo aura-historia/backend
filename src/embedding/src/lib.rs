@@ -179,10 +179,15 @@ impl EmbeddingVector {
     }
 }
 
-/// Embeds search queries synchronously. Product listings are embedded in provider batches
-/// ([`ProductEmbeddingBatches`]).
 #[async_trait::async_trait]
 pub trait EmbeddingGenerator: Send + Sync {
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError>;
+
     /// Serves interactive requests: implementations must return, with an error if necessary,
     /// within [`SEARCH_QUERY_EMBEDDING_DEADLINE`] so callers can still answer without it.
     async fn embed_search_query(
@@ -196,6 +201,17 @@ impl<G> EmbeddingGenerator for Arc<G>
 where
     G: EmbeddingGenerator + ?Sized,
 {
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.as_ref()
+            .embed_product(title, additional_text, image_url)
+            .await
+    }
+
     async fn embed_search_query(
         &self,
         query: &EmbeddingText,

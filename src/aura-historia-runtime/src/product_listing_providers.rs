@@ -3,8 +3,8 @@ use crate::{ProductListingConfig, ProductListingDependencies};
 use application::error::BoxError;
 use async_trait::async_trait;
 use embedding::{
-    EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector, VertexAiEmbeddingConfig,
-    VertexAiEmbeddingGenerator,
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+    VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator,
 };
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use opensearch::{
@@ -131,6 +131,18 @@ impl LazyVertexAiEmbeddingGenerator {
 
 #[async_trait]
 impl EmbeddingGenerator for LazyVertexAiEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.generator()
+            .await?
+            .embed_product(title, additional_text, image_url)
+            .await
+    }
+
     async fn embed_search_query(
         &self,
         query: &EmbeddingText,

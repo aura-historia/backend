@@ -10,7 +10,9 @@ use auction_service::ports::{
     PublicAuctionDetails, PublicAuctionDetailsReadError, PublicAuctionDetailsReader,
     PublicAuctionSourceSummary,
 };
-use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+};
 use fxrate_core::{FxRateId, FxRateSnapshot, NewFxRateSnapshot};
 use fxrate_service::ports::*;
 use listing_source_core::ListingSourceId;
@@ -179,6 +181,14 @@ impl ProductListingSearchReader for ListingFixture {
 }
 #[async_trait]
 impl EmbeddingGenerator for ListingFixture {
+    async fn embed_product(
+        &self,
+        _: &EmbeddingText,
+        _: Option<&EmbeddingText>,
+        _: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        panic!("public reads cannot generate product embeddings")
+    }
     async fn embed_search_query(
         &self,
         _: &EmbeddingText,

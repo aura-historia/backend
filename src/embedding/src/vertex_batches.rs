@@ -4,16 +4,20 @@
 //! image as an object of its own, referenced by `gs://` URI because a batch cannot fetch HTTP
 //! URLs; the JSONL requests; and the job's output. The bucket's lifecycle rule deletes the
 //! staged objects ([durable worker runbook](../../../docs/durable-worker-runbook.md)).
+//!
+//! Requests carry the same text and the same prepared image as the synchronous
+//! [`VertexAiEmbeddingGenerator`](crate::VertexAiEmbeddingGenerator), so both embed a listing
+//! identically.
 
 use crate::{
-    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingImageUrl,
-    EmbeddingText, EmbeddingVector, EndedEmbeddingBatch, ProductEmbeddingBatches,
-    ProductEmbeddingRequest, UnansweredEmbeddings, VertexAiEmbeddingConfig,
+    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingVector,
+    EndedEmbeddingBatch, ProductEmbeddingBatches, ProductEmbeddingRequest, UnansweredEmbeddings,
+    VertexAiEmbeddingConfig,
     cloud_storage::CloudStorageBucket,
-    product_image::{EmbeddingImage, ImageOmission, embedding_image},
+    product_image::fetch_embedding_image,
     vertex::{
         CONNECT_TIMEOUT, EmbedContentResponse, GEMINI_EMBEDDING_MODEL_RESOURCE, api_endpoint,
-        location_resource,
+        location_resource, product_text,
     },
 };
 use futures::{StreamExt, TryStreamExt, stream};
@@ -99,7 +103,8 @@ impl VertexAiProductEmbeddingBatches {
             })
     }
 
-    /// Fetches the request's image and stages it; one that cannot be fetched is left out.
+    /// Fetches the request's image and stages it; one that cannot be fetched is left out, as on
+    /// the synchronous path.
     async fn batch_line(
         &self,
         token: &str,
@@ -110,7 +115,7 @@ impl VertexAiProductEmbeddingBatches {
             text: product_text(&request.title, request.additional_text.as_ref()),
         }];
         let image = match &request.image_url {
-            Some(url) => self.image(url).await,
+            Some(url) => fetch_embedding_image(&self.image_fetcher, url).await,
             None => None,
         };
         if let Some(image) = image {
@@ -137,43 +142,6 @@ impl VertexAiProductEmbeddingBatches {
         .map_err(|_| EmbeddingError::InvalidInput {
             reason: "embedding batch request cannot be serialized",
         })
-    }
-
-    /// The listing's image at the model's resolution. An image that cannot be fetched or sent is
-    /// left out of the embedding; its bounded cause is logged.
-    async fn image(&self, image_url: &EmbeddingImageUrl) -> Option<EmbeddingImage> {
-        let fetched = self
-            .image_fetcher
-            .fetch(image_url.as_url())
-            .await
-            .inspect_err(|error| {
-                let fetch_failure = error.diagnostics();
-                tracing::info!(
-                    eventType = "EMBEDDING_IMAGE_OMITTED",
-                    imageOmissionReason = "fetch_failed",
-                    imageFetchFailure = fetch_failure.category,
-                    imageFetchHttpStatus = fetch_failure.http_status,
-                    imageFetchAttempts = fetch_failure.attempts,
-                    "Embedding image omitted."
-                );
-            })
-            .ok()?;
-        // Decoding and resizing are CPU-bound; they run off the async workers. A panic in the
-        // decoder leaves only this image out.
-        let prepared = tokio::task::spawn_blocking(move || {
-            embedding_image(fetched.mime_type(), fetched.base64_data())
-        })
-        .await
-        .unwrap_or(Err(ImageOmission::InvalidOrOversized));
-        prepared
-            .inspect_err(|omission| {
-                tracing::info!(
-                    eventType = "EMBEDDING_IMAGE_OMITTED",
-                    imageOmissionReason = omission.as_str(),
-                    "Embedding image omitted."
-                );
-            })
-            .ok()
     }
 
     async fn create_job(
@@ -321,12 +289,6 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
             unanswered,
         }))
     }
-}
-
-/// The product document text: the title, then the description or `none`.
-fn product_text(title: &EmbeddingText, additional_text: Option<&EmbeddingText>) -> String {
-    let additional_text = additional_text.map(EmbeddingText::as_str).unwrap_or("none");
-    format!("title: {} | text: {additional_text}", title.as_str())
 }
 
 /// The job states, by what they mean for its unanswered requests.
@@ -494,7 +456,7 @@ struct OutputLine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::TestCredentials;
+    use crate::{EmbeddingText, test_support::TestCredentials};
     use serde_json::{Value, json};
     use wiremock::{
         Mock, MockServer, Request, ResponseTemplate,

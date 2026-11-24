@@ -724,7 +724,7 @@ mod tests {
     use classifier_model::{
         ClassificationRequest, ClassificationResponse, Probability, QuestionId,
     };
-    use embedding::{EmbeddingText, EmbeddingVector};
+    use embedding::{EmbeddingImageUrl, EmbeddingText, EmbeddingVector};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -1502,6 +1502,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EmbeddingGenerator for FakeEmbeddings {
+        async fn embed_product(
+            &self,
+            _: &EmbeddingText,
+            _: Option<&EmbeddingText>,
+            _: Option<&EmbeddingImageUrl>,
+        ) -> Result<EmbeddingVector, EmbeddingError> {
+            panic!("previews never embed products")
+        }
+
         async fn embed_search_query(
             &self,
             query: &EmbeddingText,

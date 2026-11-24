@@ -1,7 +1,9 @@
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+};
 use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::{
     GetPublicListingSourcesByIdsHandler, GetPublicListingSourcesByIdsUseCase,
 };
@@ -40,6 +42,14 @@ fn listing_sources(pool: &sqlx::PgPool) -> std::sync::Arc<dyn GetPublicListingSo
 struct TestEmbeddings;
 #[async_trait::async_trait]
 impl EmbeddingGenerator for TestEmbeddings {
+    async fn embed_product(
+        &self,
+        _: &EmbeddingText,
+        _: Option<&EmbeddingText>,
+        _: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        unreachable!("saved-filter writes embed only search intent")
+    }
     async fn embed_search_query(
         &self,
         query: &EmbeddingText,

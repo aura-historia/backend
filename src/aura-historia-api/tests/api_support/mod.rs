@@ -44,7 +44,9 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use domain_primitives::event_id::EventId;
-use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+};
 use fxrate_core::FxRateId;
 use fxrate_postgres::{SqlxFxRateSnapshotReader, SqlxFxRateSnapshotRepositoryFactory};
 use fxrate_service::readers::{CachedFxRateSnapshotReader, FxSearchCacheConfig};
@@ -272,6 +274,15 @@ impl TestEmbeddingGenerator {
 
 #[async_trait::async_trait]
 impl EmbeddingGenerator for TestEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        _: &EmbeddingText,
+        _: Option<&EmbeddingText>,
+        _: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.embedding()
+    }
+
     async fn embed_search_query(
         &self,
         _: &EmbeddingText,
