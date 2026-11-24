@@ -270,10 +270,9 @@ mod tests {
         );
         assert!(weak.upgrade().is_some());
         release.send(()).unwrap();
-        let next = tokio::time::timeout(Duration::from_secs(5), next)
-            .await
-            .unwrap()
-            .unwrap();
+        // No deadline of its own: besides the join, this request waits for the exclusive
+        // reservations other tests of the lane have queued, and `lease::WAIT` bounds it.
+        let next = next.await.unwrap();
         assert!(joined.load(Ordering::Acquire));
         assert!(
             weak.upgrade().is_none(),
