@@ -263,6 +263,7 @@ mod tests {
             state: Some(text(".state")),
             images: Some(rule("img", ExtractionKind::ImageUrl)),
             raw_attributes: Default::default(),
+            sanitize: Default::default(),
         }
     }
 

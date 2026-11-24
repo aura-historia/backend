@@ -42,6 +42,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
             ..rule("img")
         }),
         raw_attributes: Default::default(),
+        sanitize: Default::default(),
     }
 }
 
