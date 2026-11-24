@@ -21,8 +21,11 @@ use url::Url;
 /// How long a ListingSource's audit stands before its live schemas are audited again.
 pub const SCHEMA_AUDIT_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-/// How many ListingSources one pass audits. Each costs a few page fetches at the shop's pacing.
-pub const SCHEMA_AUDIT_SOURCES_PER_PASS: i64 = 3;
+/// How many ListingSources one pass audits, one after the other. Each costs up to five page
+/// fetches at its own shop's pacing, so a pass of different shops stays polite to each of them;
+/// with the default 15-minute interval the audit takes 40 sources an hour, and a first sweep of a
+/// few hundred sources finishes within a day.
+pub const SCHEMA_AUDIT_SOURCES_PER_PASS: i64 = 10;
 
 /// How many audit reviews opened within [`SCHEMA_AUDIT_AGE`] may wait at once. A pass opens none
 /// beyond it, so a first audit of many old schemas does not bury the agents' queue and budget; the

@@ -62,7 +62,7 @@ impl Default for CrawlerCronConfig {
             spider_interval: Duration::from_secs(600), // 10 minutes
             scraper_interval: Duration::from_secs(60), // 1 minute
             listing_source_sync_interval: Duration::from_secs(10800), // 3 hours
-            schema_audit_interval: Duration::from_secs(3600), // 1 hour
+            schema_audit_interval: Duration::from_secs(900), // 15 minutes
             scraper_batch_size: None,
             scraper_urls_per_source: 100,
             scraper_batch_time_budget: Duration::from_secs(5 * 60),
