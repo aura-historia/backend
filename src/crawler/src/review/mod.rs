@@ -19,6 +19,7 @@ pub mod page_signals;
 pub mod product_markup;
 pub mod readers;
 pub mod repository;
+pub mod schema_audit;
 pub mod schema_evaluation;
 pub mod selector_probe;
 pub mod server;

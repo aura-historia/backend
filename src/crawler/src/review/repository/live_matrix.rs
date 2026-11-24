@@ -20,6 +20,10 @@ use crate::review::model::{
     ReviewSchemaMatrix, SchemaMatrix, SchemaReviewPageInput,
 };
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
+use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema_repository::{
+    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
+};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
@@ -51,6 +55,7 @@ impl EvaluatedSchemaMatrix {
 pub struct CandidateProposal {
     review_id: CrawlerReviewId,
     listing_source_id: uuid::Uuid,
+    listing_source_name: String,
     going_live: ProductSchemaReviewCandidate,
     /// The review's pages, to fetch live.
     pub pages: Vec<CrawlerReviewPage>,
@@ -67,6 +72,7 @@ impl CandidateProposal {
 /// A product-schema review as a live evaluation reads it.
 struct ReviewUnderEvaluation {
     listing_source_id: uuid::Uuid,
+    listing_source_name: String,
     artifact_type: String,
     candidate_payload: serde_json::Value,
     candidate_version: i64,
@@ -103,16 +109,22 @@ impl CrawlerReviewRepository {
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
         let configuration_sha256 = going_live.fingerprint()?;
+        let live_schemas = self.live_schemas(review.listing_source_id).await?;
         let (mut matrix, captured_identity_sample) = evaluate_on_blocking_thread(move || {
             let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
+                &review.listing_source_name,
                 &going_live.schemas,
                 &going_live.removed_page_schemas,
                 &pages,
                 &[],
                 &captured_identities,
             );
-            let sample = CapturedIdentitySample::evaluate(&going_live.schemas, &captured_sample);
+            let sample = CapturedIdentitySample::evaluate(
+                &going_live.schemas,
+                &live_schemas,
+                &captured_sample,
+            );
             (matrix, sample)
         })
         .await?;
@@ -168,6 +180,7 @@ impl CrawlerReviewRepository {
         Ok(CandidateProposal {
             review_id,
             listing_source_id: review.listing_source_id,
+            listing_source_name: review.listing_source_name,
             going_live,
             pages,
             urls,
@@ -196,6 +209,7 @@ impl CrawlerReviewRepository {
         evaluate_on_blocking_thread(move || {
             evaluate_schema_matrix_for_live_review_pages(
                 proposal.review_id,
+                &proposal.listing_source_name,
                 &proposal.going_live.schemas,
                 &proposal.going_live.removed_page_schemas,
                 &pages,
@@ -211,11 +225,12 @@ impl CrawlerReviewRepository {
         review_id: CrawlerReviewId,
     ) -> Result<ReviewUnderEvaluation, ReviewRepositoryError> {
         let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, candidate_payload, candidate_version,
-                    removed_page_schemas_base,
-                    encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
-             FROM crawler_reviews
-             WHERE review_id = $1",
+            "SELECT r.listing_source_id, s.listing_source_name, r.artifact_type,
+                    r.candidate_payload, r.candidate_version, r.removed_page_schemas_base,
+                    encode(digest(r.candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
+             FROM crawler_reviews r
+             JOIN listing_sources s USING (listing_source_id)
+             WHERE r.review_id = $1",
         )
         .bind(review_id.as_uuid())
         .fetch_optional(&self.pool)
@@ -223,6 +238,7 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         Ok(ReviewUnderEvaluation {
             listing_source_id: review.try_get("listing_source_id")?,
+            listing_source_name: review.try_get("listing_source_name")?,
             artifact_type: review.try_get("artifact_type")?,
             candidate_payload: review.try_get("candidate_payload")?,
             candidate_version: review.try_get("candidate_version")?,
@@ -250,6 +266,19 @@ impl CrawlerReviewRepository {
         Ok(candidate.going_live(&base, &stored))
     }
 
+    /// The ListingSource's live product schemas, none before its first approval.
+    pub(super) async fn live_schemas(
+        &self,
+        listing_source_id: uuid::Uuid,
+    ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+        let listing_source_id = listing_source_id_from_uuid(listing_source_id)?;
+        Ok(ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
+            .find_product_schema(&listing_source_id)
+            .await?
+            .map(|live| live.product_schemas)
+            .unwrap_or_default())
+    }
+
     /// A random sample of at most [`CAPTURED_IDENTITY_SAMPLE_SIZE`] product URLs of the review's
     /// ListingSource whose listings were captured, other than the review's pages in any stored
     /// spelling, each with the identity it was captured under: what a live matrix evaluates its
@@ -265,6 +294,18 @@ impl CrawlerReviewRepository {
             .iter()
             .flat_map(|page| ReviewPageIdentity::stored_spellings(&page.url))
             .collect();
+        self.captured_product_urls(review.listing_source_id, &review_urls)
+            .await
+    }
+
+    /// A random sample of at most [`CAPTURED_IDENTITY_SAMPLE_SIZE`] active or sold product URLs of
+    /// the ListingSource whose listings were captured, other than `excluded_urls`, each with the
+    /// identity it was captured under. A stored URL that no longer parses is left out.
+    pub(super) async fn captured_product_urls(
+        &self,
+        listing_source_id: uuid::Uuid,
+        excluded_urls: &[String],
+    ) -> Result<Vec<CapturedProductUrl>, ReviewRepositoryError> {
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT url, last_source_listing_id
              FROM listing_source_urls
@@ -276,8 +317,8 @@ impl CrawlerReviewRepository {
              ORDER BY random()
              LIMIT $3",
         )
-        .bind(review.listing_source_id)
-        .bind(&review_urls)
+        .bind(listing_source_id)
+        .bind(excluded_urls)
         .bind(CAPTURED_IDENTITY_SAMPLE_SIZE)
         .fetch_all(&self.pool)
         .await?;

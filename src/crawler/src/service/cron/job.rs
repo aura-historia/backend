@@ -5,6 +5,7 @@ use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
 use crate::service::listing_source_registration::ListingSourceRegistrationService;
 use crate::service::raw_capture::ProductListingRawCaptureService;
+use crate::service::schema_audit::SchemaAudit;
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::local_lock::LocalLockManager;
 use crate::spider::service::SpiderService;
@@ -26,6 +27,8 @@ pub struct CrawlerCronJob {
     pub(super) spider_perf: Arc<PerfCounter>,
     pub(super) scraper_perf: Arc<PerfCounter>,
     pub(super) stop: CronStop,
+    /// The live schema audit, in `agent` authoring mode only.
+    pub(super) schema_audit: Option<Arc<SchemaAudit>>,
 }
 
 impl CrawlerCronJob {
@@ -52,7 +55,14 @@ impl CrawlerCronJob {
             spider_perf: Arc::new(PerfCounter::new(50, "spider")),
             scraper_perf: Arc::new(PerfCounter::new(500, "scraper")),
             stop: CronStop::default(),
+            schema_audit: None,
         }
+    }
+
+    /// Runs the live schema audit every `schema_audit_interval` next to the other loops.
+    pub fn with_schema_audit(mut self, schema_audit: SchemaAudit) -> Self {
+        self.schema_audit = Some(Arc::new(schema_audit));
+        self
     }
 
     /// Replaces the job's stop switch with `stop`, so that parts built before the job, such as the
@@ -68,7 +78,8 @@ impl CrawlerCronJob {
         self.stop.clone()
     }
 
-    /// Runs the ListingSource sync, spider and scraper loops until a stop is requested through
+    /// Runs the ListingSource sync, spider and scraper loops, and the live schema audit loop when
+    /// the job has one, until a stop is requested through
     /// [`stop_handle`](Self::stop_handle) and the work already running has finished.
     #[tracing::instrument(name = "crawler_run_loop", skip(self))]
     pub async fn run_loop(self) {
@@ -88,11 +99,32 @@ impl CrawlerCronJob {
             spider_job.spider_loop().await;
         });
 
+        let audit_job = scraper_job.clone();
         let scraper_handle = tokio::spawn(async move {
             scraper_job.scraper_loop().await;
         });
 
-        let _ = tokio::join!(spider_handle, scraper_handle, sync_handle);
+        let audit_handle = tokio::spawn(async move {
+            audit_job.schema_audit_loop().await;
+        });
+
+        let _ = tokio::join!(spider_handle, scraper_handle, sync_handle, audit_handle);
+    }
+
+    /// Audits live schemas every `schema_audit_interval`, the first pass one interval after the
+    /// start, so the spider and scraper go first; returns at once without an audit.
+    #[tracing::instrument(name = "crawler_schema_audit_loop", skip(self))]
+    async fn schema_audit_loop(&self) {
+        let Some(schema_audit) = &self.schema_audit else {
+            return;
+        };
+        loop {
+            self.stop.sleep(self.config.schema_audit_interval).await;
+            if self.stop.is_requested() {
+                break;
+            }
+            schema_audit.run_once(&self.stop).await;
+        }
     }
 
     #[tracing::instrument(name = "crawler_spider_loop", skip(self))]

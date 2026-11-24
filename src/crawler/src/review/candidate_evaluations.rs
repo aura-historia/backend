@@ -166,6 +166,7 @@ mod tests {
     fn matrix(review_id: CrawlerReviewId) -> SchemaMatrix {
         SchemaMatrix {
             review_id: Some(review_id),
+            listing_source_name: None,
             candidates: Vec::new(),
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),

@@ -4,12 +4,18 @@
 //! another identity from such a page than the one its listing was captured under would leave the
 //! URL in `SourceListingIdConflict` once approved, which the review's own pages, usually never
 //! captured, cannot show. The [approval guard](crate::review::approval_guard) refuses it; the
-//! contract is in `docs/crawler/extraction-and-review.md` (approval guard).
+//! contract is in `docs/crawler/extraction-and-review.md` (approval guard). The sample also shows
+//! the title the ListingSource's live schemas and the candidate would capture from each page, so a
+//! candidate that adds or drops text on titles already captured shows before approval; that
+//! blocks nothing, since a title may rightly improve.
 
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, SchemaExtraction};
+use crate::scraper::css_selector::product_schema::{
+    ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
+};
 use crate::scraper::plausibility::{
     PlausibilityFindings, capturable_identity, is_link_or_path_identity,
 };
+use crate::scraper::scraper_service::rank_applicable_schemas;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -33,7 +39,8 @@ pub struct SampledCapturedPage {
     pub html: Option<String>,
 }
 
-/// What the schemas approval would make live derive from each sampled captured product URL.
+/// What the schemas approval would make live, and the live ones, derive from each sampled
+/// captured product URL.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapturedIdentitySample {
     pub pages: Vec<CapturedIdentityPage>,
@@ -46,6 +53,23 @@ pub struct CapturedIdentityPage {
     pub captured_identity: String,
     #[serde(flatten)]
     pub outcome: CapturedIdentityOutcome,
+    /// The title the ListingSource's live schemas would capture from the page: that of the
+    /// extraction runtime selection ranks first, as far as it ranks offline
+    /// ([`rank_applicable_schemas`]). `None` when the page was not fetched, no live schema applies
+    /// or the selected one extracts no title, and in a sample stored before the titles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_title: Option<String>,
+    /// The same of the schemas approval would make live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_title: Option<String>,
+}
+
+impl CapturedIdentityPage {
+    /// Whether the candidate would capture another title from the page than the live schemas,
+    /// which capture one: approving it adds or drops text on a captured title, or loses it.
+    pub(crate) fn title_changes(&self) -> bool {
+        self.live_title.is_some() && self.live_title != self.candidate_title
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,25 +88,18 @@ pub enum CapturedIdentityOutcome {
 }
 
 impl CapturedIdentitySample {
-    /// Evaluates `schemas` on each sampled page. An extraction a rejecting plausibility finding
+    /// Evaluates `schemas`, the ones approval would make live, and the ListingSource's
+    /// `live_schemas` on each sampled page. An extraction a rejecting plausibility finding
     /// withdraws is left out, as runtime selection never captures it.
     pub(crate) fn evaluate(
         schemas: &[ProductCssSelectorSchema],
+        live_schemas: &[ProductCssSelectorSchema],
         pages: &[SampledCapturedPage],
     ) -> Self {
         Self {
             pages: pages
                 .iter()
-                .map(|sampled| CapturedIdentityPage {
-                    url: sampled.page.url.to_string(),
-                    captured_identity: sampled.page.captured_identity.clone(),
-                    outcome: sampled
-                        .html
-                        .as_deref()
-                        .map_or(CapturedIdentityOutcome::NotFetched, |html| {
-                            outcome_on(schemas, html, &sampled.page.captured_identity)
-                        }),
-                })
+                .map(|sampled| evaluate_page(schemas, live_schemas, sampled))
                 .collect(),
         }
     }
@@ -94,6 +111,12 @@ impl CapturedIdentitySample {
             .filter(|page| matches!(page.outcome, CapturedIdentityOutcome::Differs { .. }))
             .cloned()
             .collect()
+    }
+
+    /// The sampled pages from which the candidate would capture another title than the live schemas
+    /// ([`CapturedIdentityPage::title_changes`]).
+    pub(crate) fn title_changes(&self) -> impl Iterator<Item = &CapturedIdentityPage> {
+        self.pages.iter().filter(|page| page.title_changes())
     }
 
     /// Whether the sample holds pages but none of them could be fetched, so it shows nothing.
@@ -123,22 +146,75 @@ impl CapturedIdentitySample {
     }
 }
 
-fn outcome_on(
+fn evaluate_page(
+    schemas: &[ProductCssSelectorSchema],
+    live_schemas: &[ProductCssSelectorSchema],
+    sampled: &SampledCapturedPage,
+) -> CapturedIdentityPage {
+    let (outcome, live_title, candidate_title) = match sampled.html.as_deref() {
+        None => (CapturedIdentityOutcome::NotFetched, None, None),
+        Some(raw_html) => {
+            let html = Html::parse_document(raw_html);
+            (
+                identity_outcome(
+                    &plausible_extractions(schemas, &html),
+                    &sampled.page.captured_identity,
+                ),
+                selected_title(live_schemas, raw_html, &html),
+                selected_title(schemas, raw_html, &html),
+            )
+        }
+    };
+    CapturedIdentityPage {
+        url: sampled.page.url.to_string(),
+        captured_identity: sampled.page.captured_identity.clone(),
+        outcome,
+        live_title,
+        candidate_title,
+    }
+}
+
+/// The trimmed title of the extraction runtime selection would capture from the page with
+/// `schemas`, ranked offline ([`rank_applicable_schemas`]); `None` when no schema applies or the
+/// selected one extracts no title.
+fn selected_title(
     schemas: &[ProductCssSelectorSchema],
     raw_html: &str,
-    captured_identity: &str,
-) -> CapturedIdentityOutcome {
-    let html = Html::parse_document(raw_html);
-    let identities: Vec<String> = schemas
+    html: &Html,
+) -> Option<String> {
+    let selected = rank_applicable_schemas(schemas, raw_html)
+        .into_iter()
+        .next()?;
+    let SchemaExtraction { raw, .. } = schemas.get(selected.schema_index)?.extract(html).ok()?;
+    raw.title().map(|title| title.trim().to_owned())
+}
+
+/// What each of `schemas` that runtime selection could use extracts from `html`, in schema order:
+/// an extraction a rejecting plausibility finding withdraws is left out.
+fn plausible_extractions(
+    schemas: &[ProductCssSelectorSchema],
+    html: &Html,
+) -> Vec<RawExtractedProduct> {
+    schemas
         .iter()
-        .filter_map(|schema| match schema.extract(&html) {
+        .filter_map(|schema| match schema.extract(html) {
             Ok(SchemaExtraction { raw, .. })
                 if PlausibilityFindings::of(&raw).rejection_reason().is_none() =>
             {
-                capturable_identity(&raw.source_listing_id)
+                Some(raw)
             }
             _ => None,
         })
+        .collect()
+}
+
+fn identity_outcome(
+    extractions: &[RawExtractedProduct],
+    captured_identity: &str,
+) -> CapturedIdentityOutcome {
+    let identities: Vec<String> = extractions
+        .iter()
+        .filter_map(|raw| capturable_identity(&raw.source_listing_id))
         .collect();
     let mut differing: Vec<String> = Vec::new();
     for identity in &identities {
@@ -213,6 +289,7 @@ mod tests {
     fn should_report_the_identity_a_schema_derives_instead_of_the_captured_one() {
         let sample = CapturedIdentitySample::evaluate(
             &[schema_with_identity("dl.facts dd:last-child")],
+            &[],
             &[page("rose", "f_42759492", "f_42759492", "BG-13692-3-54")],
         );
 
@@ -224,6 +301,8 @@ mod tests {
                 outcome: CapturedIdentityOutcome::Differs {
                     identities: vec!["BG-13692-3-54".to_owned()],
                 },
+                live_title: None,
+                candidate_title: Some("Botanical print rose".to_owned()),
             }]
         );
     }
@@ -232,6 +311,7 @@ mod tests {
     fn should_agree_when_every_schema_derives_the_captured_identity() {
         let sample = CapturedIdentitySample::evaluate(
             &[schema_with_identity(".sku"), schema_with_identity(".sku")],
+            &[],
             &[page("rose", "f_1", "f_1", "BG-1")],
         );
 
@@ -246,6 +326,7 @@ mod tests {
                 schema_with_identity(".sku"),
                 schema_with_identity("dl.facts dd"),
             ],
+            &[],
             &[page("rose", "f_1", "f_1", "BG-1")],
         );
 
@@ -261,6 +342,7 @@ mod tests {
     fn should_show_nothing_for_a_page_no_schema_derives_an_identity_from() {
         let sample = CapturedIdentitySample::evaluate(
             &[schema_with_identity(".missing")],
+            &[],
             &[page("rose", "f_1", "f_1", "BG-1")],
         );
 
@@ -274,7 +356,7 @@ mod tests {
         let mut unfetched = page("rose", "f_1", "f_1", "BG-1");
         unfetched.html = None;
         let sample =
-            CapturedIdentitySample::evaluate(&[schema_with_identity(".sku")], &[unfetched]);
+            CapturedIdentitySample::evaluate(&[schema_with_identity(".sku")], &[], &[unfetched]);
 
         assert_eq!(sample.pages[0].outcome, CapturedIdentityOutcome::NotFetched);
         assert!(sample.fetched_none());
@@ -289,6 +371,8 @@ mod tests {
             outcome: CapturedIdentityOutcome::Differs {
                 identities: vec!["https://shop.example/products/rose".to_owned()],
             },
+            live_title: None,
+            candidate_title: None,
         })
         .unwrap();
 
@@ -304,6 +388,111 @@ mod tests {
         );
     }
 
+    mod captured_titles {
+        use super::*;
+
+        fn schema_with_title(title_selector: &str) -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                title: Some(rule(title_selector)),
+                ..schema_with_identity(".sku")
+            }
+        }
+
+        /// A captured product page whose heading names the product and whose `.page-title`
+        /// adds the shop's name, as a document `<title>` does.
+        fn page_with_titles() -> SampledCapturedPage {
+            let mut sampled = page("rose", "f_1", "f_1", "BG-1");
+            sampled.html = Some(
+                "<html><body><span class=\"page-title\">Botanical print rose | Shop</span>\
+                 <h1>Botanical print rose</h1><span class=\"sku\">f_1</span>\
+                 <span class=\"state\">Available</span><img src=\"rose.jpg\"></body></html>"
+                    .to_owned(),
+            );
+            sampled
+        }
+
+        /// Antike Fundgrube's rule moved from the heading to the document `<title>`, which adds
+        /// the shop's name to every title it had captured.
+        #[test]
+        fn should_show_the_titles_the_live_schemas_and_the_candidate_extract() {
+            let sample = CapturedIdentitySample::evaluate(
+                &[schema_with_title(".page-title")],
+                &[schema_with_title("h1")],
+                &[page_with_titles()],
+            );
+
+            let changed: Vec<_> = sample.title_changes().collect();
+            assert_eq!(changed.len(), 1);
+            assert_eq!(
+                changed[0].live_title.as_deref(),
+                Some("Botanical print rose")
+            );
+            assert_eq!(
+                changed[0].candidate_title.as_deref(),
+                Some("Botanical print rose | Shop")
+            );
+        }
+
+        #[test]
+        fn should_show_no_change_when_the_candidate_captures_the_live_title() {
+            let sample = CapturedIdentitySample::evaluate(
+                &[schema_with_title("h1"), schema_with_title("h1")],
+                &[schema_with_title("h1")],
+                &[page_with_titles()],
+            );
+
+            assert_eq!(
+                sample.pages[0].candidate_title.as_deref(),
+                Some("Botanical print rose")
+            );
+            assert_eq!(sample.title_changes().count(), 0);
+        }
+
+        /// Only the schema runtime selection would use counts: a live schema it never selects
+        /// for the page captured no title there, so dropping it changes none.
+        #[test]
+        fn should_show_no_change_when_a_schema_selection_passes_over_changes() {
+            let sample = CapturedIdentitySample::evaluate(
+                &[schema_with_title("h1")],
+                &[schema_with_title("h1"), schema_with_title(".page-title")],
+                &[page_with_titles()],
+            );
+
+            assert_eq!(
+                sample.pages[0].live_title.as_deref(),
+                Some("Botanical print rose")
+            );
+            assert_eq!(sample.title_changes().count(), 0);
+        }
+
+        /// A source without live schemas, or whose live schemas no longer apply to the page,
+        /// captured no title to compare with.
+        #[test]
+        fn should_show_no_change_where_no_live_schema_extracts_a_title() {
+            let sample = CapturedIdentitySample::evaluate(
+                &[schema_with_title(".page-title")],
+                &[schema_with_title(".missing")],
+                &[page_with_titles()],
+            );
+
+            assert_eq!(sample.pages[0].live_title, None);
+            assert_eq!(sample.title_changes().count(), 0);
+        }
+
+        #[test]
+        fn should_load_a_sampled_page_stored_before_the_titles() {
+            let page: CapturedIdentityPage = serde_json::from_value(serde_json::json!({
+                "url": "https://shop.example/products/rose",
+                "captured_identity": "f_1",
+                "outcome": "AGREES"
+            }))
+            .unwrap();
+
+            assert!(page.live_title.is_none() && page.candidate_title.is_none());
+            assert!(!page.title_changes());
+        }
+    }
+
     mod captured_link_identities {
         use super::*;
 
@@ -317,6 +506,8 @@ mod tests {
                 url: ROSE_URL.to_owned(),
                 captured_identity: captured_identity.to_owned(),
                 outcome,
+                live_title: None,
+                candidate_title: None,
             }
         }
 

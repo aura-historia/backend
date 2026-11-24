@@ -81,7 +81,12 @@ impl ScraperServiceImpl {
                 .await?;
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
         };
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let listing_source_name = review_repository
+            .listing_source_name(listing_source_id)
+            .await
+            .map_err(review_error_to_schema_service_error)?;
+        let matrix =
+            evaluate_schema_matrix_for_inputs(Some(&listing_source_name), &schemas, &pages);
         let keeps_captured_identities =
             derives_captured_identities(&matrix, &pages, &captured_identities);
         let deterministic_approval_ok =
@@ -357,6 +362,7 @@ mod tests {
     fn should_record_present_but_missing_rule_failures_in_validation_summary() {
         let matrix = SchemaMatrix {
             review_id: None,
+            listing_source_name: None,
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),
             live_evaluation: None,
@@ -453,7 +459,7 @@ mod tests {
             other_sold_page,
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, std::slice::from_ref(&schema), &pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let summary = with_schema_matrix_summary(
             json!({ "schema_count": 1 }),
@@ -522,7 +528,7 @@ mod tests {
             seed_page(PAGE_ROLE_SEED, "other-product", Some("Walnut chair")),
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, std::slice::from_ref(&schema), &pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let summary = with_schema_matrix_summary(
             json!({ "schema_count": 1 }),
@@ -557,7 +563,7 @@ mod tests {
             seed_page(PAGE_ROLE_SEED, "third", None),
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(std::slice::from_ref(&schema), &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, std::slice::from_ref(&schema), &pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let summary = with_schema_matrix_summary(
             json!({ "schema_count": 1 }),
@@ -595,6 +601,7 @@ mod tests {
     fn should_not_report_miss_when_an_additional_selector_matches() {
         let matrix = SchemaMatrix {
             review_id: None,
+            listing_source_name: None,
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),
             live_evaluation: None,
@@ -639,6 +646,7 @@ mod tests {
     fn should_not_record_missing_images_as_present_but_missing_rule_failure() {
         let matrix = SchemaMatrix {
             review_id: None,
+            listing_source_name: None,
             removed_page_matches: Vec::new(),
             page_signals: Vec::new(),
             live_evaluation: None,
@@ -803,7 +811,7 @@ mod tests {
 
         fn kept(captured_identities: &HashMap<String, String>) -> bool {
             let pages = vec![seed_page(PAGE_ROLE_PRIMARY, "chair", None)];
-            let matrix = evaluate_schema_matrix_for_inputs(&[optional_miss_schema()], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[optional_miss_schema()], &pages);
             derives_captured_identities(&matrix, &pages, captured_identities)
         }
 

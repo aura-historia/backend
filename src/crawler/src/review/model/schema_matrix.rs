@@ -11,6 +11,11 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaMatrix {
     pub review_id: Option<CrawlerReviewId>,
+    /// The name of the review's ListingSource, which the cross-page checks look for in titles;
+    /// `None` for a matrix of the pages schema generation was given and one stored before the
+    /// check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listing_source_name: Option<String>,
     pub candidates: Vec<SchemaCandidateEvaluation>,
     /// The review pages the candidate's removed-page templates match; empty without templates.
     #[serde(default)]

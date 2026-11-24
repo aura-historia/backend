@@ -197,6 +197,7 @@ async fn main() {
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
             scraper_interval: Duration::from_secs(30),
+            schema_audit_interval: Duration::from_secs(120),
             scraper_urls_per_source: 50,
             spider_concurrency: 100,
             spider_site_concurrency_limit: 8,

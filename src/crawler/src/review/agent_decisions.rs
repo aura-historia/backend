@@ -11,6 +11,7 @@
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::access::{ReviewServerConfigError, positive_number};
 use crate::review::model::{MAX_PARK_INTERVAL_DAYS, ParkSchedule, STATUS_PENDING_REVIEW};
+use crate::review::schema_audit::SCHEMA_AUDIT_REASON;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::time::Duration;
@@ -253,17 +254,29 @@ impl AgentDecisionPolicy {
                 })
     }
 
-    /// Whether the author agent may start the agents' final round on a review in `status` that
-    /// the agents worked as `rounds` says: it waits for a human, and no final round started on it
-    /// within the round window since a human last acted on it.
-    pub fn final_round_due(&self, status: &str, rounds: AgentRounds) -> bool {
-        rounds.final_round == FinalRound::NotStarted && self.waits_for_human(status, rounds)
+    /// The authoring mode of the start, which decides whether the review agents and the live
+    /// schema audit run.
+    pub const fn authoring(&self) -> CrawlerAuthoringMode {
+        self.authoring
+    }
+
+    /// Whether the author agent may start the agents' final round on a review in `status`, opened
+    /// for `reason`, that the agents worked as `rounds` says: it waits for a human, and no final
+    /// round started on it within the round window since a human last acted on it. A final round
+    /// ends with the source labelled and its crawl switched off, so a live schema audit review is
+    /// never given one: its source is crawled with working schemas, and the review waits for a
+    /// human instead.
+    pub fn final_round_due(&self, status: &str, reason: &str, rounds: AgentRounds) -> bool {
+        reason != SCHEMA_AUDIT_REASON
+            && rounds.final_round == FinalRound::NotStarted
+            && self.waits_for_human(status, rounds)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 
     const SETTINGS: [&str; 6] = [
         AGENT_MAX_DECISIONS_PER_HOUR_ENV,
@@ -560,7 +573,7 @@ mod tests {
                 "{rounds:?}"
             );
             assert!(
-                policy.final_round_due(STATUS_PENDING_REVIEW, rounds),
+                policy.final_round_due(STATUS_PENDING_REVIEW, MANUAL_SCHEMA_REASON, rounds),
                 "{rounds:?}"
             );
         }
@@ -570,7 +583,7 @@ mod tests {
                 "{rounds:?}"
             );
             assert!(
-                !policy.final_round_due(STATUS_PENDING_REVIEW, rounds),
+                !policy.final_round_due(STATUS_PENDING_REVIEW, MANUAL_SCHEMA_REASON, rounds),
                 "{rounds:?}"
             );
         }
@@ -580,15 +593,34 @@ mod tests {
                 "{rounds:?}"
             );
             assert!(
-                !policy.final_round_due(STATUS_PENDING_REVIEW, rounds),
+                !policy.final_round_due(STATUS_PENDING_REVIEW, MANUAL_SCHEMA_REASON, rounds),
                 "{rounds:?}"
             );
         }
-        assert!(!policy.final_round_due(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(2)));
-        assert!(!policy.final_round_due("APPROVED", at_cap(FinalRound::NotStarted)));
+        assert!(!policy.final_round_due(
+            STATUS_PENDING_REVIEW,
+            MANUAL_SCHEMA_REASON,
+            AgentRounds::needs_repair(2)
+        ));
+        assert!(!policy.final_round_due(
+            "APPROVED",
+            MANUAL_SCHEMA_REASON,
+            at_cap(FinalRound::NotStarted)
+        ));
+        // A live schema audit review waits for a human, but its source keeps being crawled: no
+        // final round may end with the source labelled.
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, at_cap(FinalRound::NotStarted)));
+        assert!(!policy.final_round_due(
+            STATUS_PENDING_REVIEW,
+            SCHEMA_AUDIT_REASON,
+            at_cap(FinalRound::NotStarted)
+        ));
         assert!(
-            !capped_at_three(CrawlerAuthoringMode::Manual)
-                .final_round_due(STATUS_PENDING_REVIEW, at_cap(FinalRound::NotStarted))
+            !capped_at_three(CrawlerAuthoringMode::Manual).final_round_due(
+                STATUS_PENDING_REVIEW,
+                MANUAL_SCHEMA_REASON,
+                at_cap(FinalRound::NotStarted)
+            )
         );
     }
 }

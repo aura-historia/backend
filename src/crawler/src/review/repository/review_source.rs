@@ -73,6 +73,23 @@ impl CrawlerReviewRepository {
             *listing_source_id,
         ))
     }
+
+    /// The name of the ListingSource `listing_source_id`, which the cross-page checks look for in
+    /// titles; a source that does not exist is refused.
+    pub async fn listing_source_name(
+        &self,
+        listing_source_id: &listing_source_core::ListingSourceId,
+    ) -> Result<String, ReviewRepositoryError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT listing_source_name FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(ReviewRepositoryError::ListingSourceNotFound(
+            *listing_source_id,
+        ))
+    }
 }
 
 /// The crawl host of the ListingSource `listing_source_id`, `None` without a crawl root.

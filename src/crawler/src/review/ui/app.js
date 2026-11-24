@@ -4193,6 +4193,7 @@ function renderCoverageSection(matrix) {
       <div class="section-head"><h3>Coverage</h3>${badge(`${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}${coverage.notEvaluated ? ` · ${coverage.notEvaluated} not evaluated` : ''}`, tone)}</div>
       <div class="small muted">${escapeHtml(coverageSentences(matrix, coverage))}</div>
       ${capturedIdentityChanges(matrix).length ? `<div class="small tone-warn">${escapeHtml(identityChangeWarning(capturedIdentityChanges(matrix)))}</div>` : ''}
+      ${capturedTitleChanges(matrix).length ? `<div class="small tone-warn">${escapeHtml(titleChangeNote(capturedTitleChanges(matrix)))}</div>` : ''}
       <div class="actions">
         <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages" type="button">Evaluate on live pages</button>
         ${matrix.live_evaluation ? `<span class="small muted">evaluated ${evaluated ? timeBadge(evaluated, 'Evaluated') : 'never'}</span>` : ''}
@@ -4237,6 +4238,8 @@ const plausibilityCheckDescriptions = {
     LINK_OR_PATH: 'is a link or file path',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
+    SHARED_TITLE_SEGMENT: 'starts or ends with the same segment on every review page',
+    LISTING_SOURCE_NAME: 'starts or ends with the name of the shop',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
@@ -4274,6 +4277,8 @@ const CHECK_LABELS = {
     LINK_OR_PATH: 'Link or path',
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
+    SHARED_TITLE_SEGMENT: 'Shared title segment',
+    LISTING_SOURCE_NAME: 'Shop name',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity'
 };
@@ -5135,6 +5140,22 @@ function identityChangeWarning(changes) {
         .map(page => `${page.url}: captured as ${page.captured_identity}, now ${(page.identities || []).join(', ')}`)
         .join('; ');
     return `Identity change: the candidate derives another identity than ${changes.length} sampled captured listing${changes.length === 1 ? '' : 's'} (${named}). Their listings keep their captured identity, but new listings and new spellings of these products would take the new kind.`;
+}
+
+// The sampled captured listings from which the candidate the matrix evaluated would capture another
+// title than the live schemas, which capture one, from the matrix's live evaluation.
+function capturedTitleChanges(matrix) {
+    const pages = matrix?.live_evaluation?.captured_identity_sample?.pages || [];
+    return pages.filter(page => page.live_title && page.live_title !== page.candidate_title);
+}
+
+// How the candidate changes the titles of sampled captured listings, naming up to three. A title
+// may rightly improve, so this asks the reviewer to look rather than refusing anything.
+function titleChangeNote(changes) {
+    const named = changes.slice(0, 3)
+        .map(page => `${page.url}: "${page.live_title}" → ${page.candidate_title ? `"${page.candidate_title}"` : 'no title'}`)
+        .join('; ');
+    return `Title change: the candidate would capture another title than the live schemas from ${changes.length} sampled captured listing${changes.length === 1 ? '' : 's'} (${named}). Approving it retitles these listings; check that the new titles name only the product.`;
 }
 
 // The selected product-schema review's coverage while it is incomplete, or null.

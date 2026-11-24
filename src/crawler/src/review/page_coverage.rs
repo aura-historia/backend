@@ -267,6 +267,7 @@ mod tests {
             .collect();
         evaluate_schema_matrix_for_live_review_pages(
             CrawlerReviewId::new(),
+            "Example Antiques",
             schemas,
             templates,
             &pages,
@@ -428,7 +429,7 @@ mod tests {
     #[test]
     fn should_match_the_pages_of_a_generated_matrix_by_url() {
         let inputs = [input_page("chair", "h1"), input_page("table", "h2")];
-        let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &inputs);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &inputs);
         let pages = inputs.each_ref().map(review_page);
 
         let coverage = ReviewPageCoverage::of(Some(&matrix), &pages);

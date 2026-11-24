@@ -254,6 +254,21 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
+    #[case::review_token_requests_a_schema_audit(
+        "POST /api/listing-sources/ls_1/schema-audit",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::author_token_requests_no_schema_audit(
+        "POST /api/listing-sources/ls_1/schema-audit",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_requests_no_schema_audit(
+        "POST /api/listing-sources/ls_1/schema-audit",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
     #[case::review_token_resumes_a_crawl(
         "POST /api/listing-sources/ls_1/crawl-resumption",
         Some(REVIEW_TOKEN),

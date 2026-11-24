@@ -40,12 +40,14 @@ fn parse_page(raw_html: &str) -> Html {
 }
 
 /// Evaluates the schemas and removed-page templates on the live review pages and on the live
-/// `url_pages` of the review's ListingSource that are no review pages, which the matrix refers to
-/// as inputs by their position. A review page marked as no product page is left out, so no check
-/// of the matrix counts it or compares it with the product pages. `captured_identities` maps a page URL to the source listing id its
-/// listing was captured under.
+/// `url_pages` of the review's ListingSource, named `listing_source_name`, that are no review
+/// pages, which the matrix refers to as inputs by their position. A review page marked as no
+/// product page is left out, so no check of the matrix counts it or compares it with the product
+/// pages. `captured_identities` maps a page URL to the source listing id its listing was captured
+/// under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
+    listing_source_name: &str,
     schemas: &[ProductCssSelectorSchema],
     removed_page_schemas: &[RemovedPageSchema],
     pages: &[(CrawlerReviewPage, String)],
@@ -75,10 +77,20 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
             captured_identity: captured_identities.get(&page.url).map(String::as_str),
         });
     let pages: Vec<MatrixPage<'_>> = review_pages.chain(url_pages).collect();
-    evaluate_matrix(Some(review_id), schemas, removed_page_schemas, &pages)
+    evaluate_matrix(
+        Some(review_id),
+        Some(listing_source_name),
+        schemas,
+        removed_page_schemas,
+        &pages,
+    )
 }
 
+/// Evaluates the schemas on the pages schema generation was given, of the ListingSource named
+/// `listing_source_name`; without a name, as for choosing between generation attempts, no title is
+/// checked for it, so the review gate, which decides auto-approval, passes one.
 pub(crate) fn evaluate_schema_matrix_for_inputs(
+    listing_source_name: Option<&str>,
     schemas: &[ProductCssSelectorSchema],
     pages: &[SchemaReviewPageInput],
 ) -> SchemaMatrix {
@@ -95,7 +107,31 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
         })
         .collect();
     // Generated-schema inputs carry no removed-page templates.
-    evaluate_matrix(None, schemas, &[], &pages)
+    evaluate_matrix(None, listing_source_name, schemas, &[], &pages)
+}
+
+/// Evaluates a ListingSource's `schemas` on its product `pages` whose listings were captured,
+/// `captured_identities` mapping each page URL to the identity its listing was captured under, as
+/// the live schema audit evaluates the live schemas. The ListingSource is named
+/// `listing_source_name`; the pages are referred to as inputs by their position.
+pub(crate) fn evaluate_schema_matrix_for_captured_pages(
+    listing_source_name: &str,
+    schemas: &[ProductCssSelectorSchema],
+    pages: &[SchemaReviewPageInput],
+    captured_identities: &HashMap<String, String>,
+) -> SchemaMatrix {
+    let pages: Vec<MatrixPage<'_>> = pages
+        .iter()
+        .enumerate()
+        .map(|(page_index, page)| MatrixPage {
+            page_reference: SchemaPageReference::Input { page_index },
+            url: &page.url,
+            role: &page.role,
+            raw_html: &page.raw_html,
+            captured_identity: captured_identities.get(&page.url).map(String::as_str),
+        })
+        .collect();
+    evaluate_matrix(None, Some(listing_source_name), schemas, &[], &pages)
 }
 
 /// Evaluates every candidate and removed-page template on every page. Each page is parsed
@@ -104,6 +140,7 @@ pub(crate) fn evaluate_schema_matrix_for_inputs(
 /// page is held at a time.
 fn evaluate_matrix(
     review_id: Option<CrawlerReviewId>,
+    listing_source_name: Option<&str>,
     schemas: &[ProductCssSelectorSchema],
     removed_page_schemas: &[RemovedPageSchema],
     pages: &[MatrixPage<'_>],
@@ -140,6 +177,7 @@ fn evaluate_matrix(
     }
     let mut matrix = SchemaMatrix {
         review_id,
+        listing_source_name: listing_source_name.map(str::to_owned),
         candidates,
         removed_page_matches,
         page_signals,
@@ -188,14 +226,15 @@ fn evaluate_page_findings(matrix: &mut SchemaMatrix) {
     }
 }
 
-/// Sets every candidate's cross-page findings from its extractions of the review pages,
-/// replacing the ones a cached matrix was stored with. They depend on the extractions
-/// alone, so a cached matrix is read through this and shows every cross-page check of
-/// this crawler, including one added after it was cached, without fetching the pages
-/// again.
+/// Sets every candidate's cross-page findings from its extractions of the review pages and the
+/// ListingSource name the matrix records, replacing the ones a cached matrix was stored with.
+/// They depend on those alone, so a cached matrix is read through this and shows every
+/// cross-page check of this crawler, including one added after it was cached, without fetching
+/// the pages again.
 fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
+    let listing_source_name = matrix.listing_source_name.as_deref();
     for candidate in &mut matrix.candidates {
-        add_cross_page_findings(&mut candidate.pages);
+        add_cross_page_findings(&mut candidate.pages, listing_source_name);
     }
 }
 
@@ -261,9 +300,9 @@ fn matched_template(
 }
 
 /// Compares one candidate's extractions of the review pages, each of a different
-/// product. An extraction a rejecting finding withdrew takes part too: its selectors
-/// still produced it.
-fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
+/// product of the ListingSource named `listing_source_name`. An extraction a rejecting finding
+/// withdrew takes part too: its selectors still produced it.
+fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation], listing_source_name: Option<&str>) {
     let (page_indices, extractions): (Vec<usize>, Vec<PageExtraction<'_>>) = pages
         .iter()
         .enumerate()
@@ -279,7 +318,7 @@ fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
             ))
         })
         .unzip();
-    let findings = CrossPageFindings::of(&extractions);
+    let findings = CrossPageFindings::of(&extractions, listing_source_name);
     for (index, findings) in page_indices.into_iter().zip(findings) {
         pages[index].cross_page_findings = findings;
     }
@@ -815,10 +854,11 @@ mod tests {
         }];
 
         let (input_matrix, input_parses) =
-            with_page_parses(|| evaluate_schema_matrix_for_inputs(&schemas, &pages));
+            with_page_parses(|| evaluate_schema_matrix_for_inputs(None, &schemas, &pages));
         let (live_matrix, live_parses) = with_page_parses(|| {
             evaluate_schema_matrix_for_live_review_pages(
                 CrawlerReviewId::new(),
+                "Example Antiques",
                 &schemas,
                 &removed_page_templates,
                 &live_pages,
@@ -929,7 +969,7 @@ mod tests {
             schemas: &[ProductCssSelectorSchema],
             pages: &[MatrixPage<'_>],
         ) -> Vec<RemovedPageTemplateMatch> {
-            evaluate_matrix(None, schemas, templates, pages).removed_page_matches
+            evaluate_matrix(None, None, schemas, templates, pages).removed_page_matches
         }
 
         fn matrix_page<'a>(role: &'a str, url: &'a str, raw_html: &'a str) -> MatrixPage<'a> {
@@ -1055,7 +1095,7 @@ mod tests {
         let schemas = vec![schema("h1"), schema("h2")];
         let pages = vec![page(PAGE_ROLE_PRIMARY, "h1"), page(PAGE_ROLE_SEED, "h2")];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
         assert!(schema_matrix_has_required_coverage(&matrix));
     }
@@ -1065,7 +1105,7 @@ mod tests {
         let schemas = vec![schema("h1")];
         let pages = vec![page(PAGE_ROLE_PRIMARY, "h1"), page(PAGE_ROLE_SEED, "h2")];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
         assert!(!schema_matrix_has_required_coverage(&matrix));
     }
@@ -1075,7 +1115,7 @@ mod tests {
         let schemas = vec![schema_with_price("h1")];
         let pages = vec![page_with_price(PAGE_ROLE_PRIMARY, "h1", None)];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(schema_matrix_has_required_coverage(&matrix));
@@ -1125,7 +1165,7 @@ mod tests {
                 price: Some(price),
                 ..schema("h1")
             };
-            evaluate_schema_matrix_for_inputs(&[schema], &[product_page(price_html)])
+            evaluate_schema_matrix_for_inputs(None, &[schema], &[product_page(price_html)])
         }
 
         fn price_field(matrix: &SchemaMatrix) -> &SelectorFieldEvaluation {
@@ -1251,7 +1291,7 @@ mod tests {
             let page =
                 product_page("<span id=\"estimate-min\"></span><span id=\"estimate-max\"> </span>");
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &[page]);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema], &[page]);
 
             assert_eq!(
                 optional_rules_missing_on_every_page(&matrix),
@@ -1332,7 +1372,7 @@ mod tests {
                 "<div class=\"description\"> </div><div class=\"description\"><p></p></div><span id=\"measurements\">\n</span>",
             );
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &[page]);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema], &[page]);
 
             assert_eq!(
                 optional_rules_missing_on_every_page(&matrix),
@@ -1352,7 +1392,7 @@ mod tests {
                 raw_html: "<html><body><span id=\"product-id\">SKU</span><h1> </h1><h1>Title</h1><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
             };
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &[page]);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &[page]);
             let title = matrix.candidates[0].pages[0]
                 .fields
                 .iter()
@@ -1372,7 +1412,7 @@ mod tests {
             page_with_price(PAGE_ROLE_SEED, "h2", None),
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
         assert!(schema_matrix_has_required_coverage(&matrix));
     }
@@ -1389,7 +1429,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><div id=\"gallery\"></div></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
         assert!(schema_matrix_has_required_coverage(&matrix));
         assert!(
@@ -1413,7 +1453,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"notice\">Price on application .notice { color: red; } .x { display: none; }</div><img src=\"a.jpg\"></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(!schema_matrix_has_required_coverage(&matrix));
@@ -1443,7 +1483,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title function(){ track() }</h1><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(!schema_matrix_has_required_coverage(&matrix));
@@ -1467,7 +1507,7 @@ mod tests {
             },
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &pages);
 
         let [unmatched, empty] = matrix.candidates[0].pages.as_slice() else {
             panic!("expected one evaluation per page");
@@ -1515,7 +1555,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"notice\"><style>.notice { color: red; }</style>Price on application</div><img src=\"a.jpg\"></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(schema_matrix_has_required_coverage(&matrix));
@@ -1534,7 +1574,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Georgian sash window. Original glass {rare}</h1><span id=\"state\">Sold - see signed document.</span><img src=\"a.jpg\"></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(schema_matrix_has_required_coverage(&matrix));
@@ -1554,7 +1594,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><div id=\"notice\">POA .x{display:none}</div><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(!page.apply_ok);
@@ -1581,7 +1621,7 @@ mod tests {
             sold_page,
         ];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
         let findings_of = |candidate: usize, page: usize| {
             matrix.candidates[candidate].pages[page]
@@ -1622,7 +1662,7 @@ mod tests {
             ),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let page = &matrix.candidates[0].pages[0];
 
         assert!(!page.apply_ok);
@@ -1645,7 +1685,7 @@ mod tests {
         let schemas = vec![schema("h1"), schema("h3")];
         let pages = vec![page(PAGE_ROLE_PRIMARY, "h1")];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
         assert!(schema_matrix_has_required_coverage(&matrix));
         assert_eq!(unused_schema_indices(&matrix), vec![1]);
@@ -1692,10 +1732,34 @@ mod tests {
         fn should_approve_deterministically_when_distinct_products_pass_every_check() {
             let pages = vec![product_page("chair", ""), product_page("table", "")];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &pages);
 
             assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// The review gate names the ListingSource, so a generated schema whose document
+        /// `<title>` ends with the shop's name stays out of auto-approval, while the same pages
+        /// read by their heading pass.
+        #[test]
+        fn should_keep_a_title_ending_with_the_listing_source_name_out_of_approval() {
+            let pages = vec![product_page("chair", ""), product_page("table", "")];
+
+            let by_document_title =
+                evaluate_schema_matrix_for_inputs(Some("Shop"), &[schema("title")], &pages);
+            let by_heading =
+                evaluate_schema_matrix_for_inputs(Some("Shop"), &[schema("h1")], &pages);
+
+            assert_eq!(
+                cross_page_findings_of(&by_document_title, 0)
+                    .concat()
+                    .iter()
+                    .filter(|finding| finding.check == CrossPageCheck::ListingSourceName)
+                    .count(),
+                2
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&by_document_title));
+            assert!(schema_matrix_deterministic_approval_ok(&by_heading));
         }
 
         /// A gallery that repeats its featured photo: capture keeps each image once, so the
@@ -1707,7 +1771,7 @@ mod tests {
                 product_page("table", ""),
             ];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &pages);
 
             assert_eq!(
                 matrix.candidates[0].pages[0]
@@ -1727,7 +1791,7 @@ mod tests {
             let schemas = vec![schema("h1"), schema("title")];
             let pages = vec![product_page("chair", ""), product_page("table", "")];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
             let shared_title = vec![repeated(PlausibilityField::Title, "Antiques - Shop")];
@@ -1764,7 +1828,7 @@ mod tests {
                 untitled_template,
             ];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             let shared_image = vec![repeated(
                 PlausibilityField::Images,
@@ -1785,7 +1849,7 @@ mod tests {
                 product_page("sold-table", "<span id=\"price\">£0.00</span>"),
             ];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert!(schema_matrix_has_required_coverage(&matrix));
             assert_eq!(
@@ -1810,7 +1874,7 @@ mod tests {
             }];
             let pages = vec![product_page("chair", ""), product_page("table", "")];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert!(schema_matrix_has_required_coverage(&matrix));
             assert!(matrix.candidates[0].pages.iter().all(|page| {
@@ -1852,7 +1916,7 @@ mod tests {
                 })
                 .collect();
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
             assert!(matrix.candidates[0].pages.iter().all(|page| {
@@ -1884,7 +1948,7 @@ mod tests {
                 product_page("table", &details),
             ];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert!(matrix.candidates[0].pages.iter().all(|page| !page.apply_ok));
             assert!(schema_matrix_has_required_coverage(&matrix));
@@ -1921,8 +1985,11 @@ mod tests {
                 ),
             ];
 
-            let matrix =
-                evaluate_schema_matrix_for_inputs(&[schema_with_images(".thumbs img")], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(
+                None,
+                &[schema_with_images(".thumbs img")],
+                &pages,
+            );
 
             assert!(matrix.candidates[0].pages.iter().all(|page| {
                 page.apply_ok
@@ -1950,6 +2017,7 @@ mod tests {
             ];
 
             let matrix = evaluate_schema_matrix_for_inputs(
+                None,
                 &[schema_with_images(".all-review-images img")],
                 &pages,
             );
@@ -1978,8 +2046,11 @@ mod tests {
                 product_page("table", "<div id=\"gallery\"></div>"),
             ];
 
-            let matrix =
-                evaluate_schema_matrix_for_inputs(&[schema_with_images("#gallery img")], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(
+                None,
+                &[schema_with_images("#gallery img")],
+                &pages,
+            );
 
             assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
@@ -2051,8 +2122,11 @@ mod tests {
             ) {
                 let pages = vec![page("chair", 0), page("table", 0)];
 
-                let matrix =
-                    evaluate_schema_matrix_for_inputs(&[schema_with_image_urls(selector)], &pages);
+                let matrix = evaluate_schema_matrix_for_inputs(
+                    None,
+                    &[schema_with_image_urls(selector)],
+                    &pages,
+                );
 
                 assert!(matrix.candidates[0].pages.iter().all(|page| page.apply_ok));
                 assert_eq!(extracted_images(&matrix), vec![Some(vec![]), Some(vec![])]);
@@ -2067,8 +2141,11 @@ mod tests {
             fn should_approve_deterministically_when_another_page_has_photos() {
                 let pages = vec![page("chair", 2), page("table", 0)];
 
-                let matrix =
-                    evaluate_schema_matrix_for_inputs(&[schema_with_image_urls(SLOTS)], &pages);
+                let matrix = evaluate_schema_matrix_for_inputs(
+                    None,
+                    &[schema_with_image_urls(SLOTS)],
+                    &pages,
+                );
 
                 assert_eq!(
                     extracted_images(&matrix),
@@ -2097,6 +2174,7 @@ mod tests {
                     product_page("table", reviews),
                 ];
                 let evaluated = evaluate_schema_matrix_for_inputs(
+                    None,
                     &[schema_with_images(".all-review-images img")],
                     &pages,
                 );
@@ -2128,7 +2206,7 @@ mod tests {
                     product_page("chair", "<img src=\"chair.jpg\">"),
                     product_page("table", "<img src=\"table.jpg\">"),
                 ];
-                let evaluated = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+                let evaluated = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &pages);
                 let mut cached = serde_json::to_value(&evaluated)
                     .unwrap_or_else(|error| panic!("a matrix must serialize: {error}"));
                 for page in 0..2 {
@@ -2178,7 +2256,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><img data-large_image=\"/images/primary.jpg\" src=\"/images/fallback-800x600.jpg\"><img data-large_image=\"/images/primary.jpg\" src=\"/images/fallback-800x600.jpg\"></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &[schema], &pages);
 
         assert_eq!(
             matrix.candidates[0].pages[0]
@@ -2285,7 +2363,7 @@ mod tests {
                 input_page(SOLD_URL, PAGE_ROLE_SEED, product_html(53037, true)),
             ];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert!(schema_matrix_has_required_coverage(&matrix));
             assert_eq!(
@@ -2330,6 +2408,7 @@ mod tests {
 
             let matrix = evaluate_schema_matrix_for_live_review_pages(
                 review_id,
+                "Example Antiques",
                 &schemas,
                 &[],
                 &[(sold_page, product_html(53036, true))],
@@ -2368,7 +2447,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert!(
                 matrix
@@ -2395,7 +2474,7 @@ mod tests {
                 input_page(SOLD_URL, PAGE_ROLE_SEED, product_html(53037, true)),
             ];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
 
             assert!(matrix.candidates[0].pages.iter().all(|page| page.apply_ok));
             assert_eq!(
@@ -2452,7 +2531,7 @@ mod tests {
                 "<a href=\"/images/1.jpg\"></a><a href=\"/images/2.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a><a href=\"#\"></a>",
             )];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[gallery_schema()], &pages);
             let page = &matrix.candidates[0].pages[0];
 
             assert!(page.apply_ok);
@@ -2488,7 +2567,7 @@ mod tests {
                 "<img src=\"/images/1.jpg\"><img data-src=\"/images/2.jpg\"><img src=\"/images/3.jpg\">",
             )];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema], &pages);
             let page = &matrix.candidates[0].pages[0];
 
             assert!(page.apply_ok);
@@ -2507,7 +2586,7 @@ mod tests {
                 "<a href=\"/images/1.jpg\"></a><a href=\"#\"></a><a href=\"#\"></a>",
             )];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[schema], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[schema], &pages);
             let page = &matrix.candidates[0].pages[0];
 
             assert!(!page.apply_ok);
@@ -2564,7 +2643,7 @@ mod tests {
         fn should_fail_page_without_a_count_when_every_anchor_lacks_an_image_url_candidate() {
             let pages = vec![gallery_page("<a href=\"#\"></a><a href=\"#\"></a>")];
 
-            let matrix = evaluate_schema_matrix_for_inputs(&[gallery_schema()], &pages);
+            let matrix = evaluate_schema_matrix_for_inputs(None, &[gallery_schema()], &pages);
             let page = &matrix.candidates[0].pages[0];
 
             assert!(!page.apply_ok);
@@ -2587,7 +2666,7 @@ mod tests {
             raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><img src=\"a.jpg\"><span id=\"shipping\">4 - 6 weeks</span><span id=\"condition\">Good</span><span id=\"material\">Walnut</span><span id=\"year\">1830</span><span id=\"category\">Furniture</span><span id=\"measurements\">H 90 cm</span><span id=\"origin\">Germany</span></body></html>".to_string(),
         }];
 
-        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &schemas, &pages);
         let fields = &matrix.candidates[0].pages[0].fields;
 
         assert!(fields.iter().any(|field| field.field == "rawShipment"));

@@ -24,7 +24,7 @@ struct SchemaGenerationAttempt {
 
 impl SchemaGenerationAttempt {
     fn new(generated: GeneratedProductSchemas, pages: &[SchemaReviewPageInput]) -> Self {
-        let matrix = evaluate_schema_matrix_for_inputs(&generated.schemas, pages);
+        let matrix = evaluate_schema_matrix_for_inputs(None, &generated.schemas, pages);
         let deterministic_approval_ok = schema_matrix_deterministic_approval_ok(&matrix);
         let unused_schema_indices = unused_schema_indices(&matrix);
         Self {

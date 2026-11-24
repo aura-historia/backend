@@ -1042,6 +1042,30 @@ macro_rules! holds_on_schema_review_wait {
     };
 }
 
+/// Whether a URL `listing_source_urls su` names a listing never captured while the live schema
+/// audit holds its ListingSource's new listings back: a pending audit review
+/// (`schema_audit_required`, `review::schema_audit::SCHEMA_AUDIT_REASON`) found something the
+/// approval guard refuses in the live schemas, such as the shop's name in every title, and a
+/// listing first captured now would keep it in its permanent slug. One opened only for hints or a
+/// human's request records `holds_new_listings` false and holds nothing; one that records no flag
+/// holds. Captured listings keep updating.
+macro_rules! holds_new_listing_for_schema_audit {
+    () => {
+        r#"(su.last_source_listing_id IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM crawler_reviews cr
+                  WHERE cr.listing_source_id = s.listing_source_id
+                    AND cr.artifact_type = 'PRODUCT_SCHEMA'
+                    AND cr.status = 'PENDING_REVIEW'
+                    AND cr.reason = 'schema_audit_required'
+                    AND COALESCE(
+                        (cr.validation_summary->'schema_audit'->>'holds_new_listings')::boolean,
+                        TRUE)
+              ))"#
+    };
+}
+
 /// Whether the identity conflict a URL `listing_source_urls su` last recorded is released: the
 /// product schemas of its ListingSource changed, or were removed, since that conflict, so the
 /// next scrape may derive the captured identity again and the URL is due at once instead of at
@@ -1132,6 +1156,9 @@ macro_rules! eligible_scraper_urls_cte {
             r#"
           AND NOT "#,
             holds_on_schema_review_wait!(),
+            r#"
+          AND NOT "#,
+            holds_new_listing_for_schema_audit!(),
             r#"
           AND NOT (s.listing_source_id = ANY($2))
     )"#

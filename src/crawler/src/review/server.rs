@@ -60,6 +60,7 @@ mod pending_reviews;
 mod query_params;
 mod review_list;
 mod sample_redirects;
+mod schema_audit_request;
 mod schema_matrix;
 mod selector_probe;
 mod source_label;
@@ -282,6 +283,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_crawl_resumption(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_schema_audit_request(&request, actor).await {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
@@ -1333,6 +1337,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "FINAL_ROUND_NEEDS_AUTHOR_AGENT")
         }
         ReviewRepositoryError::FinalRoundNotDue(_) => conflict(&error, "FINAL_ROUND_NOT_DUE"),
+        ReviewRepositoryError::SchemaAuditNotPossible(_, _) => {
+            conflict(&error, "SCHEMA_AUDIT_NOT_POSSIBLE")
+        }
         ReviewRepositoryError::FinalRoundOnlyLabel(_) => conflict(&error, "FINAL_ROUND_ONLY_LABEL"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
@@ -2951,6 +2958,7 @@ Origin: http://127.0.0.1:7878/x
                 .collect();
             let evaluated = evaluate_schema_matrix_for_live_review_pages(
                 fixture.review_id,
+                "Example Antiques",
                 &[schema("h1")],
                 &[],
                 &pages,
@@ -6064,6 +6072,101 @@ Origin: http://127.0.0.1:7878/x
                 ListingSourceId::new()
             );
             let (status, missing) = send(&server, &format!("POST {unknown}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod schema_audit_request {
+        use super::mass_removal_confirmation::console;
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send, send_as};
+        use super::{ReviewServer, ReviewServerConfig, agent_mode};
+        use crate::review::agent_decisions::AgentLimits;
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
+        use crate::review::repository::CrawlerReviewRepository;
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+        use test_api::IntegrationTestService as _;
+
+        /// The console of `agent` authoring mode, where the live schema audit runs.
+        fn agent_console(pool: sqlx::PgPool) -> ReviewServer {
+            ReviewServer::new(
+                CrawlerReviewRepository::new(pool)
+                    .with_agent_decisions(agent_mode(AgentLimits::default())),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+                },
+                Arc::new(MockHtmlFetcher::new()),
+            )
+        }
+
+        /// A human asks the audit to reopen a source with a note. Refused are: a request outside
+        /// `agent` mode, where no audit runs, and one for a source without live schemas, both 409;
+        /// a blank note, 400; an agent token, 401; and an unknown source, 404.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_record_a_schema_audit_request_for_a_human_only() {
+            let (manual_console, listing_source_id) = console().await;
+            let pool = test_api::get_postgres_client().await;
+            let server = agent_console(pool.clone());
+            let route = format!("/api/listing-sources/{listing_source_id}/schema-audit");
+            let request_note = || async {
+                sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT schema_audit_request_note FROM listing_sources \
+                     WHERE listing_source_id = $1",
+                )
+                .bind(listing_source_id.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("read the request: {error}"))
+            };
+            let body = r#"{"note":"Titles dropped the dating the page shows."}"#;
+
+            let (status, outside_agent_mode) =
+                send(&manual_console, &format!("POST {route}"), body).await;
+            assert!(
+                status.starts_with("HTTP/1.1 409"),
+                "{status} {outside_agent_mode}"
+            );
+            let (status, without_schemas) = send(&server, &format!("POST {route}"), body).await;
+            assert!(
+                status.starts_with("HTTP/1.1 409"),
+                "{status} {without_schemas}"
+            );
+            assert_eq!(without_schemas["reason"], "SCHEMA_AUDIT_NOT_POSSIBLE");
+            sqlx::query(
+                "INSERT INTO listing_source_product_schemas \
+                 (listing_source_id, product_schema, created, updated) \
+                 VALUES ($1, '[{\"title\": {\"type\": \"text\", \"selector\": \"h1\", \"cardinality\": \"first\"}}]'::jsonb, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("store live schemas: {error}"));
+            let (status, _) = send_as(&server, AUTHOR_TOKEN, &format!("POST {route}"), body).await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+            let (status, blank) = send(&server, &format!("POST {route}"), r#"{"note":" "}"#).await;
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {blank}");
+            assert_eq!(request_note().await, None);
+
+            let (status, requested) = send(&server, &format!("POST {route}"), body).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {requested}");
+            assert_eq!(requested, json!({ "requested": true }));
+            assert_eq!(
+                request_note().await.as_deref(),
+                Some("Titles dropped the dating the page shows.")
+            );
+
+            let unknown = format!(
+                "/api/listing-sources/{}/schema-audit",
+                ListingSourceId::new()
+            );
+            let (status, missing) = send(&server, &format!("POST {unknown}"), body).await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
         }
     }

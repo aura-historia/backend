@@ -1290,6 +1290,109 @@ async fn scraper_should_return_candidate_when_schema_review_is_pending_and_schem
     );
 }
 
+/// The URLs the scraper would scrape now, sorted, and the due-URL count.
+async fn due_urls(service: &ScraperCandidateServiceImpl) -> (Vec<String>, u64) {
+    let mut urls: Vec<String> = service
+        .get_candidates(10, 100, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| candidate.url.to_string())
+        .collect();
+    urls.sort();
+    (urls, service.count_due_urls().await.unwrap())
+}
+
+/// A pending audit review says the live schemas extract something wrong: a listing first
+/// captured now would keep it in its permanent slug, so the source's never-captured URLs wait
+/// while its captured listings keep updating. The candidate query and the due-URL count agree.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_hold_back_never_captured_urls_while_a_schema_audit_review_is_pending() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "scraper-audit.example.com").await;
+    for path in ["captured", "new"] {
+        insert_product_url(
+            &pool,
+            listing_source_id,
+            &format!("https://scraper-audit.example.com/p/{path}"),
+        )
+        .await;
+    }
+    sqlx::query("UPDATE listing_source_urls SET last_source_listing_id = 'SKU-1' WHERE url = $1")
+        .bind("https://scraper-audit.example.com/p/captured")
+        .execute(&pool)
+        .await
+        .unwrap();
+    insert_cached_product_schemas(
+        &pool,
+        listing_source_id,
+        serde_json::json!([{ "title": { "type": "text", "selector": "title", "cardinality": "first" } }]),
+    )
+    .await;
+    let before = due_urls(&service).await;
+    sqlx::query(
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
+         VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, '{\"schemas\": []}'::jsonb)",
+    )
+    .bind(CrawlerReviewId::new().as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .bind(crawler::review::schema_audit::SCHEMA_AUDIT_REASON)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let during = due_urls(&service).await;
+
+    assert_eq!(
+        before,
+        (
+            vec![
+                "https://scraper-audit.example.com/p/captured".to_owned(),
+                "https://scraper-audit.example.com/p/new".to_owned(),
+            ],
+            2
+        )
+    );
+    assert_eq!(
+        during,
+        (
+            vec!["https://scraper-audit.example.com/p/captured".to_owned()],
+            1
+        )
+    );
+
+    sqlx::query("UPDATE crawler_reviews SET status = 'APPROVED' WHERE listing_source_id = $1")
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        due_urls(&service).await,
+        before,
+        "a decided audit review releases the held listings"
+    );
+
+    sqlx::query(
+        "INSERT INTO crawler_reviews \
+         (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary) \
+         VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, '{\"schemas\": []}'::jsonb, \
+                 '{\"schema_audit\": {\"holds_new_listings\": false}}'::jsonb)",
+    )
+    .bind(CrawlerReviewId::new().as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .bind(crawler::review::schema_audit::SCHEMA_AUDIT_REASON)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        due_urls(&service).await,
+        before,
+        "an audit review opened only for hints or a request holds nothing back"
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_schema_review_is_pending_without_cached_schemas()
 {

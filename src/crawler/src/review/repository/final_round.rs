@@ -38,8 +38,8 @@ impl CrawlerReviewRepository {
             }
         }
         let mut transaction = self.pool.begin().await?;
-        let status = sqlx::query_scalar::<_, String>(
-            "SELECT status FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+        let (status, reason) = sqlx::query_as::<_, (String, String)>(
+            "SELECT status, reason FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
         )
         .bind(review_id.as_uuid())
         .fetch_optional(&mut *transaction)
@@ -49,7 +49,10 @@ impl CrawlerReviewRepository {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
         let rounds = rounds_under_lock(&mut transaction, review_id, &self.agent_decisions).await?;
-        if !self.agent_decisions.final_round_due(&status, rounds) {
+        if !self
+            .agent_decisions
+            .final_round_due(&status, &reason, rounds)
+        {
             return Err(ReviewRepositoryError::FinalRoundNotDue(review_id));
         }
         check_agent_decision_rate(
