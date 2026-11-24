@@ -3,10 +3,11 @@
 
 use super::{note, timestamp, value};
 use crate::review::model::{
-    LinkIdentity, LiveMatrixEvaluation, RemovedPageTemplateMatch, RemovedPageTemplateOutcome,
-    SchemaPageEvaluation, SchemaPageReference, SelectorFieldEvaluation,
+    LinkIdentity, LiveMatrixEvaluation, PriceTextOnState, RemovedPageTemplateMatch,
+    RemovedPageTemplateOutcome, SchemaPageEvaluation, SchemaPageReference, SelectorFieldEvaluation,
 };
-use crate::review::page_content_checks::{StateReading, candidate_has_sold_state};
+use crate::review::page_content_checks::StateReading;
+use crate::review::schema_evaluation::PriceTextAcceptance;
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use product_listing_core::listing_availability::ListingAvailability;
@@ -215,7 +216,9 @@ impl MatrixView {
                 .candidates
                 .into_iter()
                 .map(|candidate| {
-                    let status_slot = candidate_has_sold_state(&candidate.pages);
+                    let status_slot = PriceTextAcceptance::OnStatusSlot
+                        .for_candidate(&candidate.pages)
+                        == PriceTextOnState::Accepted;
                     SchemaResultView {
                         schema_index: candidate.schema_index,
                         pages: candidate

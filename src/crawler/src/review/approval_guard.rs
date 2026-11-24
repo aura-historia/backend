@@ -19,7 +19,8 @@ use crate::review::page_content_checks::{
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
-    ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
+    ImplausiblePage, OptionalRuleTotalMiss, PriceTextAcceptance, implausible_pages,
+    optional_rules_missing_on_every_page,
 };
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     RedirectTarget, is_same_logical_host,
@@ -391,7 +392,11 @@ pub(crate) fn product_schema_approval_checks(
     if !rules.is_empty() {
         failed.push(FailedApprovalCheck::RuleMatchesNothing { rules });
     }
-    let implausible = implausible_pages(matrix, evaluation.link_identity());
+    let implausible = implausible_pages(
+        matrix,
+        PriceTextAcceptance::OnStatusSlot,
+        evaluation.link_identity(),
+    );
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
@@ -1088,7 +1093,11 @@ mod tests {
             [FailedApprovalCheck::ImplausibleExtraction { pages }] => {
                 assert_eq!(
                     *pages,
-                    implausible_pages(matrix, crate::review::model::LinkIdentity::Blocks)
+                    implausible_pages(
+                        matrix,
+                        PriceTextAcceptance::OnStatusSlot,
+                        crate::review::model::LinkIdentity::Blocks,
+                    )
                 );
                 pages.clone()
             }

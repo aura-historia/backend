@@ -367,33 +367,49 @@ fn add_identity_agreement_findings(
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
-        && implausible_page_evaluations(matrix, ApprovalExemptions::NONE)
+        && implausible_page_evaluations(matrix, PriceTextAcceptance::Never, LinkIdentity::Blocks)
             .next()
             .is_none()
+}
+
+/// Which price text in a candidate's `state` a decision accepts. It is resolved per candidate
+/// ([`for_candidate`](Self::for_candidate)) into the [`PriceTextOnState`] the candidate's pages
+/// are judged by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PriceTextAcceptance {
+    /// None: deterministic approval refuses every page's price text.
+    Never,
+    /// Price text on a status slot, a `state` rule that resolves to sold or unavailable on another
+    /// page: the review agent's [approval guard](crate::review::approval_guard).
+    OnStatusSlot,
+}
+
+impl PriceTextAcceptance {
+    /// Whether the price text in the `state` of the candidate evaluated on `pages` is accepted.
+    pub(crate) fn for_candidate(self, pages: &[SchemaPageEvaluation]) -> PriceTextOnState {
+        match self {
+            Self::OnStatusSlot if candidate_has_sold_state(pages) => PriceTextOnState::Accepted,
+            Self::Never | Self::OnStatusSlot => PriceTextOnState::Blocks,
+        }
+    }
 }
 
 /// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
 /// checks block approval, each with its candidate's schema index and the exemptions that
 /// applied to it. Deterministic approval refuses a matrix with any of them
-/// ([`ApprovalExemptions::NONE`]), and so does the review agent's [approval
-/// guard](crate::review::approval_guard), except for what `exemptions` accepts: price text in
-/// the `state` of a candidate whose `state` rule is a status slot, where `price_text` is
-/// [`Accepted`](PriceTextOnState::Accepted), and an identity that is a URL or path, where
-/// `link_identity` is [`Captured`](LinkIdentity::Captured).
+/// ([`PriceTextAcceptance::Never`], [`LinkIdentity::Blocks`]), and so does the review agent's
+/// [approval guard](crate::review::approval_guard), except for the price text in `state` that
+/// `price_text` accepts and an identity that is a URL or path, where `link_identity` is
+/// [`Captured`](LinkIdentity::Captured).
 fn implausible_page_evaluations(
     matrix: &SchemaMatrix,
-    exemptions: ApprovalExemptions,
+    price_text: PriceTextAcceptance,
+    link_identity: LinkIdentity,
 ) -> impl Iterator<Item = (usize, &SchemaPageEvaluation, ApprovalExemptions)> {
     matrix.candidates.iter().flat_map(move |candidate| {
-        let price_text = match exemptions.price_text {
-            PriceTextOnState::Accepted if candidate_has_sold_state(&candidate.pages) => {
-                PriceTextOnState::Accepted
-            }
-            _ => PriceTextOnState::Blocks,
-        };
         let exemptions = ApprovalExemptions {
-            price_text,
-            ..exemptions
+            price_text: price_text.for_candidate(&candidate.pages),
+            link_identity,
         };
         candidate
             .pages
@@ -411,25 +427,22 @@ pub struct ImplausiblePage {
     pub page_reference: SchemaPageReference,
     pub url: String,
     pub role: String,
-    /// Only the per-page findings that block under the guard's decision: price text in the
-    /// `state` of a status slot, and a URL identity the listings were captured under, are
-    /// exempt, so they are not listed.
+    /// Only the per-page findings that block under the decision: the price text in `state` it
+    /// accepts, and a URL identity the listings were captured under, are exempt, so they are not
+    /// listed.
     pub plausibility_findings: PlausibilityFindings,
     pub cross_page_findings: CrossPageFindings,
     pub identity_agreement_findings: IdentityAgreementFindings,
 }
 
-/// The extractions the approval guard refuses, as [`implausible_page_evaluations`] finds them
-/// with price text accepted on a status slot and `link_identity` deciding URL identities.
+/// The extractions a decision refuses, as [`implausible_page_evaluations`] finds them with
+/// `price_text` deciding price text in `state` and `link_identity` deciding URL identities.
 pub(crate) fn implausible_pages(
     matrix: &SchemaMatrix,
+    price_text: PriceTextAcceptance,
     link_identity: LinkIdentity,
 ) -> Vec<ImplausiblePage> {
-    let exemptions = ApprovalExemptions {
-        price_text: PriceTextOnState::Accepted,
-        link_identity,
-    };
-    implausible_page_evaluations(matrix, exemptions)
+    implausible_page_evaluations(matrix, price_text, link_identity)
         .map(|(schema_index, page, exemptions)| ImplausiblePage {
             schema_index,
             page_reference: page.page_reference.clone(),
@@ -1734,7 +1747,14 @@ mod tests {
 
             let matrix = evaluate_schema_matrix_for_inputs(None, &[schema("h1")], &pages);
 
-            assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
+            assert!(
+                implausible_pages(
+                    &matrix,
+                    PriceTextAcceptance::OnStatusSlot,
+                    LinkIdentity::Blocks
+                )
+                .is_empty()
+            );
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
@@ -1782,7 +1802,14 @@ mod tests {
                     PlausibilityCheck::DuplicateValues
                 )]
             );
-            assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
+            assert!(
+                implausible_pages(
+                    &matrix,
+                    PriceTextAcceptance::OnStatusSlot,
+                    LinkIdentity::Blocks
+                )
+                .is_empty()
+            );
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
@@ -2231,7 +2258,12 @@ mod tests {
                     assert!(page.apply_ok, "a report-only finding fails no page");
                 }
                 assert_eq!(
-                    implausible_pages(&matrix, LinkIdentity::Blocks).len(),
+                    implausible_pages(
+                        &matrix,
+                        PriceTextAcceptance::OnStatusSlot,
+                        LinkIdentity::Blocks
+                    )
+                    .len(),
                     2,
                     "the guard refuses both pages"
                 );
@@ -2388,7 +2420,15 @@ mod tests {
                 "the sold page has no other applying schema to disagree with"
             );
             assert!(!schema_matrix_deterministic_approval_ok(&matrix));
-            assert_eq!(implausible_pages(&matrix, LinkIdentity::Blocks).len(), 2);
+            assert_eq!(
+                implausible_pages(
+                    &matrix,
+                    PriceTextAcceptance::OnStatusSlot,
+                    LinkIdentity::Blocks
+                )
+                .len(),
+                2
+            );
         }
 
         #[test]
@@ -2487,7 +2527,14 @@ mod tests {
                 )]
             );
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
-            assert!(implausible_pages(&matrix, LinkIdentity::Blocks).is_empty());
+            assert!(
+                implausible_pages(
+                    &matrix,
+                    PriceTextAcceptance::OnStatusSlot,
+                    LinkIdentity::Blocks
+                )
+                .is_empty()
+            );
         }
     }
 

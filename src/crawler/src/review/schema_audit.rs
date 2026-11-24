@@ -8,7 +8,8 @@
 use crate::review::captured_identity_sample::{CapturedIdentitySample, SampledCapturedPage};
 use crate::review::model::{LinkIdentity, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
-    ImplausiblePage, evaluate_schema_matrix_for_captured_pages, implausible_pages,
+    ImplausiblePage, PriceTextAcceptance, evaluate_schema_matrix_for_captured_pages,
+    implausible_pages,
 };
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::rule::{ExtractionKind, ExtractionRule};
@@ -165,10 +166,11 @@ pub(crate) fn audit_live_schemas(
     } else {
         LinkIdentity::Blocks
     };
-    let page_findings = implausible_pages(&matrix, link_identity)
-        .iter()
-        .flat_map(blocking_codes)
-        .collect::<Vec<_>>();
+    let page_findings =
+        implausible_pages(&matrix, PriceTextAcceptance::OnStatusSlot, link_identity)
+            .iter()
+            .flat_map(blocking_codes)
+            .collect::<Vec<_>>();
     let title_sources = live_schemas
         .iter()
         .filter_map(|schema| schema.title.as_ref().and_then(TitleSource::of))

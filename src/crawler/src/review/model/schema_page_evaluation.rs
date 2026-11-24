@@ -63,14 +63,6 @@ pub struct ApprovalExemptions {
     pub link_identity: LinkIdentity,
 }
 
-impl ApprovalExemptions {
-    /// Every finding that blocks approval blocks it, as deterministic approval decides.
-    pub const NONE: Self = Self {
-        price_text: PriceTextOnState::Blocks,
-        link_identity: LinkIdentity::Blocks,
-    };
-}
-
 impl SchemaPageEvaluation {
     /// Whether a failed per-page, cross-page or identity agreement check keeps the schema out
     /// of approval. A repeated image alone does not
