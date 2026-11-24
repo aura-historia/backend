@@ -228,9 +228,8 @@ fn known_product_conflict_message(
     )
 }
 
-/// Logs the decision on a page that shows an identity another URL carries: at INFO for a URL
-/// that carries an identity of its own, which may have another product now, and for every
-/// retirement, which nothing undoes; at DEBUG for a first scrape parked in a conflict.
+/// Logs the decision on a page that shows an identity another URL carries, at the level
+/// [`is_notable`] picks.
 fn log_shown_identity(
     candidate: &ScraperCandidate,
     captured: Option<&str>,
@@ -245,31 +244,38 @@ fn log_shown_identity(
         "identity_conflict"
     };
     let captured_identity = captured.unwrap_or_default();
-    if captured.is_some() || evidence.is_some() {
-        info!(
-            event = SHOWS_CARRIED_IDENTITY_EVENT,
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            captured_identity,
-            page_identity,
-            carrier_url = %carrier_url,
-            evidence = evidence_name,
-            outcome,
-            "A product page shows an identity another product URL of its ListingSource carries"
-        );
-    } else {
-        debug!(
-            event = SHOWS_CARRIED_IDENTITY_EVENT,
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            captured_identity,
-            page_identity,
-            carrier_url = %carrier_url,
-            evidence = evidence_name,
-            outcome,
-            "A product page shows an identity another product URL of its ListingSource carries"
-        );
+    macro_rules! log_at {
+        ($level:ident) => {
+            $level!(
+                event = SHOWS_CARRIED_IDENTITY_EVENT,
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                captured_identity,
+                page_identity,
+                carrier_url = %carrier_url,
+                evidence = evidence_name,
+                outcome,
+                "A product page shows an identity another product URL of its ListingSource carries"
+            )
+        };
     }
+    if is_notable(captured, evidence, candidate.identity_conflict_streak) {
+        log_at!(info);
+    } else {
+        log_at!(debug);
+    }
+}
+
+/// Whether the decision is logged at INFO: every retirement, which nothing undoes, and the first
+/// conflict of a URL that carries an identity of its own, whose page may show another product now.
+/// A first scrape parked in a conflict, and each conflict that continues a URL's run, log at
+/// DEBUG: the run stays visible in `crawler.identity_conflicts` and the console.
+fn is_notable(
+    captured: Option<&str>,
+    evidence: Option<SameProductEvidence>,
+    identity_conflict_streak: u32,
+) -> bool {
+    evidence.is_some() || (captured.is_some() && identity_conflict_streak == 0)
 }
 
 fn lookup_failed(candidate: &ScraperCandidate, error: &sqlx::Error) -> CarriedIdentity {
@@ -744,6 +750,14 @@ mod tests {
             Some("Hiroshige: Tokaido, Hara station"),
             SameProductEvidence::IdentityToken
         )]
+        #[case::language_directory(
+            "https://hara.example/ukiyoe//ukiyoe_detail.php?print_id=40475",
+            "9b0e5d3c1f7a",
+            Some("広重　東海道五十三次　原"),
+            "https://hara.example/english/ukiyoe_detail.php?print_id=40475",
+            Some("Hiroshige: Tokaido, Hara station"),
+            SameProductEvidence::LanguageDirectory
+        )]
         #[case::title(
             "https://hara.example/ukiyoe/hiroshige-hara",
             "H-1",
@@ -907,6 +921,31 @@ mod tests {
                 "the page shows another known product: source listing id `5169`, which \
                  {GILLMARK_CARRIER} carries, not the product captured here as `5168`"
             )
+        );
+    }
+
+    /// A conflict that repeats on every retry of a stuck URL flooded the journal at INFO.
+    #[rstest::rstest]
+    #[case::retirement(Some("C327"), Some(SameProductEvidence::Title), 0, true)]
+    #[case::retirement_after_a_conflict_run(
+        Some("C327"),
+        Some(SameProductEvidence::Title),
+        5,
+        true
+    )]
+    #[case::first_conflict_of_a_captured_url(Some("C327"), None, 0, true)]
+    #[case::repeated_conflict_of_a_captured_url(Some("C327"), None, 1, false)]
+    #[case::long_conflict_run(Some("C327"), None, 136, false)]
+    #[case::first_scrape_conflict(None, None, 0, false)]
+    fn should_log_a_retirement_and_the_first_conflict_of_a_run_at_info(
+        #[case] captured: Option<&str>,
+        #[case] evidence: Option<SameProductEvidence>,
+        #[case] identity_conflict_streak: u32,
+        #[case] notable: bool,
+    ) {
+        assert_eq!(
+            is_notable(captured, evidence, identity_conflict_streak),
+            notable
         );
     }
 }

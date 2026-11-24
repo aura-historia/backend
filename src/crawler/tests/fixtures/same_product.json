@@ -79,6 +79,40 @@
         {"path": "ukiyoe/ukiyoe_detail.php?print_id=40475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=40475", "page_identity": "40475", "title": "Hiroshige, Tokaido Hara", "expected": "retire", "evidence": "identity_token"},
         {"path": "ukiyoe/ukiyoe_detail.php?print_id=140475", "captured": "/ukiyoe/ukiyoe_detail.php?print_id=140475", "page_identity": "40475", "title": "Kuniyoshi, warrior print", "expected": "keep", "evidence": null}
       ]
+    },
+    {
+      "name": "a print in Japanese and English directories, titled in each language, the Japanese page captured under a hash (Hara Shobo)",
+      "rows": [
+        {"path": "english/ukiyoe_detail.php?print_id=24689", "captured": "24689", "page_identity": "24689", "title": "TOYOKUNI III Beauties by a teahouse in a cherry garden, triptych", "expected": "survivor", "evidence": null},
+        {"path": "ukiyoe//ukiyoe_detail.php?print_id=24689", "captured": "9b0e5d3c1f7a", "page_identity": "24689", "title": "豊国三代　時世桜狩図", "expected": "retire", "evidence": "language_directory"},
+        {"path": "ukiyoe/ukiyoe_detail.php?print_id=124689", "captured": "4c2d8e6a0b91", "page_identity": "24689", "title": "国芳　武者絵", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "language codes inside the path: one inserted, or swapped for a translation titled in another writing system; a swap between two Latin titles and a category of the same depth stay apart",
+      "rows": [
+        {"path": "shop/en/item.php?id=88", "captured": "88", "page_identity": "88", "title": "Imari charger", "expected": "survivor", "evidence": null},
+        {"path": "shop/ja/item.php?id=88", "captured": "e5a03c7b91d2", "page_identity": "88", "title": "伊万里大皿", "expected": "retire", "evidence": "language_directory"},
+        {"path": "shop/item.php?id=88", "captured": "0b6e2d94c1a8", "page_identity": "88", "title": "Imari-Platte", "expected": "retire", "evidence": "language_directory"},
+        {"path": "shop/de/item.php?id=88", "captured": "f3a91c07d2e4", "page_identity": "88", "title": "Imari-Teller", "expected": "keep", "evidence": null},
+        {"path": "shop/vases/item.php?id=88", "captured": "7d40e2b9a6c3", "page_identity": "88", "title": "Celadon vase", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "origin categories named like languages, each numbering its pieces, titled in the shop's language",
+      "rows": [
+        {"path": "chinese/item.php?id=12", "captured": "12", "page_identity": "12", "title": "Famille rose vase", "expected": "survivor", "evidence": null},
+        {"path": "japanese/item.php?id=12", "captured": "4f8a2c61e0b7", "page_identity": "12", "title": "Imari dish", "expected": "keep", "evidence": null},
+        {"path": "english/item.php?id=12", "captured": "9c3e7d05a4f1", "page_identity": "12", "title": "Oak coffer", "expected": "keep", "evidence": null}
+      ]
+    },
+    {
+      "name": "sections named by three letters that name no language, next to a three-letter language version",
+      "rows": [
+        {"path": "art/item.php?id=5", "captured": "5", "page_identity": "5", "title": "River landscape, oil on canvas", "expected": "survivor", "evidence": null},
+        {"path": "map/item.php?id=5", "captured": "a51c09e7b3d2", "page_identity": "5", "title": "Map of Flanders, 1640", "expected": "keep", "evidence": null},
+        {"path": "ita/art/item.php?id=5", "captured": "5", "page_identity": "5", "title": "Paesaggio fluviale, olio su tela", "expected": "retire", "evidence": "spelling"}
+      ]
     }
   ]
 }
