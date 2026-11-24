@@ -135,11 +135,13 @@ field no-op, even alongside other edits. Net-zero text edits disappear from the 
 Meaningful descriptions retain their paragraphs. Identity, source key and public slug never change.
 
 Meaningful title or description changes advance the shared content revision and the embedding
-revision, invalidate obsolete title translations and embeddings atomically, and refresh title
-translation, content assessment and embedding asynchronously. Reads fall back to current original
-text until translations arrive; assessments of older revisions are no longer current. Translation
-remains titles-only. Description-only changes also schedule title translation because it shares
-the content revision guard with assessment; pending older translation results are stale.
+revision, invalidate embeddings atomically, and refresh content assessment and embedding
+asynchronously; assessments of older revisions are no longer current. Translation remains
+titles-only. A title change, including a title language change, also invalidates the title
+translations and refreshes them asynchronously; reads fall back to the current original title until
+they arrive. The embedding and translation refresh [waits](#enrichment-of-listings-not-for-sale)
+while the listing is not for sale. A description-only change [carries](#title-translation) the title's translations onto
+the new revision instead.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
@@ -281,6 +283,113 @@ Without the stored `show_unassessed_or_sensitive_content` preference, image URLs
 The authorized [management inspection](#management-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
 
 Assessment does not block ingestion, change aggregate revision/history or become search authority. Non-content changes do not invalidate text assessment; a new text source must invalidate the old result.
+
+## Title translation
+
+A listing's title is translated into German, English, French, Spanish and Italian, except its
+own language, asynchronously and in bulk. The `product-translation` job only records the content
+revision as pending work in PostgreSQL, unless the listing has moved past it, already holds its
+translations or is [not for sale](#enrichment-of-listings-not-for-sale); a newer revision replaces
+older pending or parked work. A translation round every
+15 minutes in the worker then:
+
+1. collects ended [Message Batches](https://platform.claude.com/docs/en/build-with-claude/batch-processing)
+   and commits each title's result under the translation source-marker guard, so a result for a
+   superseded revision is dropped as stale;
+2. translates titles Claude Haiku refused on their own synchronously on Claude Sonnet (#3076);
+3. submits the pending work as one Haiku batch, at half the synchronous price.
+
+A request translates up to 20 titles of one source language. Its output budget is reserved per
+title in proportion to the title's length, so dense CJK titles travel in smaller groups and a
+runaway answer stops near its proportional size rather than at a fixed cap. Titles are untrusted
+data: they travel as JSON string values keyed by short IDs, the instruction tells the model to
+translate them and never follow them, and each title is validated alone. A missing, empty or
+implausibly long or short translation fails only its title, and so does one with fewer runs of
+`?` than its source. Shops sometimes serve titles whose characters were already replaced with
+`?`, and many titles use `???` deliberately (*Die drei ???*, `Modell ???`); the instruction says
+to copy every run verbatim and never guess what it stood for. A title whose question marks
+outnumber its letters is not scheduled at all: too little text is left to translate, and readers
+keep the original title in every language. A refused or truncated group is resubmitted title by
+title; only a title refused alone reaches Sonnet. Expired or canceled requests, and requests a temporarily unavailable provider did not answer, return to the queue
+unchanged; an invalid answer or a failed write spends one of a title's three attempts and fails
+only that title. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
+title changes. A round settles work only while it is still where the round found it, so
+several workers may run rounds side by side. Reads and saved-search matching fall back to the original title until a
+translation lands, so the daily match needs no synchronous sweep. Operations are in the
+[runbook](durable-worker-runbook.md#title-translation-recovery).
+
+A description-only change keeps the title, so the listing update carries its translation state onto
+the new content revision in the same transaction instead of translating the title again. When the
+replaced revision is translated, its translations are re-stamped and its translated-titles completion
+is copied for the new revision; the copy becomes the listing's current event, so it drives the search
+projection and the new revision's translation job completes as `duplicate` without a model call.
+Translation work still pending, in a batch or parked for the replaced revision moves along unchanged.
+Only a result a round already read for the replaced revision is dropped as stale and translated
+again.
+Only the replaced revision is carried: translations of any older revision are stale and dropped, so a
+description change that follows a title change whose translation has not landed still translates
+that title.
+
+## Embeddings
+
+A listing's embedding is one `gemini-embedding-2` vector of 768 dimensions for its title,
+description and first image, computed in Vertex AI batch prediction at half the synchronous
+price. Search queries and saved-search filters stay synchronous because they are interactive.
+The `product-embedding` job only records the embedding revision as pending work in PostgreSQL,
+unless the listing has moved past it, already holds its embedding or is
+[not for sale](#enrichment-of-listings-not-for-sale); a newer revision replaces older pending or
+parked work. A round every 30 minutes in the worker:
+
+1. collects ended batch prediction jobs and commits each vector under the embedding
+   source-marker guard, so a result for a superseded revision is dropped as stale;
+2. submits up to 10,000 pending embeddings as one job.
+
+Submission fetches each first image with the bounded image fetcher and stages it in a Cloud
+Storage bucket, because a batch cannot fetch HTTP URLs; the JSONL requests reference the staged
+objects by `gs://` URI and the job writes its output under the same prefix. The model resizes
+every image to 768 × 768 pixels itself, so an image with more pixels than that is scaled down to
+that many, keeping its aspect ratio, by the [downscaling](../src/image-fetcher/src/downscale.rs)
+the classifier also uses; the unused synchronous product path prepares images the same way, so
+it stays interchangeable; vectors of earlier, unscaled images stay comparable because the model
+saw them at the same resolution. HEIC and HEIF, which the model reads but the backend cannot
+decode, are staged as fetched. An image that cannot be fetched or decoded, or whose format the
+model does not read, such as GIF, is left out. Requests a job did not judge, because it was canceled, expired or
+failed as a whole, and failures where the provider could not be asked or did not answer, return
+to the queue unchanged; a rejected request, a request a succeeded job left unanswered, or a failed
+guarded write spends one of an embedding's three attempts. Spent work and persisted documents no
+provider can embed, such as a blank title or an invalid image URL, are parked alone until the
+content changes. A round settles work only while it is still where
+the round found it, so several workers may run rounds side by side.
+
+A listing without an embedding is still found lexically. Saved-search matching runs daily and
+does not wait for embeddings: one that lands after a match advances the listing's `updated`, so
+the next match picks it up. Operations are in the
+[runbook](durable-worker-runbook.md#product-embedding-recovery).
+
+## Enrichment of listings not for sale
+
+Embeddings and title translations serve discovery, which omits withdrawn listings and listings that
+are not for sale: `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`
+([`listing_discoverability.rs`](../src/product-listing-core/src/listing_discoverability.rs)). An
+embedding or translation job of a listing that is currently either therefore completes as
+`not_for_sale` without recording work, whether a discovery (such as a new shop's archive of sold
+items) or a text or image change scheduled it. The job decides on the listing's current state, not
+the event's, so a listing back on sale before its job runs is enriched normally.
+Content assessment still runs for every listing: it decides image visibility on detail pages, which
+stay reachable through watchlists and direct links.
+
+A change that returns a listing to sale schedules embedding and translation of its current
+revision: its availability leaves those values, including by being cleared, or a withdrawn listing
+is restored for sale. These jobs target the listing's current source markers rather than their own
+event, so the marker guards do not drop them as stale, and a revision that is already embedded or
+translated completes as a duplicate. Enrichment a listing already holds, and work recorded before it
+stopped being for sale, are kept; a content change while it is not for sale still invalidates them
+as usual, and their replacement waits for the return to sale.
+
+Until then, reads of a listing without translations of its current title show the original title
+in every language. Similar listings for a listing without an embedding are an empty list rather
+than `202` pending, because none is scheduled; work recorded before it stopped being for sale can
+still land and make them non-empty.
 
 ## Source anti-corruption rules
 

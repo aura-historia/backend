@@ -5491,6 +5491,42 @@ async fn scraper_should_select_a_retired_duplicate_again_once_its_retirement_is_
     );
 }
 
+/// The crawler database knows every evidence the scraper retires a URL with.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn crawler_database_should_record_every_duplicate_evidence() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "duplicate-evidence.example.com").await;
+    let carrier = url::Url::parse("https://duplicate-evidence.example.com/products/1").unwrap();
+    let evidences = [
+        DuplicateEvidence::RedirectDestination,
+        DuplicateEvidence::SameProduct(SameProductEvidence::Spelling),
+        DuplicateEvidence::SameProduct(SameProductEvidence::IdentityToken),
+        DuplicateEvidence::SameProduct(SameProductEvidence::LanguageDirectory),
+        DuplicateEvidence::SameProduct(SameProductEvidence::Title),
+    ];
+
+    for (index, evidence) in evidences.into_iter().enumerate() {
+        let duplicate = carrier.join(&format!("/copies/{index}")).unwrap();
+        insert_product_url(&pool, listing_source_id, duplicate.as_str()).await;
+        let retirement = DuplicateRetirement {
+            duplicate_of: carrier.clone(),
+            evidence,
+        };
+
+        assert_eq!(
+            service
+                .retire_as_duplicate(&listing_source_id, &duplicate, &retirement, None)
+                .await
+                .unwrap(),
+            CrawlerUrlWriteOutcome::Applied,
+            "{}",
+            evidence.as_str()
+        );
+    }
+}
+
 /// The crawler database refuses a retirement record that is incomplete, on a live URL, or with
 /// an evidence it does not know, so an undo can rely on it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

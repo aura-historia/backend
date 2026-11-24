@@ -191,13 +191,15 @@ Product event fanout:
 | Event | Additional consumers |
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
-| `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image or text changes; content assessment and title translation for title/description changes |
+| `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image or text changes; content assessment and title translation for title/description changes; embedding and title translation when it [returns the listing to sale](../product-listing.md#enrichment-of-listings-not-for-sale) |
 | `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED`, `ENRICHMENT_CONTENT_ASSESSED` | None beyond product projector; no enrichment loop |
 
 Combined change dimensions route to the union of their consumers. Meaningful text changes
-advance content and embedding source markers with canonical state, delete obsolete translations
-and invalidate embeddings in the same transaction. Description changes also schedule title
-translation under the shared content guard. Enrichment readers classify these changes as work;
+advance content and embedding source markers with canonical state, delete translations of a
+changed title and invalidate embeddings in the same transaction. A description-only change carries
+the current title translations, their completion and pending translation work onto the new content
+revision in that transaction ([title translation](../product-listing.md#title-translation)), so its
+translation job completes as a duplicate. Enrichment readers classify these changes as work;
 late results remain fenced by their source revision. Text-only events never notify watchlists. Canonical listing
 rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
 operational receipts do not implicitly trigger these routes. In particular, a User update
@@ -261,7 +263,8 @@ Job IDs are not business idempotency keys.
 | ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the job queue's failure custody on redelivery; other failures retain only their own FIFO group. |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version: the document while the listing is [discoverable](../product-listing.md#application-api-and-search-contracts), otherwise a tombstone. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
-| Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
+| Embedding | The job records the current, unembedded embedding revision as pending work and completes; a superseded or embedded revision completes as stale or duplicate, and a listing currently withdrawn or not for sale completes as `not_for_sale`. A return to sale targets the listing's current embedding revision rather than its own event. Worker [embedding rounds](../product-listing.md#embeddings) submit pending work as Vertex AI batch prediction jobs and commit each vector under the source-marker guard: first committed completion wins, a result for a superseded revision is dropped, and its journal entry drives projection. |
+| Translation | The job records the current, untranslated content revision as pending work and completes; a superseded or translated revision completes as stale or duplicate, and a listing currently withdrawn or not for sale completes as `not_for_sale`. A return to sale targets the listing's current content revision rather than its own event. A description-only change of a translated revision is already translated when its job runs, because the listing update carried the replaced revision's translations and completion onto it. Worker [translation rounds](../product-listing.md#title-translation) submit pending work as provider batches and commit each title's result under the source-marker guard: first committed completion wins, a result for a superseded revision is dropped, and its journal entry drives projection. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. A delivery has exactly one source: a notification, a saved-search digest or an [external email](#external-email-delivery). |

@@ -16,6 +16,11 @@ pub use commands::create_product_listing::{
     CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
     CreateProductListingResult, CreateProductListingUseCase,
 };
+pub use commands::embed_product_listing_batches::{
+    EmbedProductListingBatchesError, EmbedProductListingBatchesHandler,
+    EmbedProductListingBatchesUseCase, MAX_EMBEDDING_ATTEMPTS, MAX_EMBEDDINGS_PER_BATCH,
+    ProductEmbeddingRoundReport, ProductEmbeddingSettlements,
+};
 pub use commands::embed_product_listing_event::{
     EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventHandler,
     EmbedProductListingEventOutcome, EmbedProductListingEventResult,
@@ -67,6 +72,11 @@ pub use commands::translate_product_listing_event::{
     TranslateProductListingCommand, TranslateProductListingEventError,
     TranslateProductListingEventHandler, TranslateProductListingEventOutcome,
     TranslateProductListingEventResult, TranslateProductListingEventUseCase,
+};
+pub use commands::translate_product_listing_title_batches::{
+    MAX_TITLES_PER_BATCH, MAX_TRANSLATION_ATTEMPTS, TitleTranslationRoundReport,
+    TranslateProductListingTitleBatchesError, TranslateProductListingTitleBatchesHandler,
+    TranslateProductListingTitleBatchesUseCase,
 };
 pub use commands::update_product_listing::{
     UpdateProductListingCommand, UpdateProductListingError, UpdateProductListingHandler,

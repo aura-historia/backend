@@ -1,79 +1,178 @@
-use application::error::{box_error, static_error};
+//! Product title translation through Claude: groups of titles in provider batches, and single
+//! titles on the refusal fallback model.
+
+mod prompt;
+mod response;
+
+use application::error::box_error;
 use indexmap::IndexMap;
 use large_language_model::{
-    GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
-    StructuredGenerationRequest, log_llm_refusal_fallback,
+    BatchCustomId, BatchItemOutcome, BatchProcessingStatus, BatchRequest, LargeLanguageModel,
+    LargeLanguageModelBatchId, LargeLanguageModelBatches, LargeLanguageModelError, LlmOperation,
+    StructuredResponseFailureKind, log_llm_refusal_fallback,
 };
 use localization::Language;
 use product_listing_core::title::Title;
 use product_listing_service::ports::{
-    ProductListingTitleTranslationError, ProductListingTitleTranslator,
+    PositionedTitle, ProductListingTitleBatchTranslator, ProductListingTitleTranslationError,
+    ProductListingTitleTranslator, TitleTranslationBatchId, TitleTranslationBatchPoll,
+    TitleTranslationGroup, TitleTranslationGroupOutcome, TitleTranslationGroupResult,
 };
-use serde::Deserialize;
-use std::{collections::BTreeMap, time::Duration};
+use response::GroupResponse;
 
-/// Output budget for one title translated into every target. A dense Chinese or Japanese title
-/// of up to [`Title::MAX_CHARS`] characters expands to several hundred characters in each of up
-/// to five Latin-script targets, about 900 tokens with the JSON. 512 tokens truncated such
-/// replies, which then failed on every attempt. Output is billed only for the tokens produced.
-const TRANSLATION_MAX_OUTPUT_TOKENS: u16 = 2048;
+const OPERATION: LlmOperation = LlmOperation::ProductTitleTranslation;
 
-const TRANSLATION_SYSTEM_INSTRUCTION: &str = "Translate antique product titles faithfully. Preserve proper nouns, periods, dimensions, and material names.";
-
-/// Translates titles with `primary`. A refusal repeats for the same request and model, so only a
-/// refusal is retried, once, on `refusal_fallback`. Every other failure is reported as the
-/// primary returned it: the fallback is not a general retry path.
-pub struct LargeLanguageModelProductListingTitleTranslator<P, F> {
-    primary: P,
-    refusal_fallback: F,
+/// Translates title groups through a provider batch on the primary model.
+pub struct LargeLanguageModelProductListingTitleBatchTranslator<M> {
+    model: M,
 }
 
-impl<P, F> LargeLanguageModelProductListingTitleTranslator<P, F> {
-    pub fn new(primary: P, refusal_fallback: F) -> Self {
-        Self {
-            primary,
-            refusal_fallback,
-        }
+impl<M> LargeLanguageModelProductListingTitleBatchTranslator<M> {
+    pub fn new(model: M) -> Self {
+        Self { model }
     }
-}
-
-impl<P, F> LargeLanguageModelProductListingTitleTranslator<P, F>
-where
-    P: LargeLanguageModel,
-    F: LargeLanguageModel,
-{
-    async fn generate(
-        &self,
-        request: StructuredGenerationRequest,
-    ) -> Result<TranslationResponse, LargeLanguageModelError> {
-        match self.primary.generate(request.clone()).await {
-            // The fallback's own failure decides the job's retry; the primary's refusal is
-            // already logged as its `LLM_INVOCATION` failure.
-            Err(error) if error.is_refusal() => {
-                let operation = request.operation;
-                let result = self.refusal_fallback.generate(request).await;
-                log_llm_refusal_fallback(
-                    operation,
-                    self.refusal_fallback.logged_model(),
-                    result.as_ref().err(),
-                );
-                result
-            }
-            result => result,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct TranslationResponse {
-    titles: BTreeMap<String, String>,
 }
 
 #[async_trait::async_trait]
-impl<P, F> ProductListingTitleTranslator for LargeLanguageModelProductListingTitleTranslator<P, F>
+impl<M> ProductListingTitleBatchTranslator
+    for LargeLanguageModelProductListingTitleBatchTranslator<M>
 where
-    P: LargeLanguageModel,
-    F: LargeLanguageModel,
+    M: LargeLanguageModelBatches,
+{
+    fn group_sizes(
+        &self,
+        _source_language: Language,
+        target_languages: &[Language],
+        titles: &[Title],
+    ) -> Vec<usize> {
+        prompt::group_sizes(target_languages, titles)
+    }
+
+    async fn submit(
+        &self,
+        groups: &[TitleTranslationGroup],
+    ) -> Result<TitleTranslationBatchId, ProductListingTitleTranslationError> {
+        let requests = groups
+            .iter()
+            .map(|group| {
+                Ok(BatchRequest {
+                    custom_id: custom_id(group.group)?,
+                    request: prompt::translation_request(group),
+                })
+            })
+            .collect::<Result<Vec<_>, LargeLanguageModelError>>()
+            .map_err(map_translation_error)?;
+        let batch = self
+            .model
+            .submit_batch(OPERATION, requests)
+            .await
+            .map_err(map_translation_error)?;
+        TitleTranslationBatchId::new(batch.as_str()).map_err(|source| {
+            ProductListingTitleTranslationError::InvalidResponse {
+                source: box_error(source),
+            }
+        })
+    }
+
+    async fn poll(
+        &self,
+        batch: &TitleTranslationBatchId,
+        groups: &[TitleTranslationGroup],
+    ) -> Result<TitleTranslationBatchPoll, ProductListingTitleTranslationError> {
+        let batch =
+            LargeLanguageModelBatchId::new(batch.as_str()).map_err(map_translation_error)?;
+        if self
+            .model
+            .batch_status(&batch)
+            .await
+            .map_err(map_translation_error)?
+            == BatchProcessingStatus::InProgress
+        {
+            return Ok(TitleTranslationBatchPoll::InProgress);
+        }
+        let results = self
+            .model
+            .batch_results::<GroupResponse>(OPERATION, &batch)
+            .await
+            .map_err(map_translation_error)?;
+        Ok(TitleTranslationBatchPoll::Ended(
+            results
+                .into_iter()
+                .filter_map(|result| {
+                    let group = groups
+                        .iter()
+                        .find(|group| custom_id_matches(group.group, &result.custom_id))?;
+                    Some(TitleTranslationGroupResult {
+                        group: group.group,
+                        outcome: group_outcome(group, result.outcome),
+                    })
+                })
+                .collect(),
+        ))
+    }
+}
+
+fn custom_id(group: u32) -> Result<BatchCustomId, LargeLanguageModelError> {
+    BatchCustomId::new(format!("g{group}"))
+}
+
+fn custom_id_matches(group: u32, custom_id: &str) -> bool {
+    custom_id
+        .strip_prefix('g')
+        .and_then(|number| number.parse::<u32>().ok())
+        == Some(group)
+}
+
+fn group_outcome(
+    group: &TitleTranslationGroup,
+    outcome: BatchItemOutcome<GroupResponse>,
+) -> TitleTranslationGroupOutcome {
+    match outcome {
+        BatchItemOutcome::Succeeded(response) => TitleTranslationGroupOutcome::Translated(
+            group
+                .titles
+                .iter()
+                .map(|PositionedTitle { position, title }| {
+                    (
+                        *position,
+                        response.translated_title(*position, title, &group.target_languages),
+                    )
+                })
+                .collect(),
+        ),
+        BatchItemOutcome::Failed(error) if error.is_refusal() => {
+            TitleTranslationGroupOutcome::Refused
+        }
+        BatchItemOutcome::Failed(error)
+            if error.structured_response_failure_kind()
+                == Some(StructuredResponseFailureKind::MaxTokens) =>
+        {
+            TitleTranslationGroupOutcome::Truncated
+        }
+        BatchItemOutcome::Failed(error) => {
+            TitleTranslationGroupOutcome::Failed(map_translation_error(error))
+        }
+        BatchItemOutcome::NotProcessed => TitleTranslationGroupOutcome::NotProcessed,
+    }
+}
+
+/// Translates one title the primary model refused, synchronously, on the refusal fallback model.
+/// Haiku's safety classifier refuses some old scientific titles (pathogens, aerosols) that Sonnet
+/// translates (#3076).
+pub struct LargeLanguageModelRefusalFallbackTitleTranslator<M> {
+    model: M,
+}
+
+impl<M> LargeLanguageModelRefusalFallbackTitleTranslator<M> {
+    pub fn new(model: M) -> Self {
+        Self { model }
+    }
+}
+
+#[async_trait::async_trait]
+impl<M> ProductListingTitleTranslator for LargeLanguageModelRefusalFallbackTitleTranslator<M>
+where
+    M: LargeLanguageModel,
 {
     async fn translate(
         &self,
@@ -81,85 +180,37 @@ where
         source_language: Language,
         target_languages: &[Language],
     ) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
-        let response = self
-            .generate(translation_request(
-                title,
-                source_language,
-                target_languages,
-            ))
-            .await
-            .map_err(map_translation_error)?;
-        translated_titles(response, target_languages)
-    }
-}
-
-/// Fails closed unless the response holds a non-empty title for every requested target.
-fn translated_titles(
-    response: TranslationResponse,
-    target_languages: &[Language],
-) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
-    let mut translated = IndexMap::new();
-    for language in target_languages {
-        let Some(value) = response.titles.get(language.as_str()) else {
-            return Err(ProductListingTitleTranslationError::InvalidResponse {
-                source: static_error(
-                    "product title translation response omitted a target language",
-                ),
-            });
+        let group = TitleTranslationGroup {
+            group: 1,
+            source_language,
+            target_languages: target_languages.to_vec(),
+            titles: vec![PositionedTitle {
+                position: 1,
+                title: title.clone(),
+            }],
         };
-        let title = Title::from(value.as_str());
-        if title.as_ref().is_empty() {
-            return Err(ProductListingTitleTranslationError::InvalidResponse {
-                source: static_error("product title translation response contains an empty title"),
-            });
-        }
-        translated.insert(*language, title);
-    }
-    Ok(translated)
-}
-
-fn translation_request(
-    title: &Title,
-    source_language: Language,
-    target_languages: &[Language],
-) -> StructuredGenerationRequest {
-    let targets = target_languages
-        .iter()
-        .map(|language| language.as_str())
-        .collect::<Vec<_>>();
-    StructuredGenerationRequest {
-        operation: LlmOperation::ProductTitleTranslation,
-        system_instruction: TRANSLATION_SYSTEM_INSTRUCTION.to_owned(),
-        prompt: format!(
-            "Translate this antique product title from {source} into {targets}. Return exactly one JSON object with a titles object whose keys are the target ISO language codes and whose values are non-empty translated titles.\n\nTitle: {title}",
-            source = source_language.as_str(),
-            targets = targets.join(", "),
-            title = title.as_ref(),
-        ),
-        image_urls: Vec::new(),
-        response_json_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "titles": {
-                    "type": "object",
-                    "properties": targets.iter().map(|language| (
-                        (*language).to_owned(),
-                        serde_json::json!({ "type": "string" }),
-                    )).collect::<serde_json::Map<String, serde_json::Value>>(),
-                    "required": targets,
-                }
-            },
-            "required": ["titles"],
-        }),
-        options: GenerationOptions {
-            temperature: 0.0,
-            max_output_tokens: TRANSLATION_MAX_OUTPUT_TOKENS,
-            request_timeout: Duration::from_secs(30),
-        },
+        let response = self
+            .model
+            .generate::<GroupResponse>(prompt::translation_request(&group))
+            .await;
+        // The primary's refusal was logged with its batch.
+        log_llm_refusal_fallback(
+            OPERATION,
+            self.model.logged_model(),
+            response.as_ref().err(),
+        );
+        response
+            .map_err(map_translation_error)?
+            .translated_title(1, title, target_languages)
     }
 }
 
 fn map_translation_error(error: LargeLanguageModelError) -> ProductListingTitleTranslationError {
+    if error.is_refusal() {
+        return ProductListingTitleTranslationError::Refused {
+            source: box_error(error),
+        };
+    }
     match error {
         LargeLanguageModelError::Timeout { .. }
         | LargeLanguageModelError::Retryable { .. }
@@ -181,37 +232,191 @@ fn map_translation_error(error: LargeLanguageModelError) -> ProductListingTitleT
 #[cfg(test)]
 mod tests {
     use super::*;
-    use large_language_model::{LargeLanguageModelRetryAdvice, LargeLanguageModelRetryKind};
-    use std::{
-        collections::VecDeque,
-        sync::{Arc, Mutex},
+    use application::error::static_error;
+    use large_language_model::{
+        BatchItemResult, LargeLanguageModelRetryAdvice, LargeLanguageModelRetryKind,
+        StructuredGenerationRequest,
     };
+    use serde::de::DeserializeOwned;
+    use std::sync::Mutex;
 
-    /// Answers each call with the next scripted result and records the requests it received.
-    #[derive(Clone, Default)]
-    struct ScriptedModel {
-        results: Arc<Mutex<VecDeque<Result<serde_json::Value, LargeLanguageModelError>>>>,
-        requests: Arc<Mutex<Vec<StructuredGenerationRequest>>>,
+    fn group(group: u32, titles: &[&str]) -> TitleTranslationGroup {
+        TitleTranslationGroup {
+            group,
+            source_language: Language::De,
+            target_languages: vec![Language::En],
+            titles: (1..)
+                .zip(titles)
+                .map(|(position, title)| PositionedTitle {
+                    position,
+                    title: Title::from(*title),
+                })
+                .collect(),
+        }
     }
 
-    impl ScriptedModel {
-        fn answering(
-            results: impl IntoIterator<Item = Result<serde_json::Value, LargeLanguageModelError>>,
-        ) -> Self {
-            Self {
-                results: Arc::new(Mutex::new(results.into_iter().collect())),
-                requests: Arc::default(),
-            }
+    /// A batch that has ended with scripted JSON results, recording what was submitted.
+    #[derive(Default)]
+    struct ScriptedBatches {
+        results: Mutex<Vec<(String, Result<serde_json::Value, LargeLanguageModelError>)>>,
+        submitted: Mutex<Vec<BatchRequest>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModelBatches for ScriptedBatches {
+        async fn submit_batch(
+            &self,
+            _: LlmOperation,
+            requests: Vec<BatchRequest>,
+        ) -> Result<LargeLanguageModelBatchId, LargeLanguageModelError> {
+            *self.submitted.lock().unwrap() = requests;
+            LargeLanguageModelBatchId::new("msgbatch_1")
         }
 
-        fn prompts(&self) -> Vec<String> {
-            self.requests
-                .lock()
-                .expect("requests lock")
-                .iter()
-                .map(|request| request.prompt.clone())
-                .collect()
+        async fn batch_status(
+            &self,
+            _: &LargeLanguageModelBatchId,
+        ) -> Result<BatchProcessingStatus, LargeLanguageModelError> {
+            Ok(BatchProcessingStatus::Ended)
         }
+
+        async fn batch_results<Output>(
+            &self,
+            _: LlmOperation,
+            _: &LargeLanguageModelBatchId,
+        ) -> Result<Vec<BatchItemResult<Output>>, LargeLanguageModelError>
+        where
+            Output: DeserializeOwned + Send,
+        {
+            Ok(std::mem::take(&mut *self.results.lock().unwrap())
+                .into_iter()
+                .map(|(custom_id, result)| BatchItemResult {
+                    custom_id,
+                    outcome: match result {
+                        Ok(value) => {
+                            BatchItemOutcome::Succeeded(serde_json::from_value(value).unwrap())
+                        }
+                        Err(error) => BatchItemOutcome::Failed(error),
+                    },
+                })
+                .collect())
+        }
+    }
+
+    async fn poll(
+        batches: ScriptedBatches,
+        groups: &[TitleTranslationGroup],
+    ) -> Vec<TitleTranslationGroupResult> {
+        let translator = LargeLanguageModelProductListingTitleBatchTranslator::new(batches);
+        match translator
+            .poll(&TitleTranslationBatchId::new("msgbatch_1").unwrap(), groups)
+            .await
+            .unwrap()
+        {
+            TitleTranslationBatchPoll::Ended(results) => results,
+            TitleTranslationBatchPoll::InProgress => panic!("batch ended"),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_submit_one_request_per_group_keyed_by_group() {
+        let translator =
+            LargeLanguageModelProductListingTitleBatchTranslator::new(ScriptedBatches::default());
+
+        let id = translator
+            .submit(&[group(1, &["Stuhl", "Tisch"]), group(2, &["Vase"])])
+            .await
+            .unwrap();
+
+        assert_eq!("msgbatch_1", id.as_str());
+        let submitted = translator.model.submitted.lock().unwrap();
+        assert_eq!(
+            vec!["g1", "g2"],
+            submitted
+                .iter()
+                .map(|request| request.custom_id.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(submitted[0].request.prompt.contains(r#""2":"Tisch""#));
+    }
+
+    #[tokio::test]
+    async fn should_validate_every_title_of_a_group_on_its_own() {
+        let batches = ScriptedBatches::default();
+        *batches.results.lock().unwrap() = vec![(
+            "g7".to_owned(),
+            Ok(serde_json::json!({"translations": {
+                "1": {"en": "Oak chair"},
+                "3": {"en": ""},
+            }})),
+        )];
+
+        let results = poll(batches, &[group(7, &["Eichenstuhl", "Tisch", "Vase"])]).await;
+
+        let [
+            TitleTranslationGroupResult {
+                group: 7,
+                outcome: TitleTranslationGroupOutcome::Translated(titles),
+            },
+        ] = results.as_slice()
+        else {
+            panic!("one translated group expected: {results:?}");
+        };
+        assert_eq!(3, titles.len());
+        assert_eq!(
+            Some("Oak chair"),
+            titles[0]
+                .1
+                .as_ref()
+                .ok()
+                .and_then(|titles| titles.get(&Language::En))
+                .map(AsRef::as_ref)
+        );
+        assert!(titles[1].1.is_err(), "an omitted title fails alone");
+        assert!(titles[2].1.is_err(), "an empty title fails alone");
+    }
+
+    #[tokio::test]
+    async fn should_tell_refused_groups_from_failed_ones() {
+        let batches = ScriptedBatches::default();
+        *batches.results.lock().unwrap() = vec![
+            ("g1".to_owned(), Err(LargeLanguageModelError::refusal())),
+            (
+                "g2".to_owned(),
+                Err(LargeLanguageModelError::Retryable {
+                    advice: LargeLanguageModelRetryAdvice {
+                        kind: LargeLanguageModelRetryKind::Transient,
+                        retry_after: None,
+                    },
+                    source: static_error("api error"),
+                }),
+            ),
+            (
+                "unknown".to_owned(),
+                Err(LargeLanguageModelError::refusal()),
+            ),
+        ];
+
+        let results = poll(batches, &[group(1, &["Pest"]), group(2, &["Tisch"])]).await;
+
+        assert_eq!(2, results.len(), "an unknown custom ID is ignored");
+        assert!(matches!(
+            results[0].outcome,
+            TitleTranslationGroupOutcome::Refused
+        ));
+        assert!(matches!(
+            results[1].outcome,
+            TitleTranslationGroupOutcome::Failed(
+                ProductListingTitleTranslationError::TemporarilyUnavailable { .. }
+            )
+        ));
+    }
+
+    /// Answers each call with the next scripted result and records the requests it received.
+    #[derive(Default)]
+    struct ScriptedModel {
+        results: Mutex<Vec<Result<serde_json::Value, LargeLanguageModelError>>>,
+        requests: Mutex<Vec<StructuredGenerationRequest>>,
     }
 
     #[async_trait::async_trait]
@@ -221,148 +426,53 @@ mod tests {
             request: StructuredGenerationRequest,
         ) -> Result<Output, LargeLanguageModelError>
         where
-            Output: serde::de::DeserializeOwned + Send,
+            Output: DeserializeOwned + Send,
         {
-            self.requests.lock().expect("requests lock").push(request);
-            let result = self
-                .results
+            self.requests.lock().unwrap().push(request);
+            self.results
                 .lock()
-                .expect("results lock")
-                .pop_front()
-                .expect("unexpected model call");
-            result.map(|value| serde_json::from_value(value).expect("scripted output"))
+                .unwrap()
+                .pop()
+                .expect("unexpected model call")
+                .map(|value| serde_json::from_value(value).unwrap())
         }
     }
 
-    fn english_titles() -> serde_json::Value {
-        serde_json::json!({"titles": {"en": "Yersinia pestis protocols"}})
-    }
-
-    async fn translate(
-        primary: &ScriptedModel,
-        refusal_fallback: &ScriptedModel,
-    ) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
-        LargeLanguageModelProductListingTitleTranslator::new(
-            primary.clone(),
-            refusal_fallback.clone(),
-        )
-        .translate(
-            &Title::from("Yersinia Pestis Protokolle"),
-            Language::De,
-            &[Language::En],
-        )
-        .await
-    }
-
     #[tokio::test]
-    async fn should_retry_the_same_request_on_the_fallback_when_the_primary_refuses() {
-        let primary = ScriptedModel::answering([Err(LargeLanguageModelError::refusal())]);
-        let fallback = ScriptedModel::answering([Ok(english_titles())]);
+    async fn should_translate_a_refused_title_alone_on_the_fallback_and_report_its_refusal() {
+        let model = ScriptedModel::default();
+        model.results.lock().unwrap().push(Ok(serde_json::json!({
+            "translations": {"1": {"en": "Yersinia pestis protocols"}}
+        })));
+        let fallback = LargeLanguageModelRefusalFallbackTitleTranslator::new(model);
 
-        let translated = translate(&primary, &fallback).await.expect("translated");
+        let translated = fallback
+            .translate(
+                &Title::from("Yersinia Pestis Protokolle"),
+                Language::De,
+                &[Language::En],
+            )
+            .await
+            .unwrap();
 
         assert_eq!(
             Some("Yersinia pestis protocols"),
             translated.get(&Language::En).map(AsRef::as_ref)
         );
-        assert_eq!(primary.prompts(), fallback.prompts());
-    }
+        let prompt = fallback.model.requests.lock().unwrap()[0].prompt.clone();
+        assert!(prompt.contains(r#"{"1":"Yersinia Pestis Protokolle"}"#));
 
-    #[tokio::test]
-    async fn should_fail_without_another_attempt_when_the_fallback_refuses_too() {
-        let primary = ScriptedModel::answering([Err(LargeLanguageModelError::refusal())]);
-        let fallback = ScriptedModel::answering([Err(LargeLanguageModelError::refusal())]);
-
-        let error = translate(&primary, &fallback).await.unwrap_err();
-
+        let model = ScriptedModel::default();
+        model
+            .results
+            .lock()
+            .unwrap()
+            .push(Err(LargeLanguageModelError::refusal()));
         assert!(matches!(
-            error,
-            ProductListingTitleTranslationError::InvalidResponse { .. }
+            LargeLanguageModelRefusalFallbackTitleTranslator::new(model)
+                .translate(&Title::from("Pest"), Language::De, &[Language::En])
+                .await,
+            Err(ProductListingTitleTranslationError::Refused { .. })
         ));
-        assert_eq!(1, fallback.prompts().len());
-    }
-
-    #[tokio::test]
-    async fn should_never_reach_the_fallback_when_the_primary_fails_otherwise() {
-        let source = || static_error("primary failure");
-        let retryable = |kind| LargeLanguageModelError::Retryable {
-            advice: LargeLanguageModelRetryAdvice {
-                kind,
-                retry_after: None,
-            },
-            source: source(),
-        };
-        let failures = [
-            LargeLanguageModelError::Timeout { source: source() },
-            retryable(LargeLanguageModelRetryKind::RateLimited),
-            retryable(LargeLanguageModelRetryKind::ServiceUnavailable),
-            retryable(LargeLanguageModelRetryKind::Transient),
-            LargeLanguageModelError::Authentication { source: source() },
-            LargeLanguageModelError::InvalidRequest { source: source() },
-            LargeLanguageModelError::Permanent { source: source() },
-            LargeLanguageModelError::InvalidResponse { source: source() },
-        ];
-        for failure in failures {
-            let kind = failure.kind();
-            let primary = ScriptedModel::answering([Err(failure)]);
-            let fallback = ScriptedModel::default();
-
-            assert!(translate(&primary, &fallback).await.is_err(), "{kind}");
-            assert!(fallback.prompts().is_empty(), "{kind} reached the fallback");
-        }
-    }
-
-    #[tokio::test]
-    async fn should_never_reach_the_fallback_when_the_primary_answers_unusably() {
-        let primary = ScriptedModel::answering([Ok(serde_json::json!({"titles": {"en": " "}}))]);
-        let fallback = ScriptedModel::default();
-
-        let error = translate(&primary, &fallback).await.unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProductListingTitleTranslationError::InvalidResponse { .. }
-        ));
-        assert!(fallback.prompts().is_empty());
-    }
-
-    #[test]
-    fn should_create_schema_for_each_requested_target_language() {
-        let request = translation_request(
-            &Title::from("Antiker Stuhl"),
-            Language::De,
-            &[Language::En, Language::Fr],
-        );
-
-        assert_eq!(
-            Some("object"),
-            request
-                .response_json_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-        );
-        assert!(request.prompt.contains("Antiker Stuhl"));
-        assert!(!request.prompt.contains("de, de"));
-    }
-
-    #[test]
-    fn should_budget_room_for_a_maximal_dense_title_in_every_target() {
-        let title = Title::from("宋".repeat(Title::MAX_CHARS).as_str());
-        let targets = [
-            Language::De,
-            Language::En,
-            Language::Fr,
-            Language::Es,
-            Language::It,
-        ];
-        let request = translation_request(&title, Language::Zh, &targets);
-
-        // Two output tokens per source character and target exceeds the observed expansion.
-        let worst_case = Title::MAX_CHARS * targets.len() * 2;
-        assert!(
-            usize::from(request.options.max_output_tokens) >= worst_case,
-            "budget {} below the {worst_case}-token worst case",
-            request.options.max_output_tokens
-        );
     }
 }

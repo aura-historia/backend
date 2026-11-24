@@ -750,6 +750,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(image_rule("img")),
             raw_attributes: Default::default(),
+            sanitize: Default::default(),
         }
     }
 

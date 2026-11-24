@@ -23,6 +23,7 @@ impl DuplicateEvidence {
             Self::RedirectDestination => "REDIRECT_DESTINATION",
             Self::SameProduct(SameProductEvidence::Spelling) => "SPELLING",
             Self::SameProduct(SameProductEvidence::IdentityToken) => "IDENTITY_TOKEN",
+            Self::SameProduct(SameProductEvidence::LanguageDirectory) => "LANGUAGE_DIRECTORY",
             Self::SameProduct(SameProductEvidence::Title) => "TITLE",
         }
     }
@@ -48,6 +49,10 @@ mod tests {
     #[case(
         DuplicateEvidence::SameProduct(SameProductEvidence::IdentityToken),
         "IDENTITY_TOKEN"
+    )]
+    #[case(
+        DuplicateEvidence::SameProduct(SameProductEvidence::LanguageDirectory),
+        "LANGUAGE_DIRECTORY"
     )]
     #[case(DuplicateEvidence::SameProduct(SameProductEvidence::Title), "TITLE")]
     fn should_persist_each_evidence_in_screaming_snake_case(

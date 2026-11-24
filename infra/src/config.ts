@@ -114,6 +114,8 @@ export interface MonitoringConfig {
    * its timer runs (host/prod/systemd).
    */
   readonly maximumJobAgeSeconds: Readonly<Record<string, number>>;
+  /** The oldest product embedding work that is neither committed nor parked may be this old. */
+  readonly maximumPendingEmbeddingAgeSeconds: number;
   readonly crawler: CrawlerMonitoringConfig;
   /**
    * The `api` stack's distributions. CloudFormation cannot reference them from the edge region,
@@ -205,6 +207,9 @@ export function stageConfig(stage: StageName): StageConfig {
         "fx-refresh": 13 * 60 * 60,
         "periodic-match": 27 * 60 * 60,
       },
+      // A batch job's 24-hour target turnaround, the 30-minute round interval and half a day's
+      // slack; only a stuck round, or jobs that keep failing, let work get this old.
+      maximumPendingEmbeddingAgeSeconds: 36 * 60 * 60,
       crawler: {
         logGroupName: `/aura-historia/${stage}/host/crawler`,
         logRetentionDays: 7,

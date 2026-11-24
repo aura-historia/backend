@@ -78,6 +78,11 @@ const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 /// keeps a page whose review stays pending, for example awaiting repair, from going unchecked
 /// for much longer than a reviewer's working session.
 const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
+/// Upper bound of the retry delay of a URL that keeps answering an identity conflict: the scrape
+/// interval of a captured product URL. A conflict that outlasts the first hours is a shop's page or
+/// a schema rule no rescrape changes, so it costs no more scrapes than a captured page; a schema
+/// change still releases it at once.
+const IDENTITY_CONFLICT_MAX_RETRY_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// The scrape interval of a product URL, after which the first scrape that ends at an unsettled
 /// redirect is due again; it matches the candidate query's recency condition.
 const UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -1262,13 +1267,19 @@ async fn shared_redirect_target_removal(
 /// The scrape interval doubled for each earlier consecutive scrape that ended at the same
 /// unsettled redirect, capped at [`UNSETTLED_REDIRECT_MAX_RECHECK_DELAY`].
 fn unsettled_redirect_recheck_delay(streak: u32) -> Duration {
-    let doublings = streak.saturating_sub(1);
+    doubling_delay(
+        UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY,
+        streak,
+        UNSETTLED_REDIRECT_MAX_RECHECK_DELAY,
+    )
+}
+
+/// `first` doubled for each outcome of a run before its `streak`-th, capped at `max`.
+fn doubling_delay(first: Duration, streak: u32, max: Duration) -> Duration {
     2_u32
-        .checked_pow(doublings)
-        .and_then(|factor| UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY.checked_mul(factor))
-        .map_or(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY, |delay| {
-            delay.min(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY)
-        })
+        .checked_pow(streak.saturating_sub(1))
+        .and_then(|factor| first.checked_mul(factor))
+        .map_or(max, |delay| delay.min(max))
 }
 
 async fn handle_successful_scrape(
@@ -1997,20 +2008,23 @@ async fn persist_schema_review_wait(
 /// The schema cooldown doubled for each earlier consecutive wait on the same review, capped
 /// at [`SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY`].
 fn schema_review_wait_retry_delay(streak: u32) -> Duration {
-    let doublings = streak.saturating_sub(1);
-    2_u32
-        .checked_pow(doublings)
-        .and_then(|factor| SCHEMA_ERROR_RETRY_COOLDOWN.checked_mul(factor))
-        .map_or(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY, |delay| {
-            delay.min(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY)
-        })
+    doubling_delay(
+        SCHEMA_ERROR_RETRY_COOLDOWN,
+        streak,
+        SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY,
+    )
 }
 
-/// The retry delay of a URL's `streak`-th identity conflict in a row. It grows as a page's wait on
-/// a pending product-schema review does: nothing a rescrape sees changes before the schemas do,
-/// and a schema change releases the URL at once.
+/// The retry delay of a URL's `streak`-th identity conflict in a row: the schema cooldown doubled
+/// for each earlier conflict of the run, capped at [`IDENTITY_CONFLICT_MAX_RETRY_DELAY`]. Nothing
+/// a rescrape sees changes before the schemas or the other URL do, and a schema change releases
+/// the URL at once.
 fn identity_conflict_retry_delay(streak: u32) -> Duration {
-    schema_review_wait_retry_delay(streak)
+    doubling_delay(
+        SCHEMA_ERROR_RETRY_COOLDOWN,
+        streak,
+        IDENTITY_CONFLICT_MAX_RETRY_DELAY,
+    )
 }
 
 async fn persist_scraper_failure(
@@ -7490,6 +7504,7 @@ mod tests {
                     ..attribute("div.product img", "src")
                 }),
                 raw_attributes: Default::default(),
+                sanitize: Default::default(),
             }
         }
 
@@ -7701,18 +7716,23 @@ mod tests {
         }
 
         #[test]
-        fn should_cap_the_identity_conflict_retry_delay_at_the_review_wait_bound() {
+        fn should_back_off_a_lasting_identity_conflict_to_the_scrape_interval() {
+            const HOUR: Duration = Duration::from_secs(60 * 60);
+
             assert_eq!(
                 identity_conflict_retry_delay(1),
                 SCHEMA_ERROR_RETRY_COOLDOWN
             );
+            assert_eq!(identity_conflict_retry_delay(2), HOUR);
+            assert_eq!(identity_conflict_retry_delay(5), 8 * HOUR);
+            assert_eq!(identity_conflict_retry_delay(6), 16 * HOUR);
             assert_eq!(
-                identity_conflict_retry_delay(2),
-                Duration::from_secs(60 * 60)
+                identity_conflict_retry_delay(7),
+                IDENTITY_CONFLICT_MAX_RETRY_DELAY
             );
             assert_eq!(
-                identity_conflict_retry_delay(50),
-                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+                identity_conflict_retry_delay(136),
+                IDENTITY_CONFLICT_MAX_RETRY_DELAY
             );
         }
     }

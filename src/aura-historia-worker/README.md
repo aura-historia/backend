@@ -22,6 +22,17 @@ job timeout:
 | `marketing-consent-sync` (FIFO), `product-listing-ingestion` (FIFO) | 2 | 35 s |
 | `geo-resolution`, `listing-geography`, `listing-shipping`, `user-identity-deletion` | 2 | 25 s |
 
+A `product-translation` job only records a listing's title translation work. Every worker that
+consumes the scope also runs a [title translation round](../../docs/product-listing.md#title-translation)
+every 15 minutes, which submits pending work to Anthropic's Message Batches API and commits
+ended batches; it needs `ANTHROPIC_API_KEY`.
+
+A `product-embedding` job likewise only records a listing's embedding work. Every worker that
+consumes the scope runs an [embedding round](../../docs/product-listing.md#embeddings) every
+30 minutes, which submits pending work as a Vertex AI batch prediction job and commits ended
+jobs; it needs `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` and
+`VERTEX_AI_EMBEDDING_BATCH_BUCKET`.
+
 Leases, retry delays and retry budgets come from the
 [scope catalogue](../platform-worker-queue-contract/src/job_queue.rs). A projection generation
 consumer (`product-listing-opensearch-<g>`) writes only the index `product-listings-<g>`; it is
@@ -52,9 +63,9 @@ credentials come from the file `GOOGLE_APPLICATION_CREDENTIALS` names. Notificat
 rendered from the compiled templates under `MAIL_TEMPLATE_DIR`, which the image sets to its
 baked-in [templates](../../mjml/README.md); every template is loaded at startup.
 
-If a consumer, the dispatcher or the wake-up listener stops on its own, the worker shuts down
-every other task and exits non-zero, so the container is restarted rather than running with a
-scope that no longer consumes.
+If a consumer, the dispatcher, the wake-up listener or the translation or embedding rounds stop
+on their own, the worker shuts down every other task and exits non-zero, so the container is restarted
+rather than running with a scope that no longer consumes.
 
 ## Health metrics
 
@@ -69,6 +80,7 @@ figures stay in `ops inspect`.
 | `PostgresReachable` | None | 1 when PostgreSQL answered a trivial query within 5 s, otherwise 0, every round |
 | `OldestJobAgeSeconds`, dimension `Class` = `normal` or `bulk` | Seconds | Age of the class's oldest waiting job (not under a lease, as in `ops inspect`), 0 without one. Bulk is translation, embedding and isolated projection generations; every other scope, including one no consumer knows, and the oldest undispatched outbox snapshot are normal |
 | `ParkedJobs` | Count | Jobs in failure custody across every scope, plus outbox snapshots in custody |
+| `OldestPendingEmbeddingAgeSeconds` | Seconds | Age of the oldest product embedding work that is neither committed nor parked, pending or in a batch, 0 without one |
 | `FreeDiskPercent` | Percent | Space available to unprivileged writers on the disk path's filesystem |
 | `SecondsSinceLastBackup` | Seconds | Time since the backup marker was modified; absent while there is no marker |
 | `SecondsSinceLastSuccess`, dimension `Job` | Seconds | Time since each file in the job marker directory was modified; the host's scheduled `ops` jobs touch `<job>` after each success |
@@ -81,8 +93,9 @@ publish only to the configured namespace ([host access](../../docs/infra.md#host
 
 ## PostgreSQL pool
 
-The worker's fixed pool is one connection per concurrent job plus five for the wake-up listeners,
-the dispatcher, settlement and the health metrics: 77 with every scope at its default. Override it with `POSTGRES_MAX_CONNECTIONS` only together with the
+The worker's fixed pool is one connection per concurrent job plus seven for the two wake-up
+listeners, the dispatcher, settlement, the health metrics and the translation and embedding
+rounds: 79 with every scope at its default. Override it with `POSTGRES_MAX_CONNECTIONS` only together with the
 concurrency.
 
 ## Tests

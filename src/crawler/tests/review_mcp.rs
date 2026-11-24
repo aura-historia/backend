@@ -82,6 +82,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
             )
         }),
         raw_attributes: Default::default(),
+        sanitize: Default::default(),
     }
 }
 

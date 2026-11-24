@@ -364,6 +364,7 @@ mod tests {
                 ..rule("a.gallery", ExtractionKind::ImageUrl)
             }),
             raw_attributes: Default::default(),
+            sanitize: Default::default(),
         }
     }
 

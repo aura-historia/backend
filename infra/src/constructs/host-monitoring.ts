@@ -12,6 +12,7 @@ export const HOST_METRICS = {
   postgresReachable: "PostgresReachable",
   oldestJobAge: "OldestJobAgeSeconds",
   parkedJobs: "ParkedJobs",
+  oldestPendingEmbeddingAge: "OldestPendingEmbeddingAgeSeconds",
   freeDisk: "FreeDiskPercent",
   sinceLastBackup: "SecondsSinceLastBackup",
   sinceLastJobSuccess: "SecondsSinceLastSuccess",
@@ -125,6 +126,13 @@ export class HostMonitoring extends Construct {
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       });
     }
+    alarm("embedding-backlog-age", `Product embedding work has waited at least ${monitoring.maximumPendingEmbeddingAgeSeconds} s; see Product embedding recovery in docs/durable-worker-runbook.md.`, {
+      metric: metric(HOST_METRICS.oldestPendingEmbeddingAge, "Maximum", fiveMinutes),
+      threshold: monitoring.maximumPendingEmbeddingAgeSeconds,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
     // Custody is kept until an operator acts, so a level alarm would stay in alarm and stay
     // silent about every later arrival; this one fires on each increase and clears after it.
     alarm("parked-jobs", "More jobs or outbox snapshots entered failure custody; see docs/durable-worker-runbook.md before any redrive.", {

@@ -12,6 +12,7 @@ pub mod product_listing_content_assessment_writer;
 pub mod product_listing_current_event_guard;
 pub mod product_listing_details_batch_reader;
 pub mod product_listing_details_reader;
+pub mod product_listing_embedding_queue;
 pub mod product_listing_embedding_reader;
 pub mod product_listing_embedding_source_reader;
 pub mod product_listing_embedding_writer;
@@ -28,6 +29,8 @@ pub mod product_listing_search_filter_match_source_reader;
 pub mod product_listing_search_projection;
 pub mod product_listing_search_reader;
 pub mod product_listing_similar_product_listings_reader;
+pub mod product_listing_title_batch_translator;
+pub mod product_listing_title_translation_queue;
 pub mod product_listing_title_translator;
 pub mod product_listing_translation_source_reader;
 pub mod product_listing_translation_writer;
@@ -90,6 +93,13 @@ pub use product_listing_details_reader::{
     ProductListingDetailsReadRequest, ProductListingDetailsReader,
     ProductListingDetailsReaderFactory, ProductListingLot,
 };
+pub use product_listing_embedding_queue::{
+    BatchedProductEmbedding, EmbeddingBatchId, PendingProductEmbedding, ProductEmbeddingAssignment,
+    ProductEmbeddingBatchKey, ProductEmbeddingClaim, ProductEmbeddingScheduleOutcome,
+    ProductEmbeddingWorkRef, ProductListingEmbeddingQueue, ProductListingEmbeddingQueueError,
+    ProductListingEmbeddingQueueFactory, ProductListingEmbeddingQueueReader,
+    SubmittedProductEmbeddingBatch,
+};
 pub use product_listing_embedding_reader::{
     ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,
     ProductListingEmbeddingReader, ProductListingEmbeddingReaderFactory,
@@ -133,8 +143,9 @@ pub use product_listing_raw_capture_writer::{
     SourceEvidenceSha256, SourceRecordKeySha256,
 };
 pub use product_listing_repository::{
-    ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
-    ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
+    ProductListingContentSourceEffect, ProductListingRepository, ProductListingRepositoryError,
+    ProductListingRepositoryFactory, ProductListingStorageVersion, ProductListingWriteEffects,
+    VersionedProductListing,
 };
 pub use product_listing_search_filter_match_source_reader::{
     ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceEventKind,
@@ -152,6 +163,18 @@ pub use product_listing_search_reader::{
 pub use product_listing_similar_product_listings_reader::{
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
     ProductListingSimilarProductListingsRequest, SimilarProductListingsLimit,
+};
+pub use product_listing_title_batch_translator::{
+    InvalidTitleTranslationBatchId, PositionedTitle, ProductListingTitleBatchTranslator,
+    TitleTranslationBatchId, TitleTranslationBatchPoll, TitleTranslationGroup,
+    TitleTranslationGroupOutcome, TitleTranslationGroupResult,
+};
+pub use product_listing_title_translation_queue::{
+    BatchedTitleTranslation, PendingTitleTranslation, ProductListingTitleTranslationQueue,
+    ProductListingTitleTranslationQueueError, ProductListingTitleTranslationQueueFactory,
+    ProductListingTitleTranslationQueueReader, SubmittedTitleTranslationBatch,
+    TitleTranslationAssignment, TitleTranslationBatchKey, TitleTranslationClaim,
+    TitleTranslationMode, TitleTranslationScheduleOutcome, TitleTranslationWorkRef,
 };
 pub use product_listing_title_translator::{
     ProductListingTitleTranslationError, ProductListingTitleTranslator,

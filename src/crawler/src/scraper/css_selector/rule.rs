@@ -210,6 +210,15 @@ pub enum ExtractionError {
 
     #[error("element matched by `{selector}` does not have attribute `{attribute}`")]
     MissingAttribute { selector: String, attribute: String },
+
+    /// A `sanitize` text of the schema is unusable; `text` is its start, empty when the
+    /// field's list as a whole is.
+    #[error("sanitize text `{text}` of `{field}` is unusable: {reason}")]
+    InvalidSanitizeText {
+        field: String,
+        text: String,
+        reason: String,
+    },
 }
 
 impl ExtractionRule {

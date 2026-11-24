@@ -1,14 +1,22 @@
+//! Schedules the embedding of a listing's embedding revision. Embedding itself runs in provider
+//! batches ([`super::embed_product_listing_batches`]); this use case only records the revision as
+//! pending work.
+//!
+//! Embeddings serve only discovery, so a revision waits while the listing is not
+//! [discoverable](is_discoverable): withdrawn, or not for sale. The change that returns the
+//! listing to sale schedules its current revision.
+
 use crate::ports::{
+    ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
+    ProductListingEmbeddingQueueError, ProductListingEmbeddingQueueFactory,
     ProductListingEmbeddingSourceEvent, ProductListingEmbeddingSourceReadError,
-    ProductListingEmbeddingSourceReader, ProductListingEmbeddingWrite,
-    ProductListingEmbeddingWriteError, ProductListingEmbeddingWriteOutcome,
-    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory,
+    ProductListingEmbeddingSourceReader,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
-use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText};
+use product_listing_core::listing_discoverability::is_discoverable;
 use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,12 +27,17 @@ pub struct EmbedProductListingCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbedProductListingEventOutcome {
-    Applied,
+    /// The revision waits for the next embedding batch.
+    Scheduled,
+    /// The embedding of the revision is already committed.
     Duplicate,
     Stale,
     ProductListingNotFound,
     IgnoredEvent,
     MissingTitle,
+    /// The listing is currently withdrawn, sold out, out of stock or unavailable. Its current
+    /// revision is scheduled when it returns to sale.
+    NotForSale,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,23 +54,13 @@ pub enum EmbedProductListingEventError {
         #[source]
         source: BoxError,
     },
-    #[error("product embedding input is invalid")]
-    InvalidInput {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product embedding generation failed")]
-    GenerationFailed {
-        #[source]
-        source: BoxError,
-    },
     #[error("failed to begin product embedding transaction")]
     BeginTransactionFailed {
         #[source]
         source: BoxError,
     },
-    #[error("failed to persist product embedding")]
-    EmbeddingWriteFailed {
+    #[error("failed to schedule product embedding")]
+    ScheduleFailed {
         #[source]
         source: BoxError,
     },
@@ -77,31 +80,28 @@ pub trait EmbedProductListingEventUseCase: Send + Sync {
     ) -> Result<EmbedProductListingEventResult, EmbedProductListingEventError>;
 }
 
-pub struct EmbedProductListingEventHandler<S, G, U, W> {
+pub struct EmbedProductListingEventHandler<S, U, Q> {
     sources: S,
-    generator: G,
     unit_of_work: U,
-    embeddings: W,
+    queue: Q,
 }
 
-impl<S, G, U, W> EmbedProductListingEventHandler<S, G, U, W> {
-    pub fn new(sources: S, generator: G, unit_of_work: U, embeddings: W) -> Self {
+impl<S, U, Q> EmbedProductListingEventHandler<S, U, Q> {
+    pub fn new(sources: S, unit_of_work: U, queue: Q) -> Self {
         Self {
             sources,
-            generator,
             unit_of_work,
-            embeddings,
+            queue,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<S, G, U, W> EmbedProductListingEventUseCase for EmbedProductListingEventHandler<S, G, U, W>
+impl<S, U, Q> EmbedProductListingEventUseCase for EmbedProductListingEventHandler<S, U, Q>
 where
     S: ProductListingEmbeddingSourceReader,
-    G: EmbeddingGenerator,
     U: UnitOfWork,
-    W: ProductListingEmbeddingWriterFactory<U::Tx>,
+    Q: ProductListingEmbeddingQueueFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "embed_product_event",
@@ -131,57 +131,32 @@ where
         let Some(source) = self
             .sources
             .find_source(command.event_id, command.product_listing_id)
-            .await
-            .map_err(|source| EmbedProductListingEventError::SourceReadFailed {
-                source: box_error(source),
-            })?
+            .await?
         else {
             return Ok(result(
                 EmbedProductListingEventOutcome::ProductListingNotFound,
             ));
         };
-        if source.embedding_source_event_id != command.event_id {
-            return Ok(result(EmbedProductListingEventOutcome::Stale));
-        }
-        if !matches!(
-            source.event,
+        let revision = match source.event {
             ProductListingEmbeddingSourceEvent::Discovered
-                | ProductListingEmbeddingSourceEvent::ChangedContent
-        ) {
-            return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
-        }
-        let Some(title) = source.title else {
-            return Ok(result(EmbedProductListingEventOutcome::MissingTitle));
-        };
-
-        let title_text = EmbeddingText::new(title.payload.as_ref()).map_err(|source| {
-            EmbedProductListingEventError::InvalidInput {
-                source: box_error(source),
+            | ProductListingEmbeddingSourceEvent::ChangedContent => {
+                if source.embedding_source_event_id != command.event_id {
+                    return Ok(result(EmbedProductListingEventOutcome::Stale));
+                }
+                command.event_id
             }
-        })?;
-        let additional_text = source
-            .description
-            .filter(|description| !description.payload.as_ref().is_empty())
-            .map(|description| EmbeddingText::new(description.payload.as_ref()))
-            .transpose()
-            .map_err(|source| EmbedProductListingEventError::InvalidInput {
-                source: box_error(source),
-            })?;
-        let image_url = source
-            .image_url
-            .map(EmbeddingImageUrl::new)
-            .transpose()
-            .map_err(|source| EmbedProductListingEventError::InvalidInput {
-                source: box_error(source),
-            })?;
-        let embedding = self
-            .generator
-            .embed_product(&title_text, additional_text.as_ref(), image_url.as_ref())
-            .await
-            .map_err(|source| EmbedProductListingEventError::GenerationFailed {
-                source: box_error(source),
-            })?
-            .into_values();
+            // The event left the content alone, so it catches up whichever revision is current.
+            ProductListingEmbeddingSourceEvent::ReturnedToSale => source.embedding_source_event_id,
+            ProductListingEmbeddingSourceEvent::Other => {
+                return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
+            }
+        };
+        if !is_discoverable(source.lifecycle, source.availability) {
+            return Ok(result(EmbedProductListingEventOutcome::NotForSale));
+        }
+        if source.title.is_none() {
+            return Ok(result(EmbedProductListingEventOutcome::MissingTitle));
+        }
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             EmbedProductListingEventError::BeginTransactionFailed {
@@ -189,42 +164,28 @@ where
             }
         })?;
         let outcome = self
-            .embeddings
+            .queue
             .in_transaction(&mut tx)
-            .apply(&ProductListingEmbeddingWrite {
+            .schedule(ProductEmbeddingWorkRef {
                 product_listing_id: command.product_listing_id,
-                source_event_id: command.event_id,
-                enrichment_event_id: EventId::new(),
-                embedding,
+                source_event_id: revision,
             })
-            .await
-            .map_err(
-                |source| EmbedProductListingEventError::EmbeddingWriteFailed {
-                    source: box_error(source),
-                },
-            )?;
+            .await?;
         tx.commit().await.map_err(|source| {
             EmbedProductListingEventError::CommitTransactionFailed {
                 source: box_error(source),
             }
         })?;
 
-        let outcome = match outcome {
-            ProductListingEmbeddingWriteOutcome::Applied => {
-                EmbedProductListingEventOutcome::Applied
+        Ok(result(match outcome {
+            ProductEmbeddingScheduleOutcome::Scheduled => {
+                EmbedProductListingEventOutcome::Scheduled
             }
-            ProductListingEmbeddingWriteOutcome::Duplicate => {
+            ProductEmbeddingScheduleOutcome::AlreadyEmbedded => {
                 EmbedProductListingEventOutcome::Duplicate
             }
-            ProductListingEmbeddingWriteOutcome::Stale => EmbedProductListingEventOutcome::Stale,
-            ProductListingEmbeddingWriteOutcome::ProductListingNotFound => {
-                EmbedProductListingEventOutcome::ProductListingNotFound
-            }
-        };
-        if outcome == EmbedProductListingEventOutcome::Applied {
-            tracing::info!(event = "product.embedded", actor_type = context.principal.kind(), product_listing_id = %command.product_listing_id, source_event_id = %command.event_id, outcome = "success");
-        }
-        Ok(result(outcome))
+            ProductEmbeddingScheduleOutcome::Superseded => EmbedProductListingEventOutcome::Stale,
+        }))
     }
 }
 
@@ -237,6 +198,7 @@ impl From<OperationAuthorizationError> for EmbedProductListingEventError {
         Self::ServiceOrSystemPrincipalRequired
     }
 }
+
 impl From<ProductListingEmbeddingSourceReadError> for EmbedProductListingEventError {
     fn from(source: ProductListingEmbeddingSourceReadError) -> Self {
         Self::SourceReadFailed {
@@ -244,16 +206,10 @@ impl From<ProductListingEmbeddingSourceReadError> for EmbedProductListingEventEr
         }
     }
 }
-impl From<EmbeddingError> for EmbedProductListingEventError {
-    fn from(source: EmbeddingError) -> Self {
-        Self::GenerationFailed {
-            source: box_error(source),
-        }
-    }
-}
-impl From<ProductListingEmbeddingWriteError> for EmbedProductListingEventError {
-    fn from(source: ProductListingEmbeddingWriteError) -> Self {
-        Self::EmbeddingWriteFailed {
+
+impl From<ProductListingEmbeddingQueueError> for EmbedProductListingEventError {
+    fn from(source: ProductListingEmbeddingQueueError) -> Self {
+        Self::ScheduleFailed {
             source: box_error(source),
         }
     }
@@ -262,71 +218,74 @@ impl From<ProductListingEmbeddingWriteError> for EmbedProductListingEventError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{
+        PendingProductEmbedding, ProductEmbeddingAssignment, ProductEmbeddingBatchKey,
+        ProductEmbeddingClaim, ProductListingEmbeddingSource,
+    };
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use embedding::{EMBEDDING_DIMENSIONS, EmbeddingVector};
+    use embedding::EmbeddingBatchId;
     use localization::{Language, Localized};
-    use product_listing_core::{description::Description, title::Title};
+    use product_listing_core::{
+        description::Description, listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle, title::Title,
+    };
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use url::Url;
 
     struct State {
-        source: Option<crate::ports::ProductListingEmbeddingSource>,
-        generated_products: Vec<(String, Option<String>, Option<url::Url>)>,
-        generation_fails: bool,
-        write_outcome: ProductListingEmbeddingWriteOutcome,
+        source: Option<ProductListingEmbeddingSource>,
+        schedule_outcome: ProductEmbeddingScheduleOutcome,
+        scheduled: Vec<ProductEmbeddingWorkRef>,
         begins: usize,
         commits: usize,
     }
     type SharedState = Arc<Mutex<State>>;
     struct Sources(SharedState);
-    struct Generator(SharedState);
     struct UnitOfWorkFake(SharedState);
-    struct WriterFactory(SharedState);
+    struct QueueFactory(SharedState);
     struct Tx(SharedState);
-    struct Writer(SharedState);
+    struct Queue(SharedState);
 
     fn lock(state: &SharedState) -> std::sync::MutexGuard<'_, State> {
         state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
     fn state() -> SharedState {
-        let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
         Arc::new(Mutex::new(State {
-            source: Some(crate::ports::ProductListingEmbeddingSource {
-                product_listing_id,
+            source: Some(ProductListingEmbeddingSource {
+                product_listing_id: ProductListingId::new(),
                 event_id,
                 embedding_source_event_id: event_id,
                 event: ProductListingEmbeddingSourceEvent::Discovered,
+                lifecycle: ListingLifecycle::Active,
+                availability: Some(ListingAvailability::InStock),
                 title: Some(Localized::new(Language::De, Title::from("Ancient vase"))),
                 description: Some(Localized::new(
                     Language::De,
                     Description::from("Painted clay"),
                 )),
-                image_url: Some(
-                    Url::parse("https://example.test/vase.jpg")
-                        .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
-                ),
+                image_url: Some(Url::parse("https://example.test/vase.jpg").unwrap()),
             }),
-            generated_products: Vec::new(),
-            generation_fails: false,
-            write_outcome: ProductListingEmbeddingWriteOutcome::Applied,
+            schedule_outcome: ProductEmbeddingScheduleOutcome::Scheduled,
+            scheduled: Vec::new(),
             begins: 0,
             commits: 0,
         }))
     }
+
     fn command(state: &SharedState) -> EmbedProductListingCommand {
-        let source = lock(state)
-            .source
-            .clone()
-            .unwrap_or_else(|| panic!("test source missing"));
+        let source = lock(state).source.clone().unwrap();
         EmbedProductListingCommand {
             event_id: source.event_id,
             product_listing_id: source.product_listing_id,
         }
     }
+
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
             principal,
@@ -334,15 +293,24 @@ mod tests {
             correlation_id: CorrelationId::new("correlation"),
         }
     }
+
     fn handler(
         state: &SharedState,
-    ) -> EmbedProductListingEventHandler<Sources, Generator, UnitOfWorkFake, WriterFactory> {
+    ) -> EmbedProductListingEventHandler<Sources, UnitOfWorkFake, QueueFactory> {
         EmbedProductListingEventHandler::new(
             Sources(Arc::clone(state)),
-            Generator(Arc::clone(state)),
             UnitOfWorkFake(Arc::clone(state)),
-            WriterFactory(Arc::clone(state)),
+            QueueFactory(Arc::clone(state)),
         )
+    }
+
+    async fn execute(
+        state: &SharedState,
+    ) -> Result<EmbedProductListingEventOutcome, EmbedProductListingEventError> {
+        handler(state)
+            .execute(&context(Principal::System), command(state))
+            .await
+            .map(|result| result.outcome)
     }
 
     #[async_trait::async_trait]
@@ -351,44 +319,12 @@ mod tests {
             &self,
             _: EventId,
             _: ProductListingId,
-        ) -> Result<
-            Option<crate::ports::ProductListingEmbeddingSource>,
-            ProductListingEmbeddingSourceReadError,
-        > {
+        ) -> Result<Option<ProductListingEmbeddingSource>, ProductListingEmbeddingSourceReadError>
+        {
             Ok(lock(&self.0).source.clone())
         }
     }
-    #[async_trait::async_trait]
-    impl EmbeddingGenerator for Generator {
-        async fn embed_product(
-            &self,
-            title: &EmbeddingText,
-            additional_text: Option<&EmbeddingText>,
-            image_url: Option<&EmbeddingImageUrl>,
-        ) -> Result<EmbeddingVector, EmbeddingError> {
-            let mut state = lock(&self.0);
-            state.generated_products.push((
-                title.as_str().to_owned(),
-                additional_text.map(|text| text.as_str().to_owned()),
-                image_url.map(|url| url.as_url().clone()),
-            ));
-            if state.generation_fails {
-                return Err(EmbeddingError::InvalidResponse {
-                    reason: "test failure",
-                });
-            }
-            EmbeddingVector::try_new(vec![1.0; EMBEDDING_DIMENSIONS])
-        }
 
-        async fn embed_search_query(
-            &self,
-            _: &EmbeddingText,
-        ) -> Result<EmbeddingVector, EmbeddingError> {
-            Err(EmbeddingError::InvalidInput {
-                reason: "test generator supports products only",
-            })
-        }
-    }
     #[async_trait::async_trait]
     impl UnitOfWork for UnitOfWorkFake {
         type Tx = Tx;
@@ -397,6 +333,7 @@ mod tests {
             Ok(Tx(Arc::clone(&self.0)))
         }
     }
+
     #[async_trait::async_trait]
     impl Transaction for Tx {
         async fn commit(self) -> Result<(), TransactionError> {
@@ -404,173 +341,213 @@ mod tests {
             Ok(())
         }
     }
-    impl ProductListingEmbeddingWriterFactory<Tx> for WriterFactory {
+
+    impl ProductListingEmbeddingQueueFactory<Tx> for QueueFactory {
         fn in_transaction<'tx>(
             &'tx self,
             _: &'tx mut Tx,
-        ) -> impl ProductListingEmbeddingWriter + 'tx {
-            Writer(Arc::clone(&self.0))
+        ) -> impl ProductListingEmbeddingQueue + 'tx {
+            Queue(Arc::clone(&self.0))
         }
     }
+
+    type QueueResult<T> = Result<T, ProductListingEmbeddingQueueError>;
+
     #[async_trait::async_trait]
-    impl ProductListingEmbeddingWriter for Writer {
-        async fn apply(
+    impl ProductListingEmbeddingQueue for Queue {
+        async fn schedule(
             &mut self,
-            _: &ProductListingEmbeddingWrite,
-        ) -> Result<ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriteError>
-        {
-            Ok(lock(&self.0).write_outcome)
+            work: ProductEmbeddingWorkRef,
+        ) -> QueueResult<ProductEmbeddingScheduleOutcome> {
+            let mut state = lock(&self.0);
+            state.scheduled.push(work);
+            Ok(state.schedule_outcome)
+        }
+        async fn discard_superseded(&mut self) -> QueueResult<u64> {
+            unreachable!()
+        }
+        async fn lock_pending(&mut self, _: u32) -> QueueResult<Vec<PendingProductEmbedding>> {
+            unreachable!()
+        }
+        async fn create_batch(
+            &mut self,
+            _: ProductEmbeddingBatchKey,
+            _: &[ProductEmbeddingAssignment],
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+        async fn record_submission(
+            &mut self,
+            _: ProductEmbeddingBatchKey,
+            _: &EmbeddingBatchId,
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+        async fn close_batch(&mut self, _: ProductEmbeddingBatchKey) -> QueueResult<()> {
+            unreachable!()
+        }
+        async fn close_abandoned_submissions(&mut self, _: Duration) -> QueueResult<u64> {
+            unreachable!()
+        }
+        async fn complete(
+            &mut self,
+            _: ProductEmbeddingWorkRef,
+            _: ProductEmbeddingClaim,
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+        async fn requeue(
+            &mut self,
+            _: ProductEmbeddingWorkRef,
+            _: ProductEmbeddingClaim,
+            _: u16,
+        ) -> QueueResult<()> {
+            unreachable!()
+        }
+        async fn park(
+            &mut self,
+            _: ProductEmbeddingWorkRef,
+            _: ProductEmbeddingClaim,
+            _: u16,
+        ) -> QueueResult<()> {
+            unreachable!()
         }
     }
 
     #[tokio::test]
-    async fn should_generate_current_discovered_or_changed_content_with_first_image_then_commit() {
+    async fn should_schedule_the_current_revision_of_discovered_or_changed_content() {
         for event in [
             ProductListingEmbeddingSourceEvent::Discovered,
             ProductListingEmbeddingSourceEvent::ChangedContent,
         ] {
             let state = state();
             lock(&state).source.as_mut().unwrap().event = event;
-            let result = handler(&state)
-                .execute(&context(Principal::System), command(&state))
-                .await;
-            assert!(matches!(
-                result,
-                Ok(EmbedProductListingEventResult {
-                    outcome: EmbedProductListingEventOutcome::Applied
-                })
-            ));
-            let state = lock(&state);
-            assert_eq!(1, state.begins);
-            assert_eq!(1, state.commits);
-            assert!(
-                matches!(state.generated_products.as_slice(), [(title, Some(additional_text), Some(image_url))] if title == "Ancient vase" && additional_text == "Painted clay" && image_url.as_str() == "https://example.test/vase.jpg")
+
+            assert_eq!(
+                EmbedProductListingEventOutcome::Scheduled,
+                execute(&state).await.unwrap()
             );
-        }
-    }
 
-    #[tokio::test]
-    async fn should_embed_changed_text_without_additional_text_when_description_is_empty() {
-        let state = state();
-        {
-            let mut state = lock(&state);
-            let source = state.source.as_mut().unwrap();
-            source.event = ProductListingEmbeddingSourceEvent::ChangedContent;
-            source.description = Some(Localized::new(Language::En, Description::from("   ")));
-        }
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await
-            .unwrap();
-        assert_eq!(result.outcome, EmbedProductListingEventOutcome::Applied);
-        assert!(matches!(
-            lock(&state).generated_products.as_slice(),
-            [(_, None, _)]
-        ));
-        assert_eq!(lock(&state).commits, 1);
-    }
-
-    #[tokio::test]
-    async fn should_ignore_non_discovered_event_type_before_generation_or_transaction() {
-        let state = state();
-        lock(&state)
-            .source
-            .as_mut()
-            .unwrap_or_else(|| panic!("test source missing"))
-            .event = ProductListingEmbeddingSourceEvent::Other;
-
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-
-        assert!(matches!(
-            result,
-            Ok(EmbedProductListingEventResult {
-                outcome: EmbedProductListingEventOutcome::IgnoredEvent
-            })
-        ));
-        let state = lock(&state);
-        assert!(state.generated_products.is_empty());
-        assert_eq!(0, state.begins);
-    }
-
-    #[tokio::test]
-    async fn should_skip_stale_ignored_and_missing_title_before_generation_or_transaction() {
-        for outcome_case in ["stale", "ignored", "missing"] {
-            let state = state();
-            match outcome_case {
-                "stale" => {
-                    lock(&state)
-                        .source
-                        .as_mut()
-                        .unwrap_or_else(|| panic!("test source missing"))
-                        .embedding_source_event_id = EventId::new()
-                }
-                "ignored" => {
-                    lock(&state)
-                        .source
-                        .as_mut()
-                        .unwrap_or_else(|| panic!("test source missing"))
-                        .event = ProductListingEmbeddingSourceEvent::Other
-                }
-                _ => {
-                    lock(&state)
-                        .source
-                        .as_mut()
-                        .unwrap_or_else(|| panic!("test source missing"))
-                        .title = None
-                }
-            }
-            let result = handler(&state)
-                .execute(&context(Principal::System), command(&state))
-                .await;
-            assert!(matches!(
-                result,
-                Ok(EmbedProductListingEventResult {
-                    outcome: EmbedProductListingEventOutcome::Stale
-                        | EmbedProductListingEventOutcome::IgnoredEvent
-                        | EmbedProductListingEventOutcome::MissingTitle
-                })
-            ));
+            let command = command(&state);
             let state = lock(&state);
-            assert!(state.generated_products.is_empty());
-            assert_eq!(0, state.begins);
+            assert_eq!(
+                vec![ProductEmbeddingWorkRef {
+                    product_listing_id: command.product_listing_id,
+                    source_event_id: command.event_id,
+                }],
+                state.scheduled
+            );
+            assert_eq!((1, 1), (state.begins, state.commits));
         }
     }
 
     #[tokio::test]
-    async fn should_not_open_transaction_when_generation_fails() {
-        let state = state();
-        lock(&state).generation_fails = true;
-        let result = handler(&state)
-            .execute(&context(Principal::System), command(&state))
-            .await;
-        assert!(matches!(
-            result,
-            Err(EmbedProductListingEventError::GenerationFailed { .. })
-        ));
-        assert_eq!(0, lock(&state).begins);
-    }
-
-    #[tokio::test]
-    async fn should_commit_duplicate_and_stale_writer_outcomes() {
-        for write_outcome in [
-            ProductListingEmbeddingWriteOutcome::Duplicate,
-            ProductListingEmbeddingWriteOutcome::Stale,
+    async fn should_report_an_embedded_or_superseded_revision_as_settled() {
+        for (schedule_outcome, expected) in [
+            (
+                ProductEmbeddingScheduleOutcome::AlreadyEmbedded,
+                EmbedProductListingEventOutcome::Duplicate,
+            ),
+            (
+                ProductEmbeddingScheduleOutcome::Superseded,
+                EmbedProductListingEventOutcome::Stale,
+            ),
         ] {
             let state = state();
-            lock(&state).write_outcome = write_outcome;
-            let result = handler(&state)
-                .execute(&context(Principal::System), command(&state))
-                .await;
-            assert!(matches!(
-                result,
-                Ok(EmbedProductListingEventResult {
-                    outcome: EmbedProductListingEventOutcome::Duplicate
-                        | EmbedProductListingEventOutcome::Stale
-                })
-            ));
-            assert_eq!(1, lock(&state).commits);
+            lock(&state).schedule_outcome = schedule_outcome;
+
+            assert_eq!(expected, execute(&state).await.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn should_skip_stale_ignored_and_untitled_revisions_without_a_transaction() {
+        let cases: [(fn(&mut ProductListingEmbeddingSource), _); 3] = [
+            (
+                |source| source.embedding_source_event_id = EventId::new(),
+                EmbedProductListingEventOutcome::Stale,
+            ),
+            (
+                |source| source.event = ProductListingEmbeddingSourceEvent::Other,
+                EmbedProductListingEventOutcome::IgnoredEvent,
+            ),
+            (
+                |source| source.title = None,
+                EmbedProductListingEventOutcome::MissingTitle,
+            ),
+        ];
+        for (change, expected) in cases {
+            let state = state();
+            change(lock(&state).source.as_mut().unwrap());
+
+            assert_eq!(expected, execute(&state).await.unwrap());
+            assert_eq!(0, lock(&state).begins);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_schedule_nothing_while_the_listing_is_withdrawn_or_not_for_sale() {
+        for event in [
+            ProductListingEmbeddingSourceEvent::Discovered,
+            ProductListingEmbeddingSourceEvent::ChangedContent,
+            ProductListingEmbeddingSourceEvent::ReturnedToSale,
+        ] {
+            for (lifecycle, availability) in [
+                (ListingLifecycle::Active, Some(ListingAvailability::SoldOut)),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::OutOfStock),
+                ),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::Unavailable),
+                ),
+                (ListingLifecycle::Withdrawn, None),
+            ] {
+                let state = state();
+                {
+                    let mut state = lock(&state);
+                    let source = state.source.as_mut().unwrap();
+                    source.event = event;
+                    source.lifecycle = lifecycle;
+                    source.availability = availability;
+                }
+
+                assert_eq!(
+                    EmbedProductListingEventOutcome::NotForSale,
+                    execute(&state).await.unwrap()
+                );
+                assert!(lock(&state).scheduled.is_empty());
+                assert_eq!(0, lock(&state).begins);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_catch_up_the_current_revision_when_the_listing_returns_to_sale() {
+        for availability in [None, Some(ListingAvailability::Reserved)] {
+            let state = state();
+            let current_revision = EventId::new();
+            {
+                let mut state = lock(&state);
+                let source = state.source.as_mut().unwrap();
+                source.event = ProductListingEmbeddingSourceEvent::ReturnedToSale;
+                source.embedding_source_event_id = current_revision;
+                source.availability = availability;
+            }
+            let command = command(&state);
+
+            assert_eq!(
+                EmbedProductListingEventOutcome::Scheduled,
+                execute(&state).await.unwrap()
+            );
+            assert_eq!(
+                vec![ProductEmbeddingWorkRef {
+                    product_listing_id: command.product_listing_id,
+                    source_event_id: current_revision,
+                }],
+                lock(&state).scheduled
+            );
         }
     }
 
@@ -587,6 +564,6 @@ mod tests {
             result,
             Err(EmbedProductListingEventError::ServiceOrSystemPrincipalRequired)
         ));
-        assert!(lock(&state).generated_products.is_empty());
+        assert!(lock(&state).scheduled.is_empty());
     }
 }

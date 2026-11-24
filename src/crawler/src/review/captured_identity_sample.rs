@@ -266,6 +266,7 @@ mod tests {
                 ExtractionKind::Attribute { name: "src".into() },
             )),
             raw_attributes: BTreeMap::new(),
+            sanitize: Default::default(),
         }
     }
 

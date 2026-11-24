@@ -5,11 +5,15 @@
 mod composition;
 pub mod config;
 pub mod dispatcher;
+pub mod embedding_batches;
 pub mod health_metrics;
 pub mod scope;
 pub mod scopes;
+pub mod translation_batches;
 
 pub use composition::{CompositionError, compose_handler};
+
+use aura_historia_jobs::WorkerScope;
 
 use config::WorkerConfig;
 use delivery_outbox::OutboxDispatcher;
@@ -17,7 +21,7 @@ use platform_postgres_queue::JobQueue;
 use platform_worker::{Consumer, JobHandler, ScopeWakeups};
 use scope::ConsumedScope;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -36,6 +40,51 @@ pub async fn compose_handlers(
     Ok(handlers)
 }
 
+/// A long-running task beside the consumers, such as the title translation or embedding rounds. It returns
+/// once its shutdown token is cancelled.
+pub type BackgroundTask =
+    Box<dyn FnOnce(CancellationToken) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
+
+/// Composes the background tasks the configured scopes need. Any failure stops startup.
+pub async fn compose_background_tasks(
+    config: &WorkerConfig,
+    pool: &PgPool,
+) -> Result<Vec<BackgroundTask>, CompositionError> {
+    let mut tasks = Vec::new();
+    let translation = ConsumedScope::Worker(WorkerScope::ProductListingTranslation);
+    if config.scopes.iter().any(|scope| scope.scope == translation) {
+        let rounds = translation_batches::compose(pool).await?;
+        tasks.push(translation_rounds(
+            rounds,
+            translation_batches::ROUND_INTERVAL,
+        ));
+    }
+    let embedding = ConsumedScope::Worker(WorkerScope::ProductListingEmbedding);
+    if config.scopes.iter().any(|scope| scope.scope == embedding) {
+        let rounds = embedding_batches::compose(pool).await?;
+        tasks.push(embedding_rounds(rounds, embedding_batches::ROUND_INTERVAL));
+    }
+    Ok(tasks)
+}
+
+/// The title translation rounds as a background task.
+pub fn translation_rounds(
+    use_case: Arc<
+        dyn product_listing_service::use_cases::TranslateProductListingTitleBatchesUseCase,
+    >,
+    interval: std::time::Duration,
+) -> BackgroundTask {
+    Box::new(move |shutdown| Box::pin(translation_batches::run(use_case, interval, shutdown)))
+}
+
+/// The product embedding rounds as a background task.
+pub fn embedding_rounds(
+    use_case: Arc<dyn product_listing_service::use_cases::EmbedProductListingBatchesUseCase>,
+    interval: std::time::Duration,
+) -> BackgroundTask {
+    Box::new(move |shutdown| Box::pin(embedding_batches::run(use_case, interval, shutdown)))
+}
+
 /// A consumer, the dispatcher or the wake-up listener stopped before shutdown was requested.
 #[derive(Debug, thiserror::Error)]
 #[error("a worker task stopped before shutdown; the worker stopped every task")]
@@ -48,6 +97,7 @@ pub async fn run(
     pool: PgPool,
     config: WorkerConfig,
     handlers: Vec<(ConsumedScope, Arc<dyn JobHandler>)>,
+    background: Vec<BackgroundTask>,
     shutdown: CancellationToken,
 ) -> Result<(), WorkerTaskStopped> {
     let requested = shutdown;
@@ -75,6 +125,9 @@ pub async fn run(
         tasks.spawn(consumer.run(wakeup, shutdown.clone()));
     }
     tasks.spawn(wakeups.listen(pool.clone(), shutdown.clone()));
+    for task in background {
+        tasks.spawn(task(shutdown.clone()));
+    }
     if let Some(metrics) = config.health_metrics.clone() {
         tracing::info!(event = "worker.health_metrics.started");
         let client = health_metrics::client().await;
