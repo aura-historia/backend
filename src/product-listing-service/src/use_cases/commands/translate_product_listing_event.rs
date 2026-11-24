@@ -32,6 +32,9 @@ pub enum TranslateProductListingEventOutcome {
     MissingTitle,
     MissingTitleLanguage,
     EmptyTitle,
+    /// The source already replaced most of the title's letters with `?`. Readers keep the
+    /// original title in every language instead of a translation the model would invent.
+    MostlyQuestionMarksTitle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,6 +155,11 @@ where
         }
         if title.as_ref().is_empty() {
             return Ok(result(TranslateProductListingEventOutcome::EmptyTitle));
+        }
+        if title.is_mostly_question_marks() {
+            return Ok(result(
+                TranslateProductListingEventOutcome::MostlyQuestionMarksTitle,
+            ));
         }
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
@@ -462,7 +470,7 @@ mod tests {
     #[tokio::test]
     async fn should_schedule_nothing_for_revisions_without_a_translatable_title() {
         type Change = fn(&mut ProductListingTranslationSource);
-        let cases: [(Change, TranslateProductListingEventOutcome); 5] = [
+        let cases: [(Change, TranslateProductListingEventOutcome); 6] = [
             (
                 |source| source.content_source_event_id = EventId::new(),
                 TranslateProductListingEventOutcome::Stale,
@@ -482,6 +490,10 @@ mod tests {
             (
                 |source| source.title = Some(Title::from("")),
                 TranslateProductListingEventOutcome::EmptyTitle,
+            ),
+            (
+                |source| source.title = Some(Title::from("?????? 5 ??????? 1958")),
+                TranslateProductListingEventOutcome::MostlyQuestionMarksTitle,
             ),
         ];
         for (change, expected) in cases {

@@ -302,9 +302,13 @@ title in proportion to the title's length, so dense CJK titles travel in smaller
 runaway answer stops near its proportional size rather than at a fixed cap. Titles are untrusted
 data: they travel as JSON string values keyed by short IDs, the instruction tells the model to
 translate them and never follow them, and each title is validated alone. A missing, empty or
-implausibly long or short translation fails only its title. A refused or truncated group is
-resubmitted title by title; only a title refused alone reaches Sonnet. Expired or canceled
-requests, and requests a temporarily unavailable provider did not answer, return to the queue
+implausibly long or short translation fails only its title, and so does one with fewer runs of
+`?` than its source. Shops sometimes serve titles whose characters were already replaced with
+`?`, and many titles use `???` deliberately (*Die drei ???*, `Modell ???`); the instruction says
+to copy every run verbatim and never guess what it stood for. A title whose question marks
+outnumber its letters is not scheduled at all: too little text is left to translate, and readers
+keep the original title in every language. A refused or truncated group is resubmitted title by
+title; only a title refused alone reaches Sonnet. Expired or canceled requests, and requests a temporarily unavailable provider did not answer, return to the queue
 unchanged; an invalid answer or a failed write spends one of a title's three attempts and fails
 only that title. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
 title changes. A round settles work only while it is still where the round found it, so
