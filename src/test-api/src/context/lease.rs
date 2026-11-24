@@ -132,35 +132,17 @@ impl Allocation {
             tokio::time::timeout(WAIT, self.semaphore.clone().acquire_owned()).await??;
         let started = Instant::now();
         loop {
-            let directory = self.directory.clone();
-            let slots = self.slots;
-            let requested = runner.slot;
-            let invocation = runner.invocation.clone();
+            let request = Request {
+                directory: self.directory.clone(),
+                slots: self.slots,
+                requested: runner.slot,
+                invocation: runner.invocation.clone(),
+                isolation,
+            };
             // Transfer the permit into the operation: cancellation cannot release it while
             // a lock attempt is still running on the blocking pool.
-            let attempt = tokio::task::spawn_blocking(move || {
-                let gate = lock_file(&directory.join("tests.lock"))?;
-                if let Some(gate) = FileLock::attempt(gate, isolation)? {
-                    for slot in requested.map_or_else(|| (0..slots).collect(), |slot| vec![slot]) {
-                        if slot >= slots {
-                            return Err(failure("requested slot exceeds supervisor capacity"));
-                        }
-                        let file = lock_file(&directory.join(format!("slot-{slot}.lock")))?;
-                        if let Some(file) = FileLock::attempt(file, Isolation::Exclusive)? {
-                            return Ok(ReservationAttempt::Reserved(Reservation {
-                                slot,
-                                invocation,
-                                directory,
-                                _gate: gate,
-                                _slot: file,
-                                _permit: permit,
-                            }));
-                        }
-                    }
-                }
-                Ok(ReservationAttempt::Busy(permit))
-            })
-            .await??;
+            let attempt =
+                tokio::task::spawn_blocking(move || request.try_reserve(permit)).await??;
             match attempt {
                 ReservationAttempt::Reserved(reservation) => return Ok(reservation),
                 ReservationAttempt::Busy(returned) => permit = returned,
@@ -178,6 +160,45 @@ impl Allocation {
 enum ReservationAttempt {
     Busy(OwnedSemaphorePermit),
     Reserved(Reservation),
+}
+
+/// One owned, non-blocking attempt to take the gate and a slot, so it can run on the blocking pool.
+struct Request {
+    directory: PathBuf,
+    slots: u16,
+    requested: Option<u16>,
+    invocation: String,
+    isolation: Isolation,
+}
+
+impl Request {
+    fn try_reserve(self, permit: OwnedSemaphorePermit) -> Result<ReservationAttempt> {
+        let gate = lock_file(&self.directory.join("tests.lock"))?;
+        if let Some(gate) = FileLock::attempt(gate, self.isolation)? {
+            for slot in self.candidate_slots() {
+                if slot >= self.slots {
+                    return Err(failure("requested slot exceeds supervisor capacity"));
+                }
+                let file = lock_file(&self.directory.join(format!("slot-{slot}.lock")))?;
+                if let Some(file) = FileLock::attempt(file, Isolation::Exclusive)? {
+                    return Ok(ReservationAttempt::Reserved(Reservation {
+                        slot,
+                        invocation: self.invocation,
+                        directory: self.directory,
+                        _gate: gate,
+                        _slot: file,
+                        _permit: permit,
+                    }));
+                }
+            }
+        }
+        Ok(ReservationAttempt::Busy(permit))
+    }
+
+    fn candidate_slots(&self) -> Vec<u16> {
+        self.requested
+            .map_or_else(|| (0..self.slots).collect(), |slot| vec![slot])
+    }
 }
 
 /// Short metadata/lock attempts run off the async workers and keep the file owned
