@@ -267,7 +267,7 @@ impl CrawlerReviewRepository {
     }
 
     /// The ListingSource's live product schemas, none before its first approval.
-    async fn live_schemas(
+    pub(super) async fn live_schemas(
         &self,
         listing_source_id: uuid::Uuid,
     ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
@@ -294,6 +294,18 @@ impl CrawlerReviewRepository {
             .iter()
             .flat_map(|page| ReviewPageIdentity::stored_spellings(&page.url))
             .collect();
+        self.captured_product_urls(review.listing_source_id, &review_urls)
+            .await
+    }
+
+    /// A random sample of at most [`CAPTURED_IDENTITY_SAMPLE_SIZE`] active or sold product URLs of
+    /// the ListingSource whose listings were captured, other than `excluded_urls`, each with the
+    /// identity it was captured under. A stored URL that no longer parses is left out.
+    pub(super) async fn captured_product_urls(
+        &self,
+        listing_source_id: uuid::Uuid,
+        excluded_urls: &[String],
+    ) -> Result<Vec<CapturedProductUrl>, ReviewRepositoryError> {
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT url, last_source_listing_id
              FROM listing_source_urls
@@ -305,8 +317,8 @@ impl CrawlerReviewRepository {
              ORDER BY random()
              LIMIT $3",
         )
-        .bind(review.listing_source_id)
-        .bind(&review_urls)
+        .bind(listing_source_id)
+        .bind(excluded_urls)
         .bind(CAPTURED_IDENTITY_SAMPLE_SIZE)
         .fetch_all(&self.pool)
         .await?;
