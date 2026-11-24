@@ -57,16 +57,24 @@ pub fn downscale(
     bytes: &[u8],
     budget: PixelBudget,
 ) -> Result<Downscaled, DownscaleError> {
-    let decoded = decode(mime_type, bytes)?;
-    Ok(reencoded(decoded, bytes.len(), budget).map_or(Downscaled::Original, Downscaled::Jpeg))
+    Ok(decode(mime_type, bytes)?.downscale(bytes.len(), budget))
 }
 
-struct DecodedImage {
+/// A JPEG, PNG or WebP file decoded within fixed memory limits.
+pub struct DecodedImage {
     image: DynamicImage,
     orientation: Orientation,
 }
 
-fn decode(mime_type: &str, bytes: &[u8]) -> Result<DecodedImage, DownscaleError> {
+impl DecodedImage {
+    /// What to send for the image within `budget`, given its file's size in bytes.
+    pub fn downscale(self, file_bytes: usize, budget: PixelBudget) -> Downscaled {
+        reencoded(self, file_bytes, budget).map_or(Downscaled::Original, Downscaled::Jpeg)
+    }
+}
+
+/// Decodes `bytes`, a JPEG, PNG or WebP file, within fixed memory limits.
+pub fn decode(mime_type: &str, bytes: &[u8]) -> Result<DecodedImage, DownscaleError> {
     let format = match mime_type {
         "image/jpeg" => ImageFormat::Jpeg,
         "image/png" => ImageFormat::Png,
