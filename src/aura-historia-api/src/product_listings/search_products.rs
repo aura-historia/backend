@@ -657,9 +657,7 @@ mod tests {
         use super::*;
         use crate::state::AppState;
 
-        use embedding::{
-            EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
-        };
+        use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector};
 
         use fxrate_core::FxRateSnapshot;
         use fxrate_service::ports::{FxRateSnapshotReadError, FxRateSnapshotReader};
@@ -717,15 +715,6 @@ mod tests {
 
         #[async_trait::async_trait]
         impl EmbeddingGenerator for UnusedSearchDependencies {
-            async fn embed_product(
-                &self,
-                _title: &EmbeddingText,
-                _additional_text: Option<&EmbeddingText>,
-                _image_url: Option<&EmbeddingImageUrl>,
-            ) -> Result<EmbeddingVector, EmbeddingError> {
-                panic!("product search must not generate product embeddings")
-            }
-
             async fn embed_search_query(
                 &self,
                 _query: &EmbeddingText,

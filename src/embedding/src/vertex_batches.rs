@@ -4,25 +4,21 @@
 //! image as an object of its own, referenced by `gs://` URI because a batch cannot fetch HTTP
 //! URLs; the JSONL requests; and the job's output. The bucket's lifecycle rule deletes the
 //! staged objects ([durable worker runbook](../../../docs/durable-worker-runbook.md)).
-//!
-//! Requests carry the same text and the same image bytes as the synchronous
-//! [`VertexAiEmbeddingGenerator`](crate::VertexAiEmbeddingGenerator), with no preprocessing on
-//! either path, so both embed a listing identically.
 
 use crate::{
-    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingVector,
-    EndedEmbeddingBatch, ProductEmbeddingBatches, ProductEmbeddingRequest, UnansweredEmbeddings,
-    VertexAiEmbeddingConfig,
+    EMBEDDING_DIMENSIONS, EmbeddingBatchId, EmbeddingBatchPoll, EmbeddingError, EmbeddingImageUrl,
+    EmbeddingText, EmbeddingVector, EndedEmbeddingBatch, ProductEmbeddingBatches,
+    ProductEmbeddingRequest, UnansweredEmbeddings, VertexAiEmbeddingConfig,
     cloud_storage::CloudStorageBucket,
     vertex::{
         CONNECT_TIMEOUT, EmbedContentResponse, GEMINI_EMBEDDING_MODEL_RESOURCE, api_endpoint,
-        fetch_image, location_resource, product_text,
+        location_resource,
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::{StreamExt, TryStreamExt, stream};
 use google_cloud_auth::credentials::AccessTokenCredentials;
-use image_fetcher::ImageFetcher;
+use image_fetcher::{FetchedImage, ImageFetcher};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::Duration};
 
@@ -103,8 +99,7 @@ impl VertexAiProductEmbeddingBatches {
             })
     }
 
-    /// Fetches the request's image and stages it; one that cannot be fetched is left out, as on
-    /// the synchronous path.
+    /// Fetches the request's image and stages it; one that cannot be fetched is left out.
     async fn batch_line(
         &self,
         token: &str,
@@ -297,6 +292,34 @@ impl ProductEmbeddingBatches for VertexAiProductEmbeddingBatches {
     }
 }
 
+/// The product document text: the title, then the description or `none`.
+fn product_text(title: &EmbeddingText, additional_text: Option<&EmbeddingText>) -> String {
+    let additional_text = additional_text.map(EmbeddingText::as_str).unwrap_or("none");
+    format!("title: {} | text: {additional_text}", title.as_str())
+}
+
+/// An image that cannot be fetched is left out of the embedding; its bounded cause is logged.
+async fn fetch_image(
+    fetcher: &ImageFetcher,
+    image_url: &EmbeddingImageUrl,
+) -> Option<FetchedImage> {
+    fetcher
+        .fetch(image_url.as_url())
+        .await
+        .inspect_err(|error| {
+            let fetch_failure = error.diagnostics();
+            tracing::info!(
+                eventType = "EMBEDDING_IMAGE_OMITTED",
+                imageOmissionReason = "fetch_failed",
+                imageFetchFailure = fetch_failure.category,
+                imageFetchHttpStatus = fetch_failure.http_status,
+                imageFetchAttempts = fetch_failure.attempts,
+                "Embedding image omitted."
+            );
+        })
+        .ok()
+}
+
 /// The job states, by what they mean for its unanswered requests.
 #[derive(Debug, PartialEq, Eq)]
 enum JobState {
@@ -462,7 +485,7 @@ struct OutputLine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{EmbeddingText, test_support::TestCredentials};
+    use crate::test_support::TestCredentials;
     use serde_json::{Value, json};
     use wiremock::{
         Mock, MockServer, Request, ResponseTemplate,

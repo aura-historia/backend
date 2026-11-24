@@ -1,8 +1,6 @@
 use aura_historia_mcp::{McpDependencies, TransportConfig, mcp_router};
 use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
-use embedding::{
-    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
-};
+use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText, EmbeddingVector};
 use rmcp::{
     ClientLifecycleMode, ClientServiceExt, RoleClient,
     model::{ClientConfig, ProtocolVersion},
@@ -25,14 +23,6 @@ pub type Client = RunningService<RoleClient, ClientConfig>;
 struct NoEmbeddings;
 #[async_trait::async_trait]
 impl EmbeddingGenerator for NoEmbeddings {
-    async fn embed_product(
-        &self,
-        _: &EmbeddingText,
-        _: Option<&EmbeddingText>,
-        _: Option<&EmbeddingImageUrl>,
-    ) -> Result<EmbeddingVector, EmbeddingError> {
-        panic!("consumer catalogue requested external embeddings")
-    }
     async fn embed_search_query(
         &self,
         _: &EmbeddingText,

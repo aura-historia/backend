@@ -968,17 +968,6 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EmbeddingGenerator for FakeEmbeddingGenerator {
-        async fn embed_product(
-            &self,
-            _: &EmbeddingText,
-            _: Option<&embedding::EmbeddingText>,
-            _: Option<&embedding::EmbeddingImageUrl>,
-        ) -> Result<EmbeddingVector, EmbeddingError> {
-            Err(EmbeddingError::InvalidInput {
-                reason: "test generator supports queries only",
-            })
-        }
-
         async fn embed_search_query(
             &self,
             query: &EmbeddingText,

@@ -1,7 +1,6 @@
-//! The port for product embeddings computed asynchronously in a provider batch, at a lower price
-//! than synchronous requests. The batch embeds each listing exactly as
-//! [`EmbeddingGenerator::embed_product`](crate::EmbeddingGenerator::embed_product) does, so
-//! vectors from both paths share one index.
+//! The port for product embeddings, computed asynchronously in provider batches at a lower price
+//! than synchronous requests. Every product listing is embedded this way; only search queries
+//! are embedded synchronously ([`EmbeddingGenerator`](crate::EmbeddingGenerator)).
 
 use crate::{EmbeddingError, EmbeddingImageUrl, EmbeddingText, EmbeddingVector};
 

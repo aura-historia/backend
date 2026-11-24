@@ -371,14 +371,6 @@ impl product_listing_service::ports::ProductListingSearchReader for IndexedFixtu
 struct NoEmbeddings;
 #[async_trait::async_trait]
 impl embedding::EmbeddingGenerator for NoEmbeddings {
-    async fn embed_product(
-        &self,
-        _: &embedding::EmbeddingText,
-        _: Option<&embedding::EmbeddingText>,
-        _: Option<&embedding::EmbeddingImageUrl>,
-    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
-        unreachable!()
-    }
     async fn embed_search_query(
         &self,
         _: &embedding::EmbeddingText,
@@ -848,14 +840,6 @@ async fn current_location_eligibility_and_postal_exclusions_preserve_collection_
 struct NoDiscoveryEmbedding;
 #[async_trait::async_trait]
 impl embedding::EmbeddingGenerator for NoDiscoveryEmbedding {
-    async fn embed_product(
-        &self,
-        _: &embedding::EmbeddingText,
-        _: Option<&embedding::EmbeddingText>,
-        _: Option<&embedding::EmbeddingImageUrl>,
-    ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
-        unreachable!("shipping discovery never calls an embedding provider")
-    }
     async fn embed_search_query(
         &self,
         _: &embedding::EmbeddingText,

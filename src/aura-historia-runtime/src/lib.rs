@@ -486,14 +486,6 @@ mod tests {
     struct UnusedEmbeddings;
     #[async_trait::async_trait]
     impl embedding::EmbeddingGenerator for UnusedEmbeddings {
-        async fn embed_product(
-            &self,
-            _title: &embedding::EmbeddingText,
-            _additional_text: Option<&embedding::EmbeddingText>,
-            _image_url: Option<&embedding::EmbeddingImageUrl>,
-        ) -> Result<embedding::EmbeddingVector, embedding::EmbeddingError> {
-            panic!("composing listing handles must not invoke embedding providers")
-        }
         async fn embed_search_query(
             &self,
             _query: &embedding::EmbeddingText,
