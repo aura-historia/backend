@@ -1736,6 +1736,24 @@ mod tests {
 
             assert_eq!(r.apply(&doc).unwrap(), vec!["£2,950"]);
         }
+
+        /// ms-antik.de's template prints `<span class="price_post">&nbsp;€</span>` after whatever
+        /// its price cell holds, so a sold item's price reads `VERKAUFT €` (#2879). The currency
+        /// is the page's own text: extraction appends none to a cell that has no such span.
+        #[test]
+        fn should_take_a_currency_suffix_from_the_page_and_append_none_itself() {
+            let r = rule("div.cts_price", text_kind(), ExtractionCardinality::First);
+            let cell = |content: &str| html(&format!("<div class=\"cts_price\">{content}</div>"));
+
+            assert_eq!(
+                r.apply(&cell(
+                    "<span>VERKAUFT<span class=\"price_post\">&nbsp;€</span></span>"
+                ))
+                .unwrap(),
+                vec!["VERKAUFT\u{a0}€"]
+            );
+            assert_eq!(r.apply(&cell("<span>Kom</span>")).unwrap(), vec!["Kom"]);
+        }
     }
 
     #[test]
