@@ -404,9 +404,10 @@ impl ProductCssSelectorSchema {
         let title = self.anchor_title(html)?;
         let description = match &self.description {
             None => vec![],
-            Some(rule) => self.sanitize.apply(
-                SanitizedField::Description,
-                keep_first_occurrences(
+            // Sanitizing first, so values that differ only by a removed text are kept once.
+            Some(rule) => keep_first_occurrences(
+                self.sanitize.apply(
+                    SanitizedField::Description,
                     misses
                         .tolerate("description", rule.apply(html), OptionalMissLog::Debug)
                         .map_err(ApplySchemaError::Description)?,
@@ -1411,6 +1412,31 @@ mod tests {
         let result = schema.apply(&html).unwrap();
 
         assert_eq!(result.description, vec!["Ansichtskarte Berlin. Gelaufen."]);
+    }
+
+    #[test]
+    fn should_keep_values_once_that_differ_only_by_a_sanitize_text() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <img src="x.jpg">
+                <p class="desc">Walnut, circa 1830.</p>
+                <p class="desc">Walnut, circa 1830. Versand weltweit möglich.</p>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            description: Some(text_rule_all("p.desc")),
+            sanitize: Sanitize::from([(
+                SanitizedField::Description,
+                vec!["Versand weltweit möglich.".to_owned()],
+            )]),
+            ..minimal_schema("<ignored>").1
+        };
+
+        assert_eq!(
+            vec!["Walnut, circa 1830."],
+            schema.apply(&html).unwrap().description
+        );
     }
 
     #[test]

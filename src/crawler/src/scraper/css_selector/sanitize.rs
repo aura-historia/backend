@@ -12,16 +12,20 @@ use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 /// Most texts one field may list.
-pub(crate) const MAX_SANITIZE_TEXTS: usize = 50;
+pub(crate) const MAX_SANITIZE_TEXTS: usize = 20;
 /// Shortest text, in characters other than whitespace: a shorter one, such as a lone word or
 /// punctuation, would also cut item text.
 pub(crate) const MIN_SANITIZE_TEXT_CHARS: usize = 8;
 /// Longest text, in characters.
-pub(crate) const MAX_SANITIZE_TEXT_CHARS: usize = 2_000;
+pub(crate) const MAX_SANITIZE_TEXT_CHARS: usize = 1_000;
+/// Most characters of all texts of one schema together, so a candidate of a few schemas stays
+/// well inside the review MCP's 48 KiB answers, which never shorten a candidate.
+pub(crate) const MAX_SANITIZE_SCHEMA_CHARS: usize = 4_000;
 
 /// A schema field whose extracted values `sanitize` cleans, named as the schema names it.
 #[derive(
@@ -51,16 +55,33 @@ impl SanitizedField {
     }
 }
 
-/// Per field, the shop boilerplate texts removed from that field's extracted values. A field
-/// key outside [`SanitizedField`] does not decode, so a schema never stores a text that nothing
-/// applies.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Per field, the shop boilerplate texts removed from that field's extracted values. Only
+/// fields that can be sanitized are keys, so a schema never stores a text that nothing removes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
-pub struct Sanitize(BTreeMap<SanitizedField, Vec<String>>);
+pub struct Sanitize {
+    texts: BTreeMap<SanitizedField, Vec<String>>,
+    /// Each field's matcher, compiled on first use and kept as long as the schema, so a scrape
+    /// pass compiles it once rather than once per page.
+    #[serde(skip)]
+    #[schemars(skip)]
+    matchers: OnceLock<BTreeMap<SanitizedField, Regex>>,
+}
+
+impl PartialEq for Sanitize {
+    fn eq(&self, other: &Self) -> bool {
+        self.texts == other.texts
+    }
+}
+
+impl Eq for Sanitize {}
 
 impl<const N: usize> From<[(SanitizedField, Vec<String>); N]> for Sanitize {
     fn from(texts: [(SanitizedField, Vec<String>); N]) -> Self {
-        Self(BTreeMap::from(texts))
+        Self {
+            texts: BTreeMap::from(texts),
+            matchers: OnceLock::new(),
+        }
     }
 }
 
@@ -76,51 +97,84 @@ pub(crate) struct InvalidSanitizeText {
 impl Sanitize {
     /// No field lists a text; such a schema is stored without the key.
     pub fn is_empty(&self) -> bool {
-        self.0.values().all(Vec::is_empty)
+        self.texts.values().all(Vec::is_empty)
     }
 
     pub fn texts(&self, field: SanitizedField) -> &[String] {
-        self.0.get(&field).map_or(&[], Vec::as_slice)
+        self.texts.get(&field).map_or(&[], Vec::as_slice)
     }
 
     /// The first unusable text, in field order.
     pub(crate) fn invalid(&self) -> Option<InvalidSanitizeText> {
+        let mut schema_chars = 0;
         SanitizedField::iter().find_map(|field| {
-            invalid_texts(self.texts(field)).map(|(text, reason)| InvalidSanitizeText {
+            let texts = self.texts(field);
+            schema_chars += texts.iter().map(|text| text.chars().count()).sum::<usize>();
+            let invalid = |text: String, reason| InvalidSanitizeText {
                 field,
                 text,
                 reason,
-            })
+            };
+            if schema_chars > MAX_SANITIZE_SCHEMA_CHARS {
+                return Some(invalid(
+                    String::new(),
+                    "the schema's texts hold more than 4000 characters together",
+                ));
+            }
+            invalid_texts(texts).map(|(text, reason)| invalid(text, reason))
         })
     }
 
-    /// Removes every occurrence of every text of `field` from its extracted values. A text
-    /// matches with any run of whitespace, line breaks included, where it has one, and is
-    /// otherwise exact. Values left blank are dropped. Fails safe: when nothing but sanitize
-    /// texts would remain, the values are returned unchanged, so sanitizing never clears a
-    /// field.
+    /// Removes every occurrence of every text of `field` from its extracted values, the longest
+    /// text first where texts overlap. A text matches with any run of whitespace, line breaks
+    /// included, where it has one, and is otherwise exact. A value left without a letter or digit
+    /// is dropped. Fails safe: when nothing but sanitize texts would remain, the values are
+    /// returned unchanged, so sanitizing never clears a field.
     pub(crate) fn apply(&self, field: SanitizedField, values: Vec<String>) -> Vec<String> {
-        let patterns = self
-            .texts(field)
-            .iter()
-            .filter_map(|text| pattern(text))
-            .collect::<Vec<_>>();
-        if patterns.is_empty() {
+        let Some(matcher) = self.matchers.get_or_init(|| self.compile()).get(&field) else {
             return values;
-        }
+        };
         let sanitized = values
             .iter()
-            .map(|value| {
-                patterns
-                    .iter()
-                    .fold(value.clone(), |value, pattern| remove(&value, pattern))
+            .filter_map(|value| {
+                let removed = remove(value, matcher);
+                let changed = removed != *value;
+                (!removed.trim().is_empty()
+                    && (!changed || removed.chars().any(char::is_alphanumeric)))
+                .then_some(removed)
             })
-            .filter(|value| !value.trim().is_empty())
             .collect::<Vec<_>>();
         if sanitized.is_empty() {
             return values;
         }
         sanitized
+    }
+
+    /// One alternation per field, longest text first, so a text that contains another is
+    /// removed whole whatever order the author listed them in. A field whose texts do not
+    /// compile, which validation refuses before a schema is stored, gets none.
+    fn compile(&self) -> BTreeMap<SanitizedField, Regex> {
+        self.texts
+            .iter()
+            .filter_map(|(field, texts)| {
+                let mut patterns = texts
+                    .iter()
+                    .filter_map(|text| pattern(text))
+                    .collect::<Vec<_>>();
+                if patterns.is_empty() {
+                    return None;
+                }
+                patterns.sort_by_key(|pattern| std::cmp::Reverse(pattern.len()));
+                let alternation = patterns
+                    .iter()
+                    .map(|pattern| format!("(?:{pattern})"))
+                    .collect::<Vec<_>>()
+                    .join("|");
+                Regex::new(&alternation)
+                    .ok()
+                    .map(|matcher| (*field, matcher))
+            })
+            .collect()
     }
 }
 
@@ -143,19 +197,21 @@ impl fake::Dummy<fake::Faker> for Sanitize {
 
 fn invalid_texts(texts: &[String]) -> Option<(String, &'static str)> {
     if texts.len() > MAX_SANITIZE_TEXTS {
-        return Some((String::new(), "the field lists more than 50 texts"));
+        return Some((String::new(), "the field lists more than 20 texts"));
     }
     for (index, text) in texts.iter().enumerate() {
         let reason =
             if text.chars().filter(|c| !c.is_whitespace()).count() < MIN_SANITIZE_TEXT_CHARS {
                 Some("a text needs at least 8 characters other than whitespace")
             } else if text.chars().count() > MAX_SANITIZE_TEXT_CHARS {
-                Some("a text holds at most 2000 characters")
+                Some("a text holds at most 1000 characters")
             } else if texts[..index]
                 .iter()
                 .any(|earlier| whitespace_runs(earlier) == whitespace_runs(text))
             {
                 Some("the text is listed twice")
+            } else if pattern(text).is_none_or(|pattern| Regex::new(&pattern).is_err()) {
+                Some("the text cannot be matched")
             } else {
                 None
             };
@@ -172,48 +228,51 @@ fn whitespace_runs(text: &str) -> Vec<&str> {
 
 /// A text's whitespace-tolerant literal pattern; `None` for a blank text, which validation
 /// refuses before a schema is stored.
-fn pattern(text: &str) -> Option<Regex> {
+fn pattern(text: &str) -> Option<String> {
     let words = text
         .split_whitespace()
         .map(regex::escape)
         .collect::<Vec<_>>();
-    if words.is_empty() {
-        return None;
-    }
-    Regex::new(&words.join(r"\s+")).ok()
+    (!words.is_empty()).then(|| words.join(r"\s+"))
+}
+
+/// Whitespace within a line: everything but a line break.
+fn is_inline_space(character: char) -> bool {
+    character.is_whitespace() && character != '\n' && character != '\r'
 }
 
 /// Removes every match and closes the gap it leaves. A match alone on its line takes the line
-/// break after it; within a line, the spaces around a match collapse to one. Other line breaks
-/// stay, and a fragment without a match is returned unchanged.
-fn remove(fragment: &str, pattern: &Regex) -> String {
-    if !pattern.is_match(fragment) {
-        return fragment.to_owned();
+/// break after it; within a line, the whitespace around a match collapses to one space. Other
+/// line breaks stay, and a value without a match is returned unchanged.
+fn remove(value: &str, matcher: &Regex) -> String {
+    if !matcher.is_match(value) {
+        return value.to_owned();
     }
-    let mut kept = String::with_capacity(fragment.len());
+    let mut kept = String::with_capacity(value.len());
     let mut rest = 0;
-    for found in pattern.find_iter(fragment) {
-        let before = &fragment[rest..found.start()];
-        let before_trimmed = before.trim_end_matches([' ', '\t']);
+    for found in matcher.find_iter(value) {
+        let before = &value[rest..found.start()];
+        let before_trimmed = before.trim_end_matches(is_inline_space);
         kept.push_str(before_trimmed);
-        let after = &fragment[found.end()..];
-        let after_trimmed = after.trim_start_matches([' ', '\t']);
-        rest = fragment.len() - after_trimmed.len();
+        let after = &value[found.end()..];
+        let after_trimmed = after.trim_start_matches(is_inline_space);
+        rest = value.len() - after_trimmed.len();
         if kept.is_empty() || kept.ends_with('\n') {
             if let Some(next_line) = after_trimmed
                 .strip_prefix("\r\n")
                 .or_else(|| after_trimmed.strip_prefix('\n'))
             {
-                rest = fragment.len() - next_line.len();
+                rest = value.len() - next_line.len();
             }
         } else if !after_trimmed.is_empty()
             && !after_trimmed.starts_with(['\n', '\r'])
+            && !kept.ends_with(' ')
             && (before_trimmed.len() < before.len() || after_trimmed.len() < after.len())
         {
             kept.push(' ');
         }
     }
-    kept.push_str(&fragment[rest..]);
+    kept.push_str(&value[rest..]);
     kept.trim().to_owned()
 }
 
@@ -390,5 +449,62 @@ mod tests {
                 texts(&["Versand weltweit möglich."])
             )
         );
+    }
+
+    #[test]
+    fn should_remove_the_longer_of_two_overlapping_texts_whatever_their_order() {
+        let short = "Versand innerhalb Deutschlands.";
+        let long = "Versand innerhalb Deutschlands. Rechnung mit MwSt. liegt bei.";
+        let value = format!("Kommode. {long}");
+        for order in [[short, long], [long, short]] {
+            assert_eq!(vec!["Kommode.".to_owned()], sanitize(&[&value], &order));
+        }
+    }
+
+    #[test]
+    fn should_close_the_gap_of_repeated_texts_and_non_breaking_spaces() {
+        let notice = "Versand weltweit möglich.";
+        assert_eq!(
+            vec!["Vase. Guter Zustand.".to_owned()],
+            sanitize(
+                &[&format!("Vase. {notice} {notice} Guter Zustand.")],
+                &[notice]
+            )
+        );
+        assert_eq!(
+            vec!["Vase. Guter Zustand.".to_owned()],
+            sanitize(
+                &[&format!("Vase.\u{a0}{notice}\u{a0}Guter Zustand.")],
+                &[notice]
+            )
+        );
+    }
+
+    #[test]
+    fn should_drop_a_line_by_line_value_with_crlf_and_a_bullet_left_alone() {
+        let notice = "Versand weltweit möglich.";
+        assert_eq!(
+            vec!["Vase.\r\nGuter Zustand.".to_owned()],
+            sanitize(
+                &[
+                    &format!("Vase.\r\n{notice}\r\nGuter Zustand."),
+                    &format!("• {notice}")
+                ],
+                &[notice]
+            )
+        );
+    }
+
+    #[test]
+    fn should_refuse_texts_of_one_schema_beyond_their_total_size() {
+        let texts = (0..5)
+            .map(|index| format!("{index} {}", "x".repeat(MAX_SANITIZE_TEXT_CHARS - 2)))
+            .collect::<Vec<_>>();
+        let texts = texts.iter().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(
+            Some("the schema's texts hold more than 4000 characters together"),
+            invalid(&texts)
+        );
+        assert_eq!(None, invalid(&texts[..4]));
     }
 }

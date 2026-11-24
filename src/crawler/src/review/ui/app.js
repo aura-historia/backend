@@ -1646,6 +1646,7 @@ function renderSourceSchemas(source) {
             const rule = isRawAttributeField(field) ? (schema.raw_attributes || {})[fieldKey(field)] : schema[field];
             return rule ? renderSchemaRule(field, rule) : '';
         }).join('')}</div>
+        ${renderSanitizeTexts(schema)}
         ${source.live_schemas_since ? `<div class="small muted">Live since ${timeBadge(source.live_schemas_since, 'Live since', true)}${edit}</div>` : ''}
       </div>
     </div>`;
@@ -1657,6 +1658,19 @@ function renderSchemaRule(field, rule) {
         rule.cardinality === 'all' ? 'all' : '',
         (rule.additional_selectors || []).length ? `+${rule.additional_selectors.length} fallback${rule.additional_selectors.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
     return `<div class="rule"><span class="rule-field">${escapeHtml(fieldLabel(field))}</span><code>${escapeHtml(rule.selector || '')}</code><span class="rule-meta">${escapeHtml(meta)}</span></div>`;
+}
+
+// The schema's sanitize texts, read-only: per field, the shop boilerplate extraction removes from
+// that field on every listing. The author stages them with the whole candidate.
+function sanitizeEntries(schema) {
+    return Object.entries((schema && schema.sanitize) || {}).filter(([, texts]) => Array.isArray(texts) && texts.length);
+}
+
+function renderSanitizeTexts(schema) {
+    const entries = sanitizeEntries(schema);
+    if (!entries.length) return '';
+    return `<div class="section"><div class="small muted">Removed from every listing (sanitize)</div><div class="rule-list">${entries.map(([field, texts]) =>
+        texts.map(text => `<div class="rule"><span class="rule-field">${escapeHtml(fieldLabel(field))}</span><span>${escapeHtml(text)}</span></div>`).join('')).join('')}</div></div>`;
 }
 
 function renderSourceRemovedTemplates(source) {
@@ -3683,6 +3697,7 @@ function renderSelectorPanel(schemas, matrix) {
         <div id="pickedElement">${renderPickedElement(true)}</div>
       </div>
       ${renderRawAttributeAdder(disabled)}
+      ${renderSanitizeTexts(currentSchema())}
     </div>`;
 }
 
@@ -4533,7 +4548,9 @@ function diffBadge(status) {
 function renderSchemaDiff(current, compare) {
     const rawAttributeFields = Array.from(new Set(Object.keys(current?.raw_attributes || {}).concat(Object.keys(compare?.raw_attributes || {}))))
         .map(field => `raw_attributes.${field}`);
-    const fields = [...selectorFields, ...rawAttributeFields];
+    const sanitizeFields = Array.from(new Set(sanitizeEntries(current).concat(sanitizeEntries(compare)).map(([field]) => field)))
+        .map(field => `sanitize.${field}`);
+    const fields = [...selectorFields, ...rawAttributeFields, ...sanitizeFields];
     return `<div>${
         fields.map(field => {
             const left = normalizeRuleValue(schemaFieldValue(current, field));
@@ -4552,6 +4569,10 @@ function renderSchemaDiff(current, compare) {
 
 function schemaFieldValue(schema, field) {
     if (!schema) return undefined;
+    if (field.startsWith('sanitize.')) {
+        const texts = (schema.sanitize || {})[field.slice('sanitize.'.length)];
+        return texts && texts.length ? texts : undefined;
+    }
     if (!field.startsWith('raw_attributes.')) return schema[field];
     return (schema.raw_attributes || {})[field.slice('raw_attributes.'.length)];
 }
@@ -4780,6 +4801,7 @@ function fieldKey(field) {
 }
 
 function fieldLabel(field) {
+    if (field.startsWith('sanitize.')) return `Sanitize ${displayName(field.slice('sanitize.'.length)).toLowerCase()}`;
     return isRawAttributeField(field) ? `Raw attribute ${fieldKey(field)}` : displayName(field);
 }
 
