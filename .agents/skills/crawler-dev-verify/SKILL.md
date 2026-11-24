@@ -42,9 +42,11 @@ it to the user as a ticket or a separate decision.
   the database because a migration it applied changed or is missing from the binary: then
   rebuild it with the `db-reset` script under `src/crawler/scripts/`.
 - `.env` in the binary's working directory for Vertex AI. In a worktree copy it from the repo
-  root (`.env` is gitignored). Never print its values. Without `.env` or credentials, run with
-  `CRAWLER_AUTHORING_MODE=manual`: no LLM call; author URL patterns and schemas through the
-  review console. A `LOCAL_DB_URL` in `.env` redirects the run; one set in the shell wins.
+  root (`.env` is gitignored). Never print its values. Without `.env` (a cloud session), run in
+  `agent` mode as [Cloud sessions](#cloud-sessions) describes. `CRAWLER_AUTHORING_MODE=manual`
+  (no LLM call, URL patterns and schemas authored by hand through the review console) is left
+  for a run that must involve no agent. A `LOCAL_DB_URL` in `.env` redirects the run; one set in
+  the shell wins.
 - No `dev` from the same target directory running (`pgrep -x dev`, or `Get-Process dev` on
   Windows). On Windows a running `dev.exe` blocks cargo from rebuilding crawler bins; tests in
   parallel need `--target-dir target/scratch` from PowerShell.
@@ -107,7 +109,8 @@ it to the user as a ticket or a separate decision.
    `CARGO_PROFILE_DEV_DEBUG=0` on a small disk), then run `target/debug/dev` (`dev.exe` on
    Windows, under `CARGO_TARGET_DIR` when set) from the worktree root with
    `CRAWLER_LOG_LEVEL=debug` (the per-URL and per-field diagnostics are debug level),
-   `CRAWLER_AUTHORING_MODE=review` (or `manual`) and `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3`;
+   `CRAWLER_AUTHORING_MODE=review` (`agent` in a [cloud session](#cloud-sessions), `manual`
+   for a run without agents) and `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3`;
    stdout to `target/soak/<date>/verify-<n>.jsonl`, stderr to a separate file. Note the UTC
    start time and the binary's own process ID: `pgrep -x dev`, or with parallel runs
    `pgrep -x <name>` on a private copy named for the run (at most 15 characters, all that
@@ -146,10 +149,46 @@ it to the user as a ticket or a separate decision.
    and which findings are outside the change. Leave the evidence paths in the shared notes
    folder when the task came from another session.
 
+## Cloud sessions
+
+A cloud session (Claude Code on the web) has no `crawler_demo`, no `.env` and no Vertex AI
+credentials, but it has a logged-in `claude` CLI. Verify there in `agent` mode, with the real
+review agents working the reviews as in production:
+
+1. **Database.** If `docker info` fails, start `dockerd` (`dockerd >/tmp/dockerd.log 2>&1 &`);
+   it can stop when the container restarts. Start the
+   [local database](../../../docs/crawler/operations.md#local-database), create an empty
+   database and pass it as `LOCAL_DB_URL`; the run migrates it at startup.
+2. **Reproduce the ticket's situation first.** There is no earlier state to copy, so build it:
+   register the shops the ticket names (step 2), recreate the live rules the ticket or its
+   comments quote (selectors and fallbacks) as live schemas, approved through the console as a
+   human or written to `listing_source_product_schemas`, and set the timers, counters and
+   outcomes its numbers describe. Lower a limit through a dev-only override (never committed)
+   when the real one would take hours to reach. Run `origin/develop` on that state and record
+   the faulty behaviour, then the change on the same state. Report a situation that cannot be
+   reproduced, with what was tried.
+3. **Start with the real agents.** Run `dev` with `CRAWLER_AUTHORING_MODE=agent` and
+   `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER` unset, so `dev` starts the review agent runner with
+   the session's `claude` CLI; `claude auth status --json` must report a subscription login
+   (`claude.ai` or `oauth_token`). Never print credentials. Bound the budget with
+   `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES=2` and register only the shops the run needs. The
+   agents then qualify new sources and author and review URL patterns and schemas, and the
+   [live schema audit](../../../docs/crawler/extraction-and-review.md#live-schema-audit) runs,
+   as in production. If the runner cannot log in from the session, restart with
+   `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER=false`, act as the agents through `review-mcp`
+   ([Agent mode](#agent-mode) step 3) and say so in the report.
+4. **Shops that refuse cloud addresses.** Some shops answer 403 or reset the connection for a
+   cloud IP range. Replace such a shop with another one the ticket names and say which.
+5. **Fix what gets in the way.** Fix a setup problem (Docker, image pulls, database, ports) in
+   the session rather than skipping the run, and fix a defect the run exposes in the change or
+   in the code it relies on. Other findings follow the rules below.
+
 ## Agent mode
 
 Verify review-agent behaviour (#2565) with `dev` in `CRAWLER_AUTHORING_MODE=agent`. It is opt-in:
-the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI setting.
+the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI setting. The steps
+below drive the agents' tools by hand; a [cloud session](#cloud-sessions) runs the real agents
+instead.
 
 1. **Start.** Run `dev` as in step 4 with `CRAWLER_AUTHORING_MODE=agent`, without
    `CRAWLER_REVIEW_AUTH_TOKEN`, so the browser console at the `CRAWLER_REVIEW_BIND_ADDR` address
