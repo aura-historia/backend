@@ -22,10 +22,12 @@ pub(crate) fn price_status_label(price: &str) -> Option<&str> {
     is_gone(resolved_availability(label)?).then_some(label)
 }
 
-/// Whether the ProductListing normalization resolves `state` to an availability, so that it
-/// wins over a status label in the price.
-pub(crate) fn resolves_to_availability(state: &str) -> bool {
-    resolved_availability(state).is_some()
+/// Whether the ProductListing normalization resolves `state` to an item that is gone, so that
+/// it wins over a status label in the price. A `state` that resolves to an item on offer does
+/// not: shops leave an enquiry or cart action on a sold page, and the normalization reads such an
+/// action as on offer only because a sold page shows a sold label instead.
+pub(crate) fn resolves_to_gone(state: &str) -> bool {
+    resolved_availability(state).is_some_and(is_gone)
 }
 
 fn without_caption_and_currency(price: &str) -> &str {
@@ -88,5 +90,15 @@ mod tests {
     #[case::blank(" ")]
     fn should_leave_a_price_that_is_no_gone_status_label(#[case] price: &str) {
         assert_eq!(price_status_label(price), None);
+    }
+
+    #[rstest]
+    #[case::sold("SOLD OUT", true)]
+    #[case::reserved("Reserved", true)]
+    #[case::enquiry_action("Enquire", false)]
+    #[case::cart_action("Add to cart", false)]
+    #[case::unrecognised("Inquire", false)]
+    fn should_let_only_a_gone_state_win_over_the_label(#[case] state: &str, #[case] wins: bool) {
+        assert_eq!(resolves_to_gone(state), wins);
     }
 }

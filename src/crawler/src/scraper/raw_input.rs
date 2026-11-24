@@ -1,7 +1,7 @@
 //! Crawler-owned mapping from selected CSS extraction output to the generic raw-input contract.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
-use crate::scraper::price_status_label::{price_status_label, resolves_to_availability};
+use crate::scraper::price_status_label::{price_status_label, resolves_to_gone};
 use product_listing_core::source_listing_id::{InvalidSourceListingId, SourceListingId};
 use product_listing_normalization::{
     NormalizationContext, NormalizationError, NormalizationInputError,
@@ -142,9 +142,10 @@ pub(crate) fn crawler_provenance(
 /// instead of an amount ([`price_status_label`]), such as the `Sold` a sold page prints in the
 /// price's place, is no price: the capture is the one a schema that reads the label in `state`
 /// makes, which clears the price, and the label is sent as the availability unless the page's
-/// `state` resolves to one, which wins. Any other price, free text included, is sent as
-/// extracted and the worker reports what it cannot read
-/// (`docs/crawler/extraction-and-review.md#price-status-labels`).
+/// `state` resolves to an item that is gone too, which wins. A `state` that resolves to an item
+/// on offer, such as an enquiry or cart action a shop leaves on its sold pages, does not
+/// override the label. Any other price, free text included, is sent as extracted and the worker
+/// reports what it cannot read (`docs/crawler/extraction-and-review.md#price-status-labels`).
 struct OfferValues {
     price: ProductListingRawValuesPatch<String>,
     availability: ProductListingRawValuesPatch<String>,
@@ -160,7 +161,7 @@ impl OfferValues {
             };
         };
         let availability = match state {
-            Some(state) if resolves_to_availability(state) => state,
+            Some(state) if resolves_to_gone(state) => state,
             _ => label,
         };
         Self {
@@ -503,13 +504,27 @@ mod tests {
         }
 
         #[test]
-        fn should_keep_a_resolved_state_and_still_clear_the_price() {
-            let input = captured("Sold Out", Some("SOLD OUT"));
+        fn should_send_the_label_over_a_state_that_resolves_to_an_item_on_offer() {
+            for state in ["Enquire", "Add to cart"] {
+                let input = captured("Sold", Some(state));
+
+                assert_eq!(sent(&input, "price"), json!({"action": "CLEAR"}), "{state}");
+                assert_eq!(
+                    sent(&input, "availability"),
+                    json!({"action": "SET", "value": "Sold"}),
+                    "{state}"
+                );
+            }
+        }
+
+        #[test]
+        fn should_keep_a_state_that_resolves_to_a_gone_item_and_still_clear_the_price() {
+            let input = captured("Sold", Some("Reserved"));
 
             assert_eq!(sent(&input, "price"), json!({"action": "CLEAR"}));
             assert_eq!(
                 sent(&input, "availability"),
-                json!({"action": "SET", "value": "SOLD OUT"})
+                json!({"action": "SET", "value": "Reserved"})
             );
         }
 
