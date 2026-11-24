@@ -10,7 +10,6 @@ pub struct ProductListingPriceFilterPlan {
     pub fx_rate_id: FxRateId,
     pub target_currency: Currency,
     pub active_native_ranges: Vec<NativePriceRange>,
-    pub sold_display_range: RangeQuery<MonetaryAmount>,
     has_price_filter: bool,
     snapshot: FxRateSnapshot,
 }
@@ -26,17 +25,19 @@ impl ProductListingPriceFilterPlan {
     pub fn compile(
         snapshot: FxRateSnapshot,
         target_currency: Currency,
-        sold_display_range: Option<RangeQuery<MonetaryAmount>>,
+        display_range: Option<RangeQuery<MonetaryAmount>>,
     ) -> Result<Self, FxRateSnapshotError> {
-        let has_price_filter = sold_display_range.is_some();
-        let sold_display_range = sold_display_range.unwrap_or(RangeQuery {
-            min: None,
-            max: None,
-        });
-        let display_range = DisplayAmountRange {
-            lower: sold_display_range.min,
-            upper: sold_display_range.max,
-        };
+        let has_price_filter = display_range.is_some();
+        let display_range = display_range.map_or(
+            DisplayAmountRange {
+                lower: None,
+                upper: None,
+            },
+            |range| DisplayAmountRange {
+                lower: range.min,
+                upper: range.max,
+            },
+        );
         let active_native_ranges = snapshot
             .quotes()
             .iter()
@@ -59,7 +60,6 @@ impl ProductListingPriceFilterPlan {
             fx_rate_id: snapshot.id(),
             target_currency,
             active_native_ranges,
-            sold_display_range,
             has_price_filter,
             snapshot,
         })
@@ -77,7 +77,7 @@ impl ProductListingPriceFilterPlan {
         &self.snapshot
     }
 
-    /// Compile shipping independently of asking-price filters and historical sold prices.
+    /// Compile shipping independently of asking-price filters.
     pub fn shipping_native_ranges(
         &self,
         query: &product_listing_core::shipping_search::ShippingSearch,
@@ -173,8 +173,6 @@ mod tests {
 
         assert_eq!(snapshot.id(), plan.fx_rate_id);
         assert_eq!(Currency::Usd, plan.target_currency);
-        assert_eq!(Some(110_u64.into()), plan.sold_display_range.min);
-        assert_eq!(Some(110_u64.into()), plan.sold_display_range.max);
         assert!(plan.has_price_filter());
         assert!(plan.active_native_ranges.iter().any(|range| {
             range.source_currency == Currency::Eur && range.lower == 100 && range.upper == Some(100)

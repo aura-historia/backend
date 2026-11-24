@@ -68,6 +68,11 @@ pub use commands::translate_product_listing_event::{
     TranslateProductListingEventHandler, TranslateProductListingEventOutcome,
     TranslateProductListingEventResult, TranslateProductListingEventUseCase,
 };
+pub use commands::translate_product_listing_title_batches::{
+    MAX_TITLES_PER_BATCH, MAX_TRANSLATION_ATTEMPTS, TitleTranslationRoundReport,
+    TranslateProductListingTitleBatchesError, TranslateProductListingTitleBatchesHandler,
+    TranslateProductListingTitleBatchesUseCase,
+};
 pub use commands::update_product_listing::{
     UpdateProductListingCommand, UpdateProductListingError, UpdateProductListingHandler,
     UpdateProductListingResult, UpdateProductListingUseCase,

@@ -1,19 +1,13 @@
 use crate::ports::{
-    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
-    ProductListingSearchFilterMatchSourceReader,
+    ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchProjection,
     ProductListingSearchProjectionWriteOutcome,
 };
 use application::error::{BoxError, box_error};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
-use fxrate_core::FxRateSnapshot;
-use fxrate_service::ports::{
-    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
-};
 use product_listing_core::{
-    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-    product_listing_id::ProductListingId,
+    listing_discoverability::is_discoverable, product_listing_id::ProductListingId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,18 +46,6 @@ pub enum ProjectProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("ProductListing projection sale-observation FX snapshot is missing")]
-    SaleObservationFxSnapshotMissing,
-    #[error("ProductListing projection sale-observation FX snapshot is invalid")]
-    SaleObservationFxSnapshotInvalid {
-        #[source]
-        source: BoxError,
-    },
-    #[error("ProductListing projection sale-observation FX snapshot read failed")]
-    SaleObservationFxSnapshotReadFailed {
-        #[source]
-        source: BoxError,
-    },
     #[error("failed to commit ProductListing projection source transaction")]
     CommitFailed {
         #[source]
@@ -84,30 +66,27 @@ pub trait ProjectProductListingUseCase: Send + Sync {
     ) -> Result<ProjectProductListingResult, ProjectProductListingError>;
 }
 
-pub struct ProjectProductListingHandler<U, S, F, P> {
+pub struct ProjectProductListingHandler<U, S, P> {
     unit_of_work: U,
     sources: S,
-    fx_rates: F,
     projection: P,
 }
 
-impl<U, S, F, P> ProjectProductListingHandler<U, S, F, P> {
-    pub fn new(unit_of_work: U, sources: S, fx_rates: F, projection: P) -> Self {
+impl<U, S, P> ProjectProductListingHandler<U, S, P> {
+    pub fn new(unit_of_work: U, sources: S, projection: P) -> Self {
         Self {
             unit_of_work,
             sources,
-            fx_rates,
             projection,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, S, F, P> ProjectProductListingUseCase for ProjectProductListingHandler<U, S, F, P>
+impl<U, S, P> ProjectProductListingUseCase for ProjectProductListingHandler<U, S, P>
 where
     U: UnitOfWork,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
-    F: FxRateSnapshotRepositoryFactory<U::Tx>,
     P: ProductListingSearchProjection,
 {
     #[tracing::instrument(name = "project_product", skip_all, fields(product_listing_id = %command.product_listing_id, event_id = %command.event_id))]
@@ -126,52 +105,41 @@ where
             .find_source(command.event_id, command.product_listing_id)
             .await
             .map_err(source_read_error)?;
-        let Some(source) = source else {
-            tx.commit()
-                .await
-                .map_err(|source| ProjectProductListingError::CommitFailed {
-                    source: box_error(source),
-                })?;
-            return Ok(ProjectProductListingResult {
-                outcome: ProjectProductListingOutcome::MissingSource,
-            });
-        };
-        if source.current_event_id != command.event_id {
-            tx.commit()
-                .await
-                .map_err(|source| ProjectProductListingError::CommitFailed {
-                    source: box_error(source),
-                })?;
-            return Ok(ProjectProductListingResult {
-                outcome: ProjectProductListingOutcome::Stale,
-            });
-        }
-        let sale_snapshot = load_sale_snapshot(&mut tx, &self.fx_rates, &source).await?;
         tx.commit()
             .await
             .map_err(|source| ProjectProductListingError::CommitFailed {
                 source: box_error(source),
             })?;
+        let Some(source) = source else {
+            return Ok(ProjectProductListingResult {
+                outcome: ProjectProductListingOutcome::MissingSource,
+            });
+        };
+        if source.current_event_id != command.event_id {
+            return Ok(ProjectProductListingResult {
+                outcome: ProjectProductListingOutcome::Stale,
+            });
+        }
 
-        let outcome = if source.lifecycle == ListingLifecycle::Withdrawn {
-            self.projection
-                .delete(source.product_listing_id, source.projection_version)
-                .await
+        // Public discovery offers only listings a buyer can still pursue; every other state is
+        // the same versioned tombstone as a withdrawal (docs/product-listing.md).
+        let discoverable = is_discoverable(source.lifecycle, source.availability);
+        let outcome = if discoverable {
+            self.projection.upsert(&source).await
         } else {
             self.projection
-                .upsert(&source, sale_snapshot.as_ref())
+                .delete(source.product_listing_id, source.projection_version)
                 .await
         }
         .map_err(|source| ProjectProductListingError::WriteFailed {
             source: box_error(source),
         })?;
         Ok(ProjectProductListingResult {
-            outcome: match (source.lifecycle, outcome) {
-                (
-                    ListingLifecycle::Withdrawn,
-                    ProductListingSearchProjectionWriteOutcome::Applied,
-                ) => ProjectProductListingOutcome::Deleted,
-                (_, ProductListingSearchProjectionWriteOutcome::Applied) => {
+            outcome: match (discoverable, outcome) {
+                (false, ProductListingSearchProjectionWriteOutcome::Applied) => {
+                    ProjectProductListingOutcome::Deleted
+                }
+                (true, ProductListingSearchProjectionWriteOutcome::Applied) => {
                     ProjectProductListingOutcome::Applied
                 }
                 (_, ProductListingSearchProjectionWriteOutcome::Stale) => {
@@ -180,35 +148,6 @@ where
             },
         })
     }
-}
-
-async fn load_sale_snapshot<Tx, F>(
-    tx: &mut Tx,
-    fx_rates: &F,
-    source: &ProductListingSearchFilterMatchSource,
-) -> Result<Option<FxRateSnapshot>, ProjectProductListingError>
-where
-    F: FxRateSnapshotRepositoryFactory<Tx>,
-{
-    let Some(observation) = source.sale_observation else {
-        return Ok(None);
-    };
-    if source.lifecycle != ListingLifecycle::Active
-        || source.availability != Some(ListingAvailability::SoldOut)
-        || !source
-            .pricing
-            .price
-            .is_some_and(|price| price.bounds().is_some())
-    {
-        return Ok(None);
-    }
-    fx_rates
-        .in_transaction(tx)
-        .find_by_id(observation.fx_rate_id())
-        .await
-        .map_err(fx_rate_error)?
-        .ok_or(ProjectProductListingError::SaleObservationFxSnapshotMissing)
-        .map(Some)
 }
 
 fn source_read_error(
@@ -224,44 +163,23 @@ fn source_read_error(
     }
 }
 
-fn fx_rate_error(error: FxRateSnapshotRepositoryError) -> ProjectProductListingError {
-    match error {
-        FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
-            ProjectProductListingError::SaleObservationFxSnapshotInvalid { source }
-        }
-        FxRateSnapshotRepositoryError::InsertFailed { source }
-        | FxRateSnapshotRepositoryError::ReadFailed { source } => {
-            ProjectProductListingError::SaleObservationFxSnapshotReadFailed { source }
-        }
-        FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => {
-            ProjectProductListingError::SaleObservationFxSnapshotMissing
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ports::{
-        ListingSourceSummary, ProductListingSearchFilterMatchSourceEventKind,
-        ProductListingSearchFilterMatchSourceRef, ProductListingSearchProjectionWriteError,
+        ListingSourceSummary, ProductListingSearchFilterMatchSource,
+        ProductListingSearchFilterMatchSourceEventKind, ProductListingSearchFilterMatchSourceRef,
+        ProductListingSearchProjectionWriteError,
     };
     use application::error::box_error;
     use application::transaction::TransactionError;
-    use fxrate_core::{
-        FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
-    };
     use indexmap::IndexSet;
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::{Language, Localized};
-    use money::Currency;
     use product_listing_core::{
-        description::Description,
-        listing_availability::ListingAvailability,
-        listing_lifecycle::ListingLifecycle,
-        product_listing::{ListingSaleObservation, ProductListingPricing},
-        product_listing_slug_id::ProductListingSlugId,
-        source_listing_id::SourceListingId,
+        description::Description, listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle, product_listing::ProductListingPricing,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
         title::Title,
     };
     use std::{
@@ -281,10 +199,8 @@ mod tests {
             >,
         >,
         source_requests: Vec<(EventId, ProductListingId)>,
-        fx_result: Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
-        fx_lookup_ids: Vec<FxRateId>,
         commit_count: usize,
-        upserts: Vec<(ProductListingId, Option<FxRateSnapshot>)>,
+        upserts: Vec<(ProductListingId, i64)>,
         deletes: Vec<(ProductListingId, i64)>,
         write_commit_counts: Vec<usize>,
         projection_result: Option<
@@ -312,15 +228,6 @@ mod tests {
     }
 
     struct FakeSourceReader {
-        state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct FakeFxRateSnapshotFactory {
-        state: SharedState,
-    }
-
-    struct FakeFxRateSnapshotRepository {
         state: SharedState,
     }
 
@@ -411,67 +318,11 @@ mod tests {
         }
     }
 
-    impl FxRateSnapshotRepositoryFactory<FakeTx> for FakeFxRateSnapshotFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut FakeTx,
-        ) -> impl FxRateSnapshotRepository + 'tx {
-            FakeFxRateSnapshotRepository {
-                state: Arc::clone(&self.state),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl FxRateSnapshotRepository for FakeFxRateSnapshotRepository {
-        async fn find_latest(
-            &mut self,
-        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
-        }
-
-        async fn find_latest_at_or_before(
-            &mut self,
-            _timestamp: time::OffsetDateTime,
-        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
-        }
-
-        async fn find_by_id(
-            &mut self,
-            id: FxRateId,
-        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            let mut state = lock_state(&self.state);
-            state.fx_lookup_ids.push(id);
-            match state.fx_result.take() {
-                Some(result) => result,
-                None => Ok(None),
-            }
-        }
-
-        async fn find_by_ids(
-            &mut self,
-            _ids: &[FxRateId],
-        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(Vec::new())
-        }
-
-        async fn insert(
-            &mut self,
-            _snapshot: &NewFxRateSnapshot,
-            _source_event_id: &str,
-        ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
-        {
-            Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
-        }
-    }
-
     #[async_trait::async_trait]
     impl ProductListingSearchProjection for FakeProjection {
         async fn upsert(
             &self,
             source: &ProductListingSearchFilterMatchSource,
-            sale_snapshot: Option<&FxRateSnapshot>,
         ) -> Result<
             ProductListingSearchProjectionWriteOutcome,
             ProductListingSearchProjectionWriteError,
@@ -480,7 +331,7 @@ mod tests {
             let commit_count = state.commit_count;
             state
                 .upserts
-                .push((source.product_listing_id, sale_snapshot.cloned()));
+                .push((source.product_listing_id, source.projection_version));
             state.write_commit_counts.push(commit_count);
             match state.projection_result.take() {
                 Some(result) => result,
@@ -509,20 +360,12 @@ mod tests {
 
     fn handler(
         state: &SharedState,
-    ) -> ProjectProductListingHandler<
-        FakeUnitOfWork,
-        FakeSourceFactory,
-        FakeFxRateSnapshotFactory,
-        FakeProjection,
-    > {
+    ) -> ProjectProductListingHandler<FakeUnitOfWork, FakeSourceFactory, FakeProjection> {
         ProjectProductListingHandler::new(
             FakeUnitOfWork {
                 state: Arc::clone(state),
             },
             FakeSourceFactory {
-                state: Arc::clone(state),
-            },
-            FakeFxRateSnapshotFactory {
                 state: Arc::clone(state),
             },
             FakeProjection {
@@ -582,17 +425,6 @@ mod tests {
         })
     }
 
-    fn snapshot() -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
-        NewFxRateSnapshot::capture_eur(
-            FxRateId::new(),
-            time::OffsetDateTime::UNIX_EPOCH,
-            FxRateSource::FxRatesApi,
-            Currency::Eur,
-            Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
-        )
-        .and_then(|snapshot| Ok(snapshot.into_persisted(FxRateGeneration::try_from(1)?)))
-    }
-
     fn command(source: &ProductListingSearchFilterMatchSource) -> ProjectProductListingCommand {
         ProjectProductListingCommand {
             event_id: source.event_id,
@@ -601,7 +433,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_upsert_active_source_without_fx_snapshot_after_commit()
+    async fn should_upsert_active_source_without_availability_after_commit()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let source = source()?;
@@ -616,143 +448,78 @@ mod tests {
             vec![(command.event_id, command.product_listing_id)],
             state.source_requests
         );
-        assert!(state.fx_lookup_ids.is_empty());
-        assert_eq!(vec![(source.product_listing_id, None)], state.upserts);
+        assert_eq!(
+            vec![(source.product_listing_id, source.projection_version)],
+            state.upserts
+        );
+        assert!(state.deletes.is_empty());
         assert_eq!(vec![1], state.write_commit_counts);
         assert_eq!(1, state.commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_use_exact_sale_fx_snapshot_when_source_is_sold()
+    async fn should_index_active_source_only_while_its_availability_is_discoverable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for availability in ListingAvailability::iter() {
+            let state = state();
+            let mut source = source()?;
+            source.availability = Some(availability);
+            lock_state(&state).source_result = Some(Ok(Some(source.clone())));
+
+            let result = handler(&state).execute(command(&source)).await?;
+
+            let state = lock_state(&state);
+            let written = vec![(source.product_listing_id, source.projection_version)];
+            if availability.is_discoverable() {
+                assert_eq!(ProjectProductListingOutcome::Applied, result.outcome);
+                assert_eq!(written, state.upserts, "{availability:?}");
+                assert!(state.deletes.is_empty(), "{availability:?}");
+            } else {
+                assert_eq!(ProjectProductListingOutcome::Deleted, result.outcome);
+                assert_eq!(written, state.deletes, "{availability:?}");
+                assert!(state.upserts.is_empty(), "{availability:?}");
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_delete_then_reindex_when_availability_leaves_and_returns()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
-        let snapshot = snapshot()?;
+        let handler = handler(&state);
         let mut source = source()?;
-        source.pricing.price = Some(
-            product_listing_core::product_listing_price::ProductListingPrice::from(
-                money::Price::new(100_u64.into(), Currency::Eur),
-            ),
-        );
-        source.availability = Some(ListingAvailability::SoldOut);
-        source.sale_observation = Some(ListingSaleObservation::new(
-            time::OffsetDateTime::UNIX_EPOCH,
-            snapshot.id(),
-        ));
-        let command = command(&source);
-        {
-            let mut state = lock_state(&state);
-            state.source_result = Some(Ok(Some(source.clone())));
-            state.fx_result = Some(Ok(Some(snapshot.clone())));
+        let mut outcomes = Vec::new();
+        for availability in [
+            ListingAvailability::InStock,
+            ListingAvailability::OutOfStock,
+            ListingAvailability::InStock,
+            ListingAvailability::SoldOut,
+            ListingAvailability::Reserved,
+        ] {
+            source.availability = Some(availability);
+            source.projection_version += 1;
+            source.event_id = EventId::new();
+            source.current_event_id = source.event_id;
+            lock_state(&state).source_result = Some(Ok(Some(source.clone())));
+            outcomes.push(handler.execute(command(&source)).await?.outcome);
         }
 
-        let result = handler(&state).execute(command).await?;
-
-        assert_eq!(ProjectProductListingOutcome::Applied, result.outcome);
-        let state = lock_state(&state);
-        assert_eq!(vec![snapshot.id()], state.fx_lookup_ids);
         assert_eq!(
-            vec![(source.product_listing_id, Some(snapshot))],
-            state.upserts
+            vec![
+                ProjectProductListingOutcome::Applied,
+                ProjectProductListingOutcome::Deleted,
+                ProjectProductListingOutcome::Applied,
+                ProjectProductListingOutcome::Deleted,
+                ProjectProductListingOutcome::Applied,
+            ],
+            outcomes
         );
-        assert_eq!(vec![1], state.write_commit_counts);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_project_sold_source_without_price_without_fx_lookup()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let state = state();
-        let mut source = source()?;
-        source.sale_observation = Some(ListingSaleObservation::new(
-            time::OffsetDateTime::UNIX_EPOCH,
-            FxRateId::new(),
-        ));
-        let command = command(&source);
-        lock_state(&state).source_result = Some(Ok(Some(source.clone())));
-
-        let result = handler(&state).execute(command).await?;
-
-        assert_eq!(ProjectProductListingOutcome::Applied, result.outcome);
         let state = lock_state(&state);
-        assert!(state.fx_lookup_ids.is_empty());
-        assert_eq!(vec![(source.product_listing_id, None)], state.upserts);
-        assert_eq!(vec![1], state.write_commit_counts);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_not_commit_or_write_when_sale_observation_fx_snapshot_is_missing()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let state = state();
-        let snapshot = snapshot()?;
-        let mut source = source()?;
-        source.pricing.price = Some(
-            product_listing_core::product_listing_price::ProductListingPrice::from(
-                money::Price::new(100_u64.into(), Currency::Eur),
-            ),
-        );
-        source.availability = Some(ListingAvailability::SoldOut);
-        source.sale_observation = Some(ListingSaleObservation::new(
-            time::OffsetDateTime::UNIX_EPOCH,
-            snapshot.id(),
-        ));
-        let command = command(&source);
-        {
-            let mut state = lock_state(&state);
-            state.source_result = Some(Ok(Some(source)));
-            state.fx_result = Some(Ok(None));
-        }
-
-        let result = handler(&state).execute(command).await;
-
-        assert!(matches!(
-            result,
-            Err(ProjectProductListingError::SaleObservationFxSnapshotMissing)
-        ));
-        let state = lock_state(&state);
-        assert_eq!(0, state.commit_count);
-        assert!(state.upserts.is_empty());
-        assert!(state.deletes.is_empty());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_map_invalid_persisted_sale_observation_snapshot()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let state = state();
-        let snapshot = snapshot()?;
-        let mut source = source()?;
-        source.pricing.price = Some(
-            product_listing_core::product_listing_price::ProductListingPrice::from(
-                money::Price::new(100_u64.into(), Currency::Eur),
-            ),
-        );
-        source.availability = Some(ListingAvailability::SoldOut);
-        source.sale_observation = Some(ListingSaleObservation::new(
-            time::OffsetDateTime::UNIX_EPOCH,
-            snapshot.id(),
-        ));
-        let command = command(&source);
-        {
-            let mut state = lock_state(&state);
-            state.source_result = Some(Ok(Some(source)));
-            state.fx_result = Some(Err(
-                FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
-                    source: box_error(std::io::Error::other("invalid snapshot")),
-                },
-            ));
-        }
-
-        let result = handler(&state).execute(command).await;
-
-        assert!(matches!(
-            result,
-            Err(ProjectProductListingError::SaleObservationFxSnapshotInvalid { .. })
-        ));
-        let state = lock_state(&state);
-        assert_eq!(0, state.commit_count);
-        assert!(state.upserts.is_empty());
+        let id = source.product_listing_id;
+        assert_eq!(vec![(id, 42), (id, 44), (id, 46)], state.upserts);
+        assert_eq!(vec![(id, 43), (id, 45)], state.deletes);
         Ok(())
     }
 
@@ -790,7 +557,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_commit_without_fx_lookup_or_write_when_source_is_stale()
+    async fn should_commit_without_write_when_source_is_stale()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let mut source = source()?;
@@ -803,7 +570,6 @@ mod tests {
         assert_eq!(ProjectProductListingOutcome::Stale, result.outcome);
         let state = lock_state(&state);
         assert_eq!(1, state.commit_count);
-        assert!(state.fx_lookup_ids.is_empty());
         assert!(state.upserts.is_empty());
         assert!(state.deletes.is_empty());
         Ok(())
@@ -824,7 +590,6 @@ mod tests {
         assert_eq!(ProjectProductListingOutcome::MissingSource, result.outcome);
         let state = lock_state(&state);
         assert_eq!(1, state.commit_count);
-        assert!(state.fx_lookup_ids.is_empty());
         assert!(state.upserts.is_empty());
         assert!(state.deletes.is_empty());
         Ok(())

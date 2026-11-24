@@ -16,11 +16,13 @@ pub mod product_listing_normalization_diagnostic_case;
 pub mod product_listing_raw_capture_writer;
 pub mod product_listing_raw_normalization;
 pub mod product_listing_repository;
+pub mod product_listing_title_translation_queue;
 pub mod product_listing_translation_source_reader;
 pub mod product_listing_translation_writer;
 pub mod public_catalogue_overview_refresher;
 pub mod readers;
 mod title;
+mod title_translation_revision;
 mod url;
 
 pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerFactory;
@@ -39,6 +41,9 @@ pub use product_listing_raw_normalization::{
     SqlxPendingProductListingRawStreamReader, SqlxProductListingRawNormalizationWriterFactory,
 };
 pub use product_listing_repository::SqlxProductListingRepositoryFactory;
+pub use product_listing_title_translation_queue::{
+    SqlxProductListingTitleTranslationQueueFactory, SqlxProductListingTitleTranslationQueueReader,
+};
 pub use product_listing_translation_source_reader::SqlxProductListingTranslationSourceReader;
 pub use product_listing_translation_writer::SqlxProductListingTranslationWriterFactory;
 pub use public_catalogue_overview_refresher::SqlxPublicCatalogueOverviewRefresherFactory;

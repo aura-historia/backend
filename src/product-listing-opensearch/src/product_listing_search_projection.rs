@@ -1,8 +1,5 @@
-use crate::product_listing_projection_document::{
-    ProductListingProjectionDocumentError, product_listing_document,
-};
+use crate::product_listing_projection_document::product_listing_document;
 use application::error::box_error;
-use fxrate_core::FxRateSnapshot;
 use opensearch::{IndexParts, OpenSearch, http::StatusCode, params::VersionType};
 use platform_opensearch::response::read_response;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -40,11 +37,10 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
     async fn upsert(
         &self,
         source: &ProductListingSearchFilterMatchSource,
-        sale_snapshot: Option<&FxRateSnapshot>,
     ) -> Result<ProductListingSearchProjectionWriteOutcome, ProductListingSearchProjectionWriteError>
     {
         let version = checked_source_version(source.projection_version)?;
-        let document = product_listing_document(source, sale_snapshot).map_err(document_error)?;
+        let document = product_listing_document(source);
         let document_id = document._id().to_string();
         let response = self
             .client
@@ -76,7 +72,9 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
                 &product_listing_id.to_string(),
             ))
             .version(version)
-            .version_type(VersionType::External)
+            // An equal version replaces a document an earlier projection rule indexed, so
+            // reprojection applies a narrowed rule; an equal-version upsert never replaces this.
+            .version_type(VersionType::ExternalGte)
             // Physical DELETE forgets its version after index.gc_deletes (default 60s).
             // Keep this content-free document until a strictly newer source replaces it.
             .body(serde_json::json!({
@@ -102,14 +100,6 @@ fn checked_source_version(version: i64) -> Result<i64, ProductListingSearchProje
             ),
         }
     })
-}
-
-fn document_error(
-    source: ProductListingProjectionDocumentError,
-) -> ProductListingSearchProjectionWriteError {
-    ProductListingSearchProjectionWriteError::WriteFailed {
-        source: box_error(source),
-    }
 }
 
 async fn write_response_outcome(
@@ -410,7 +400,7 @@ mod tests {
             let mut source = source()?;
             assert_eq!(
                 ProductListingSearchProjectionWriteOutcome::Applied,
-                writer.upsert(&source, None).await?
+                writer.upsert(&source).await?
             );
             assert_visible(&source, 1).await?;
 
@@ -424,9 +414,7 @@ mod tests {
             );
             let stale_source = source.clone();
             let delayed =
-                test_api::spawn_owned(
-                    async move { delayed_writer.upsert(&stale_source, None).await },
-                );
+                test_api::spawn_owned(async move { delayed_writer.upsert(&stale_source).await });
             paused.wait_until_received().await?;
 
             // Deletion must also fence a write when no prior projection exists.
@@ -439,15 +427,17 @@ mod tests {
                 products_index(),
             );
             let delayed_unseen =
-                test_api::spawn_owned(async move { unseen_writer.upsert(&unseen, None).await });
+                test_api::spawn_owned(async move { unseen_writer.upsert(&unseen).await });
             paused_unseen.wait_until_received().await?;
             let (first, duplicate) = tokio::join!(
                 writer.delete(source.product_listing_id, 3),
                 writer.delete(source.product_listing_id, 3)
             );
-            let outcomes = [first?, duplicate?];
-            assert!(outcomes.contains(&ProductListingSearchProjectionWriteOutcome::Applied));
-            assert!(outcomes.contains(&ProductListingSearchProjectionWriteOutcome::Stale));
+            // An equal-version tombstone is idempotent, so a duplicate delete applies again.
+            assert_eq!(
+                [ProductListingSearchProjectionWriteOutcome::Applied; 2],
+                [first?, duplicate?]
+            );
             assert_eq!(
                 ProductListingSearchProjectionWriteOutcome::Applied,
                 writer.delete(unseen_id, 3).await?
@@ -502,7 +492,7 @@ mod tests {
                 );
                 assert_eq!(
                     ProductListingSearchProjectionWriteOutcome::Stale,
-                    writer.delete(id, 3).await?
+                    writer.delete(id, 2).await?
                 );
             }
             assert_visible(&source, 0).await?;
@@ -522,7 +512,7 @@ mod tests {
             source.current_event_id = source.event_id;
             assert_eq!(
                 ProductListingSearchProjectionWriteOutcome::Applied,
-                writer.upsert(&source, None).await?
+                writer.upsert(&source).await?
             );
             assert_eq!(StatusCode::CONFLICT, paused_delete.resume().await?);
             assert_eq!(
@@ -531,7 +521,7 @@ mod tests {
             );
             assert_eq!(
                 ProductListingSearchProjectionWriteOutcome::Stale,
-                writer.upsert(&source, None).await?
+                writer.upsert(&source).await?
             );
             let restored = stored(source.product_listing_id).await?;
             assert_eq!(
@@ -540,10 +530,51 @@ mod tests {
             );
             assert_eq!(json!(5), restored["_version"]);
             assert_eq!(
-                serde_json::to_value(product_listing_document(&source, None)?)?,
+                serde_json::to_value(product_listing_document(&source))?,
                 restored["_source"]
             );
             assert_visible(&source, 1).await?;
+            Ok(())
+        }
+
+        #[aura_integration_test(services = [TestOpenSearch()], isolated = true)]
+        async fn should_replace_an_equal_version_document_with_a_tombstone_but_not_the_reverse() {
+            let result = equal_version_tombstone().await;
+            assert!(
+                result.is_ok(),
+                "real OpenSearch equal-version tombstone: {result:?}"
+            );
+        }
+
+        /// A document an earlier projection rule indexed shares its version with the source the
+        /// narrowed rule now deletes; reprojection must remove it, and a delayed equal-version
+        /// upsert must not bring it back.
+        async fn equal_version_tombstone() -> TestResult {
+            let writer = OpenSearchProductListingSearchProjection::with_index(
+                get_opensearch_client().await.clone(),
+                products_index(),
+            );
+            let source = source()?;
+            assert_eq!(
+                ProductListingSearchProjectionWriteOutcome::Applied,
+                writer.upsert(&source).await?
+            );
+            assert_visible(&source, 1).await?;
+
+            assert_eq!(
+                ProductListingSearchProjectionWriteOutcome::Applied,
+                writer
+                    .delete(source.product_listing_id, source.projection_version)
+                    .await?
+            );
+            assert_eq!(
+                ProductListingSearchProjectionWriteOutcome::Stale,
+                writer.upsert(&source).await?
+            );
+            let tombstone = stored(source.product_listing_id).await?;
+            assert_eq!(json!(source.projection_version), tombstone["_version"]);
+            assert_eq!(json!(true), tombstone["_source"]["projectionDeleted"]);
+            assert_visible(&source, 0).await?;
             Ok(())
         }
 
@@ -671,11 +702,11 @@ mod tests {
         let mut paused=PausedWrite::new(client.clone()).await?;
         let old_writer=OpenSearchProductListingSearchProjection::with_index(paused.client.clone(), products_index());
         let old=source.clone();
-        let stale=test_api::spawn_owned(async move {old_writer.upsert(&old,None).await});
+        let stale=test_api::spawn_owned(async move {old_writer.upsert(&old).await});
         paused.wait_until_received().await?;
         source.projection_version+=1;
         source.geography.business.as_mut().ok_or("missing business")?.position=None;
-        assert_eq!(ProductListingSearchProjectionWriteOutcome::Applied,writer.upsert(&source,None).await?);
+        assert_eq!(ProductListingSearchProjectionWriteOutcome::Applied,writer.upsert(&source).await?);
         assert_eq!(StatusCode::CONFLICT,paused.resume().await?);
         assert_eq!(ProductListingSearchProjectionWriteOutcome::Stale,stale.await??);
         let document:Value=client.get(GetParts::IndexId(&products_index(),&source.product_listing_id.to_string())).send().await?.json().await?;
@@ -687,7 +718,7 @@ mod tests {
         refresh_index(&products_index()).await;
         let result:Value=client.search(opensearch::SearchParts::Index(&[&products_index()])).body(json!({"query":{"term":{"businessGeography.country":"DE"}},"aggs":{"countries":{"terms":{"field":"businessGeography.country"}}}})).send().await?.json().await?;
         assert_eq!(1,result["hits"]["total"]["value"]);assert_eq!("DE",result["aggregations"]["countries"]["buckets"][0]["key"]);
-        let document=product_listing_document(&product_listing_service::ports::ProductListingSearchFilterMatchSource {geography:product_listing_service::geography::EffectiveListingGeography{business:Some(dimension),inventory:None},..source.clone()},None)?;
+        let document=product_listing_document(&product_listing_service::ports::ProductListingSearchFilterMatchSource {geography:product_listing_service::geography::EffectiveListingGeography{business:Some(dimension),inventory:None},..source.clone()});
         let value=serde_json::to_value(document)?;assert_eq!(48.1,value["businessGeography"]["point"]["lat"]);assert_eq!(11.5,value["businessGeography"]["point"]["lon"]);
         Ok(())
     }.await;
@@ -729,7 +760,7 @@ mod tests {
                         },
                     ],
                 };
-                writer.upsert(&listing, None).await?;
+                writer.upsert(&listing).await?;
                 refresh_index(&products_index()).await;
                 for (country, amount, count) in [
                     (geo::CountryCode::DEU, 6000_u64, 0),
@@ -755,7 +786,7 @@ mod tests {
                     assert_eq!(count, response["hits"]["total"]["value"]);
                 }
                 // The actual strict mapping rejects unknown private fields inside an offer.
-                let mut poison = serde_json::to_value(product_listing_document(&listing, None)?)?;
+                let mut poison = serde_json::to_value(product_listing_document(&listing))?;
                 poison["shipping"]["countryOffers"][0]["address"] = json!("forbidden");
                 let rejected = client
                     .index(IndexParts::IndexId(
@@ -773,8 +804,7 @@ mod tests {
                     products_index(),
                 );
                 let old = listing.clone();
-                let stale =
-                    test_api::spawn_owned(async move { old_writer.upsert(&old, None).await });
+                let stale = test_api::spawn_owned(async move { old_writer.upsert(&old).await });
                 paused.wait_until_received().await?;
                 listing.projection_version = 2;
                 listing.shipping = EffectiveListingShipping {
@@ -793,7 +823,7 @@ mod tests {
                     });
                 assert_eq!(
                     ProductListingSearchProjectionWriteOutcome::Applied,
-                    writer.upsert(&listing, None).await?
+                    writer.upsert(&listing).await?
                 );
                 assert_eq!(StatusCode::CONFLICT, paused.resume().await?);
                 assert_eq!(
@@ -817,7 +847,7 @@ mod tests {
                 writer.delete(listing.product_listing_id, 3).await?;
                 assert_eq!(
                     ProductListingSearchProjectionWriteOutcome::Stale,
-                    writer.upsert(&listing, None).await?
+                    writer.upsert(&listing).await?
                 );
                 let deleted: Value = client
                     .get(GetParts::IndexId(
@@ -933,8 +963,13 @@ mod tests {
                 let query = url
                     .query_pairs()
                     .collect::<std::collections::HashMap<_, _>>();
+                // Only a tombstone may replace a document of its own version.
                 assert_eq!(
-                    Some("external"),
+                    Some(if tombstone {
+                        "external_gte"
+                    } else {
+                        "external"
+                    }),
                     query.get("version_type").map(|v| v.as_ref())
                 );
                 assert_eq!(
@@ -964,7 +999,7 @@ mod tests {
                 if tombstone {
                     writer.delete(id, version).await
                 } else {
-                    writer.upsert(&source, None).await
+                    writer.upsert(&source).await
                 }
             })
             .await;

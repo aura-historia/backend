@@ -193,9 +193,64 @@ index `product-listings` by name, not an alias, so a generation cannot yet repla
 live scope to rebuild search after the index was lost. Each page commits on its own and the run reports
 the last listing, so an interrupted run resumes after it. Catch up by rerunning once old
 writers are fenced: listings whose job is still waiting are skipped, every other listing is
-enqueued again, and the projector completes the ones already current as stale. Withdrawn listings retain authoritative source state.
+enqueued again, and the projector completes the ones already current as stale; an
+undiscoverable listing rewrites its equal tombstone. Withdrawn listings retain authoritative source state.
 Index reset, the queue and absent history cannot restore missing authoritative facts.
 [OpenSearch operations](opensearch-stage.md) own host/security and asset changes.
+
+### Narrowed projection rule
+
+A release that narrows which listings are
+[discoverable](product-listing.md#application-api-and-search-contracts) leaves documents the
+earlier rule indexed at their current version. Once no projector of the earlier release runs,
+run `ops reproject-all --live`: the projector replaces each such document with an equal-version
+tombstone and completes current documents as stale. Only narrowing works in place: an
+equal-version upsert never replaces a tombstone, so a rollback or a later widening of the rule
+needs a [new index generation](#projection-fences-and-rebuild). Search keeps serving throughout; until the
+run completes, an affected listing can still appear and is valued at current FX. Verify that the
+number of live documents equals the number of discoverable listings:
+
+```sql
+SELECT count(*) FROM product_listings
+WHERE lifecycle = 'ACTIVE'
+  AND (availability IS NULL OR availability NOT IN ('SOLD_OUT', 'OUT_OF_STOCK', 'UNAVAILABLE'));
+```
+
+```json
+GET product-listings/_count
+{"query": {"bool": {"must_not": [{"term": {"projectionDeleted": true}}]}}}
+```
+
+Listings changing during the comparison and outstanding projector jobs account for small
+differences; compare again once the scope's queue is empty.
+
+## Title translation recovery
+
+[Title translation](product-listing.md#title-translation) owns the contract. A
+`product-translation` job only records work, so its custody means the work was never recorded:
+redrive it once PostgreSQL is healthy. Every worker consuming that scope also runs the
+translation rounds with `ANTHROPIC_API_KEY`; work waits in
+`product_listing_title_translation_work` and batches in
+`product_listing_title_translation_batches`, neither of which is ever purged except by settlement.
+
+- Each round logs `product.translation.round.completed` with its counts, or
+  `product.translation.round.failed` with the failed stage and safe categories; the next round
+  continues from the durable state. A batch that cannot be collected logs
+  `product.translation.batch_failed` and is retried next round without holding back other
+  batches or new work; a title whose guarded write fails logs `product.translation.write_failed`
+  and spends an attempt. `LLM_BATCH` events log each batch's ID, size, outcome counts
+  and token usage when it is submitted and when its results are read.
+- Pending work older than a day, or batches submitted more than 24 hours ago, mean the rounds
+  are not running or Anthropic is failing: check the worker logs and the batch in the Anthropic
+  Console by its ID.
+- A batch whose submission was not recorded within 10 minutes is closed and its work returns to
+  the queue. If Anthropic accepted it anyway, it runs unread and is billed once more.
+- Results stay downloadable for 29 days. A batch whose results the provider no longer serves
+  fails each of its titles once, and they are submitted again.
+- Parked work (`parked IS NOT NULL`) spent three attempts or was refused by the fallback model.
+  It waits for a title change; a description-only change carries it parked. To retry it after
+  fixing a cause, set `parked` to `NULL`, `attempts` to `0` and `mode` to `'GROUPED'` for the
+  selected listings; never delete work to silence it.
 
 ## Listing shipping recovery
 
@@ -470,6 +525,10 @@ live; both then recover on redelivery. Once picked places exist, do not roll the
 resolution worker back past that release: an older recovery sweep stops for every resolution
 and older reads of an affected address fail. Fix forward, or first ship a reviewed release that
 detaches selected-place bindings.
+
+Likewise, once a resolution has been accepted although its submitted subdivision was not derived,
+older binaries re-validate that evidence as invalid persisted state. Do not roll the API or
+the resolution worker back past the release that relaxed the subdivision rule.
 
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
 deadline and circuit state. Monitor resolution reuse/outcomes, oldest pending age, maintenance

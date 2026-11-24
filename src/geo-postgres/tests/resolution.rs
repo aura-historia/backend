@@ -1827,6 +1827,81 @@ async fn private_postal_assertions_survive_precise_and_administrative_acceptance
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn should_store_and_reread_accepted_evidence_when_a_submitted_subdivision_is_not_derived() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let owner = Uuid::now_v7();
+    let description = GeographicDescription::new(
+        Some(AddressText::new("Synthetic subdivision input").unwrap()),
+        Some(CountryCode::DEU),
+        Some(geo::SubdivisionCode::new("DE-BE").unwrap()),
+        Some(geo::PostalCode::new("10115").unwrap()),
+    )
+    .unwrap()
+    .unwrap();
+    for (scope, purpose) in [
+        (ScopeKind::User, RetentionPurpose::UserLocation),
+        (ScopeKind::Party, RetentionPurpose::PartyLocation),
+    ] {
+        let input = ResolutionInput::new(
+            GeocodingRequest::new(description.address_text().unwrap().clone())
+                .with_submitted(geo::SubmittedGeography::new(description.clone())),
+            ResolutionScope::new(scope, Some(owner)).unwrap(),
+            purpose,
+        )
+        .unwrap();
+        let b = ResolutionBinding {
+            subject: ResolutionSubject::new(purpose, Uuid::now_v7()).unwrap(),
+            input_revision: 1,
+            guard: 1,
+        };
+        let w = bind(&pool, &input, b).await;
+        let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
+            panic!("claim required")
+        };
+        let base = candidate(CountryCode::DEU);
+        let without_subdivision = GeocodingCandidate::new(
+            DerivedGeography::new(
+                GeographicDescription::new(
+                    None,
+                    Some(CountryCode::DEU),
+                    None,
+                    Some(geo::PostalCode::new("10115").unwrap()),
+                )
+                .unwrap(),
+                base.geography().and_then(DerivedGeography::position),
+            ),
+            vec![],
+            None,
+            base.provenance().clone(),
+        );
+        let e = evaluate(
+            &input,
+            GeocodingResult {
+                outcome: GeocodingOutcome::Candidates(
+                    CandidateSet::new(vec![without_subdivision], 5).unwrap(),
+                ),
+                retention: ResultRetention::Storage,
+            },
+            PROFILE,
+        )
+        .unwrap();
+        assert_eq!(
+            ACCEPTED,
+            complete(&pool, &c, ResolutionCompletion::Evidence(e)).await
+        );
+        let stored = inspect(&pool, b).await.unwrap().evidence.unwrap();
+        assert_eq!(ResolutionStatus::Accepted, stored.status, "{purpose:?}");
+        let accepted = &stored.candidates[stored.accepted_index.unwrap()].geography;
+        assert_eq!(
+            Some(CountryCode::DEU),
+            accepted.description().unwrap().country()
+        );
+        assert_eq!(None, accepted.description().unwrap().subdivision());
+    }
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates() {
     let pool = get_postgres_client().await;
     configure(&pool).await;

@@ -11,14 +11,13 @@ use money::Currency;
 use platform_opensearch::search_response::{SearchHit, SearchResponse};
 
 use fxrate_core::RoundingMode;
-use money::Price;
 use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
-use product_listing_core::product_listing_price::{PriceRange, ProductListingPrice};
+use product_listing_core::product_listing_price::ProductListingPrice;
 use product_listing_core::product_listing_search::{
     ListingAvailabilityQuery, ProductListingSearch,
 };
@@ -223,7 +222,7 @@ fn map_summary(
 ) -> Result<ProductListingSearchItem, ProductListingSearchReadError> {
     let document = hit.source;
     let display_price = resolve_price(&document, price_filter)?;
-    let price_valuation = price_valuation(&document, price_filter)?;
+    let price_valuation = price_valuation(price_filter);
     let geography = if search.has_geography() {
         document
             .inventory_geography
@@ -287,28 +286,14 @@ fn insert_title(titles: &mut HashMap<Language, Title>, language: Language, title
     }
 }
 
+/// Indexed listings are discoverable and so valued at the request's pinned current snapshot.
 fn price_valuation(
-    document: &ProductListingDocument,
     price_filter: &ProductListingPriceFilterPlan,
-) -> Result<ProductListingSummaryPriceValuation, ProductListingSearchReadError> {
-    if let (Some(fx_rate_id), Some(observed_at)) = (
-        document.sale_observation_fx_rate_id,
-        document.sale_observed_at,
-    ) {
-        return Ok(ProductListingSummaryPriceValuation::SaleObservation {
-            fx_rate_id,
-            observed_at,
-        });
-    }
-    if document.has_sale_observation() {
-        return Err(read_model_invalid(static_error(
-            "sale observation lacks its FX rate or observation time",
-        )));
-    }
-    Ok(ProductListingSummaryPriceValuation::Current {
+) -> ProductListingSummaryPriceValuation {
+    ProductListingSummaryPriceValuation::Current {
         fx_rate_id: price_filter.fx_rate_id,
         captured_at: price_filter.captured_at(),
-    })
+    }
 }
 
 fn resolve_price(
@@ -316,40 +301,16 @@ fn resolve_price(
     price_filter: &ProductListingPriceFilterPlan,
 ) -> Result<Option<ProductListingPrice>, ProductListingSearchReadError> {
     document.validate().map_err(read_model_invalid)?;
-    let target = price_filter.target_currency;
-    let source_price = document.source_price().map_err(read_model_invalid)?;
-
-    if document.has_sale_observation() {
-        let sale_price = |amount: Option<u64>| {
-            amount
-                .map(|amount| Price::new(amount.into(), target))
-                .ok_or_else(|| {
-                    read_model_invalid(static_error(
-                        "sale observation lacks a price in the target currency",
-                    ))
-                })
-        };
-        return match source_price {
-            None => Ok(None),
-            Some(ProductListingPrice::OnRequest) => Ok(Some(ProductListingPrice::OnRequest)),
-            Some(ProductListingPrice::Monetary(_)) => Ok(Some(ProductListingPrice::Monetary(
-                sale_price(document.sale_price(target))?,
-            ))),
-            Some(ProductListingPrice::Range(_)) => {
-                let min = sale_price(document.sale_price(target))?;
-                let max = sale_price(document.sale_price_max(target))?;
-                if min == max {
-                    return Ok(Some(ProductListingPrice::Monetary(min)));
-                }
-                PriceRange::new(min, max)
-                    .map(|range| Some(ProductListingPrice::Range(range)))
-                    .map_err(read_model_invalid)
-            }
-        };
-    }
-
-    source_price
-        .map(|price| price.convert(price_filter.snapshot(), target, RoundingMode::HalfUp))
+    document
+        .source_price()
+        .map_err(read_model_invalid)?
+        .map(|price| {
+            price.convert(
+                price_filter.snapshot(),
+                price_filter.target_currency,
+                RoundingMode::HalfUp,
+            )
+        })
         .transpose()
         .map_err(read_model_invalid)
 }
@@ -757,7 +718,7 @@ pub(crate) fn build_product_index_price_clause(
 
     // A source currency no single native amount converts into the filter window has no native
     // range, so a source range spanning a window narrower than one minor unit is not matched.
-    let active_ranges = price_filter
+    let ranges = price_filter
         .active_native_ranges
         .iter()
         .map(|range| {
@@ -776,37 +737,13 @@ pub(crate) fn build_product_index_price_clause(
             })
         })
         .collect::<Vec<_>>();
-    let active = (!active_ranges.is_empty()).then(|| {
-        json!({
-            "bool": {
-                "must_not": [{ "exists": { "field": "saleObservationFxRateId" } }],
-                "filter": [{
-                    "bool": {
-                        "should": active_ranges,
-                        "minimum_should_match": 1
-                    }
-                }]
-            }
-        })
-    });
-    let sold = json!({
-        "bool": {
-            "filter": [
-                { "exists": { "field": "saleObservationFxRateId" } },
-                overlap_query(
-                    &sale_price_field_for("salePrices", price_filter.target_currency),
-                    &sale_price_field_for("salePricesMax", price_filter.target_currency),
-                    price_filter.sold_display_range.min.map(u64::from),
-                    price_filter.sold_display_range.max.map(u64::from),
-                )
-            ]
-        }
-    });
-    let should = active.into_iter().chain([sold]).collect::<Vec<_>>();
+    if ranges.is_empty() {
+        return Some(json!({ "match_none": {} }));
+    }
 
     Some(json!({
         "bool": {
-            "should": should,
+            "should": ranges,
             "minimum_should_match": 1
         }
     }))
@@ -847,10 +784,6 @@ fn overlap_query(
 
 fn currency_code(currency: Currency) -> &'static str {
     currency.as_str()
-}
-
-fn sale_price_field_for(object: &str, currency: Currency) -> String {
-    format!("{object}.{}", currency.as_str().to_ascii_lowercase())
 }
 
 fn apply_availability_filter(
@@ -973,18 +906,19 @@ fn discovery_dimension(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_listing_document::{SalePricesDocument, SourcePriceDocument, TextDocument};
+    use crate::product_listing_document::{SourcePriceDocument, TextDocument};
     use auction_core::AuctionId;
     use domain_primitives::event_id::EventId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
     use listing_source_core::ListingSourceId;
-    use money::MonetaryAmount;
+    use money::{MonetaryAmount, Price};
     use opensearch::http::transport::{SingleNodeConnectionPool, Transport, TransportBuilder};
     use platform_opensearch::search_response::OpenSearchTimedOutError;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
-        product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
+        product_listing_id::ProductListingId, product_listing_price::PriceRange,
+        product_listing_search::ListingAvailabilityQuery,
         product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     };
     use rstest::rstest;
@@ -1040,41 +974,6 @@ mod tests {
         Monetary(u64),
     }
 
-    fn sale_prices(usd: u64) -> SalePricesDocument {
-        SalePricesDocument {
-            eur: 100,
-            gbp: 80,
-            usd,
-            aud: 100,
-            cad: 100,
-            nzd: 100,
-            cny: 100,
-            brl: 100,
-            pln: 100,
-            r#try: 100,
-            jpy: 100,
-            czk: 100,
-            rub: 100,
-            aed: 100,
-            sar: 100,
-            hkd: 100,
-            sgd: 100,
-            chf: 100,
-            zar: 100,
-            sek: Some(100),
-            dkk: Some(100),
-            nok: Some(100),
-            krw: Some(100),
-            inr: Some(100),
-            twd: Some(100),
-            huf: Some(100),
-            ron: Some(100),
-            mxn: Some(100),
-            thb: Some(100),
-            ars: Some(100),
-        }
-    }
-
     fn document() -> Result<ProductListingDocument, url::ParseError> {
         Ok(ProductListingDocument {
             product_listing_id: ProductListingId::new(),
@@ -1098,10 +997,6 @@ mod tests {
                 amount: 100,
                 currency: Currency::Eur,
             }),
-            sale_prices: None,
-            sale_prices_max: None,
-            sale_observation_fx_rate_id: None,
-            sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             images: IndexSet::new(),
@@ -1694,18 +1589,17 @@ mod tests {
         json!({ "sourcePrice": source_price })
     }
 
-    fn sold_price(min: u64, max: Option<u64>) -> serde_json::Value {
-        json!({
-            "saleObservationFxRateId": "fx",
-            "sourcePrice": { "type": if max.is_some() { "RANGE" } else { "MONETARY" } },
-            "salePrices": { "usd": min },
-            "salePricesMax": max.map(|max| json!({ "usd": max })),
+    fn usd_price(min: u64, max: Option<u64>) -> serde_json::Value {
+        active_price(match max {
+            Some(max) => {
+                json!({"type": "RANGE", "amount": min, "maxAmount": max, "currency": "USD"})
+            }
+            None => json!({"type": "MONETARY", "amount": min, "currency": "USD"}),
         })
     }
 
     #[test]
-    fn should_match_prices_and_overlapping_ranges_in_active_and_sold_branches()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn should_match_prices_and_overlapping_ranges() -> Result<(), Box<dyn std::error::Error>> {
         // A filter of exactly USD 1.10, which is EUR 1.00 in the plan.
         let clause = build_product_index_price_clause(&price_filter(Currency::Usd, Some(110))?)
             .ok_or("missing price clause")?;
@@ -1728,11 +1622,12 @@ mod tests {
             (eur_range(20, 99), false),
             (active_price(json!({"type": "ON_REQUEST"})), false),
             (json!({}), false),
-            (sold_price(110, None), true),
-            (sold_price(111, None), false),
-            (sold_price(100, Some(200)), true),
-            (sold_price(120, Some(200)), false),
-            (sold_price(50, Some(100)), false),
+            (usd_price(110, None), true),
+            (usd_price(111, None), false),
+            (usd_price(100, Some(200)), true),
+            (usd_price(120, Some(200)), false),
+            (usd_price(50, Some(110)), true),
+            (usd_price(50, Some(109)), false),
         ] {
             assert_eq!(expected, matches_clause(&clause, &document), "{document}");
         }
@@ -1881,6 +1776,18 @@ mod tests {
     }
 
     #[test]
+    fn should_match_nothing_when_no_source_currency_converts_into_the_price_window()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut plan = price_filter(Currency::Usd, Some(110))?;
+        plan.active_native_ranges.clear();
+
+        let clause = build_product_index_price_clause(&plan).ok_or("missing price clause")?;
+
+        assert_eq!(json!({ "match_none": {} }), clause);
+        Ok(())
+    }
+
+    #[test]
     fn should_not_render_price_clause_without_price_filter()
     -> Result<(), Box<dyn std::error::Error>> {
         assert!(build_product_index_price_clause(&price_filter(Currency::Usd, None)?).is_none());
@@ -1915,7 +1822,7 @@ mod tests {
             (111, Some(u64::MAX), false, true),
             (0, Some(109), true, false),
         ] {
-            let document = sold_price(min, max);
+            let document = usd_price(min, max);
             assert_eq!(
                 expected_max_only,
                 matches_clause(&max_only, &document),
@@ -1981,88 +1888,18 @@ mod tests {
     }
 
     #[rstest]
-    #[case::range(777, 999, Ok(Some(usd_range(777, 999).unwrap())))]
-    #[case::bounds_valued_alike(777, 777, Ok(Some(ProductListingPrice::Monetary(Price::new(777_u64.into(), Currency::Usd)))))]
-    #[case::descending(999, 777, Err(()))]
-    fn should_read_both_sale_prices_of_a_sold_price_range(
-        #[case] min: u64,
-        #[case] max: u64,
-        #[case] expected: Result<Option<ProductListingPrice>, ()>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.source_price = Some(SourcePriceDocument::Range {
-            amount: 100,
-            max_amount: 200,
-            currency: Currency::Eur,
-        });
-        document.sale_prices = Some(sale_prices(min));
-        document.sale_prices_max = Some(sale_prices(max));
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
-
-        let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?);
-
-        assert_eq!(expected, price.map_err(|_| ()));
-        Ok(())
-    }
-
-    #[test]
-    fn should_use_exact_target_sale_price() -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.sale_prices = Some(sale_prices(777));
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
-
-        let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?)?;
-
-        assert_eq!(
-            price,
-            Some(ProductListingPrice::Monetary(Price::new(
-                MonetaryAmount::from(777_u64),
-                Currency::Usd,
-            )))
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::active_without_source_price(None, false, false, ExpectedPrice::Absent)]
-    #[case::active_on_request(
-        Some(SourcePriceDocument::OnRequest),
-        false,
-        false,
-        ExpectedPrice::OnRequest
-    )]
-    #[case::active_monetary(
+    #[case::without_source_price(None, ExpectedPrice::Absent)]
+    #[case::on_request(Some(SourcePriceDocument::OnRequest), ExpectedPrice::OnRequest)]
+    #[case::monetary(
         Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }),
-        false,
-        false,
         ExpectedPrice::Monetary(110)
     )]
-    #[case::sold_without_source_price(None, true, false, ExpectedPrice::Absent)]
-    #[case::sold_on_request(
-        Some(SourcePriceDocument::OnRequest),
-        true,
-        false,
-        ExpectedPrice::OnRequest
-    )]
-    #[case::sold_monetary(
-        Some(SourcePriceDocument::Monetary { amount: 100, currency: Currency::Eur }),
-        true,
-        true,
-        ExpectedPrice::Monetary(777)
-    )]
-    fn should_resolve_prices_from_valid_source_and_sale_states(
+    fn should_resolve_prices_from_valid_source_states(
         #[case] source_price: Option<SourcePriceDocument>,
-        #[case] has_sale_metadata: bool,
-        #[case] has_sale_prices: bool,
         #[case] expected: ExpectedPrice,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut document = document()?;
         document.source_price = source_price;
-        document.sale_observation_fx_rate_id = has_sale_metadata.then(FxRateId::new);
-        document.sale_observed_at = has_sale_metadata.then_some(OffsetDateTime::UNIX_EPOCH);
-        document.sale_prices = has_sale_prices.then(|| sale_prices(777));
 
         let resolved = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?)?;
 
@@ -2082,46 +1919,40 @@ mod tests {
         Ok(())
     }
 
+    /// A document an earlier projection rule wrote for a sold listing is read like any other
+    /// until the backfill removes it: its sale valuation is ignored.
     #[test]
-    fn should_map_sold_document_without_sale_prices_to_sale_observation_and_no_display_price()
+    fn should_value_legacy_sold_document_at_the_pinned_current_snapshot()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        let fx_rate_id = FxRateId::new();
-        document.source_price = None;
-        document.sale_observation_fx_rate_id = Some(fx_rate_id);
-        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
-        document.availability = Some(ListingAvailability::SoldOut);
+        let mut legacy = serde_json::to_value(document()?)?;
+        legacy["availability"] = json!("SOLD_OUT");
+        legacy["saleObservationFxRateId"] = json!(FxRateId::new());
+        legacy["saleObservedAt"] = json!("1970-01-01T00:00:00Z");
+        legacy["salePrices"] = json!({ "usd": 777 });
+        let document = serde_json::from_value::<ProductListingDocument>(legacy)?;
+        let plan = price_filter(Currency::Usd, None)?;
 
         let summary = map_summary_fields(
             document.clone(),
             Language::En,
-            resolve_price(&document, &price_filter(Currency::Usd, None)?)?,
-            price_valuation(&document, &price_filter(Currency::Usd, None)?)?,
+            resolve_price(&document, &plan)?,
+            price_valuation(&plan),
         )?;
 
-        assert_eq!(None, summary.display_price);
-        assert_eq!(document.listing_source_id, summary.listing_source_id);
-        assert_eq!(document.source_listing_id, summary.source_listing_id);
         assert_eq!(
-            ProductListingSummaryPriceValuation::SaleObservation {
-                fx_rate_id,
-                observed_at: OffsetDateTime::UNIX_EPOCH,
+            Some(ProductListingPrice::Monetary(Price::new(
+                MonetaryAmount::from(110_u64),
+                Currency::Usd,
+            ))),
+            summary.display_price
+        );
+        assert_eq!(
+            ProductListingSummaryPriceValuation::Current {
+                fx_rate_id: plan.fx_rate_id,
+                captured_at: plan.captured_at(),
             },
             summary.price_valuation
         );
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_invalid_sale_projection_when_mapping_price()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.sale_observation_fx_rate_id = Some(FxRateId::new());
-
-        assert!(matches!(
-            resolve_price(&document, &price_filter(Currency::Usd, None)?),
-            Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid { .. })
-        ));
         Ok(())
     }
 

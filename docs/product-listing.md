@@ -81,7 +81,7 @@ resolve their current dependencies independently.
 - Availability writes never create, overwrite or clear an observation. `SOLD_OUT` without an observation is valid.
 - Recording uses a dedicated authorized transaction and the latest persisted FX snapshot at or before `observed_at`.
 - An equal observation is a no-op; a different observation conflicts. Retraction is a dedicated correction, not an implicit overwrite.
-- Persisted FX snapshots retain their original supported currency set. New captures must cover every currently supported currency; historical snapshots must cover a complete supported set from before or after a currency expansion. Partially expanded sets are invalid. Historical valuation never substitutes current rates or invents absent quotes. Sale projections omit currencies unavailable in their pinned snapshot; detail conversion without a historical quote fails closed; optional public-history display projections omit values without a historical quote.
+- Persisted FX snapshots retain their original supported currency set. New captures must cover every currently supported currency; historical snapshots must cover a complete supported set from before or after a currency expansion. Partially expanded sets are invalid. Historical valuation never substitutes current rates or invents absent quotes. Detail conversion without a historical quote fails closed; optional public-history display projections omit values without a historical quote.
 - An observation may survive withdrawal or relisting. Use its FX only while currently sold out or for deliberately historical/withdrawn presentation; an active relisted listing uses current FX.
 
 ## Behaviors and events
@@ -135,15 +135,16 @@ field no-op, even alongside other edits. Net-zero text edits disappear from the 
 Meaningful descriptions retain their paragraphs. Identity, source key and public slug never change.
 
 Meaningful title or description changes advance the shared content revision and the embedding
-revision, invalidate obsolete title translations and embeddings atomically, and refresh title
-translation, content assessment and embedding asynchronously. Reads fall back to current original
-text until translations arrive; assessments of older revisions are no longer current. Translation
-remains titles-only. Description-only changes also schedule title translation because it shares
-the content revision guard with assessment; pending older translation results are stale.
+revision, invalidate embeddings atomically, and refresh content assessment and embedding
+asynchronously; assessments of older revisions are no longer current. Translation remains
+titles-only. A title change, including a title language change, also invalidates the title
+translations and refreshes them asynchronously; reads fall back to the current original title until
+they arrive. A description-only change [carries](#title-translation) the title's translations onto
+the new revision instead.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
-Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
+Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone. Discovery (search, similar listings and saved-search retrieval) offers only listings a buyer can still pursue: active and not `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` ([`listing_discoverability.rs`](../src/product-listing-core/src/listing_discoverability.rs)). Absent availability is no assertion and `RESERVED` is a temporary hold, so both stay discoverable. Any other state removes the search projection exactly as withdrawal does, and the change back rebuilds it; detail, watchlists and history read PostgreSQL and are unaffected. Discovery filters still accept the excluded values, which match nothing, so `NOT_ORDERABLE` matches only `RESERVED`, and every discovery result is valued at current FX. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
 
 Listing reads present the source's operator Party and whether it is a partner: it holds an
 `ACTIVE` Partnership. Partner status belongs to the Party, not to a ListingSource grant, and is
@@ -281,6 +282,51 @@ Without the stored `show_unassessed_or_sensitive_content` preference, image URLs
 The authorized [management inspection](#management-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
 
 Assessment does not block ingestion, change aggregate revision/history or become search authority. Non-content changes do not invalidate text assessment; a new text source must invalidate the old result.
+
+## Title translation
+
+A listing's title is translated into German, English, French, Spanish and Italian, except its
+own language, asynchronously and in bulk. The `product-translation` job only records the content
+revision as pending work in PostgreSQL, unless the listing has moved past it or already holds its
+translations; a newer revision replaces older pending or parked work. A translation round every
+15 minutes in the worker then:
+
+1. collects ended [Message Batches](https://platform.claude.com/docs/en/build-with-claude/batch-processing)
+   and commits each title's result under the translation source-marker guard, so a result for a
+   superseded revision is dropped as stale;
+2. translates titles Claude Haiku refused on their own synchronously on Claude Sonnet (#3076);
+3. submits the pending work as one Haiku batch, at half the synchronous price.
+
+A request translates up to 20 titles of one source language. Its output budget is reserved per
+title in proportion to the title's length, so dense CJK titles travel in smaller groups and a
+runaway answer stops near its proportional size rather than at a fixed cap. Titles are untrusted
+data: they travel as JSON string values keyed by short IDs, the instruction tells the model to
+translate them and never follow them, and each title is validated alone. A missing, empty or
+implausibly long or short translation fails only its title, and so does one with fewer runs of
+`?` than its source. Shops sometimes serve titles whose characters were already replaced with
+`?`, and many titles use `???` deliberately (*Die drei ???*, `Modell ???`); the instruction says
+to copy every run verbatim and never guess what it stood for. A title whose question marks
+outnumber its letters is not scheduled at all: too little text is left to translate, and readers
+keep the original title in every language. A refused or truncated group is resubmitted title by
+title; only a title refused alone reaches Sonnet. Expired or canceled requests, and requests a temporarily unavailable provider did not answer, return to the queue
+unchanged; an invalid answer or a failed write spends one of a title's three attempts and fails
+only that title. A title whose attempts are spent, or that Sonnet also refuses, is parked until its
+title changes. A round settles work only while it is still where the round found it, so
+several workers may run rounds side by side. Reads and saved-search matching fall back to the original title until a
+translation lands, so the daily match needs no synchronous sweep. Operations are in the
+[runbook](durable-worker-runbook.md#title-translation-recovery).
+
+A description-only change keeps the title, so the listing update carries its translation state onto
+the new content revision in the same transaction instead of translating the title again. When the
+replaced revision is translated, its translations are re-stamped and its translated-titles completion
+is copied for the new revision; the copy becomes the listing's current event, so it drives the search
+projection and the new revision's translation job completes as `duplicate` without a model call.
+Translation work still pending, in a batch or parked for the replaced revision moves along unchanged.
+Only a result a round already read for the replaced revision is dropped as stale and translated
+again.
+Only the replaced revision is carried: translations of any older revision are stale and dropped, so a
+description change that follows a title change whose translation has not landed still translates
+that title.
 
 ## Source anti-corruption rules
 

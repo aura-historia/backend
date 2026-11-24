@@ -1,6 +1,7 @@
 pub mod content_policy;
 pub mod description;
 pub mod listing_availability;
+pub mod listing_discoverability;
 pub mod listing_lifecycle;
 pub mod listing_orderability;
 pub mod product_listing;
