@@ -208,7 +208,7 @@ mod tests {
                 ExtractionKind::Attribute { name: "src".into() },
             )),
             raw_attributes: Default::default(),
-            sanitize: Vec::new(),
+            sanitize: Default::default(),
         }
     }
 

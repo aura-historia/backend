@@ -1,6 +1,7 @@
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionError;
+use crate::scraper::css_selector::sanitize::Sanitize;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -353,6 +354,10 @@ fn drop_sanitize_properties(value: &mut Value) {
             if let Some(Value::Object(properties)) = object.get_mut("properties") {
                 properties.remove("sanitize");
             }
+            if let Some(Value::Object(definitions)) = object.get_mut("$defs") {
+                definitions.remove("Sanitize");
+                definitions.remove("SanitizedField");
+            }
             object.values_mut().for_each(drop_sanitize_properties);
         }
         Value::Array(values) => values.iter_mut().for_each(drop_sanitize_properties),
@@ -363,7 +368,7 @@ fn drop_sanitize_properties(value: &mut Value) {
 /// Generated schemas never carry `sanitize`, even when the model returns one anyway.
 fn without_sanitize(schemas: &mut [ProductCssSelectorSchema]) {
     for schema in schemas {
-        schema.sanitize.clear();
+        schema.sanitize = Sanitize::default();
     }
 }
 
@@ -720,9 +725,10 @@ mod tests {
             generator_json_schema(schema_for!(ProductCssSelectorSchema)),
         ] {
             assert!(!schema.contains("\"sanitize\""), "{schema}");
+            assert!(!schema.contains("Sanitize"), "{schema}");
         }
         let generated = parse_product_schemas_response(
-            r#"{"schemas":[{"title":{"selector":"h1","type":"text"},"sanitize":["Free shipping worldwide."]}],"confidence":"HIGH","summary":"ok"}"#,
+            r#"{"schemas":[{"title":{"selector":"h1","type":"text"},"sanitize":{"description":["Free shipping worldwide."]}}],"confidence":"HIGH","summary":"ok"}"#,
         )
         .unwrap();
         assert!(generated.schemas[0].sanitize.is_empty());

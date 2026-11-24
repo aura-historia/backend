@@ -7,7 +7,6 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 use super::ReviewRepositoryError;
-use crate::scraper::css_selector::sanitize::invalid_sanitize_texts;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Why a product-schema candidate is refused, named for the reviewer who has to repair it.
@@ -209,14 +208,11 @@ pub(super) fn validate_product_schemas(
                         source,
                     })
             })?;
-            match invalid_sanitize_texts(&schema.sanitize) {
-                Some((text, reason)) => Err(ProductSchemaCandidateFailure::InvalidRule {
+            match schema.sanitize.invalid() {
+                Some(invalid) => Err(ProductSchemaCandidateFailure::InvalidRule {
                     schema_index,
-                    field: "sanitize".to_owned(),
-                    source: ExtractionError::InvalidSanitizeText {
-                        text,
-                        reason: reason.to_owned(),
-                    },
+                    field: format!("sanitize.{}", invalid.field.as_str()),
+                    source: invalid.into(),
                 }),
                 None => Ok(()),
             }
@@ -444,7 +440,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(image_rule("img")),
             raw_attributes: Default::default(),
-            sanitize: Vec::new(),
+            sanitize: Default::default(),
         }
     }
 
@@ -665,7 +661,10 @@ mod tests {
         });
         let invalid_raw_attribute = with_raw_attribute(schema("h1.product"), "rawMaterial", "a[");
         let mut invalid_sanitize = schema("h1.product");
-        invalid_sanitize.sanitize = vec!["Versand".to_owned()];
+        invalid_sanitize.sanitize = crate::scraper::css_selector::sanitize::Sanitize::from([(
+            crate::scraper::css_selector::sanitize::SanitizedField::Description,
+            vec!["Versand".to_owned()],
+        )]);
         let cases = [
             (
                 vec![schema("h1.product"), schema("h1[")],
@@ -681,7 +680,7 @@ mod tests {
             ),
             (
                 vec![invalid_sanitize],
-                "invalid ProductSchema review candidate: schema 0, field `sanitize`: sanitize text `Versand` is unusable:",
+                "invalid ProductSchema review candidate: schema 0, field `sanitize.description`: sanitize text `Versand` of `description` is unusable:",
             ),
         ];
 

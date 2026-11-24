@@ -1,11 +1,21 @@
-//! A product schema's `sanitize` texts: shop boilerplate, such as shipping, payment or invoice
-//! notices, that the shop repeats in the description of every listing and that says nothing
-//! about the item. The schema author lists them; extraction removes each from the description.
-//! See `docs/crawler/extraction-and-review.md#sanitize`.
+//! A product schema's `sanitize` texts: per schema field, shop boilerplate, such as a shipping,
+//! payment or invoice notice, that the shop repeats in that field on every listing and that says
+//! nothing about the item. The schema author lists them; extraction removes each from the field's
+//! values. See `docs/crawler/extraction-and-review.md#sanitize`.
+//!
+//! Adding a field: add a [`SanitizedField`] variant and pass the field's extracted values through
+//! [`Sanitize::apply`] where the schema extracts them. Validation, storage, review and the agents'
+//! schema take the new key from the enum.
 
+use crate::scraper::css_selector::rule::ExtractionError;
 use regex::Regex;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
-/// Most texts one schema may list.
+/// Most texts one field may list.
 pub(crate) const MAX_SANITIZE_TEXTS: usize = 50;
 /// Shortest text, in characters other than whitespace: a shorter one, such as a lone word or
 /// punctuation, would also cut item text.
@@ -13,10 +23,127 @@ pub(crate) const MIN_SANITIZE_TEXT_CHARS: usize = 8;
 /// Longest text, in characters.
 pub(crate) const MAX_SANITIZE_TEXT_CHARS: usize = 2_000;
 
-/// Why a schema's `sanitize` list is unusable.
-pub(crate) fn invalid_sanitize_texts(texts: &[String]) -> Option<(String, &'static str)> {
+/// A schema field whose extracted values `sanitize` cleans, named as the schema names it.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    EnumIter,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SanitizedField {
+    Description,
+}
+
+impl SanitizedField {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Description => "description",
+        }
+    }
+}
+
+/// Per field, the shop boilerplate texts removed from that field's extracted values. A field
+/// key outside [`SanitizedField`] does not decode, so a schema never stores a text that nothing
+/// applies.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct Sanitize(BTreeMap<SanitizedField, Vec<String>>);
+
+impl<const N: usize> From<[(SanitizedField, Vec<String>); N]> for Sanitize {
+    fn from(texts: [(SanitizedField, Vec<String>); N]) -> Self {
+        Self(BTreeMap::from(texts))
+    }
+}
+
+/// Why a schema's `sanitize` texts are unusable: the field, the text's start (empty when the
+/// field's list as a whole is) and the reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InvalidSanitizeText {
+    pub(crate) field: SanitizedField,
+    pub(crate) text: String,
+    pub(crate) reason: &'static str,
+}
+
+impl Sanitize {
+    /// No field lists a text; such a schema is stored without the key.
+    pub fn is_empty(&self) -> bool {
+        self.0.values().all(Vec::is_empty)
+    }
+
+    pub fn texts(&self, field: SanitizedField) -> &[String] {
+        self.0.get(&field).map_or(&[], Vec::as_slice)
+    }
+
+    /// The first unusable text, in field order.
+    pub(crate) fn invalid(&self) -> Option<InvalidSanitizeText> {
+        SanitizedField::iter().find_map(|field| {
+            invalid_texts(self.texts(field)).map(|(text, reason)| InvalidSanitizeText {
+                field,
+                text,
+                reason,
+            })
+        })
+    }
+
+    /// Removes every occurrence of every text of `field` from its extracted values. A text
+    /// matches with any run of whitespace, line breaks included, where it has one, and is
+    /// otherwise exact. Values left blank are dropped. Fails safe: when nothing but sanitize
+    /// texts would remain, the values are returned unchanged, so sanitizing never clears a
+    /// field.
+    pub(crate) fn apply(&self, field: SanitizedField, values: Vec<String>) -> Vec<String> {
+        let patterns = self
+            .texts(field)
+            .iter()
+            .filter_map(|text| pattern(text))
+            .collect::<Vec<_>>();
+        if patterns.is_empty() {
+            return values;
+        }
+        let sanitized = values
+            .iter()
+            .map(|value| {
+                patterns
+                    .iter()
+                    .fold(value.clone(), |value, pattern| remove(&value, pattern))
+            })
+            .filter(|value| !value.trim().is_empty())
+            .collect::<Vec<_>>();
+        if sanitized.is_empty() {
+            return values;
+        }
+        sanitized
+    }
+}
+
+impl From<InvalidSanitizeText> for ExtractionError {
+    fn from(invalid: InvalidSanitizeText) -> Self {
+        Self::InvalidSanitizeText {
+            field: invalid.field.as_str().to_owned(),
+            text: invalid.text,
+            reason: invalid.reason.to_owned(),
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+impl fake::Dummy<fake::Faker> for Sanitize {
+    fn dummy_with_rng<R: fake::RngExt + ?Sized>(_: &fake::Faker, _: &mut R) -> Self {
+        Self::default()
+    }
+}
+
+fn invalid_texts(texts: &[String]) -> Option<(String, &'static str)> {
     if texts.len() > MAX_SANITIZE_TEXTS {
-        return Some((String::new(), "the list holds more than 50 texts"));
+        return Some((String::new(), "the field lists more than 50 texts"));
     }
     for (index, text) in texts.iter().enumerate() {
         let reason =
@@ -41,33 +168,6 @@ pub(crate) fn invalid_sanitize_texts(texts: &[String]) -> Option<(String, &'stat
 
 fn whitespace_runs(text: &str) -> Vec<&str> {
     text.split_whitespace().collect()
-}
-
-/// Removes every occurrence of every text from the description fragments. A text matches with
-/// any run of whitespace, line breaks included, where it has one, and is otherwise exact.
-/// Fragments left blank are dropped. Fails safe: when nothing but sanitize texts would remain,
-/// the fragments are returned unchanged, so sanitizing never clears a description.
-pub(crate) fn sanitize_description(fragments: Vec<String>, texts: &[String]) -> Vec<String> {
-    let patterns = texts
-        .iter()
-        .filter_map(|text| pattern(text))
-        .collect::<Vec<_>>();
-    if patterns.is_empty() {
-        return fragments;
-    }
-    let sanitized = fragments
-        .iter()
-        .map(|fragment| {
-            patterns.iter().fold(fragment.clone(), |fragment, pattern| {
-                remove(&fragment, pattern)
-            })
-        })
-        .filter(|fragment| !fragment.trim().is_empty())
-        .collect::<Vec<_>>();
-    if sanitized.is_empty() {
-        return fragments;
-    }
-    sanitized
 }
 
 /// A text's whitespace-tolerant literal pattern; `None` for a blank text, which validation
@@ -126,8 +226,16 @@ mod tests {
         values.iter().map(|&value| value.to_owned()).collect()
     }
 
+    fn description(values: &[&str]) -> Sanitize {
+        Sanitize::from([(SanitizedField::Description, texts(values))])
+    }
+
     fn sanitize(fragments: &[&str], sanitize: &[&str]) -> Vec<String> {
-        sanitize_description(texts(fragments), &texts(sanitize))
+        description(sanitize).apply(SanitizedField::Description, texts(fragments))
+    }
+
+    fn invalid(values: &[&str]) -> Option<&'static str> {
+        description(values).invalid().map(|invalid| invalid.reason)
     }
 
     #[test]
@@ -231,19 +339,56 @@ mod tests {
     #[case(&["  \n "], "a text needs at least 8 characters other than whitespace")]
     #[case(&["Versand weltweit.", "Versand  weltweit."], "the text is listed twice")]
     fn should_refuse_unusable_texts(#[case] values: &[&str], #[case] reason: &str) {
-        assert_eq!(
-            Some(reason),
-            invalid_sanitize_texts(&texts(values)).map(|(_, reason)| reason)
-        );
+        assert_eq!(Some(reason), invalid(values));
     }
 
     #[test]
     fn should_refuse_overlong_and_too_many_texts() {
-        assert!(invalid_sanitize_texts(&["x".repeat(MAX_SANITIZE_TEXT_CHARS + 1)]).is_some());
+        let overlong = "x".repeat(MAX_SANITIZE_TEXT_CHARS + 1);
+        assert!(invalid(&[&overlong]).is_some());
         let many = (0..=MAX_SANITIZE_TEXTS)
             .map(|index| format!("Versandhinweis Nummer {index}"))
             .collect::<Vec<_>>();
-        assert!(invalid_sanitize_texts(&many).is_some());
-        assert_eq!(None, invalid_sanitize_texts(&many[..MAX_SANITIZE_TEXTS]));
+        let many = many.iter().map(String::as_str).collect::<Vec<_>>();
+        assert!(invalid(&many).is_some());
+        assert_eq!(None, invalid(&many[..MAX_SANITIZE_TEXTS]));
+    }
+
+    #[test]
+    fn should_name_the_field_of_an_unusable_text() {
+        assert_eq!(
+            Some(InvalidSanitizeText {
+                field: SanitizedField::Description,
+                text: "Versand".to_owned(),
+                reason: "a text needs at least 8 characters other than whitespace",
+            }),
+            description(&["Versand weltweit möglich.", "Versand"]).invalid()
+        );
+    }
+
+    #[test]
+    fn should_store_texts_by_field_and_refuse_a_field_nothing_sanitizes() {
+        let sanitize = description(&["Versand weltweit möglich."]);
+        let stored = serde_json::to_value(&sanitize).unwrap();
+        assert_eq!(
+            serde_json::json!({"description": ["Versand weltweit möglich."]}),
+            stored
+        );
+        assert_eq!(sanitize, serde_json::from_value(stored).unwrap());
+        assert!(
+            serde_json::from_value::<Sanitize>(serde_json::json!({"price": ["EUR 12"]})).is_err()
+        );
+        assert!(description(&[]).is_empty());
+    }
+
+    #[test]
+    fn should_leave_fields_without_texts_unchanged() {
+        assert_eq!(
+            texts(&["Versand weltweit möglich."]),
+            Sanitize::default().apply(
+                SanitizedField::Description,
+                texts(&["Versand weltweit möglich."])
+            )
+        );
     }
 }

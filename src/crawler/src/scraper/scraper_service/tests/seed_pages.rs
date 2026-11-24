@@ -39,7 +39,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             state: Some(text_rule("non-existent-state")),
             images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
-            sanitize: Vec::new(),
+            sanitize: Default::default(),
         }
     };
 

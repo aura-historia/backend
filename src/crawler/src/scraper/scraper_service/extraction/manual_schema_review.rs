@@ -174,7 +174,7 @@ fn starter_schema() -> ProductCssSelectorSchema {
             ExtractionCardinality::All,
         )),
         raw_attributes: BTreeMap::new(),
-        sanitize: Vec::new(),
+        sanitize: Default::default(),
     }
 }
 

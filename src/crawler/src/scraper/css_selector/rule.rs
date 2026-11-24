@@ -212,9 +212,13 @@ pub enum ExtractionError {
     MissingAttribute { selector: String, attribute: String },
 
     /// A `sanitize` text of the schema is unusable; `text` is its start, empty when the
-    /// list as a whole is.
-    #[error("sanitize text `{text}` is unusable: {reason}")]
-    InvalidSanitizeText { text: String, reason: String },
+    /// field's list as a whole is.
+    #[error("sanitize text `{text}` of `{field}` is unusable: {reason}")]
+    InvalidSanitizeText {
+        field: String,
+        text: String,
+        reason: String,
+    },
 }
 
 impl ExtractionRule {

@@ -46,7 +46,7 @@ fn schema() -> ProductCssSelectorSchema {
         state: Some(rule("span.state")),
         images: None,
         raw_attributes: Default::default(),
-        sanitize: Vec::new(),
+        sanitize: Default::default(),
     }
 }
 

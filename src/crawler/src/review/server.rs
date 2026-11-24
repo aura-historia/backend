@@ -2726,7 +2726,7 @@ Origin: http://127.0.0.1:7878/x
                     ExtractionKind::Attribute { name: "src".into() },
                 )),
                 raw_attributes: Default::default(),
-                sanitize: Vec::new(),
+                sanitize: Default::default(),
             }
         }
 
