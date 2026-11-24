@@ -71,7 +71,8 @@ pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use schema_audit::{
-    InvalidSchemaAuditRequestNote, SchemaAuditRequestNote, SchemaAuditReview, SchemaAuditSource,
+    InvalidSchemaAuditRequestNote, SchemaAuditOpening, SchemaAuditRequestNote, SchemaAuditReview,
+    SchemaAuditSource,
 };
 pub(crate) use schema_audit::{audit_findings_of, audit_request_note_of};
 pub use schema_payload::ProductSchemaCandidateFailure;
@@ -120,6 +121,9 @@ pub enum ReviewRepositoryError {
     NotFound(CrawlerReviewId),
     #[error("ListingSource not found: {0}")]
     ListingSourceNotFound(ListingSourceId),
+    /// A schema audit was requested for a ListingSource the audit cannot take, as the text says.
+    #[error("ListingSource {0} cannot be audited: {1}")]
+    SchemaAuditNotPossible(ListingSourceId, &'static str),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
     #[error(

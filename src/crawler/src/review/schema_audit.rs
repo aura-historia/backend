@@ -99,10 +99,23 @@ impl SchemaAuditFindings {
         self.0.iter().cloned().collect()
     }
 
-    /// Whether every finding is among the `accepted` ones: an earlier audit review of the same
-    /// live schemas was approved with them, so reopening the source would only repeat it.
-    pub(crate) fn accepted_by(&self, accepted: &[String]) -> bool {
-        self.0.iter().all(|code| accepted.contains(code))
+    /// The findings that are not among the `accepted` ones: an earlier audit review of the same
+    /// live schemas judged those, so reopening the source for them would only repeat it.
+    pub(crate) fn excluding(&self, accepted: &[String]) -> Self {
+        Self(
+            self.0
+                .iter()
+                .filter(|code| !accepted.contains(code))
+                .cloned()
+                .collect(),
+        )
+    }
+
+    /// Whether a finding is one the approval guard refuses, so the source's never-captured
+    /// listings wait for the repair. A hint for the agents to judge, such as the title source or
+    /// [`title_hints`], may be no defect, so it holds nothing back.
+    pub(crate) fn holds_new_listings(&self) -> bool {
+        self.0.iter().any(|code| !is_hint(code))
     }
 }
 
@@ -192,6 +205,22 @@ fn blocking_codes(page: &ImplausiblePage) -> Vec<String> {
         .iter()
         .map(|finding| field_code(finding.field.as_str(), &finding.check));
     per_page.chain(cross_page).chain(identity).collect()
+}
+
+/// Whether `code` is a hint for the agents to judge rather than a finding the guard refuses.
+fn is_hint(code: &str) -> bool {
+    [
+        TitleSource::DocumentTitle,
+        TitleSource::MetaTitle,
+        TitleSource::ImageAlt,
+    ]
+    .iter()
+    .any(|source| code == format!("title {}", source.code()))
+        || [
+            title_hints::HOLDS_IDENTITY,
+            title_hints::SHARED_LEADING_WORDS,
+        ]
+        .contains(&code)
 }
 
 /// `field CHECK`, the check named by its persisted code. Every check is a unit variant persisted
@@ -436,18 +465,49 @@ mod tests {
                 "images NO_IMAGE_ON_ANY_PAGE".to_owned(),
             ];
 
-            assert!(findings(&["title READS_META_TITLE"]).accepted_by(&accepted));
+            assert!(
+                findings(&["title READS_META_TITLE"])
+                    .excluding(&accepted)
+                    .is_empty()
+            );
         }
 
         /// A shop that changed its `og:title` after the approval adds a finding the approval
         /// never saw.
+        #[test]
+        fn should_hold_new_listings_back_only_for_a_finding_the_guard_refuses() {
+            assert!(
+                !findings(&["title READS_DOCUMENT_TITLE", "title HOLDS_IDENTITY"])
+                    .holds_new_listings()
+            );
+            assert!(!findings(&["title SHARED_LEADING_WORDS"]).holds_new_listings());
+            assert!(
+                findings(&["title READS_META_TITLE", "title LISTING_SOURCE_NAME"])
+                    .holds_new_listings()
+            );
+            assert!(!findings(&[]).holds_new_listings());
+        }
+
+        #[test]
+        fn should_leave_out_the_accepted_findings() {
+            let accepted = vec!["title READS_META_TITLE".to_owned()];
+
+            assert_eq!(
+                findings(&["title READS_META_TITLE", "title LISTING_SOURCE_NAME"])
+                    .excluding(&accepted)
+                    .codes(),
+                vec!["title LISTING_SOURCE_NAME"]
+            );
+        }
+
         #[test]
         fn should_not_be_accepted_when_a_finding_is_new() {
             let accepted = vec!["title READS_META_TITLE".to_owned()];
 
             assert!(
                 !findings(&["title READS_META_TITLE", "title LISTING_SOURCE_NAME"])
-                    .accepted_by(&accepted)
+                    .excluding(&accepted)
+                    .is_empty()
             );
         }
     }

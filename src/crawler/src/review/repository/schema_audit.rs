@@ -48,16 +48,43 @@ impl SchemaAuditRequestNote {
     }
 }
 
-/// Whether the ListingSource `listing_sources s` waits for an audit a human requested: no audit
-/// ran since the request, or the last one, which could not open the review, ran more than a day
-/// ago.
+/// Whether the ListingSource `listing_sources s` waits for an audit a human requested: the request
+/// is not settled, and no audit ran since it, or the last one, which opened no review the request
+/// was settled by, ran more than a day ago. An audit review settles the request once it carries the
+/// request's note, was opened after the request, and was approved, or rejected by a human; an
+/// agent's rejection settles nothing, and a request that arrives while the source is audited is
+/// not settled by a review that does not carry its note.
 macro_rules! requested_audit_due {
     () => {
         "(s.schema_audit_requested_at IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM crawler_reviews settled
+              WHERE settled.listing_source_id = s.listing_source_id
+                AND settled.artifact_type = 'PRODUCT_SCHEMA'
+                AND settled.reason = 'schema_audit_required'
+                AND settled.created >= s.schema_audit_requested_at
+                AND settled.validation_summary->'schema_audit'->>'request_note'
+                    = s.schema_audit_request_note
+                AND (settled.status = 'APPROVED'
+                     OR (settled.status = 'REJECTED'
+                         AND EXISTS (
+                             SELECT 1 FROM crawler_review_events e
+                             WHERE e.review_id = settled.review_id
+                               AND e.action = 'REJECTED'
+                               AND e.actor = 'HUMAN'))))
           AND (s.schema_audited_at IS NULL
                OR s.schema_audited_at < s.schema_audit_requested_at
                OR s.schema_audited_at < NOW() - INTERVAL '1 day'))"
     };
+}
+
+/// What an audit review records: the audit's findings as `field CHECK` codes, a human's request
+/// note, and whether the source's never-captured listings wait for the repair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SchemaAuditOpening<'a> {
+    pub findings: &'a [String],
+    pub request_note: Option<&'a str>,
+    pub holds_new_listings: bool,
 }
 
 /// Where an audit's review went.
@@ -103,7 +130,10 @@ impl CrawlerReviewRepository {
         limit: i64,
     ) -> Result<Vec<SchemaAuditSource>, ReviewRepositoryError> {
         let rows: Vec<(uuid::Uuid, String, Option<String>)> = sqlx::query_as(concat!(
-            "SELECT s.listing_source_id, s.listing_source_name, s.schema_audit_request_note
+            "SELECT s.listing_source_id, s.listing_source_name,
+                    CASE WHEN ",
+            requested_audit_due!(),
+            " THEN s.schema_audit_request_note END
              FROM listing_sources s
              WHERE s.crawl_enabled = TRUE
                AND s.crawl_host IS NOT NULL
@@ -169,14 +199,38 @@ impl CrawlerReviewRepository {
 
     /// Records a human's request that the live schema audit reopen the ListingSource for the
     /// review agents with `note`, what they should repair, replacing an earlier request. The audit
-    /// takes the source in its next pass, ahead of the others, once no product-schema review of it
-    /// is pending.
+    /// takes the source ahead of the others once no product-schema review of it is pending. A
+    /// source the audit cannot take is refused rather than left waiting: one that is not crawled or
+    /// has no live product schemas.
     pub async fn request_schema_audit(
         &self,
         listing_source_id: &ListingSourceId,
         note: &SchemaAuditRequestNote,
     ) -> Result<(), ReviewRepositoryError> {
-        let updated = sqlx::query(
+        let source: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT s.crawl_enabled, EXISTS (
+                        SELECT 1 FROM listing_source_product_schemas ps
+                        WHERE ps.listing_source_id = s.listing_source_id
+                          AND (jsonb_typeof(ps.product_schema) <> 'array'
+                               OR jsonb_array_length(ps.product_schema) > 0))
+             FROM listing_sources s WHERE s.listing_source_id = $1",
+        )
+        .bind(listing_source_id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await?;
+        let not_possible =
+            |reason| ReviewRepositoryError::SchemaAuditNotPossible(*listing_source_id, reason);
+        match source {
+            None => {
+                return Err(ReviewRepositoryError::ListingSourceNotFound(
+                    *listing_source_id,
+                ));
+            }
+            Some((false, _)) => return Err(not_possible("it is not crawled")),
+            Some((true, false)) => return Err(not_possible("it has no live product schemas")),
+            Some((true, true)) => {}
+        }
+        sqlx::query(
             "UPDATE listing_sources
              SET schema_audit_requested_at = NOW(), schema_audit_request_note = $2
              WHERE listing_source_id = $1",
@@ -185,11 +239,6 @@ impl CrawlerReviewRepository {
         .bind(note.as_str())
         .execute(&self.pool)
         .await?;
-        if updated.rows_affected() == 0 {
-            return Err(ReviewRepositoryError::ListingSourceNotFound(
-                *listing_source_id,
-            ));
-        }
         Ok(())
     }
 
@@ -253,24 +302,23 @@ impl CrawlerReviewRepository {
         Ok(accepted)
     }
 
-    /// Opens the product-schema review of an audit that found `findings` in the ListingSource's
-    /// `live_schemas` on its captured product `pages`, or that a human requested with
-    /// `request_note`: the candidate is the live schemas, so the review agents repair them as they
-    /// stand, and the review records the findings and the note. Opening it settles the request. When the
-    /// scraper opened a product-schema review for the source since the audit took it, the audit
-    /// opens none and clears its record, so the source is audited again once that review is
-    /// decided; a scraper review opened in the moment between the check and the insert is joined,
-    /// as every schema review is, and the record is cleared alike.
+    /// Opens the product-schema review of an audit of the ListingSource's `live_schemas` on its
+    /// captured product `pages`, which records what `audit` found or a human requested: the
+    /// candidate is the live schemas, so the review agents repair them as they stand. The request
+    /// stays until a decision of the review settles it ([`requested_audit_due`]). When the scraper
+    /// opened a product-schema review for the source since the audit took it, the audit opens none
+    /// and forgets its record, so the source is audited again once that review is decided; a
+    /// scraper review opened in the moment between the check and the insert is joined, as every
+    /// schema review is, and the record is forgotten alike.
     pub async fn open_schema_audit_review(
         &self,
         listing_source_id: &ListingSourceId,
         live_schemas: &[ProductCssSelectorSchema],
         pages: Vec<SchemaReviewPageInput>,
-        findings: &[String],
-        request_note: Option<&str>,
+        audit: SchemaAuditOpening<'_>,
     ) -> Result<SchemaAuditReview, ReviewRepositoryError> {
         if self.has_pending_schema_review(listing_source_id).await? {
-            self.clear_schema_audit(listing_source_id).await?;
+            self.forget_schema_audit(listing_source_id).await?;
             return Ok(SchemaAuditReview::Deferred);
         }
         let page_count = pages.len();
@@ -282,8 +330,9 @@ impl CrawlerReviewRepository {
                 pages,
                 json!({
                     "schema_audit": {
-                        "findings": findings,
-                        "request_note": request_note,
+                        "findings": audit.findings,
+                        "request_note": audit.request_note,
+                        "holds_new_listings": audit.holds_new_listings,
                         "page_count": page_count,
                     }
                 }),
@@ -295,17 +344,9 @@ impl CrawlerReviewRepository {
                 .fetch_one(&self.pool)
                 .await?;
         if reason == SCHEMA_AUDIT_REASON {
-            sqlx::query(
-                "UPDATE listing_sources
-                 SET schema_audit_requested_at = NULL, schema_audit_request_note = NULL
-                 WHERE listing_source_id = $1",
-            )
-            .bind(listing_source_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
             Ok(SchemaAuditReview::Opened(review_id))
         } else {
-            self.clear_schema_audit(listing_source_id).await?;
+            self.forget_schema_audit(listing_source_id).await?;
             Ok(SchemaAuditReview::Deferred)
         }
     }
@@ -326,8 +367,9 @@ impl CrawlerReviewRepository {
         .await?)
     }
 
-    /// Forgets the ListingSource's last audit, so it is due as soon as nothing else holds it.
-    async fn clear_schema_audit(
+    /// Forgets the ListingSource's last audit, so it is due as soon as nothing else holds it, as
+    /// after an audit a stop interrupted.
+    pub async fn forget_schema_audit(
         &self,
         listing_source_id: &ListingSourceId,
     ) -> Result<(), ReviewRepositoryError> {

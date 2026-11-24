@@ -8,7 +8,8 @@ use crate::CrawlerReviewId;
 use crate::review::captured_identity_sample::SampledCapturedPage;
 use crate::review::model::{PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::repository::{
-    CrawlerReviewRepository, ReviewRepositoryError, SchemaAuditReview, SchemaAuditSource,
+    CrawlerReviewRepository, ReviewRepositoryError, SchemaAuditOpening, SchemaAuditReview,
+    SchemaAuditSource,
 };
 use crate::review::schema_audit::audit_live_schemas;
 use crate::scraper::scraper_service::HtmlFetcher;
@@ -22,9 +23,10 @@ use url::Url;
 pub const SCHEMA_AUDIT_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// How many ListingSources one pass audits, one after the other. Each costs up to five page
-/// fetches at its own shop's pacing, so a pass of different shops stays polite to each of them;
-/// with the default 15-minute interval the audit takes 40 sources an hour, and a first sweep of a
-/// few hundred sources finishes within a day.
+/// fetches at its own shop's pacing, so a pass of different shops stays polite to each of them.
+/// The loop waits its interval after each pass, so with the default 15-minute interval the audit
+/// takes up to 40 sources an hour, fewer when shops pace slowly, and a first sweep of a few
+/// hundred sources finishes within a day or two.
 pub const SCHEMA_AUDIT_SOURCES_PER_PASS: i64 = 10;
 
 /// How many audit reviews opened within [`SCHEMA_AUDIT_AGE`] may wait at once. A pass opens none
@@ -146,6 +148,10 @@ impl SchemaAudit {
         let mut sampled = Vec::with_capacity(urls.len());
         for page in urls {
             let Some(html) = self.fetch_product_page(&page.url, stop).await else {
+                // The audit did not finish, so the source is audited again in the next pass.
+                self.repository
+                    .forget_schema_audit(listing_source_id)
+                    .await?;
                 return Ok(AuditOutcome::Interrupted);
             };
             sampled.push(SampledCapturedPage { page, html });
@@ -156,12 +162,12 @@ impl SchemaAudit {
                 event = "crawler.schema_audit.unfetched",
                 listing_source_id = %listing_source_id,
                 sampled_pages = sampled.len(),
+                requested_by_human = source.request_note.is_some(),
                 "Schema audit fetched none of the sampled captured product pages"
             );
             return Ok(AuditOutcome::Unfetched);
         }
         let findings = audit_live_schemas(&source.listing_source_name, &live_schemas, &sampled);
-        let codes = findings.codes();
         let request_note = source.request_note.as_deref();
         if request_note.is_none() && findings.is_empty() {
             info!(
@@ -173,22 +179,24 @@ impl SchemaAudit {
             );
             return Ok(AuditOutcome::Passed);
         }
-        if request_note.is_none()
-            && findings.accepted_by(
-                &self
-                    .repository
-                    .accepted_schema_audit_findings(listing_source_id, &live_schemas)
-                    .await?,
-            )
-        {
+        let accepted = if findings.is_empty() {
+            Vec::new()
+        } else {
+            self.repository
+                .accepted_schema_audit_findings(listing_source_id, &live_schemas)
+                .await?
+        };
+        let open = findings.excluding(&accepted);
+        if request_note.is_none() && open.is_empty() {
             info!(
                 event = "crawler.schema_audit.accepted",
                 listing_source_id = %listing_source_id,
-                findings = ?codes,
+                findings = ?findings.codes(),
                 "Schema audit found only what a review of the live schemas accepted"
             );
             return Ok(AuditOutcome::Accepted);
         }
+        let codes = open.codes();
         let pages = sampled
             .into_iter()
             .filter_map(|sampled| {
@@ -199,14 +207,18 @@ impl SchemaAudit {
                 })
             })
             .collect();
+        let holds_new_listings = open.holds_new_listings();
         let review = self
             .repository
             .open_schema_audit_review(
                 listing_source_id,
                 &live_schemas,
                 pages,
-                &codes,
-                request_note,
+                SchemaAuditOpening {
+                    findings: &codes,
+                    request_note,
+                    holds_new_listings,
+                },
             )
             .await?;
         let SchemaAuditReview::Opened(review_id) = review else {
@@ -224,8 +236,9 @@ impl SchemaAudit {
             review_id = %review_id,
             findings = ?codes,
             requested_by_human = request_note.is_some(),
+            holds_new_listings,
             fetched_pages,
-            "Schema audit opened a review of the live schemas; the source's new listings wait for it"
+            "Schema audit opened a review of the live schemas"
         );
         Ok(AuditOutcome::Opened(review_id))
     }

@@ -3,7 +3,9 @@
 //! `review::schema_audit`; the hold on new listings in `tests/candidates.rs`.
 
 use crawler::review::model::{PAGE_ROLE_SEED, STATUS_PENDING_REVIEW, SchemaReviewPageInput};
-use crawler::review::repository::{CrawlerReviewRepository, SchemaAuditReview, SchemaAuditSource};
+use crawler::review::repository::{
+    CrawlerReviewRepository, SchemaAuditOpening, SchemaAuditReview, SchemaAuditSource,
+};
 use crawler::review::schema_audit::SCHEMA_AUDIT_REASON;
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
@@ -161,7 +163,16 @@ async fn open(
     host: &str,
 ) -> crawler::CrawlerReviewId {
     match repository
-        .open_schema_audit_review(source, live, audited_pages(host), &findings(), None)
+        .open_schema_audit_review(
+            source,
+            live,
+            audited_pages(host),
+            SchemaAuditOpening {
+                findings: &findings(),
+                request_note: None,
+                holds_new_listings: true,
+            },
+        )
         .await
         .unwrap()
     {
@@ -316,8 +327,11 @@ async fn should_defer_to_a_schema_review_the_scraper_opened_meanwhile() {
             &source,
             &live,
             audited_pages("shop.example"),
-            &findings(),
-            None,
+            SchemaAuditOpening {
+                findings: &findings(),
+                request_note: None,
+                holds_new_listings: true,
+            },
         )
         .await
         .unwrap();
@@ -369,8 +383,11 @@ async fn should_accept_the_findings_of_every_audit_review_that_judged_the_same_l
             &source,
             &live,
             audited_pages("shop.example"),
-            &["images NO_IMAGE_ON_ANY_PAGE".to_owned()],
-            None,
+            SchemaAuditOpening {
+                findings: &["images NO_IMAGE_ON_ANY_PAGE".to_owned()],
+                request_note: None,
+                holds_new_listings: true,
+            },
         )
         .await
         .unwrap()
@@ -385,8 +402,11 @@ async fn should_accept_the_findings_of_every_audit_review_that_judged_the_same_l
             &source,
             &live,
             audited_pages("shop.example"),
-            &["price TOO_LONG".to_owned()],
-            None,
+            SchemaAuditOpening {
+                findings: &["price TOO_LONG".to_owned()],
+                request_note: None,
+                holds_new_listings: true,
+            },
         )
         .await
         .unwrap()
@@ -440,8 +460,11 @@ async fn should_audit_a_requested_source_first_and_carry_the_note_into_its_revie
             &requested,
             &live,
             audited_pages("phillips.example"),
-            &[],
-            Some(note.as_str()),
+            SchemaAuditOpening {
+                findings: &[],
+                request_note: Some(note.as_str()),
+                holds_new_listings: false,
+            },
         )
         .await
         .unwrap();
@@ -468,15 +491,75 @@ async fn should_audit_a_requested_source_first_and_carry_the_note_into_its_revie
         detail.review.validation_summary["schema_audit"]["request_note"],
         serde_json::json!(note.as_str())
     );
-    let request: (Option<String>,) = sqlx::query_as(
-        "SELECT schema_audit_request_note FROM listing_sources WHERE listing_source_id = $1",
-    )
-    .bind(requested.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(request, (None,), "the opened review settles the request");
     assert!(missing.is_err(), "a source that does not exist is refused");
+    assert_eq!(
+        repository.schema_audit_due_sources(WEEK, 10).await.unwrap(),
+        vec![due_source(never, "Never")],
+        "its pending review holds the requested source"
+    );
+    decide(&pool, review_id, "APPROVED", "AGENT_REVIEWER").await;
+    assert_eq!(
+        repository.schema_audit_due_sources(WEEK, 10).await.unwrap(),
+        vec![due_source(never, "Never")],
+        "the approval of the review that carries the note settles the request"
+    );
+}
+
+/// A request settles only through a review that carries its note: one that arrives while the
+/// source is being audited outlives the review that audit opens, and an agent's rejection of a
+/// requested review settles nothing, so the request is due again a day after its last audit.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_a_request_no_decided_review_with_its_note_settled() {
+    use crawler::review::repository::SchemaAuditRequestNote;
+
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let live = [schema("h1")];
+    let source = insert_source(&pool, "Shop", "shop.example", &live).await;
+    let requested = |note: &'static str| SchemaAuditSource {
+        listing_source_id: source,
+        listing_source_name: "Shop".to_owned(),
+        request_note: Some(note.to_owned()),
+    };
+    repository.record_schema_audit(&source).await.unwrap();
+    let during_the_audit = SchemaAuditRequestNote::parse("Keep the dating.").unwrap();
+    repository
+        .request_schema_audit(&source, &during_the_audit)
+        .await
+        .unwrap();
+    let unrequested = open(&repository, &source, &live, "shop.example").await;
+    decide(&pool, unrequested, "APPROVED", "AGENT_REVIEWER").await;
+
+    let after_unrequested_review = repository.schema_audit_due_sources(WEEK, 10).await.unwrap();
+    repository.record_schema_audit(&source).await.unwrap();
+    let requested_review = match repository
+        .open_schema_audit_review(
+            &source,
+            &live,
+            audited_pages("shop.example"),
+            SchemaAuditOpening {
+                findings: &[],
+                request_note: Some(during_the_audit.as_str()),
+                holds_new_listings: false,
+            },
+        )
+        .await
+        .unwrap()
+    {
+        SchemaAuditReview::Opened(review_id) => review_id,
+        SchemaAuditReview::Deferred => panic!("the audit must open its own review"),
+    };
+    decide(&pool, requested_review, "REJECTED", "AGENT_REVIEWER").await;
+    let right_after_agent_rejection = repository.schema_audit_due_sources(WEEK, 10).await.unwrap();
+    set_audited_days_ago(&pool, source, 2).await;
+    let a_day_later = repository.schema_audit_due_sources(WEEK, 10).await.unwrap();
+
+    assert_eq!(
+        after_unrequested_review,
+        vec![requested("Keep the dating.")]
+    );
+    assert_eq!(right_after_agent_rejection, vec![]);
+    assert_eq!(a_day_later, vec![requested("Keep the dating.")]);
 }
 
 /// A pass audits each due source on its captured pages as the shared fetcher serves them: a title

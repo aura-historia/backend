@@ -5,6 +5,7 @@
 //! these open a review but never refuse an approval.
 
 use crate::review::model::SchemaMatrix;
+use crate::scraper::plausibility::is_link_or_path_identity;
 
 /// The shortest identity code a title is checked for: shorter ones, such as a model's `14`, are
 /// too often part of the name.
@@ -48,21 +49,35 @@ pub(super) fn title_hints(matrix: &SchemaMatrix) -> Vec<&'static str> {
 }
 
 /// Whether `title` holds a code of `identity` as a whole token, ignoring case: the identity
-/// itself, or one of its words that has a digit, such as `130951` of `Item#: 130951`, of at least
-/// [`MIN_IDENTITY_CODE_CHARS`] characters.
+/// itself, or one of its parts between spaces, labels and separators that has a digit, such as
+/// `130951` of `Item#: 130951` or `2118031` of `SKU-2118031`, of at least
+/// [`MIN_IDENTITY_CODE_CHARS`] characters. A year such as `1775` is no code, since a dating in the
+/// name repeats it, and neither is any part of an identity that is a URL or path.
 fn holds_identity(title: &str, identity: &str) -> bool {
+    if is_link_or_path_identity(identity) {
+        return false;
+    }
     let title = title.to_lowercase();
     let identity = identity.to_lowercase();
     std::iter::once(identity.as_str())
         .chain(identity.split(|character: char| {
-            character.is_whitespace() || matches!(character, ':' | '#' | ',' | ';')
+            character.is_whitespace() || matches!(character, ':' | '#' | ',' | ';' | '-' | '/')
         }))
         .map(|code| code.trim_matches(|character: char| !character.is_alphanumeric()))
         .filter(|code| {
             code.chars().count() >= MIN_IDENTITY_CODE_CHARS
                 && code.chars().any(|character| character.is_ascii_digit())
+                && !is_year(code)
         })
         .any(|code| holds_token(&title, code))
+}
+
+/// Whether `code` reads as a year a dating names, from 1000 to 2099.
+fn is_year(code: &str) -> bool {
+    code.len() == 4
+        && code
+            .parse::<u16>()
+            .is_ok_and(|year| (1000..=2099).contains(&year))
 }
 
 /// Whether `text` holds `token` with no letter or digit directly before or after it.
@@ -105,6 +120,7 @@ mod tests {
         #[case("Antiek hek 2118031", "2118031")]
         #[case("Lace collar (商品番号 cm-396)", "cm-396")]
         #[case("Oak chair - Ref. A1234", "Ref: A1234")]
+        #[case("Antiek hek 2118031", "SKU-2118031")]
         fn should_find_the_identity_in_the_title(#[case] title: &str, #[case] identity: &str) {
             assert!(holds_identity(title, identity), "{title}");
         }
@@ -115,6 +131,8 @@ mod tests {
         #[case::code_inside_a_longer_number("Antiek hek 21180312", "2118031")]
         #[case::identity_without_a_digit("Walnut chair", "walnut")]
         #[case::blank_identity("Walnut chair 2023", "")]
+        #[case::year_in_a_dating("George III mahogany cabinet, circa 1775", "Lot 1775")]
+        #[case::url_identity("Oak chair 1234", "https://shop.example/p#1234")]
         fn should_not_find_what_is_no_identity_code(#[case] title: &str, #[case] identity: &str) {
             assert!(!holds_identity(title, identity), "{title}");
         }

@@ -1373,6 +1373,24 @@ async fn scraper_should_hold_back_never_captured_urls_while_a_schema_audit_revie
         before,
         "a decided audit review releases the held listings"
     );
+
+    sqlx::query(
+        "INSERT INTO crawler_reviews \
+         (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary) \
+         VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, '{\"schemas\": []}'::jsonb, \
+                 '{\"schema_audit\": {\"holds_new_listings\": false}}'::jsonb)",
+    )
+    .bind(CrawlerReviewId::new().as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .bind(crawler::review::schema_audit::SCHEMA_AUDIT_REASON)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        due_urls(&service).await,
+        before,
+        "an audit review opened only for hints or a request holds nothing back"
+    );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

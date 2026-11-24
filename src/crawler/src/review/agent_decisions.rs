@@ -254,6 +254,12 @@ impl AgentDecisionPolicy {
                 })
     }
 
+    /// The authoring mode of the start, which decides whether the review agents and the live
+    /// schema audit run.
+    pub const fn authoring(&self) -> CrawlerAuthoringMode {
+        self.authoring
+    }
+
     /// Whether the author agent may start the agents' final round on a review in `status`, opened
     /// for `reason`, that the agents worked as `rounds` says: it waits for a human, and no final
     /// round started on it within the round window since a human last acted on it. A final round

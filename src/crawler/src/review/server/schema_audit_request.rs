@@ -3,11 +3,13 @@
 //! `docs/crawler/extraction-and-review.md` (live schema audit).
 
 use super::{ReviewServer, parse_listing_source_id_with_suffix, review_error};
+use crate::authoring::CrawlerAuthoringMode;
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::ReviewActor;
-use crate::review::repository::SchemaAuditRequestNote;
+use crate::review::repository::{ReviewRepositoryError, SchemaAuditRequestNote};
 use serde::Deserialize;
 use serde_json::json;
+use tracing::info;
 
 const SCHEMA_AUDIT_SUFFIX: &str = "/schema-audit";
 
@@ -19,7 +21,9 @@ struct SchemaAuditRequestPayload {
 
 impl ReviewServer {
     /// Answers `POST /api/listing-sources/{id}/schema-audit`, or `None` for any other request.
-    /// Only a human requests an audit; the console refuses the agents' tokens on this route.
+    /// Only a human requests an audit: the console's access answers the agents' tokens `401` on
+    /// this route before it is routed. Outside `agent` authoring mode no audit runs, so a request
+    /// is refused rather than left waiting.
     pub(super) async fn route_schema_audit_request(
         &self,
         request: &ParsedRequest<'_>,
@@ -30,12 +34,6 @@ impl ReviewServer {
             || !request.path.ends_with(SCHEMA_AUDIT_SUFFIX)
         {
             return None;
-        }
-        if actor != ReviewActor::Human {
-            return Some(HttpResponse::json(
-                403,
-                &json!({ "error": "only a human requests a schema audit" }),
-            ));
         }
         let Some(listing_source_id) =
             parse_listing_source_id_with_suffix(request.path, SCHEMA_AUDIT_SUFFIX)
@@ -53,13 +51,27 @@ impl ReviewServer {
             Ok(note) => note,
             Err(error) => return Some(HttpResponse::json(400, &json!({ "error": error }))),
         };
+        if self.repository.agent_decisions().authoring() != CrawlerAuthoringMode::Agent {
+            return Some(review_error(ReviewRepositoryError::SchemaAuditNotPossible(
+                listing_source_id,
+                "the live schema audit runs in agent authoring mode only",
+            )));
+        }
         Some(
             match self
                 .repository
                 .request_schema_audit(&listing_source_id, &note)
                 .await
             {
-                Ok(()) => HttpResponse::json(200, &json!({ "requested": true })),
+                Ok(()) => {
+                    info!(
+                        event = "crawler.schema_audit.requested",
+                        listing_source_id = %listing_source_id,
+                        actor = actor.as_str(),
+                        "A schema audit was requested; the audit takes the source in its next pass"
+                    );
+                    HttpResponse::json(200, &json!({ "requested": true }))
+                }
                 Err(error) => review_error(error),
             },
         )
