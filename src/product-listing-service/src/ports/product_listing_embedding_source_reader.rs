@@ -4,7 +4,7 @@ use localization::Language;
 use localization::Localized;
 use product_listing_core::{
     description::Description, listing_availability::ListingAvailability,
-    product_listing_id::ProductListingId, title::Title,
+    listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId, title::Title,
 };
 use url::Url;
 
@@ -24,7 +24,8 @@ pub struct ProductListingEmbeddingSource {
     pub event_id: EventId,
     pub embedding_source_event_id: EventId,
     pub event: ProductListingEmbeddingSourceEvent,
-    /// The listing's current availability, not the one the event recorded.
+    /// The listing's current lifecycle and availability, not the ones the event recorded.
+    pub lifecycle: ListingLifecycle,
     pub availability: Option<ListingAvailability>,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,

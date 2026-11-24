@@ -1,5 +1,5 @@
 use crate::object_id::try_from_uuid;
-use crate::product_listing_repository::parse_listing_availability;
+use crate::product_listing_repository::{parse_listing_availability, parse_listing_lifecycle};
 use application::error::box_error;
 use product_listing_service::ports::{
     ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,
@@ -18,6 +18,7 @@ struct SqlxProductListingEmbeddingReader<'tx> {
 struct ProductListingEmbeddingRow {
     product_listing_id: uuid::Uuid,
     embedding: Option<Vec<f32>>,
+    lifecycle: String,
     availability: Option<String>,
 }
 
@@ -33,6 +34,7 @@ impl TryFrom<ProductListingEmbeddingRow> for ProductListingEmbedding {
             product_listing_id: try_from_uuid(row.product_listing_id, "ProductListing ID")
                 .map_err(box_error)?,
             embedding: row.embedding,
+            lifecycle: parse_listing_lifecycle(&row.lifecycle).map_err(box_error)?,
             availability: parse_listing_availability(row.availability.as_deref())
                 .map_err(box_error)?,
         })
@@ -66,11 +68,11 @@ impl ProductListingEmbeddingReader for SqlxProductListingEmbeddingReader<'_> {
     ) -> Result<Option<ProductListingEmbedding>, ProductListingEmbeddingReadError> {
         let query = match lookup {
             ProductListingEmbeddingLookup::ById(product_listing_id) => sqlx::query_as::<_, ProductListingEmbeddingRow>(
-                "SELECT product_listing_id, embedding, availability FROM product_listings WHERE product_listing_id = $1",
+                "SELECT product_listing_id, embedding, lifecycle, availability FROM product_listings WHERE product_listing_id = $1",
             )
             .bind(product_listing_id.as_uuid()),
             ProductListingEmbeddingLookup::ByTitleSlug(product_listing_title_slug_id) => sqlx::query_as::<_, ProductListingEmbeddingRow>(
-                "SELECT p.product_listing_id, p.embedding, p.availability FROM product_listings p WHERE p.product_listing_title_slug_id = $1",
+                "SELECT p.product_listing_id, p.embedding, p.lifecycle, p.availability FROM product_listings p WHERE p.product_listing_title_slug_id = $1",
             )
             .bind(product_listing_title_slug_id.as_ref()),
         };
@@ -98,6 +100,7 @@ mod tests {
         let embedding = ProductListingEmbedding::try_from(ProductListingEmbeddingRow {
             product_listing_id: product_listing_id.into_uuid(),
             embedding: None,
+            lifecycle: "ACTIVE".to_owned(),
             availability: None,
         })
         .unwrap_or_else(|error| panic!("valid embedding row: {error}"));
@@ -114,6 +117,7 @@ mod tests {
         let result = ProductListingEmbedding::try_from(ProductListingEmbeddingRow {
             product_listing_id: invalid_uuid,
             embedding: None,
+            lifecycle: "ACTIVE".to_owned(),
             availability: None,
         });
 

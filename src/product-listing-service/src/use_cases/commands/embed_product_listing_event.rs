@@ -3,8 +3,8 @@
 //! pending work.
 //!
 //! Embeddings serve only discovery, so a revision waits while the listing is not
-//! [for sale](is_for_sale); the change that returns the listing to sale schedules its current
-//! revision.
+//! [discoverable](is_discoverable): withdrawn, or not for sale. The change that returns the
+//! listing to sale schedules its current revision.
 
 use crate::ports::{
     ProductEmbeddingScheduleOutcome, ProductEmbeddingWorkRef, ProductListingEmbeddingQueue,
@@ -16,7 +16,7 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
-use product_listing_core::listing_discoverability::is_for_sale;
+use product_listing_core::listing_discoverability::is_discoverable;
 use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,8 +35,8 @@ pub enum EmbedProductListingEventOutcome {
     ProductListingNotFound,
     IgnoredEvent,
     MissingTitle,
-    /// The listing is currently sold out, out of stock or unavailable. Its current revision is
-    /// scheduled when it returns to sale.
+    /// The listing is currently withdrawn, sold out, out of stock or unavailable. Its current
+    /// revision is scheduled when it returns to sale.
     NotForSale,
 }
 
@@ -151,7 +151,7 @@ where
                 return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
             }
         };
-        if !is_for_sale(source.availability) {
+        if !is_discoverable(source.lifecycle, source.availability) {
             return Ok(result(EmbedProductListingEventOutcome::NotForSale));
         }
         if source.title.is_none() {
@@ -227,7 +227,8 @@ mod tests {
     use embedding::EmbeddingBatchId;
     use localization::{Language, Localized};
     use product_listing_core::{
-        description::Description, listing_availability::ListingAvailability, title::Title,
+        description::Description, listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle, title::Title,
     };
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -261,6 +262,7 @@ mod tests {
                 event_id,
                 embedding_source_event_id: event_id,
                 event: ProductListingEmbeddingSourceEvent::Discovered,
+                lifecycle: ListingLifecycle::Active,
                 availability: Some(ListingAvailability::InStock),
                 title: Some(Localized::new(Language::De, Title::from("Ancient vase"))),
                 description: Some(Localized::new(
@@ -484,23 +486,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_schedule_nothing_while_the_listing_is_not_for_sale() {
+    async fn should_schedule_nothing_while_the_listing_is_withdrawn_or_not_for_sale() {
         for event in [
             ProductListingEmbeddingSourceEvent::Discovered,
             ProductListingEmbeddingSourceEvent::ChangedContent,
             ProductListingEmbeddingSourceEvent::ReturnedToSale,
         ] {
-            for availability in [
-                ListingAvailability::SoldOut,
-                ListingAvailability::OutOfStock,
-                ListingAvailability::Unavailable,
+            for (lifecycle, availability) in [
+                (ListingLifecycle::Active, Some(ListingAvailability::SoldOut)),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::OutOfStock),
+                ),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::Unavailable),
+                ),
+                (ListingLifecycle::Withdrawn, None),
             ] {
                 let state = state();
                 {
                     let mut state = lock(&state);
                     let source = state.source.as_mut().unwrap();
                     source.event = event;
-                    source.availability = Some(availability);
+                    source.lifecycle = lifecycle;
+                    source.availability = availability;
                 }
 
                 assert_eq!(

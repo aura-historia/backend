@@ -368,12 +368,13 @@ the next match picks it up. Operations are in the
 
 ## Enrichment of listings not for sale
 
-Embeddings and title translations serve discovery, which omits listings that are not for sale:
-`SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` ([`is_for_sale`](../src/product-listing-core/src/listing_discoverability.rs)).
-An embedding or translation job of a listing that is currently not for sale therefore completes as
+Embeddings and title translations serve discovery, which omits withdrawn listings and listings that
+are not for sale: `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`
+([`listing_discoverability.rs`](../src/product-listing-core/src/listing_discoverability.rs)). An
+embedding or translation job of a listing that is currently either therefore completes as
 `not_for_sale` without recording work, whether a discovery (such as a new shop's archive of sold
-items) or a text or image change scheduled it. The job decides on the listing's current
-availability, not the event's, so a listing back on sale before its job runs is enriched normally.
+items) or a text or image change scheduled it. The job decides on the listing's current state, not
+the event's, so a listing back on sale before its job runs is enriched normally.
 Content assessment still runs for every listing: it decides image visibility on detail pages, which
 stay reachable through watchlists and direct links.
 
@@ -382,10 +383,13 @@ revision: its availability leaves those values, including by being cleared, or a
 is restored for sale. These jobs target the listing's current source markers rather than their own
 event, so the marker guards do not drop them as stale, and a revision that is already embedded or
 translated completes as a duplicate. Enrichment a listing already holds, and work recorded before it
-stopped being for sale, are kept.
+stopped being for sale, are kept; a content change while it is not for sale still invalidates them
+as usual, and their replacement waits for the return to sale.
 
-Until a listing returns to sale, reads show its original title in every language, and similar
-listings for it are an empty list rather than `202` pending, since nothing will embed it.
+Until then, reads of a listing without translations of its current title show the original title
+in every language. Similar listings for a listing without an embedding are an empty list rather
+than `202` pending, because none is scheduled; work recorded before it stopped being for sale can
+still land and make them non-empty.
 
 ## Source anti-corruption rules
 

@@ -16,7 +16,7 @@ use sqlx::PgPool;
 use url::Url;
 
 use crate::product_listing_event_codec;
-use crate::product_listing_repository::parse_listing_availability;
+use crate::product_listing_repository::{parse_listing_availability, parse_listing_lifecycle};
 
 #[derive(Clone)]
 pub struct SqlxProductListingEmbeddingSourceReader {
@@ -32,6 +32,7 @@ struct ProductListingEmbeddingSourceRow {
     event_group: String,
     event_type_schema_version: i16,
     payload: serde_json::Value,
+    lifecycle: String,
     availability: Option<String>,
     title_text: Option<String>,
     title_language: Option<String>,
@@ -73,7 +74,7 @@ impl ProductListingEmbeddingSourceReader for SqlxProductListingEmbeddingSourceRe
             r#"
             SELECT event.event_id, event.product_listing_id, event.event_type,
                    event.event_group, event.event_type_schema_version, event.payload,
-                   product.embedding_source_event_id, product.availability,
+                   product.embedding_source_event_id, product.lifecycle, product.availability,
                    product.title_text, product.title_language,
                    product.description_text, product.description_language,
                    product.product_images
@@ -109,6 +110,7 @@ impl TryFrom<ProductListingEmbeddingSourceRow> for ProductListingEmbeddingSource
             )
             .map_err(mapping_error_source)?,
             event: embedding_event(&row)?,
+            lifecycle: parse_listing_lifecycle(&row.lifecycle).map_err(mapping_error_source)?,
             availability: parse_listing_availability(row.availability.as_deref())
                 .map_err(mapping_error_source)?,
             title: localized_title(row.title_text, row.title_language).map_err(mapping_error)?,

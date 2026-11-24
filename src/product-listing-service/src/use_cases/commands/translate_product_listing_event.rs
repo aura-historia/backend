@@ -3,8 +3,8 @@
 //! records the revision as pending work.
 //!
 //! Translations serve only discovery, so a revision waits while the listing is not
-//! [for sale](is_for_sale); the change that returns the listing to sale schedules its current
-//! revision.
+//! [discoverable](is_discoverable): withdrawn, or not for sale. The change that returns the
+//! listing to sale schedules its current revision.
 
 use crate::ports::{
     ProductListingTitleTranslationQueue, ProductListingTitleTranslationQueueError,
@@ -16,7 +16,7 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
-use product_listing_core::listing_discoverability::is_for_sale;
+use product_listing_core::listing_discoverability::is_discoverable;
 use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,8 +40,8 @@ pub enum TranslateProductListingEventOutcome {
     /// The source already replaced most of the title's letters with `?`. Readers keep the
     /// original title in every language instead of a translation the model would invent.
     MostlyQuestionMarksTitle,
-    /// The listing is currently sold out, out of stock or unavailable. Its current revision is
-    /// scheduled when it returns to sale.
+    /// The listing is currently withdrawn, sold out, out of stock or unavailable. Its current
+    /// revision is scheduled when it returns to sale.
     NotForSale,
 }
 
@@ -157,7 +157,7 @@ where
                 return Ok(result(TranslateProductListingEventOutcome::IgnoredEvent));
             }
         };
-        if !is_for_sale(source.availability) {
+        if !is_discoverable(source.lifecycle, source.availability) {
             return Ok(result(TranslateProductListingEventOutcome::NotForSale));
         }
         let Some(title) = source.title else {
@@ -248,6 +248,7 @@ mod tests {
     use application::transaction::TransactionError;
     use localization::Language;
     use product_listing_core::listing_availability::ListingAvailability;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::title::Title;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -395,6 +396,7 @@ mod tests {
                 event_id,
                 content_source_event_id: event_id,
                 event: ProductListingTranslationSourceEvent::Discovered,
+                lifecycle: ListingLifecycle::Active,
                 availability: Some(ListingAvailability::InStock),
                 title: Some(Title::from("Ancient vase")),
                 title_language: Some(Language::De),
@@ -531,23 +533,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_schedule_nothing_while_the_listing_is_not_for_sale() {
+    async fn should_schedule_nothing_while_the_listing_is_withdrawn_or_not_for_sale() {
         for event in [
             ProductListingTranslationSourceEvent::Discovered,
             ProductListingTranslationSourceEvent::ChangedText,
             ProductListingTranslationSourceEvent::ReturnedToSale,
         ] {
-            for availability in [
-                ListingAvailability::SoldOut,
-                ListingAvailability::OutOfStock,
-                ListingAvailability::Unavailable,
+            for (lifecycle, availability) in [
+                (ListingLifecycle::Active, Some(ListingAvailability::SoldOut)),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::OutOfStock),
+                ),
+                (
+                    ListingLifecycle::Active,
+                    Some(ListingAvailability::Unavailable),
+                ),
+                (ListingLifecycle::Withdrawn, None),
             ] {
                 let state = state_with_source();
                 {
                     let mut state = lock(&state);
                     let source = state.source.as_mut().unwrap();
                     source.event = event;
-                    source.availability = Some(availability);
+                    source.lifecycle = lifecycle;
+                    source.availability = availability;
                 }
 
                 assert_eq!(

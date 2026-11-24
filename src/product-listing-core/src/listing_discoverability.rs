@@ -16,8 +16,7 @@ pub const fn is_discoverable(
 }
 
 /// Whether the source still offers the listing: it does not assert it sold out, out of stock or
-/// unavailable. Enrichment that serves only discovery (embedding and title translation) waits
-/// while a listing is not for sale.
+/// unavailable.
 pub const fn is_for_sale(availability: Option<ListingAvailability>) -> bool {
     match availability {
         Some(availability) => availability.is_discoverable(),

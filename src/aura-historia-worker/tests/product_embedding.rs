@@ -22,7 +22,7 @@ use product_listing_service::use_cases::{
 };
 use serde_json::json;
 use std::sync::atomic::Ordering;
-use support::FakeEmbeddingBatches;
+use support::{FakeEmbeddingBatches, append_change};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -207,26 +207,31 @@ async fn should_wait_while_not_for_sale_and_embed_the_current_revision_once_back
     assert!(result.is_ok(), "{result:?}");
 }
 
-/// Appends a changed event and runs `update` for it, which binds the event ID to `$1` and the
-/// listing ID to `$2`.
-async fn append_change(
-    pool: &sqlx::PgPool,
-    product: ProductListingId,
-    payload: serde_json::Value,
-    update: &'static str,
-) -> Result<EventId, sqlx::Error> {
-    let event = EventId::new();
-    let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
-        .bind(event.as_uuid()).bind(product.as_uuid()).bind(payload)
-        .execute(&mut *tx).await?;
-    sqlx::query(update)
-        .bind(event.as_uuid())
-        .bind(product.as_uuid())
-        .execute(&mut *tx)
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_wait_while_withdrawn_and_embed_the_current_revision_once_restored() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let handler = ProductEmbeddingJobs::new(compose_product_embedding_use_case(pool.clone()));
+        let (product, discovery) = seed_discovery(&pool).await?;
+        sqlx::query("UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1")
+            .bind(product.as_uuid()).execute(&pool).await?;
+        assert_eq!(Disposition::Complete, handler.handle(&job(&job_body(product, discovery)?)).await);
+        assert_eq!(None, scheduled_revision(&pool, product).await?, "nothing is scheduled while withdrawn");
+
+        let restored = append_change(
+            &pool,
+            product,
+            json!({"lifecycle": {"transition": "RESTORED"},
+                "availability": {"previous": null, "current": "AVAILABLE"}}),
+            "UPDATE product_listings SET lifecycle = 'ACTIVE', availability = 'AVAILABLE', current_event_id = $1, version = version + 1 WHERE product_listing_id = $2",
+        )
         .await?;
-    tx.commit().await?;
-    Ok(event)
+        assert_eq!(Disposition::Complete, handler.handle(&job(&job_body(product, restored)?)).await);
+        assert_eq!(Some(*discovery.as_uuid()), scheduled_revision(&pool, product).await?);
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "{result:?}");
 }
 
 async fn scheduled_revision(

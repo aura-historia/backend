@@ -21,7 +21,7 @@ use product_listing_service::use_cases::{
 };
 use serde_json::json;
 use std::sync::atomic::Ordering;
-use support::{FakeBatches, FakeFallback};
+use support::{FakeBatches, FakeFallback, append_change};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -283,28 +283,6 @@ async fn listing_not_for_sale_waits_until_it_returns_to_sale_and_then_translates
     }
     .await;
     assert!(result.is_ok(), "return-to-sale catch-up failed: {result:?}");
-}
-
-/// Appends a changed event and runs `update` for it, which binds the event ID to `$1` and the
-/// listing ID to `$2`.
-async fn append_change(
-    pool: &sqlx::PgPool,
-    product: ProductListingId,
-    payload: serde_json::Value,
-    update: &'static str,
-) -> Result<EventId, sqlx::Error> {
-    let event = EventId::new();
-    let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
-        .bind(event.as_uuid()).bind(product.as_uuid()).bind(payload)
-        .execute(&mut *tx).await?;
-    sqlx::query(update)
-        .bind(event.as_uuid())
-        .bind(product.as_uuid())
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    Ok(event)
 }
 
 async fn scheduled_revision(

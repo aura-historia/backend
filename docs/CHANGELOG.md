@@ -4,9 +4,9 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-24 — No enrichment for listings that are not for sale (#3114)
 
-- **Behavior change:** listings whose availability is `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE` are no longer embedded or title-translated while they are not for sale. When such a listing returns to sale, for example from `SOLD_OUT` to `IN_STOCK` or to no availability, it is embedded and translated then. Embeddings and translations a listing already has are kept.
-- **Similar listings:** `GET /v1/product-listings/{productListingId}/similar` and the `getSimilarProductListings` MCP tool return `200` with an empty list (MCP: `READY` with no items) for a listing without an embedding that is not for sale, instead of `202 Accepted` (MCP: `EMBEDDING_PENDING`), because no embedding is coming.
-- **Titles:** detail, watchlist and other reads of such a listing show its original title in every language until it returns to sale.
+- **Behavior change:** listings whose availability is `SOLD_OUT`, `OUT_OF_STOCK` or `UNAVAILABLE`, and withdrawn listings, are no longer embedded or title-translated, including after a title, description or image change. When such a listing returns to sale, for example from `SOLD_OUT` to `IN_STOCK` or to no availability, or is restored for sale, it is embedded and translated then. Embeddings and translations a listing already has are kept until its content changes.
+- **Similar listings:** `GET /v1/product-listings/{productListingId}/similar` and the `getSimilarProductListings` MCP tool return `200` with an empty list (MCP: `READY` with no items) for such a listing without an embedding, instead of `202 Accepted` (MCP: `EMBEDDING_PENDING`), because no embedding is scheduled.
+- **Titles:** detail, watchlist and other reads of such a listing without translations of its current title show the original title in every language until it returns to sale.
 
 ## 2026-11-23 — Submitted subdivisions no longer block address geocoding (#3122)
 

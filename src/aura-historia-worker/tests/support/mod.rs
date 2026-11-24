@@ -1,12 +1,14 @@
-//! Provider fakes for the title translation and product embedding rounds.
+//! Provider fakes and listing fixtures for the title translation and product embedding tests.
 
 #![allow(dead_code)]
 
+use domain_primitives::event_id::EventId;
 use large_language_model::{
     BatchItemOutcome, BatchItemResult, BatchProcessingStatus, BatchRequest, LargeLanguageModel,
     LargeLanguageModelBatchId, LargeLanguageModelBatches, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
 };
+use product_listing_core::product_listing_id::ProductListingId;
 use serde::de::DeserializeOwned;
 use std::sync::{
     Arc, Mutex,
@@ -214,4 +216,26 @@ impl embedding::ProductEmbeddingBatches for FakeEmbeddingBatches {
             unanswered: UnansweredEmbeddings::Failed,
         }))
     }
+}
+
+/// Appends a changed event and runs `update` for it, which binds the event ID to `$1` and the
+/// listing ID to `$2`.
+pub async fn append_change(
+    pool: &sqlx::PgPool,
+    product: ProductListingId,
+    payload: serde_json::Value,
+    update: &'static str,
+) -> Result<EventId, sqlx::Error> {
+    let event = EventId::new();
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
+        .bind(event.as_uuid()).bind(product.as_uuid()).bind(payload)
+        .execute(&mut *tx).await?;
+    sqlx::query(update)
+        .bind(event.as_uuid())
+        .bind(product.as_uuid())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(event)
 }
