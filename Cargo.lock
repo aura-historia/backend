@@ -4232,6 +4232,7 @@ name = "image-fetcher"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "image",
  "public-network-policy",
  "reqwest 0.12.28",
  "thiserror 2.0.21",

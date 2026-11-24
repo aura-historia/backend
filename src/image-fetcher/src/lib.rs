@@ -1,3 +1,7 @@
+mod downscale;
+
+pub use downscale::{DownscaleError, Downscaled, PixelBudget, downscale};
+
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use std::{
     net::{IpAddr, SocketAddr},
