@@ -92,6 +92,12 @@ concurrency; `exclusive = true` excludes every other context for global operatio
 A one-thread Nextest group does not establish that exclusion. Absent-role and
 pristine-cluster tests require a fresh supervisor.
 
+A waiting exclusive reservation holds back new ordinary leases until the running ones
+end, so a steady stream of ordinary tests cannot starve it. Every other test waits
+while it waits or runs, so request it only for operations on shared state: each
+scoped context already has its own database. The wait for any reservation is bounded
+at 120 s. A test that holds a reservation must not request a second one.
+
 PostgreSQL clones a fresh database from an immutable migration/setup template per
 test generation. Migration paths stay within the workspace. Register manually
 created pools with `register_postgres_pool()` so they close before database removal.
