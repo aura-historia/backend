@@ -1,5 +1,5 @@
 use aura_historia_worker::{compose_background_tasks, compose_handlers, config::WorkerConfig, run};
-use platform_observability::{LoggingConfig, init};
+use platform_observability::{LoggingConfig, init_with_directives};
 use platform_process::{
     Shutdown,
     config::{find_config_error, load_file_backed_environment},
@@ -9,6 +9,12 @@ use platform_process::{
 use std::process::ExitCode;
 
 const COMPONENT: &str = "aura-historia-worker";
+/// The embedding rounds' per-round and per-job records stay visible at a quieter configured
+/// level: they carry the batch sizes, outcomes and turnaround the operators watch.
+const EMBEDDING_ROUND_LOGS: [&str; 2] = [
+    "aura_historia_worker::embedding_batches=info",
+    "product_listing_service::use_cases::commands::embed_product_listing_batches=info",
+];
 
 fn main() -> ExitCode {
     // Job handlers can panic on provider or persisted data; never print the payload.
@@ -17,7 +23,7 @@ fn main() -> ExitCode {
         eprintln!("{COMPONENT}: {error}");
         return ExitCode::FAILURE;
     }
-    init(LoggingConfig::from_env());
+    init_with_directives(LoggingConfig::from_env(), &EMBEDDING_ROUND_LOGS);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

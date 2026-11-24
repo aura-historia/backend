@@ -1,4 +1,4 @@
-//! Provider fakes for the title translation rounds.
+//! Provider fakes for the title translation and product embedding rounds.
 
 #![allow(dead_code)]
 
@@ -154,5 +154,64 @@ impl LargeLanguageModel for FakeFallback {
     {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(serde_json::from_value(answer(&request, self.translation)).unwrap())
+    }
+}
+
+/// Answers every request of a batch with a unit vector once it is polled, unless told to leave
+/// the next poll's requests unprocessed. Records what each submission requested.
+#[derive(Clone, Default)]
+pub struct FakeEmbeddingBatches {
+    pub submitted: Arc<Mutex<Vec<Vec<embedding::ProductEmbeddingRequest>>>>,
+    pub leave_unprocessed: Arc<AtomicBool>,
+}
+
+#[async_trait::async_trait]
+impl embedding::ProductEmbeddingBatches for FakeEmbeddingBatches {
+    async fn submit(
+        &self,
+        _: &str,
+        requests: &[embedding::ProductEmbeddingRequest],
+    ) -> Result<embedding::EmbeddingBatchId, embedding::EmbeddingError> {
+        let mut submitted = self.submitted.lock().unwrap();
+        submitted.push(requests.to_vec());
+        embedding::EmbeddingBatchId::new(format!(
+            "projects/p/locations/eu/batchPredictionJobs/{}",
+            submitted.len()
+        ))
+    }
+
+    async fn poll(
+        &self,
+        batch: &embedding::EmbeddingBatchId,
+    ) -> Result<embedding::EmbeddingBatchPoll, embedding::EmbeddingError> {
+        use embedding::{EmbeddingBatchPoll, EndedEmbeddingBatch, UnansweredEmbeddings};
+        if self.leave_unprocessed.swap(false, Ordering::SeqCst) {
+            return Ok(EmbeddingBatchPoll::Ended(EndedEmbeddingBatch {
+                results: Vec::new(),
+                unanswered: UnansweredEmbeddings::NotProcessed,
+            }));
+        }
+        let index = batch
+            .as_str()
+            .rsplit('/')
+            .next()
+            .and_then(|number| number.parse::<usize>().ok())
+            .unwrap();
+        let requests = self.submitted.lock().unwrap()[index - 1].clone();
+        Ok(EmbeddingBatchPoll::Ended(EndedEmbeddingBatch {
+            results: requests
+                .iter()
+                .map(|request| {
+                    (
+                        request.key,
+                        embedding::EmbeddingVector::try_new(vec![
+                            1.0;
+                            embedding::EMBEDDING_DIMENSIONS
+                        ]),
+                    )
+                })
+                .collect(),
+            unanswered: UnansweredEmbeddings::Failed,
+        }))
     }
 }

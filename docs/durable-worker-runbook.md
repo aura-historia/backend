@@ -252,6 +252,39 @@ translation rounds with `ANTHROPIC_API_KEY`; work waits in
   fixing a cause, set `parked` to `NULL`, `attempts` to `0` and `mode` to `'GROUPED'` for the
   selected listings; never delete work to silence it.
 
+## Product embedding recovery
+
+[Embeddings](product-listing.md#embeddings) owns the contract. A `product-embedding` job only
+records work, so its custody means the work was never recorded: redrive it once PostgreSQL is
+healthy. Every worker consuming that scope also runs the embedding rounds with
+`VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` (`global`, `us` or `eu`, where
+`gemini-embedding-2` batch prediction runs) and `VERTEX_AI_EMBEDDING_BATCH_BUCKET`; work waits in
+`product_listing_embedding_work` and batches in `product_listing_embedding_batches`, neither of
+which is ever purged except by settlement.
+
+- Each round logs `product.embedding.round.completed` with its counts, or
+  `product.embedding.round.failed` with the failed stage and safe categories; the next round
+  continues from the durable state. Each job logs `product.embedding.batch.submitted` with its ID
+  and size, and `product.embedding.batch.collected` with its size, answered requests, outcome
+  counts and `turnaround_seconds` (from submission to the round that collected it). A batch that
+  cannot be collected logs `product.embedding.batch_failed` and is retried next round without
+  holding back other batches or new work; a vector whose guarded write fails logs
+  `product.embedding.write_failed` and spends an attempt. Work whose persisted document is
+  invalid logs `product.embedding.work_invalid` and is parked alone. The worker keeps these
+  records at `info` whatever `LOG_LEVEL` says.
+- The `…-host-embedding-backlog-age` alarm fires when work that is neither committed nor parked
+  is 36 hours old: the rounds are not running, submissions fail, or jobs keep failing as a whole
+  (a missing bucket permission or quota returns their work unspent, so it is resubmitted every
+  round). Check the worker logs and the job in the Vertex AI console by its ID.
+- A batch whose submission was not recorded within two hours is closed and its work returns to
+  the queue. If Vertex AI accepted the job anyway, it runs unread and is billed once more.
+- The staging bucket's lifecycle rule deletes objects after 7 days, longer than a job may queue
+  and run (72 hours) plus a round. A job whose output can no longer be read returns its work
+  unspent, and it is submitted again.
+- Parked work (`parked IS NOT NULL`) spent three attempts or cannot be embedded. It waits for a
+  content change. To retry it after fixing a cause, set `parked` to `NULL` and `attempts` to `0`
+  for the selected listings; never delete work to silence it.
+
 ## Listing shipping recovery
 
 [Shipping](shipping.md#effective-shipping-discovery-projection) owns the conservative

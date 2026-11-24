@@ -2964,8 +2964,11 @@ name = "embedding"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
+ "futures",
  "google-cloud-auth",
  "http 1.5.0",
+ "image",
  "image-fetcher",
  "lru 0.19.1",
  "reqwest 0.12.28",
@@ -2975,6 +2978,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "wiremock",
 ]
 
 [[package]]
@@ -4229,6 +4233,7 @@ name = "image-fetcher"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "image",
  "public-network-policy",
  "reqwest 0.12.28",
  "thiserror 2.0.21",

@@ -31,8 +31,8 @@ const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(25);
 const DEFAULT_DISPATCH_BATCH_SIZE: u16 = 100;
 /// Connections beyond the jobs' own: the two wake-up listeners, the dispatcher, settlement, the
-/// health metrics and the title translation rounds.
-const POOL_HEADROOM: u32 = 6;
+/// health metrics and the title translation and product embedding rounds.
+const POOL_HEADROOM: u32 = 7;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerConfigError {

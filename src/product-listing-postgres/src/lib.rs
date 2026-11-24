@@ -10,6 +10,7 @@ pub mod partner_product_listing_authorizer;
 pub mod product_listing_command_receipt;
 pub mod product_listing_content_assessment_source_reader;
 pub mod product_listing_content_assessment_writer;
+pub mod product_listing_embedding_queue;
 pub mod product_listing_embedding_source_reader;
 pub mod product_listing_embedding_writer;
 pub mod product_listing_normalization_diagnostic_case;
@@ -30,6 +31,10 @@ pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerF
 pub use product_listing_command_receipt::SqlxProductListingCommandReceiptStoreFactory;
 pub use product_listing_content_assessment_source_reader::SqlxProductListingContentAssessmentSourceReader;
 pub use product_listing_content_assessment_writer::SqlxProductListingContentAssessmentWriterFactory;
+pub use product_listing_embedding_queue::{
+    SqlxProductListingEmbeddingQueueFactory, SqlxProductListingEmbeddingQueueReader,
+    oldest_unembedded_age,
+};
 pub use product_listing_embedding_source_reader::SqlxProductListingEmbeddingSourceReader;
 pub use product_listing_embedding_writer::SqlxProductListingEmbeddingWriterFactory;
 pub use product_listing_event_appender::SqlxProductListingEventAppenderFactory;

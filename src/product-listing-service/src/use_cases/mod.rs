@@ -16,6 +16,11 @@ pub use commands::create_product_listing::{
     CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
     CreateProductListingResult, CreateProductListingUseCase,
 };
+pub use commands::embed_product_listing_batches::{
+    EmbedProductListingBatchesError, EmbedProductListingBatchesHandler,
+    EmbedProductListingBatchesUseCase, MAX_EMBEDDING_ATTEMPTS, MAX_EMBEDDINGS_PER_BATCH,
+    ProductEmbeddingRoundReport, ProductEmbeddingSettlements,
+};
 pub use commands::embed_product_listing_event::{
     EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventHandler,
     EmbedProductListingEventOutcome, EmbedProductListingEventResult,

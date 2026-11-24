@@ -4,6 +4,7 @@ pub mod capture_product_listing_raw_observation;
 pub(crate) mod product_listing_change;
 
 pub mod create_product_listing;
+pub mod embed_product_listing_batches;
 pub mod embed_product_listing_event;
 pub mod generate_watchlist_notifications;
 pub mod process_product_listing_ingestion;
@@ -13,6 +14,8 @@ pub mod record_product_listing_sale_observation;
 pub mod refresh_public_catalogue_overview;
 
 pub mod submit_product_listing_ingestion;
+#[cfg(test)]
+mod test_support;
 pub mod translate_product_listing_event;
 pub mod translate_product_listing_title_batches;
 pub mod update_product_listing;

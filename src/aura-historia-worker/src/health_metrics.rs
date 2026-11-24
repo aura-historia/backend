@@ -30,6 +30,7 @@ pub const HEARTBEAT: &str = "Heartbeat";
 pub const POSTGRES_REACHABLE: &str = "PostgresReachable";
 pub const OLDEST_JOB_AGE: &str = "OldestJobAgeSeconds";
 pub const PARKED_JOBS: &str = "ParkedJobs";
+pub const OLDEST_PENDING_EMBEDDING_AGE: &str = "OldestPendingEmbeddingAgeSeconds";
 pub const FREE_DISK: &str = "FreeDiskPercent";
 pub const SINCE_LAST_BACKUP: &str = "SecondsSinceLastBackup";
 pub const SINCE_LAST_JOB_SUCCESS: &str = "SecondsSinceLastSuccess";
@@ -72,6 +73,8 @@ pub struct QueueHealth {
     pub oldest_bulk: Duration,
     /// Jobs and outbox snapshots in failure custody.
     pub parked: u64,
+    /// The oldest product embedding work that is neither committed nor parked.
+    pub oldest_pending_embedding: Duration,
 }
 
 impl QueueHealth {
@@ -81,6 +84,7 @@ impl QueueHealth {
             oldest_normal: outbox.oldest_pending_age.unwrap_or_default(),
             oldest_bulk: Duration::ZERO,
             parked: queue.in_custody + outbox.custody,
+            oldest_pending_embedding: Duration::ZERO,
         };
         for (scope, age) in &queue.oldest_waiting {
             let class = ConsumedScope::parse(scope.as_str())
@@ -204,8 +208,13 @@ async fn queue_health(pool: &PgPool) -> Result<QueueHealth, BoxError> {
         .await?;
     let queue = platform_postgres_queue::overview(&mut transaction).await?;
     let outbox = delivery_outbox::inspect(&mut transaction).await?;
+    let oldest_pending_embedding =
+        product_listing_postgres::oldest_unembedded_age(&mut transaction).await?;
     transaction.rollback().await?;
-    Ok(QueueHealth::from_figures(&queue, &outbox))
+    Ok(QueueHealth {
+        oldest_pending_embedding: oldest_pending_embedding.unwrap_or_default(),
+        ..QueueHealth::from_figures(&queue, &outbox)
+    })
 }
 
 /// Space available to unprivileged writers, as a share of the filesystem's size.
@@ -297,6 +306,14 @@ pub fn metric_data(snapshot: &HealthSnapshot, at: SystemTime) -> Vec<MetricDatum
             );
         }
         data.push(datum(PARKED_JOBS, queues.parked as f64, StandardUnit::Count).build());
+        data.push(
+            datum(
+                OLDEST_PENDING_EMBEDDING_AGE,
+                queues.oldest_pending_embedding.as_secs_f64(),
+                StandardUnit::Seconds,
+            )
+            .build(),
+        );
     }
     if let Some(percent) = snapshot.free_disk_percent {
         data.push(datum(FREE_DISK, percent, StandardUnit::Percent).build());
@@ -374,6 +391,7 @@ mod tests {
                 oldest_normal: minutes(7),
                 oldest_bulk: minutes(200),
                 parked: 11,
+                oldest_pending_embedding: Duration::ZERO,
             },
             QueueHealth::from_figures(&queue, &outbox)
         );
@@ -429,6 +447,7 @@ mod tests {
                 oldest_normal: Duration::from_secs(5),
                 oldest_bulk: Duration::ZERO,
                 parked: 2,
+                oldest_pending_embedding: Duration::from_secs(7200),
             }),
             free_disk_percent: Some(59.5),
             since_last_backup: Some(Duration::from_secs(3600)),
@@ -444,6 +463,7 @@ mod tests {
                 "OldestJobAgeSeconds[normal]",
                 "OldestJobAgeSeconds[bulk]",
                 "ParkedJobs",
+                "OldestPendingEmbeddingAgeSeconds",
                 "FreeDiskPercent",
                 "SecondsSinceLastBackup",
                 "SecondsSinceLastSuccess[fx-refresh]",
@@ -451,7 +471,10 @@ mod tests {
             names(&data)
         );
         let values: Vec<_> = data.iter().filter_map(MetricDatum::value).collect();
-        assert_eq!(vec![1.0, 1.0, 5.0, 0.0, 2.0, 59.5, 3600.0, 60.0], values);
+        assert_eq!(
+            vec![1.0, 1.0, 5.0, 0.0, 2.0, 7200.0, 59.5, 3600.0, 60.0],
+            values
+        );
     }
 
     #[test]

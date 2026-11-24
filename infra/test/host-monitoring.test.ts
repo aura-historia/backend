@@ -77,7 +77,7 @@ describe("monitoring stacks", () => {
     const worker = readFileSync(join(__dirname, "../../src/aura-historia-worker/src/health_metrics.rs"), "utf8");
     for (const name of Object.values(HOST_METRICS)) expect(worker).toContain(`: &str = "${name}";`);
     const hostAlarms = alarmsIn(monitoring, config.host.metricNamespace);
-    expect(hostAlarms).toHaveLength(11);
+    expect(hostAlarms).toHaveLength(12);
     for (const resource of hostAlarms) {
       expect(resource.Properties.AlarmName.startsWith("aura-historia-prod-host-")).toBe(true);
       const metrics = resource.Properties.Metrics
@@ -163,7 +163,7 @@ describe("monitoring stacks", () => {
     // Without a recorded backup the backup is as stale as an old one.
     expect(alarm(monitoring, "aura-historia-prod-host-backup-stale").Properties)
       .toMatchObject({ Threshold: 26 * 3600, TreatMissingData: "breaching" });
-    for (const name of ["postgres-unreachable", "normal-backlog-age", "bulk-backlog-age", "parked-jobs", "ingestion-rejected", "low-free-disk"]) {
+    for (const name of ["postgres-unreachable", "normal-backlog-age", "bulk-backlog-age", "embedding-backlog-age", "parked-jobs", "ingestion-rejected", "low-free-disk"]) {
       expect(alarm(monitoring, `aura-historia-prod-host-${name}`).Properties.TreatMissingData).toBe("notBreaching");
     }
   });
@@ -179,6 +179,10 @@ describe("monitoring stacks", () => {
     }
     expect(alarm(monitoring, "aura-historia-prod-host-low-free-disk").Properties)
       .toMatchObject({ Statistic: "Minimum", Threshold: 20, ComparisonOperator: "LessThanOrEqualToThreshold" });
+     expect(alarm(monitoring, "aura-historia-prod-host-embedding-backlog-age").Properties).toMatchObject({
+      MetricName: "OldestPendingEmbeddingAgeSeconds", Statistic: "Maximum", Period: 300, Threshold: 36 * 3600,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching",
+    });
   });
 
   test("alarm on the 5xx share of api. and mcp. in the edge region, ignoring near-idle periods", () => {
@@ -218,7 +222,7 @@ describe("monitoring stacks", () => {
       const paths = stack.node.findAll().map((construct) => construct.node.path);
       expect(paths.filter((path) => path.includes("resolve"))).toEqual([]);
     }
-    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(14);
+    expect(resources(monitoring, "AWS::CloudWatch::Alarm")).toHaveLength(15);
     expect(resources(edge, "AWS::CloudWatch::Alarm")).toHaveLength(2);
   });
 });

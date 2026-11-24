@@ -41,7 +41,7 @@ only the files it lists.
 | File | Content |
 | --- | --- |
 | `compose.env` | Compose interpolation: application image, its revision, backup bucket |
-| `settings.env` | Non-secret deployment settings: Cognito, Vertex AI, Stripe IDs, email senders |
+| `settings.env` | Non-secret deployment settings: Cognito, Vertex AI (with the embedding batch bucket), Stripe IDs, email senders |
 | `secrets/<credential>.env` | One credential per file, mode 0600 |
 | `opensearch-root-ca.pem` | The OpenSearch node's CA certificate (public), mode 0644 |
 | `google-credentials.json` | The keyless [Vertex AI configuration](../../docs/infra.md#vertex-ai-credentials), mode 0644 |

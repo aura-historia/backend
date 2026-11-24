@@ -107,9 +107,10 @@ impl TryFrom<ProductListingEmbeddingSourceRow> for ProductListingEmbeddingSource
             )
             .map_err(mapping_error_source)?,
             event: embedding_event(&row)?,
-            title: localized_title(row.title_text, row.title_language)?,
-            description: localized_description(row.description_text, row.description_language)?,
-            image_url: first_image_url(row.product_images)?,
+            title: localized_title(row.title_text, row.title_language).map_err(mapping_error)?,
+            description: localized_description(row.description_text, row.description_language)
+                .map_err(mapping_error)?,
+            image_url: first_image_url(row.product_images).map_err(mapping_error)?,
         })
     }
 }
@@ -152,35 +153,33 @@ fn embedding_event(
     })
 }
 
-fn localized_title(
+/// The persisted title of an embedding document; the error names what is invalid.
+pub(crate) fn localized_title(
     text: Option<String>,
     language: Option<String>,
-) -> Result<Option<Localized<Language, Title>>, ProductListingEmbeddingSourceReadError> {
+) -> Result<Option<Localized<Language, Title>>, &'static str> {
     match (text, language) {
         (Some(raw_text), Some(raw_language)) => {
             let language = parse_language(&raw_language)?;
             let title = crate::title::decode_nonempty_title(&raw_text)
-                .map_err(|_| mapping_error("persisted product embedding title is invalid"))?;
+                .map_err(|_| "persisted product embedding title is invalid")?;
             Ok(title.map(|title| Localized::new(language, title)))
         }
         (None, None) => Ok(None),
-        _ => Err(mapping_error(
-            "persisted product embedding title is incomplete",
-        )),
+        _ => Err("persisted product embedding title is incomplete"),
     }
 }
 
-fn localized_description(
+/// The persisted description of an embedding document; the error names what is invalid.
+pub(crate) fn localized_description(
     text: Option<String>,
     language: Option<String>,
-) -> Result<Option<Localized<Language, Description>>, ProductListingEmbeddingSourceReadError> {
+) -> Result<Option<Localized<Language, Description>>, &'static str> {
     match (text, language) {
         (Some(raw_text), Some(raw_language)) => {
             let description = Description::from(raw_text.as_str());
             if description.as_ref() != raw_text {
-                return Err(mapping_error(
-                    "persisted product embedding description is invalid",
-                ));
+                return Err("persisted product embedding description is invalid");
             }
             Ok(Some(Localized::new(
                 parse_language(&raw_language)?,
@@ -188,36 +187,30 @@ fn localized_description(
             )))
         }
         (None, None) => Ok(None),
-        _ => Err(mapping_error(
-            "persisted product embedding description is incomplete",
-        )),
+        _ => Err("persisted product embedding description is incomplete"),
     }
 }
 
-fn first_image_url(
-    value: serde_json::Value,
-) -> Result<Option<Url>, ProductListingEmbeddingSourceReadError> {
+/// The first persisted image of an embedding document; the error names what is invalid.
+pub(crate) fn first_image_url(value: serde_json::Value) -> Result<Option<Url>, &'static str> {
     let images: Vec<ProductListingImageRecord> = serde_json::from_value(value)
-        .map_err(|_| mapping_error("persisted product embedding images are invalid"))?;
+        .map_err(|_| "persisted product embedding images are invalid")?;
     images
         .into_iter()
         .next()
         .map(|image| {
             let url = Url::parse(&image.url)
-                .map_err(|_| mapping_error("persisted product embedding image URL is invalid"))?;
+                .map_err(|_| "persisted product embedding image URL is invalid")?;
             if !matches!(url.scheme(), "http" | "https") {
-                return Err(mapping_error(
-                    "persisted product embedding image URL is invalid",
-                ));
+                return Err("persisted product embedding image URL is invalid");
             }
             Ok(url)
         })
         .transpose()
 }
 
-fn parse_language(value: &str) -> Result<Language, ProductListingEmbeddingSourceReadError> {
-    Language::from_code(value)
-        .ok_or_else(|| mapping_error("persisted product embedding language is invalid"))
+fn parse_language(value: &str) -> Result<Language, &'static str> {
+    Language::from_code(value).ok_or("persisted product embedding language is invalid")
 }
 
 fn mapping_error(message: &'static str) -> ProductListingEmbeddingSourceReadError {
