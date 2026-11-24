@@ -1362,6 +1362,17 @@ async fn scraper_should_hold_back_never_captured_urls_while_a_schema_audit_revie
             1
         )
     );
+
+    sqlx::query("UPDATE crawler_reviews SET status = 'APPROVED' WHERE listing_source_id = $1")
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        due_urls(&service).await,
+        before,
+        "a decided audit review releases the held listings"
+    );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

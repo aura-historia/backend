@@ -182,13 +182,13 @@ fn blocking_codes(page: &ImplausiblePage) -> Vec<String> {
     per_page.chain(cross_page).chain(identity).collect()
 }
 
-/// `field CHECK`, the check named by its persisted code.
+/// `field CHECK`, the check named by its persisted code. Every check is a unit variant persisted
+/// as a `SCREAMING_SNAKE_CASE` string, which `tests::should_name_every_check_by_its_code` pins.
 fn field_code(field: &str, check: &impl serde::Serialize) -> String {
-    let code = serde_json::to_value(check)
-        .ok()
-        .and_then(|code| code.as_str().map(str::to_owned))
-        .unwrap_or_default();
-    format!("{field} {code}")
+    match serde_json::to_value(check) {
+        Ok(serde_json::Value::String(code)) => format!("{field} {code}"),
+        other => panic!("a plausibility check must persist as its code, not {other:?}"),
+    }
 }
 
 #[cfg(test)]
@@ -370,6 +370,22 @@ mod tests {
             );
 
             assert!(findings.is_empty(), "{findings:?}");
+        }
+    }
+
+    #[test]
+    fn should_name_every_check_by_its_code() {
+        use crate::scraper::plausibility::{
+            CrossPageCheck, IdentityAgreementCheck, PlausibilityCheck,
+        };
+        for check in PlausibilityCheck::ALL {
+            assert!(!field_code("title", &check).ends_with(' '));
+        }
+        for check in CrossPageCheck::ALL {
+            assert!(!field_code("title", &check).ends_with(' '));
+        }
+        for check in IdentityAgreementCheck::ALL {
+            assert!(!field_code("source_listing_id", &check).ends_with(' '));
         }
     }
 

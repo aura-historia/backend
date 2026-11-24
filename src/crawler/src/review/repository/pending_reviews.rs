@@ -187,7 +187,12 @@ fn row_to_summary(
         human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, rounds),
         handed_back: row.try_get("handed_back")?,
         classification_due: row.try_get("classification_due")?,
-        final_round: FinalRoundStatus::of(agent_decisions, STATUS_PENDING_REVIEW, rounds),
+        final_round: FinalRoundStatus::of(
+            agent_decisions,
+            STATUS_PENDING_REVIEW,
+            row.try_get::<&str, _>("reason")?,
+            rounds,
+        ),
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })

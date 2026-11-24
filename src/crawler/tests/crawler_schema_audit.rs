@@ -3,7 +3,7 @@
 //! `review::schema_audit`; the hold on new listings in `tests/candidates.rs`.
 
 use crawler::review::model::{PAGE_ROLE_SEED, STATUS_PENDING_REVIEW, SchemaReviewPageInput};
-use crawler::review::repository::{CrawlerReviewRepository, SchemaAuditSource};
+use crawler::review::repository::{CrawlerReviewRepository, SchemaAuditReview, SchemaAuditSource};
 use crawler::review::schema_audit::SCHEMA_AUDIT_REASON;
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
@@ -129,18 +129,58 @@ fn findings() -> Vec<String> {
     ]
 }
 
-async fn set_review_status(pool: &PgPool, review_id: crawler::CrawlerReviewId, status: &str) {
-    sqlx::query("UPDATE crawler_reviews SET status = $2, updated = NOW() WHERE review_id = $1")
-        .bind(review_id.as_uuid())
-        .bind(status)
-        .execute(pool)
-        .await
-        .unwrap();
+/// Decides the review as `actor`, as the review's trail records a verdict, `reviewed` now.
+async fn decide(pool: &PgPool, review_id: crawler::CrawlerReviewId, status: &str, actor: &str) {
+    sqlx::query(
+        "UPDATE crawler_reviews SET status = $2, reviewed = NOW(), updated = NOW() \
+         WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .bind(status)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO crawler_review_events (event_id, review_id, actor, action, candidate_version, details) \
+         VALUES ($1, $2, $3, $4, 1, '{}'::jsonb)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(review_id.as_uuid())
+    .bind(actor)
+    .bind(status)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
-/// Sources never audited come first, then the longest ago; a source audited within the audit
-/// age, one without live schemas, one with a pending schema review and one not crawled are not
-/// due. An audit it records moves the source out of the due set.
+/// The review the audit opened.
+async fn open(
+    repository: &CrawlerReviewRepository,
+    source: &ListingSourceId,
+    live: &[ProductCssSelectorSchema],
+    host: &str,
+) -> crawler::CrawlerReviewId {
+    match repository
+        .open_schema_audit_review(source, live, audited_pages(host), &findings())
+        .await
+        .unwrap()
+    {
+        SchemaAuditReview::Opened(review_id) => review_id,
+        SchemaAuditReview::Deferred => panic!("the audit must open its own review"),
+    }
+}
+
+fn due_source(listing_source_id: ListingSourceId, name: &str) -> SchemaAuditSource {
+    SchemaAuditSource {
+        listing_source_id,
+        listing_source_name: name.to_owned(),
+    }
+}
+
+/// Sources never audited come first, then the longest ago. Not due are: a source audited within
+/// the audit age, one without live schemas, one with a pending schema review, one not crawled, one
+/// whose scrape circuit cools down, and one whose audit review was decided within the audit age,
+/// however long ago it was opened. An audit it records moves the source out of the due set.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_take_the_sources_never_audited_first_and_skip_those_not_due() {
     let pool = get_postgres_client().await;
@@ -153,35 +193,36 @@ async fn should_take_the_sources_never_audited_first_and_skip_those_not_due() {
     set_audited_days_ago(&pool, recent, 1).await;
     insert_source(&pool, "No schemas", "no-schemas.example", &[]).await;
     let pending = insert_source(&pool, "Pending", "pending.example", &live).await;
-    repository
-        .open_schema_audit_review(
-            &pending,
-            &live,
-            audited_pages("pending.example"),
-            &findings(),
-        )
-        .await
-        .unwrap();
+    open(&repository, &pending, &live, "pending.example").await;
     let disabled = insert_source(&pool, "Disabled", "disabled.example", &live).await;
     sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
         .bind(disabled.as_uuid())
         .execute(&pool)
         .await
         .unwrap();
+    let cooling = insert_source(&pool, "Cooling", "cooling.example", &live).await;
+    sqlx::query(
+        "UPDATE listing_sources SET scrape_failure_streak = 3, \
+         next_scrape_at = NOW() + INTERVAL '1 hour' WHERE listing_source_id = $1",
+    )
+    .bind(cooling.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let rejected = insert_source(&pool, "Rejected", "rejected.example", &live).await;
+    let review_id = open(&repository, &rejected, &live, "rejected.example").await;
+    set_audited_days_ago(&pool, rejected, 8).await;
+    decide(&pool, review_id, "REJECTED", "HUMAN").await;
 
     let due = repository.schema_audit_due_sources(WEEK, 10).await.unwrap();
     repository.record_schema_audit(&never).await.unwrap();
     let due_after_audit = repository.schema_audit_due_sources(WEEK, 10).await.unwrap();
 
-    let source = |listing_source_id, name: &str| SchemaAuditSource {
-        listing_source_id,
-        listing_source_name: name.to_owned(),
-    };
     assert_eq!(
         due,
-        vec![source(never, "Never"), source(long_ago, "Long ago")]
+        vec![due_source(never, "Never"), due_source(long_ago, "Long ago")]
     );
-    assert_eq!(due_after_audit, vec![source(long_ago, "Long ago")]);
+    assert_eq!(due_after_audit, vec![due_source(long_ago, "Long ago")]);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -213,10 +254,7 @@ async fn should_open_a_pending_review_of_the_live_schemas_that_records_the_findi
     let live = [schema("title")];
     let source = insert_source(&pool, "Shop", "shop.example", &live).await;
 
-    let review_id = repository
-        .open_schema_audit_review(&source, &live, audited_pages("shop.example"), &findings())
-        .await
-        .unwrap();
+    let review_id = open(&repository, &source, &live, "shop.example").await;
 
     let detail = repository.get_review(review_id).await.unwrap();
     assert_eq!(detail.review.status, STATUS_PENDING_REVIEW);
@@ -237,44 +275,137 @@ async fn should_open_a_pending_review_of_the_live_schemas_that_records_the_findi
             .collect::<Vec<_>>(),
         vec![PAGE_ROLE_SEED]
     );
-    assert_eq!(repository.pending_schema_audit_reviews().await.unwrap(), 1);
+    assert_eq!(
+        repository.pending_schema_audit_reviews(WEEK).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        repository
+            .pending_schema_audit_reviews(Duration::ZERO)
+            .await
+            .unwrap(),
+        0,
+        "a review older than the audit age waits for a human and no longer counts"
+    );
 }
 
-/// An approval that made exactly the live schemas live judged them with the findings its review
-/// was opened with; a pending review, or live schemas changed since, accepted nothing.
+/// A schema review the scraper opened since the audit took the source holds it: the audit opens
+/// none, adds nothing to that review, and forgets its record so the source is audited again once
+/// that review is decided.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_accept_the_findings_of_an_approved_audit_review_of_the_same_live_schemas() {
+async fn should_defer_to_a_schema_review_the_scraper_opened_meanwhile() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let live = [schema("title")];
     let source = insert_source(&pool, "Shop", "shop.example", &live).await;
-    let review_id = repository
+    repository.record_schema_audit(&source).await.unwrap();
+    let scraper_review = repository
+        .create_schema_review(
+            &source,
+            "manual_schema_required",
+            &live,
+            audited_pages("shop.example"),
+            serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+
+    let opened = repository
         .open_schema_audit_review(&source, &live, audited_pages("shop.example"), &findings())
         .await
         .unwrap();
 
-    let while_pending = repository
-        .accepted_schema_audit_findings(&source, &live)
-        .await
-        .unwrap();
-    set_review_status(&pool, review_id, "APPROVED").await;
-    let approved = repository
-        .accepted_schema_audit_findings(&source, &live)
-        .await
-        .unwrap();
-    let other_schemas = repository
-        .accepted_schema_audit_findings(&source, &[schema("h1")])
-        .await
-        .unwrap();
+    assert_eq!(opened, SchemaAuditReview::Deferred);
+    let detail = repository.get_review(scraper_review).await.unwrap();
+    assert_eq!(detail.review.reason, "manual_schema_required");
+    assert_eq!(detail.pages.len(), 1);
+    assert_eq!(
+        repository.pending_schema_audit_reviews(WEEK).await.unwrap(),
+        0
+    );
+    decide(&pool, scraper_review, "APPROVED", "HUMAN").await;
+    assert_eq!(
+        repository.schema_audit_due_sources(WEEK, 10).await.unwrap(),
+        vec![due_source(source, "Shop")]
+    );
+}
 
-    assert_eq!(while_pending, None);
-    assert_eq!(approved, Some(findings()));
-    assert_eq!(other_schemas, None);
+/// Every audit review that judged exactly the live schemas accepted its findings: an approval by
+/// anyone, or a human's rejection. A pending review, an agent's rejection, or live schemas changed
+/// since accepted nothing, and samples that differ between audits are covered by every such
+/// review, not only the last one.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_accept_the_findings_of_every_audit_review_that_judged_the_same_live_schemas() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let live = [schema("title")];
+    let source = insert_source(&pool, "Shop", "shop.example", &live).await;
+    let accepted = |live: Vec<ProductCssSelectorSchema>| {
+        let repository = repository.clone();
+        async move {
+            let mut findings = repository
+                .accepted_schema_audit_findings(&source, &live)
+                .await
+                .unwrap();
+            findings.sort();
+            findings
+        }
+    };
+    let first = open(&repository, &source, &live, "shop.example").await;
+
+    let while_pending = accepted(live.to_vec()).await;
+    decide(&pool, first, "APPROVED", "AGENT_REVIEWER").await;
+    let after_approval = accepted(live.to_vec()).await;
+    let other_schemas = accepted(vec![schema("h1")]).await;
+    let second = match repository
+        .open_schema_audit_review(
+            &source,
+            &live,
+            audited_pages("shop.example"),
+            &["images NO_IMAGE_ON_ANY_PAGE".to_owned()],
+        )
+        .await
+        .unwrap()
+    {
+        SchemaAuditReview::Opened(review_id) => review_id,
+        SchemaAuditReview::Deferred => panic!("the audit must open its own review"),
+    };
+    decide(&pool, second, "REJECTED", "AGENT_REVIEWER").await;
+    let after_agent_rejection = accepted(live.to_vec()).await;
+    let third = match repository
+        .open_schema_audit_review(
+            &source,
+            &live,
+            audited_pages("shop.example"),
+            &["price TOO_LONG".to_owned()],
+        )
+        .await
+        .unwrap()
+    {
+        SchemaAuditReview::Opened(review_id) => review_id,
+        SchemaAuditReview::Deferred => panic!("the audit must open its own review"),
+    };
+    decide(&pool, third, "REJECTED", "HUMAN").await;
+    let after_human_rejection = accepted(live.to_vec()).await;
+
+    assert_eq!(while_pending, Vec::<String>::new());
+    assert_eq!(after_approval, findings());
+    assert_eq!(other_schemas, Vec::<String>::new());
+    assert_eq!(after_agent_rejection, findings());
+    assert_eq!(
+        after_human_rejection,
+        vec![
+            "price TOO_LONG".to_owned(),
+            "title LISTING_SOURCE_NAME".to_owned(),
+            "title READS_DOCUMENT_TITLE".to_owned(),
+        ]
+    );
 }
 
 /// A pass audits each due source on its captured pages as the shared fetcher serves them: a title
-/// rule on the document `<title>` that adds the shop's name opens an audit review, while a rule on
-/// the heading only records the audit.
+/// rule on the document `<title>` that adds the shop's name opens an audit review, a rule on the
+/// heading only records the audit, and so does the same bad rule on a shop whose captured pages
+/// now redirect to its home page, which shows no product to audit.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_audit() {
     use crawler::scraper::scraper_service::{FetchedHtml, MockHtmlFetcher};
@@ -292,7 +423,12 @@ async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_au
     )
     .await;
     let passing = insert_source(&pool, "Heading Shop", "heading.example", &[schema("h1")]).await;
-    for (source, host) in [(failing, "bauman.example"), (passing, "heading.example")] {
+    let moved = insert_source(&pool, "Moved Books", "moved.example", &[schema("title")]).await;
+    for (source, host) in [
+        (failing, "bauman.example"),
+        (passing, "heading.example"),
+        (moved, "moved.example"),
+    ] {
         for item in ["suttree", "human-condition"] {
             insert_product_url(
                 &pool,
@@ -311,8 +447,12 @@ async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_au
              <h1>{item}</h1><span class=\"id\">{item}</span><span class=\"state\">In stock</span>\
              <img src=\"/images/{item}.jpg\"></body></html>"
         );
-        let url = url.clone();
-        Box::pin(async move { Ok(FetchedHtml::new(html, url, reqwest::StatusCode::OK)) })
+        let final_url = if url.host_str() == Some("moved.example") {
+            url.join("/").unwrap()
+        } else {
+            url.clone()
+        };
+        Box::pin(async move { Ok(FetchedHtml::new(html, final_url, reqwest::StatusCode::OK)) })
     });
     let audit = SchemaAudit::new(repository.clone(), Arc::new(fetcher));
 
@@ -336,6 +476,6 @@ async fn should_open_a_review_only_for_the_source_whose_live_schemas_fail_the_au
     assert_eq!(
         repository.schema_audit_due_sources(WEEK, 10).await.unwrap(),
         vec![],
-        "both sources are audited"
+        "every source is audited"
     );
 }

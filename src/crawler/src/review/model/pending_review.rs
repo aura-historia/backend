@@ -63,17 +63,19 @@ pub enum FinalRoundStatus {
 }
 
 impl FinalRoundStatus {
-    /// The status of a review in `status` that the agents worked as `rounds` says, under `policy`.
+    /// The status of a review in `status`, opened for `reason`, that the agents worked as `rounds`
+    /// says, under `policy`.
     pub fn of(
         policy: &crate::review::agent_decisions::AgentDecisionPolicy,
         status: &str,
+        reason: &str,
         rounds: crate::review::agent_decisions::AgentRounds,
     ) -> Self {
         use crate::review::agent_decisions::FinalRound;
         match rounds.final_round {
             FinalRound::Open => Self::Open,
             FinalRound::Ended => Self::Ended,
-            FinalRound::NotStarted if policy.final_round_due(status, rounds) => Self::Due,
+            FinalRound::NotStarted if policy.final_round_due(status, reason, rounds) => Self::Due,
             FinalRound::NotStarted => Self::None,
         }
     }
