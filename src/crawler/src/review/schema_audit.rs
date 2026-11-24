@@ -407,6 +407,13 @@ mod tests {
 
             assert_eq!(findings.codes(), vec!["state PRICE_TEXT"]);
             assert!(findings.holds_new_listings());
+            // The code names no page, so a human's decision on one sample's review accepts it
+            // for every later sample of the same live schemas.
+            assert!(
+                findings
+                    .excluding(&["state PRICE_TEXT".to_owned()])
+                    .is_empty()
+            );
         }
 
         #[test]
