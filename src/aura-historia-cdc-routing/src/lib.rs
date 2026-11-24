@@ -245,6 +245,12 @@ struct ProductListingEventRoutingFacts {
     event_id: EventId,
     product_listing_id: ProductListingId,
     event_kind: ProductListingRoutingEventKind,
+    changes: ProductListingChangeFacts,
+}
+
+/// What a `PRODUCT_LISTING_CHANGED` payload changed, as far as routing cares.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ProductListingChangeFacts {
     has_main_price_change: bool,
     has_availability_change: bool,
     has_image_change: bool,
@@ -302,20 +308,16 @@ fn product_event_routing_facts(
             ProductListingRoutingEventKind::Discovered
         }
         ("PRODUCT_LISTING_CHANGED", "DOMAIN") => {
-            let (has_main_price_change, has_availability_change, has_image_change, has_text_change) =
-                if delivery_changed && payload.as_object().is_some_and(|o| o.is_empty()) {
-                    (false, false, false, false)
-                } else {
-                    validate_changed_payload(payload)?
-                };
+            let changes = if delivery_changed && payload.as_object().is_some_and(|o| o.is_empty()) {
+                ProductListingChangeFacts::default()
+            } else {
+                validate_changed_payload(payload)?
+            };
             return Ok(ProductListingEventRoutingFacts {
                 event_id,
                 product_listing_id,
                 event_kind: ProductListingRoutingEventKind::Changed,
-                has_main_price_change,
-                has_availability_change,
-                has_image_change,
-                has_text_change,
+                changes,
             });
         }
         ("ENRICHMENT_GEOGRAPHY_UPDATED", "ENRICHMENT") => {
@@ -369,10 +371,7 @@ fn product_event_routing_facts(
         event_id,
         product_listing_id,
         event_kind,
-        has_main_price_change: false,
-        has_availability_change: false,
-        has_image_change: false,
-        has_text_change: false,
+        changes: ProductListingChangeFacts::default(),
     })
 }
 
@@ -404,7 +403,7 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
             }
         }
         ProductListingRoutingEventKind::Changed => {
-            if facts.has_main_price_change || facts.has_availability_change {
+            if facts.changes.has_main_price_change || facts.changes.has_availability_change {
                 jobs.push(domain_job(
                     WorkerQueue::WatchlistNotification,
                     idempotency_key.clone(),
@@ -412,7 +411,7 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
                     DomainJobPayload::ProductListingEvent(base_job.clone()),
                 ));
             }
-            if facts.has_text_change {
+            if facts.changes.has_text_change {
                 for target_queue in [
                     WorkerQueue::ProductListingContentAssessment,
                     WorkerQueue::ProductListingTranslate,
@@ -425,7 +424,7 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
                     ));
                 }
             }
-            if facts.has_image_change || facts.has_text_change {
+            if facts.changes.has_image_change || facts.changes.has_text_change {
                 jobs.push(domain_job(
                     WorkerQueue::ProductListingEmbed,
                     idempotency_key,
@@ -518,7 +517,7 @@ fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
     Ok(())
 }
 
-fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), CdcRouteError> {
+fn validate_changed_payload(value: &Value) -> Result<ProductListingChangeFacts, CdcRouteError> {
     let object = required_payload_object(value)?;
     if object.is_empty() {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
@@ -539,17 +538,14 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
         "payload",
     )?;
 
-    let mut has_main_price_change = false;
-    let mut has_availability_change = false;
-    let mut has_image_change = false;
-    let mut has_text_change = false;
+    let mut changes = ProductListingChangeFacts::default();
     let mut availability_change = None;
     let mut lifecycle_change = None;
     for (field, value) in object {
         match field.as_str() {
             "title" | "description" => {
                 validate_text_change(value, field)?;
-                has_text_change = true;
+                changes.has_text_change = true;
             }
             "pricing" => {
                 let pricing = required_object(value)?;
@@ -565,7 +561,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
                     match pricing_field.as_str() {
                         "price" => {
                             validate_product_listing_price_change(value)?;
-                            has_main_price_change = true;
+                            changes.has_main_price_change = true;
                         }
                         "priceEstimateMin" | "priceEstimateMax" => {
                             validate_price_change(value)?;
@@ -576,7 +572,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
             }
             "availability" => {
                 availability_change = Some(validate_code_change(value)?);
-                has_availability_change = true;
+                changes.has_availability_change = true;
             }
             "url" => validate_string_change(value)?,
             "images" => {
@@ -584,7 +580,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
                 require_exact_keys(images, &["previousCount", "currentCount"], "images")?;
                 require_u64(images, "previousCount")?;
                 require_u64(images, "currentCount")?;
-                has_image_change = true;
+                changes.has_image_change = true;
             }
             "auction" => validate_auction_change(value)?,
             "lifecycle" => lifecycle_change = Some(validate_lifecycle(value)?),
@@ -607,12 +603,7 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), C
         _ => {}
     }
 
-    Ok((
-        has_main_price_change,
-        has_availability_change,
-        has_image_change,
-        has_text_change,
-    ))
+    Ok(changes)
 }
 
 fn validate_text_change(value: &Value, field: &str) -> Result<(), CdcRouteError> {
