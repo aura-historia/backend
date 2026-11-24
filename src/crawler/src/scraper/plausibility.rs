@@ -8,7 +8,7 @@
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use product_listing_core::listing_availability::ListingAvailability;
+use crate::scraper::price_status_label::is_price_status_label;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
@@ -499,25 +499,9 @@ fn price_checks(price: &str) -> Vec<PlausibilityCheck> {
     .collect()
 }
 
-/// A price that holds no digit and that the ProductListing normalization resolves to an item
-/// that is gone: sold out, out of stock, reserved or unavailable. A price on application, such as
-/// "POA", resolves to none of them and stays plausible.
+/// A price that is an item's status label instead of an amount ([`is_price_status_label`]).
 fn availability_text_check(price: &str) -> Option<PlausibilityCheck> {
-    if price.chars().any(|character| character.is_ascii_digit()) {
-        return None;
-    }
-    let gone = matches!(
-        quick_check_availability(price)
-            .ok()
-            .and_then(ListingAvailabilityQuickCheck::availability),
-        Some(
-            ListingAvailability::SoldOut
-                | ListingAvailability::OutOfStock
-                | ListingAvailability::Reserved
-                | ListingAvailability::Unavailable
-        )
-    );
-    gone.then_some(PlausibilityCheck::AvailabilityText)
+    is_price_status_label(price).then_some(PlausibilityCheck::AvailabilityText)
 }
 
 fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
