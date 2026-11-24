@@ -14,8 +14,8 @@ use listing_source_core::ListingSourceId;
 use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
     ProductListingSchemaGenerationResponse, ProductListingSchemaResponseValidationError,
-    ProductListingSchemasGenerationResponse, product_schema_generation_response_json_schema,
-    single_schema_generation_response_json_schema,
+    ProductListingSchemasGenerationResponse, generator_json_schema,
+    product_schema_generation_response_json_schema, single_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
 use std::{sync::Arc, time::Duration};
@@ -151,8 +151,7 @@ impl<CreateLlm, SingleLlm> ProductListingSchemaServiceImpl<CreateLlm, SingleLlm>
 }
 
 fn create_schema_generation_system_instruction() -> String {
-    let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
-        .unwrap_or_else(|_| "Failed to generate schema".to_string());
+    let schema = generator_json_schema(schema_for!(ProductCssSelectorSchema));
     let response_json_schema = product_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
@@ -167,8 +166,7 @@ fn create_schema_generation_system_instruction() -> String {
 }
 
 fn single_schema_generation_system_instruction() -> String {
-    let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
-        .unwrap_or_else(|_| "Failed to generate schema".to_string());
+    let schema = generator_json_schema(schema_for!(ProductCssSelectorSchema));
     let response_json_schema = single_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques generating a fresh extraction schema for one HTML page.
@@ -484,6 +482,7 @@ mod tests {
                 cardinality: ExtractionCardinality::All,
             }),
             raw_attributes: Default::default(),
+            sanitize: Default::default(),
         }
     }
 

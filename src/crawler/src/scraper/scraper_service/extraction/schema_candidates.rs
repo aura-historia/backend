@@ -528,6 +528,7 @@ mod tests {
                 crate::scraper::css_selector::rule::ExtractionKind::ImageUrl,
             )),
             raw_attributes: BTreeMap::new(),
+            sanitize: Default::default(),
         }
     }
 }

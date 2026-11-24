@@ -207,7 +207,15 @@ pub(super) fn validate_product_schemas(
                         field: field.to_string(),
                         source,
                     })
-            })
+            })?;
+            match schema.sanitize.invalid() {
+                Some(invalid) => Err(ProductSchemaCandidateFailure::InvalidRule {
+                    schema_index,
+                    field: format!("sanitize.{}", invalid.field.as_str()),
+                    source: invalid.into(),
+                }),
+                None => Ok(()),
+            }
         })
 }
 
@@ -432,6 +440,7 @@ mod tests {
             state: Some(text_rule("#state")),
             images: Some(image_rule("img")),
             raw_attributes: Default::default(),
+            sanitize: Default::default(),
         }
     }
 
@@ -651,6 +660,11 @@ mod tests {
             ..text_rule(".price")
         });
         let invalid_raw_attribute = with_raw_attribute(schema("h1.product"), "rawMaterial", "a[");
+        let mut invalid_sanitize = schema("h1.product");
+        invalid_sanitize.sanitize = crate::scraper::css_selector::sanitize::Sanitize::from([(
+            crate::scraper::css_selector::sanitize::SanitizedField::Description,
+            vec!["Versand".to_owned()],
+        )]);
         let cases = [
             (
                 vec![schema("h1.product"), schema("h1[")],
@@ -663,6 +677,10 @@ mod tests {
             (
                 vec![invalid_raw_attribute],
                 "invalid ProductSchema review candidate: schema 0, field `raw_attributes.rawMaterial`: invalid CSS selector `a[`:",
+            ),
+            (
+                vec![invalid_sanitize],
+                "invalid ProductSchema review candidate: schema 0, field `sanitize.description`: sanitize text `Versand` of `description` is unusable:",
             ),
         ];
 

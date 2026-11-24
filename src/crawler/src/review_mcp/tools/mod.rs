@@ -833,4 +833,33 @@ mod tests {
             );
         }
     }
+
+    /// The author lists sanitize texts by field on every tool that takes a whole candidate, and
+    /// only for fields that can be sanitized.
+    #[test]
+    fn should_offer_the_author_sanitize_texts_keyed_by_field() {
+        let tools = tools_for(AgentRole::Author).unwrap_or_else(|error| panic!("{error}"));
+        for name in ["update_candidate", "evaluate_candidate", "stage_and_check"] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name() == name)
+                .unwrap_or_else(|| panic!("no tool {name}"));
+            let definitions =
+                Value::Object(tool.tool().input_schema.as_ref().clone())["$defs"].clone();
+            assert_eq!(
+                Value::String("#/$defs/Sanitize".to_owned()),
+                definitions["ProductCssSelectorSchema"]["properties"]["sanitize"]["$ref"],
+                "{name}"
+            );
+            assert!(
+                definitions["Sanitize"]["properties"]["description"].is_object(),
+                "{name}"
+            );
+            assert_eq!(
+                Value::Bool(false),
+                definitions["Sanitize"]["additionalProperties"],
+                "{name}"
+            );
+        }
+    }
 }

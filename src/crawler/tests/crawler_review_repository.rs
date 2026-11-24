@@ -103,6 +103,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         state: Some(rule("span.state")),
         images: Some(image_rule("img.product")),
         raw_attributes: Default::default(),
+        sanitize: Default::default(),
     }
 }
 

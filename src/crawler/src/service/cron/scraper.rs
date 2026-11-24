@@ -7504,6 +7504,7 @@ mod tests {
                     ..attribute("div.product img", "src")
                 }),
                 raw_attributes: Default::default(),
+                sanitize: Default::default(),
             }
         }
 
