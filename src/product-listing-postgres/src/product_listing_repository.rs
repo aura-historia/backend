@@ -358,7 +358,6 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             SET
                 current_event_id = $1,
                 embedding_source_event_id = CASE WHEN $2 THEN $1 ELSE embedding_source_event_id END,
-                embedding = CASE WHEN $2 THEN NULL ELSE embedding END,
                 content_source_event_id = CASE WHEN $29 THEN $1 ELSE content_source_event_id END,
                 title_text = $3,
                 title_language = $4,

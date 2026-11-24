@@ -22,7 +22,7 @@ use product_listing_service::use_cases::{
 };
 use serde_json::json;
 use std::sync::atomic::Ordering;
-use support::{FakeEmbeddingBatches, append_change};
+use support::{FakeEmbeddingBatches, FakeImageHasher, STAGED_IMAGE_HASH, append_change};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -34,7 +34,7 @@ async fn should_schedule_the_revision_and_commit_its_batch_result_once() {
         let pool = get_postgres_client().await;
         let handler = ProductEmbeddingJobs::new(compose_product_embedding_use_case(pool.clone()));
         let batches = FakeEmbeddingBatches::default();
-        let rounds = compose_round_use_case(pool.clone(), batches.clone());
+        let rounds = compose_round_use_case(pool.clone(), batches.clone(), FakeImageHasher::default());
         let missing = (ProductListingId::new(), EventId::new());
         assert_eq!(
             Disposition::Retry(error_class("missing_source")),
@@ -90,7 +90,7 @@ async fn should_drop_a_batch_result_for_a_revision_superseded_while_its_batch_ra
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let handler = ProductEmbeddingJobs::new(compose_product_embedding_use_case(pool.clone()));
-        let rounds = compose_round_use_case(pool.clone(), FakeEmbeddingBatches::default());
+        let rounds = compose_round_use_case(pool.clone(), FakeEmbeddingBatches::default(), FakeImageHasher::default());
         let (product, source) = seed_discovery(&pool).await?;
         assert_eq!(Disposition::Complete, handler.handle(&job(&job_body(product, source)?)).await);
         round(rounds.as_ref()).await?;
@@ -101,7 +101,7 @@ async fn should_drop_a_batch_result_for_a_revision_superseded_while_its_batch_ra
             .bind(newer.as_uuid()).bind(product.as_uuid())
             .bind(json!({"images": {"previousCount": 1, "currentCount": 1}}))
             .execute(&mut *tx).await?;
-        sqlx::query("UPDATE product_listings SET embedding_source_event_id = $1, current_event_id = $1, embedding = NULL, version = version + 1 WHERE product_listing_id = $2")
+        sqlx::query("UPDATE product_listings SET embedding_source_event_id = $1, current_event_id = $1, version = version + 1 WHERE product_listing_id = $2")
             .bind(newer.as_uuid()).bind(product.as_uuid()).execute(&mut *tx).await?;
         tx.commit().await?;
 
@@ -120,12 +120,85 @@ async fn should_drop_a_batch_result_for_a_revision_superseded_while_its_batch_ra
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_confirm_revisions_that_leave_the_embedded_input_unchanged_without_a_provider_call()
+{
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let handler = ProductEmbeddingJobs::new(compose_product_embedding_use_case(pool.clone()));
+        let batches = FakeEmbeddingBatches::default();
+        let images = FakeImageHasher::default();
+        let rounds = compose_round_use_case(pool.clone(), batches.clone(), images.clone());
+        let (product, discovery) = seed_discovery(&pool).await?;
+        handler.handle(&job(&job_body(product, discovery)?)).await;
+        round(rounds.as_ref()).await?;
+        assert_eq!(1, round(rounds.as_ref()).await?.settlements.applied);
+        let embedded = embedding(&pool, product).await?;
+
+        // Equivalent text and the same picture under a cache-busting URL.
+        let reworded = append_change(
+            &pool,
+            product,
+            json!({"title": {"previous": {"language": "de", "text": "Antiker Eichenstuhl"},
+                "current": {"language": "de", "text": "ANTIKER EICHENSTUHL!"}}}),
+            "UPDATE product_listings SET title_text = 'ANTIKER EICHENSTUHL!', embedding_source_event_id = $1, content_source_event_id = $1, current_event_id = $1, version = version + 1 WHERE product_listing_id = $2",
+        )
+        .await?;
+        handler.handle(&job(&job_body(product, reworded)?)).await;
+        let resized = append_change(
+            &pool,
+            product,
+            json!({"images": {"previousCount": 1, "currentCount": 1}}),
+            r#"UPDATE product_listings SET product_images = '[{"url": "https://example.test/image.jpg?w=800"}]', embedding_source_event_id = $1, current_event_id = $1, version = version + 1 WHERE product_listing_id = $2"#,
+        )
+        .await?;
+        images.hashes.lock().unwrap().insert(
+            "https://example.test/image.jpg?w=800".to_owned(),
+            embedding::ImageHash::from_bytes(&STAGED_IMAGE_HASH).ok_or("hash")?,
+        );
+        assert_eq!(Disposition::Complete, handler.handle(&job(&job_body(product, resized)?)).await);
+
+        let confirmed = round(rounds.as_ref()).await?;
+        assert_eq!((1, 0), (confirmed.settlements.confirmed, confirmed.submitted_embeddings));
+        assert_eq!(1, batches.submitted.lock().unwrap().len(), "no provider call");
+        let kept = embedding(&pool, product).await?;
+        assert!(embedded.0 == kept.0, "the vector stays");
+        assert_eq!(1, completion_count(&pool, product).await?, "no enrichment event");
+        assert_eq!(*resized.as_uuid(), kept.2);
+        assert_eq!(None, scheduled_revision(&pool, product).await?);
+        assert_eq!(
+            Disposition::Complete,
+            handler.handle(&job(&job_body(product, resized)?)).await,
+            "a redelivered job of the confirmed revision"
+        );
+        assert_eq!(None, scheduled_revision(&pool, product).await?);
+
+        // Another picture.
+        let replaced = append_change(
+            &pool,
+            product,
+            json!({"images": {"previousCount": 1, "currentCount": 1}}),
+            r#"UPDATE product_listings SET product_images = '[{"url": "https://example.test/other.jpg"}]', embedding_source_event_id = $1, current_event_id = $1, version = version + 1 WHERE product_listing_id = $2"#,
+        )
+        .await?;
+        handler.handle(&job(&job_body(product, replaced)?)).await;
+        assert_eq!(1, round(rounds.as_ref()).await?.submitted_embeddings);
+        assert!(embedded.0 == embedding(&pool, product).await?.0, "served until replaced");
+        assert_eq!(1, round(rounds.as_ref()).await?.settlements.applied);
+        assert_eq!(2, completion_count(&pool, product).await?);
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_requeue_unprocessed_work_and_submit_it_again() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let handler = ProductEmbeddingJobs::new(compose_product_embedding_use_case(pool.clone()));
         let batches = FakeEmbeddingBatches::default();
-        let rounds = compose_round_use_case(pool.clone(), batches.clone());
+        let rounds =
+            compose_round_use_case(pool.clone(), batches.clone(), FakeImageHasher::default());
         let (product, source) = seed_discovery(&pool).await?;
         handler.handle(&job(&job_body(product, source)?)).await;
         round(rounds.as_ref()).await?;
@@ -157,7 +230,7 @@ async fn should_wait_while_not_for_sale_and_embed_the_current_revision_once_back
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let handler = ProductEmbeddingJobs::new(compose_product_embedding_use_case(pool.clone()));
-        let rounds = compose_round_use_case(pool.clone(), FakeEmbeddingBatches::default());
+        let rounds = compose_round_use_case(pool.clone(), FakeEmbeddingBatches::default(), FakeImageHasher::default());
         let (product, discovery) = seed_discovery(&pool).await?;
         sqlx::query("UPDATE product_listings SET availability = 'OUT_OF_STOCK' WHERE product_listing_id = $1")
             .bind(product.as_uuid()).execute(&pool).await?;

@@ -1,6 +1,8 @@
 mod downscale;
+mod perceptual_hash;
 
 pub use downscale::{DecodedImage, DownscaleError, Downscaled, PixelBudget, decode, downscale};
+pub use perceptual_hash::ImageHash;
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use std::{

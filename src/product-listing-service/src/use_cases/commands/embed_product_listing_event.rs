@@ -380,6 +380,7 @@ mod tests {
             &mut self,
             _: ProductEmbeddingBatchKey,
             _: &EmbeddingBatchId,
+            _: &[crate::ports::EmbeddedImage],
         ) -> QueueResult<()> {
             unreachable!()
         }

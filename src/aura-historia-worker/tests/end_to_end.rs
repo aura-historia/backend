@@ -376,6 +376,7 @@ async fn should_carry_one_ingested_listing_through_every_stage_into_opensearch()
         embedding_batches::compose_round_use_case(
             pool.clone(),
             support::FakeEmbeddingBatches::default(),
+            support::FakeImageHasher::default(),
         ),
         POLL,
     );

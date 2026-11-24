@@ -930,6 +930,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
             source_event_id: initial,
             enrichment_event_id: EventId::new(),
             embedding: vec![0.1; 768],
+            image: None,
         })
         .await
         .unwrap();
@@ -957,7 +958,10 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
     let (content, embedding, vector): (uuid::Uuid,uuid::Uuid,Option<Vec<f32>>) = sqlx::query_as("SELECT content_source_event_id,embedding_source_event_id,embedding FROM product_listings WHERE product_listing_id=$1").bind(id.as_uuid()).fetch_one(&pool).await.unwrap();
     assert_eq!(content, embedding);
     assert_ne!(content, initial.into_uuid());
-    assert!(vector.is_none());
+    assert!(
+        vector.is_some(),
+        "the vector serves until the revision's own replaces it"
+    );
     let carried: Vec<uuid::Uuid> = sqlx::query_scalar(
         "SELECT source_event_id FROM product_listing_translations WHERE product_listing_id=$1",
     )
@@ -1120,7 +1124,8 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
                 product_listing_id: id,
                 source_event_id: pending,
                 enrichment_event_id: EventId::new(),
-                embedding: vec![0.2; 768]
+                embedding: vec![0.2; 768],
+                image: None,
             })
             .await
             .unwrap(),

@@ -3,7 +3,7 @@
 //! [`EmbeddingGenerator::embed_product`](crate::EmbeddingGenerator::embed_product) does, so
 //! vectors from both paths share one index.
 
-use crate::{EmbeddingError, EmbeddingImageUrl, EmbeddingText, EmbeddingVector};
+use crate::{EmbeddingError, EmbeddingImageUrl, EmbeddingText, EmbeddingVector, ImageHash};
 
 /// One product document of a batch. `key` identifies it in the batch's results.
 #[derive(Debug, Clone, PartialEq)]
@@ -12,6 +12,23 @@ pub struct ProductEmbeddingRequest {
     pub title: EmbeddingText,
     pub additional_text: Option<EmbeddingText>,
     pub image_url: Option<EmbeddingImageUrl>,
+}
+
+/// A submitted batch and the images its requests embed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmittedEmbeddingBatch {
+    pub id: EmbeddingBatchId,
+    /// One entry per request whose image is part of its embedding; a request without an entry
+    /// is embedded from its text alone, because it has no image or its image could not be sent.
+    pub images: Vec<EmbeddedImage>,
+}
+
+/// The image a request's embedding is computed with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmbeddedImage {
+    pub key: u32,
+    /// `None` for a format that is embedded without being decoded here, such as HEIC.
+    pub hash: Option<ImageHash>,
 }
 
 /// The provider's handle of a submitted batch.
@@ -78,7 +95,7 @@ pub trait ProductEmbeddingBatches: Send + Sync {
         &self,
         label: &str,
         requests: &[ProductEmbeddingRequest],
-    ) -> Result<EmbeddingBatchId, EmbeddingError>;
+    ) -> Result<SubmittedEmbeddingBatch, EmbeddingError>;
 
     async fn poll(&self, batch: &EmbeddingBatchId) -> Result<EmbeddingBatchPoll, EmbeddingError>;
 }

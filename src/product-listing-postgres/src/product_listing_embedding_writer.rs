@@ -2,6 +2,7 @@ use crate::object_id::try_from_uuid;
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use product_listing_service::ports::{
+    ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingConfirmation,
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
     ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
     ProductListingEmbeddingWriterFactory,
@@ -39,23 +40,97 @@ impl ProductListingEmbeddingWriterFactory<SqlxTransaction>
     }
 }
 
+impl SqlxProductListingEmbeddingWriter<'_> {
+    /// Locks the listing, which serializes every write of its vector and recorded input, and
+    /// returns its embedding revision.
+    async fn lock_embedding_source(
+        &mut self,
+        product_listing_id: &uuid::Uuid,
+    ) -> Result<Option<uuid::Uuid>, ProductListingEmbeddingWriteSqlxError> {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT embedding_source_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
+        )
+        .bind(product_listing_id)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(ProductListingEmbeddingWriteSqlxError)
+    }
+
+    /// The revision the listing's vector stands for and whether its input has an image; `None`
+    /// without a vector or a recorded input.
+    async fn embedded_input(
+        &mut self,
+        product_listing_id: &uuid::Uuid,
+    ) -> Result<Option<(uuid::Uuid, bool)>, ProductListingEmbeddingWriteSqlxError> {
+        sqlx::query_as::<_, (uuid::Uuid, bool)>(
+            r#"
+            SELECT input.source_event_id, input.image_url IS NOT NULL
+            FROM product_listing_embedding_inputs input
+            JOIN product_listings listing USING (product_listing_id)
+            WHERE input.product_listing_id = $1 AND listing.embedding IS NOT NULL
+            "#,
+        )
+        .bind(product_listing_id)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(ProductListingEmbeddingWriteSqlxError)
+    }
+
+    /// Records the listing's current title, description and, when the vector was computed with
+    /// it, first image as the input behind its vector.
+    async fn record_input(
+        &mut self,
+        write: &ProductListingEmbeddingWrite,
+    ) -> Result<(), ProductListingEmbeddingWriteSqlxError> {
+        sqlx::query(
+            r#"
+            INSERT INTO product_listing_embedding_inputs (
+                product_listing_id, source_event_id, title_text, description_text, image_url,
+                image_hash
+            )
+            SELECT product_listing_id, embedding_source_event_id, title_text, description_text,
+                   CASE WHEN $2 THEN product_images -> 0 ->> 'url' END,
+                   CASE WHEN $2 AND product_images -> 0 ->> 'url' IS NOT NULL THEN $3::bytea END
+            FROM product_listings
+            WHERE product_listing_id = $1
+            ON CONFLICT (product_listing_id) DO UPDATE SET
+                source_event_id = EXCLUDED.source_event_id,
+                title_text = EXCLUDED.title_text,
+                description_text = EXCLUDED.description_text,
+                image_url = EXCLUDED.image_url,
+                image_hash = EXCLUDED.image_hash
+            "#,
+        )
+        .bind(write.product_listing_id.as_uuid())
+        .bind(write.image.is_some())
+        .bind(
+            write
+                .image
+                .and_then(|image| image.hash)
+                .map(|hash| hash.as_bytes().to_vec()),
+        )
+        .execute(&mut *self.connection)
+        .await
+        .map_err(ProductListingEmbeddingWriteSqlxError)?;
+        Ok(())
+    }
+}
+
 #[async_trait::async_trait]
 impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
     async fn apply(
         &mut self,
         write: &ProductListingEmbeddingWrite,
     ) -> Result<ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriteError> {
-        let embedding_source_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT embedding_source_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
-        )
-        .bind(write.product_listing_id.as_uuid())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(ProductListingEmbeddingWriteSqlxError)?;
-        let Some(embedding_source_event_id) = embedding_source_event_id else {
+        let listing = write.product_listing_id.as_uuid();
+        let Some(embedding_source_event_id) = self.lock_embedding_source(listing).await? else {
             return Ok(ProductListingEmbeddingWriteOutcome::ProductListingNotFound);
         };
-        if duplicate_embedding_exists(self.connection, write).await? {
+        if self
+            .embedded_input(listing)
+            .await?
+            .is_some_and(|(embedded, _)| embedded == *write.source_event_id.as_uuid())
+        {
             return Ok(ProductListingEmbeddingWriteOutcome::Duplicate);
         }
         let embedding_source_event_id =
@@ -99,32 +174,42 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
                 ),
             });
         }
+        self.record_input(write).await?;
         Ok(ProductListingEmbeddingWriteOutcome::Applied)
     }
-}
 
-async fn duplicate_embedding_exists(
-    connection: &mut PgConnection,
-    write: &ProductListingEmbeddingWrite,
-) -> Result<bool, ProductListingEmbeddingWriteError> {
-    sqlx::query_scalar::<_, bool>(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM product_listing_events
-            WHERE product_listing_id = $1
-              AND event_type = 'ENRICHMENT_EMBEDDED'
-              AND event_group = 'ENRICHMENT'
-              AND event_type_schema_version = 1
-              AND payload ->> 'sourceEventId' = $2
+    async fn confirm(
+        &mut self,
+        confirmation: &ProductListingEmbeddingConfirmation,
+    ) -> Result<ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingWriteError> {
+        let listing = confirmation.product_listing_id.as_uuid();
+        let revision = confirmation.source_event_id.as_uuid();
+        if self.lock_embedding_source(listing).await?.as_ref() != Some(revision) {
+            return Ok(ProductListingEmbeddingConfirmOutcome::Superseded);
+        }
+        let Some((embedded, has_image)) = self.embedded_input(listing).await? else {
+            return Ok(ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged);
+        };
+        if embedded == *revision {
+            return Ok(ProductListingEmbeddingConfirmOutcome::Confirmed);
+        }
+        // The decision kept the image presence; an input that differs was replaced meanwhile.
+        if embedded != *confirmation.embedded_source_event_id.as_uuid()
+            || has_image != confirmation.image_url.is_some()
+        {
+            return Ok(ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged);
+        }
+        sqlx::query(
+            "UPDATE product_listing_embedding_inputs SET source_event_id = $2, image_url = $3 WHERE product_listing_id = $1",
         )
-    "#,
-    )
-    .bind(write.product_listing_id.as_uuid())
-    .bind(write.source_event_id.as_uuid().to_string())
-    .fetch_one(&mut *connection)
-    .await
-    .map_err(ProductListingEmbeddingWriteSqlxError)
-    .map_err(Into::into)
+        .bind(listing)
+        .bind(revision)
+        .bind(confirmation.image_url.as_ref().map(url::Url::as_str))
+        .execute(&mut *self.connection)
+        .await
+        .map_err(ProductListingEmbeddingWriteSqlxError)?;
+        Ok(ProductListingEmbeddingConfirmOutcome::Confirmed)
+    }
 }
 
 impl From<ProductListingEmbeddingWriteSqlxError> for ProductListingEmbeddingWriteError {

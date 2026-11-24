@@ -348,7 +348,7 @@ async fn should_install_required_indexes_without_wide_or_duplicate_btrees() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_preserve_embedding_for_price_and_clear_it_when_images_change() {
+async fn should_keep_the_embedding_and_advance_its_revision_only_when_images_change() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
@@ -489,7 +489,10 @@ async fn should_preserve_embedding_for_price_and_clear_it_when_images_change() {
     .await
     .unwrap_or_else(|error| panic!("failed to load image-updated revisions: {error}"));
     assert_eq!(image_event.event_id.into_uuid(), embedding_source_event_id);
-    assert!(!has_embedding);
+    assert!(
+        has_embedding,
+        "the vector serves until the revision's own replaces it"
+    );
     assert_eq!(3, version);
     assert_eq!(3, projection_version);
 }

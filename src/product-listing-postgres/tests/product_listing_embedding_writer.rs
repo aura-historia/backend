@@ -9,8 +9,9 @@ const EMBEDDING_DIMENSIONS: usize = 768;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_postgres::SqlxProductListingEmbeddingWriterFactory;
 use product_listing_service::ports::{
+    ImageHash, ProductListingEmbeddingConfirmOutcome, ProductListingEmbeddingConfirmation,
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteOutcome,
-    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory,
+    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory, StagedProductImage,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
@@ -157,6 +158,228 @@ async fn should_apply_embedding_after_unrelated_newer_event_without_invalidating
     assert!(result.is_ok(), "independent image source: {result:?}");
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_record_the_input_behind_the_vector_with_its_image_only_when_embedded() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_id, source) = insert_product_with_created_event(&pool).await?;
+        sqlx::query(r#"UPDATE product_listings SET description_text = 'Eiche', description_language = 'de', product_images = '[{"url": "https://example.test/a.jpg"}, {"url": "https://example.test/b.jpg"}]' WHERE product_listing_id = $1"#)
+            .bind(product_id.into_uuid()).execute(&pool).await?;
+        let hash = ImageHash::from_bytes(&[3; ImageHash::BYTES]).unwrap();
+        let mut write = new_write(product_id, source, EventId::new());
+        write.image = Some(StagedProductImage { hash: Some(hash) });
+
+        assert_eq!(ProductListingEmbeddingWriteOutcome::Applied, apply(&pool, &write).await?);
+        assert_eq!(
+            (source.into_uuid(), "Antiker Stuhl".to_owned(), Some("Eiche".to_owned()),
+             Some("https://example.test/a.jpg".to_owned()), Some(hash.as_bytes().to_vec())),
+            recorded_input(&pool, product_id).await?
+        );
+
+        advance_product_current_event(&pool, product_id).await?;
+        let newer = current_embedding_source(&pool, product_id).await?;
+        let without_image = new_write(product_id, newer, EventId::new());
+        assert_eq!(ProductListingEmbeddingWriteOutcome::Applied, apply(&pool, &without_image).await?);
+        let (recorded_source, _, _, image_url, image_hash) = recorded_input(&pool, product_id).await?;
+        assert_eq!(
+            (newer.into_uuid(), None, None),
+            (recorded_source, image_url, image_hash),
+            "an image the embedding could not send is not part of its input"
+        );
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "recorded embedding input: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_confirm_only_the_held_revision_against_the_compared_input() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_id, embedded) = insert_product_with_created_event(&pool).await?;
+        let write = new_write(product_id, embedded, EventId::new());
+        apply(&pool, &write).await?;
+        advance_product_current_event(&pool, product_id).await?;
+        let revision = current_embedding_source(&pool, product_id).await?;
+        let before = listing_state(&pool, product_id).await?;
+        let confirmation = ProductListingEmbeddingConfirmation {
+            product_listing_id: product_id,
+            source_event_id: revision,
+            embedded_source_event_id: embedded,
+            image_url: None,
+        };
+
+        let compared_elsewhere = ProductListingEmbeddingConfirmation {
+            embedded_source_event_id: EventId::new(),
+            ..confirmation.clone()
+        };
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged,
+            confirm(&pool, &compared_elsewhere).await?
+        );
+        let image_added = ProductListingEmbeddingConfirmation {
+            image_url: Some(url::Url::parse("https://example.test/new.jpg")?),
+            ..confirmation.clone()
+        };
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged,
+            confirm(&pool, &image_added).await?,
+            "a confirmation never adds an image"
+        );
+
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::Confirmed,
+            confirm(&pool, &confirmation).await?
+        );
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::Confirmed,
+            confirm(&pool, &confirmation).await?,
+            "a repeated confirmation"
+        );
+        assert_eq!(
+            revision.into_uuid(),
+            recorded_input(&pool, product_id).await?.0
+        );
+        assert_eq!(
+            before,
+            listing_state(&pool, product_id).await?,
+            "the vector, the listing's events and its projection stay as they are"
+        );
+        assert_eq!(
+            ProductListingEmbeddingWriteOutcome::Duplicate,
+            apply(&pool, &new_write(product_id, revision, EventId::new())).await?,
+            "the confirmed revision is embedded"
+        );
+
+        advance_product_current_event(&pool, product_id).await?;
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::Superseded,
+            confirm(&pool, &confirmation).await?
+        );
+        sqlx::query("UPDATE product_listings SET embedding = NULL WHERE product_listing_id = $1")
+            .bind(product_id.into_uuid())
+            .execute(&pool)
+            .await?;
+        let latest = current_embedding_source(&pool, product_id).await?;
+        assert_eq!(
+            ProductListingEmbeddingConfirmOutcome::EmbeddedInputChanged,
+            confirm(
+                &pool,
+                &ProductListingEmbeddingConfirmation {
+                    source_event_id: latest,
+                    embedded_source_event_id: revision,
+                    ..confirmation.clone()
+                }
+            )
+            .await?,
+            "without a vector there is nothing to confirm"
+        );
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "embedding confirmation: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_supersede_a_confirmation_that_waited_for_a_newer_revision_to_commit() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_id, embedded) = insert_product_with_created_event(&pool).await?;
+        apply(&pool, &new_write(product_id, embedded, EventId::new())).await?;
+        advance_product_current_event(&pool, product_id).await?;
+        let revision = current_embedding_source(&pool, product_id).await?;
+        let mut update = pool.begin().await?;
+        let blocker_pid = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *update).await?;
+        let newer = EventId::new();
+        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
+            .bind(newer.into_uuid()).bind(product_id.into_uuid())
+            .bind(serde_json::json!({"images": {"previousCount": 0, "currentCount": 0}}))
+            .execute(&mut *update).await?;
+        sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1 WHERE product_listing_id = $2")
+            .bind(newer.into_uuid()).bind(product_id.into_uuid()).execute(&mut *update).await?;
+        let confirmation = ProductListingEmbeddingConfirmation {
+            product_listing_id: product_id,
+            source_event_id: revision,
+            embedded_source_event_id: embedded,
+            image_url: None,
+        };
+        let waiting = confirm(&pool, &confirmation);
+        tokio::pin!(waiting);
+        support::assert_blocked(&pool, blocker_pid, 1, waiting.as_mut()).await?;
+        update.commit().await?;
+
+        assert_eq!(ProductListingEmbeddingConfirmOutcome::Superseded,
+            tokio::time::timeout(Duration::from_secs(10), waiting).await??);
+        assert_eq!(embedded.into_uuid(), recorded_input(&pool, product_id).await?.0);
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "confirmation behind a newer revision: {result:?}"
+    );
+}
+
+async fn confirm(
+    pool: &sqlx::PgPool,
+    confirmation: &ProductListingEmbeddingConfirmation,
+) -> Result<ProductListingEmbeddingConfirmOutcome, Box<dyn std::error::Error>> {
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+    let outcome = SqlxProductListingEmbeddingWriterFactory::new()
+        .in_transaction(&mut tx)
+        .confirm(confirmation)
+        .await?;
+    tx.commit().await?;
+    Ok(outcome)
+}
+
+type RecordedInput = (
+    uuid::Uuid,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<Vec<u8>>,
+);
+
+async fn recorded_input(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> Result<RecordedInput, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT source_event_id, title_text, description_text, image_url, image_hash FROM product_listing_embedding_inputs WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.into_uuid())
+    .fetch_one(pool)
+    .await
+}
+
+async fn current_embedding_source(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> Result<EventId, Box<dyn std::error::Error>> {
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "SELECT embedding_source_event_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.into_uuid())
+    .fetch_one(pool)
+    .await?;
+    Ok(EventId::try_from(source)?)
+}
+
+/// The vector, the current event, the projection version and the number of events.
+async fn listing_state(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> Result<(Option<Vec<f32>>, uuid::Uuid, i64, i64), sqlx::Error> {
+    sqlx::query_as(
+        "SELECT embedding, current_event_id, projection_version, (SELECT count(*) FROM product_listing_events event WHERE event.product_listing_id = listing.product_listing_id) FROM product_listings listing WHERE product_listing_id = $1",
+    )
+    .bind(product_listing_id.into_uuid())
+    .fetch_one(pool)
+    .await
+}
+
 async fn apply(
     pool: &sqlx::PgPool,
     write: &ProductListingEmbeddingWrite,
@@ -179,6 +402,7 @@ fn new_write(
         source_event_id,
         enrichment_event_id,
         embedding: vec![0.25; EMBEDDING_DIMENSIONS],
+        image: None,
     }
 }
 async fn insert_product_with_created_event(
@@ -235,7 +459,7 @@ async fn advance_product_current_event(
         }))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1, embedding = NULL, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(event_id.into_uuid())
         .bind(product_listing_id.into_uuid())
         .execute(&mut *tx)

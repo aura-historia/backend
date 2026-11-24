@@ -1,13 +1,14 @@
 //! Batched product embedding: a round every [`ROUND_INTERVAL`] collects ended Vertex AI batch
-//! prediction jobs and submits the pending work as a new job. It runs in every worker that
-//! consumes `product-embedding`, whose jobs only record the work.
+//! prediction jobs, confirms pending work whose input did not change meaningfully and submits the
+//! rest as a new job. It runs in every worker that consumes `product-embedding`, whose jobs only
+//! record the work.
 
 use crate::composition::CompositionError;
 use application::error::find_source;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use embedding::{
-    EmbeddingError, ProductEmbeddingBatches, VertexAiBatchConfig, VertexAiEmbeddingConfig,
-    VertexAiProductEmbeddingBatches,
+    EmbeddingError, EmbeddingImageHasher, FetchingEmbeddingImageHasher, ProductEmbeddingBatches,
+    VertexAiBatchConfig, VertexAiEmbeddingConfig, VertexAiProductEmbeddingBatches,
 };
 use platform_postgres::SqlxUnitOfWork;
 use platform_process::{
@@ -50,19 +51,26 @@ pub async fn compose(
         google_application_default_credentials().map_err(|e| CompositionError::new(SCOPE, e))?;
     let batches = VertexAiProductEmbeddingBatches::new(config, credentials)
         .map_err(|e| CompositionError::new(SCOPE, e))?;
-    Ok(compose_round_use_case(pool.clone(), batches))
+    Ok(compose_round_use_case(
+        pool.clone(),
+        batches,
+        FetchingEmbeddingImageHasher::new(),
+    ))
 }
 
-pub fn compose_round_use_case<B>(
+pub fn compose_round_use_case<B, H>(
     pool: PgPool,
     batches: B,
+    images: H,
 ) -> Arc<dyn EmbedProductListingBatchesUseCase>
 where
     B: ProductEmbeddingBatches + 'static,
+    H: EmbeddingImageHasher + 'static,
 {
     Arc::new(EmbedProductListingBatchesHandler::new(
         SqlxProductListingEmbeddingQueueReader::new(pool.clone()),
         batches,
+        images,
         SqlxUnitOfWork::new(pool),
         SqlxProductListingEmbeddingQueueFactory::new(),
         SqlxProductListingEmbeddingWriterFactory::new(),
@@ -109,6 +117,7 @@ fn log_round(report: &ProductEmbeddingRoundReport) {
         batches_collected = report.batches_collected,
         batches_failed = report.batches_failed,
         applied = settlements.applied,
+        confirmed = settlements.confirmed,
         duplicate = settlements.duplicate,
         stale = settlements.stale,
         requeued = settlements.requeued,

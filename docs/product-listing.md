@@ -135,8 +135,9 @@ field no-op, even alongside other edits. Net-zero text edits disappear from the 
 Meaningful descriptions retain their paragraphs. Identity, source key and public slug never change.
 
 Meaningful title or description changes advance the shared content revision and the embedding
-revision, invalidate embeddings atomically, and refresh content assessment and embedding
-asynchronously; assessments of older revisions are no longer current. Translation remains
+revision atomically, and refresh content assessment and the embedding asynchronously; assessments
+of older revisions are no longer current. The current embedding keeps serving until the new
+revision [confirms or replaces it](#embeddings). Translation remains
 titles-only. A title change, including a title language change, also invalidates the title
 translations and refreshes them asynchronously; reads fall back to the current original title until
 they arrive. The embedding and translation refresh [waits](#enrichment-of-listings-not-for-sale)
@@ -336,13 +337,14 @@ A listing's embedding is one `gemini-embedding-2` vector of 768 dimensions for i
 description and first image, computed in Vertex AI batch prediction at half the synchronous
 price. Search queries and saved-search filters stay synchronous because they are interactive.
 The `product-embedding` job only records the embedding revision as pending work in PostgreSQL,
-unless the listing has moved past it, already holds its embedding or is
+unless the listing has moved past it, its vector already stands for the revision or it is
 [not for sale](#enrichment-of-listings-not-for-sale); a newer revision replaces older pending or
 parked work. A round every 30 minutes in the worker:
 
 1. collects ended batch prediction jobs and commits each vector under the embedding
    source-marker guard, so a result for a superseded revision is dropped as stale;
-2. submits up to 10,000 pending embeddings as one job.
+2. confirms pending revisions whose input did not change meaningfully (below) and submits up to
+   10,000 of the others as one job.
 
 Submission fetches each first image with the bounded image fetcher and stages it in a Cloud
 Storage bucket, because a batch cannot fetch HTTP URLs; the JSONL requests reference the staged
@@ -360,6 +362,37 @@ guarded write spends one of an embedding's three attempts. Spent work and persis
 provider can embed, such as a blank title or an invalid image URL, are parked alone until the
 content changes. A round settles work only while it is still where
 the round found it, so several workers may run rounds side by side.
+
+A text or image change advances the embedding revision but keeps the listing's vector: search,
+similar listings and saved-search retrieval keep using it until the new revision's vector replaces
+it, and a result for a superseded revision is still dropped by the source-marker guard. Before
+submission a round compares each pending revision with the input recorded with the current vector
+(its title, description and first image as embedded), not with the previous revision, so small
+changes cannot add up unnoticed and a change back costs nothing. It confirms the vector for the
+revision, without a provider call, when nothing the embedding sees changed meaningfully
+([`embedding_input_change.rs`](../src/product-listing-service/src/use_cases/commands/embedding_input_change.rs)):
+
+- Texts are compared after Unicode compatibility normalization, case folding and removal of
+  punctuation, symbols and extra whitespace. A title must reach a character-trigram similarity of
+  0.95 to the embedded title, a description 0.9, which lets a description gain or lose about a
+  fifth of its text. A text set or cleared is a change. The thresholds are provisional until they
+  are calibrated against the model's own similarity of old and new input.
+- Only the first image counts; later images and their order never re-embed. An unchanged URL is
+  the same image. A new URL is fetched with the bounded image fetcher and its
+  [perceptual hash](../src/image-fetcher/src/perceptual_hash.rs), which survives resizing and
+  re-encoding, is compared with the embedded image's; URL heuristics are not used because query
+  strings can name the image. An image that cannot be fetched or decoded, or an embedded image
+  without a hash, counts as changed, as does a first image added or removed.
+
+A confirmation records the revision, and a new image URL, on the recorded input; the vector,
+projection and events stay as they are. It applies only while the listing holds the revision and
+the recorded input is the one compared, under the same lock as a vector write; otherwise the work
+is decided again or dropped as stale. A vector's recorded input is replaced with the vector, and a
+request whose image the embedding could not send records no image. Vectors stored before the
+input was recorded got their listing's current text and first image without a hash, so a new image
+URL embeds them again once. Changing the model or the input format must embed every listing again
+whatever the comparison says; the [runbook](durable-worker-runbook.md#forced-re-embedding) holds
+the procedure.
 
 A listing without an embedding is still found lexically. Saved-search matching runs daily and
 does not wait for embeddings: one that lands after a match advances the listing's `updated`, so
@@ -383,8 +416,9 @@ revision: its availability leaves those values, including by being cleared, or a
 is restored for sale. These jobs target the listing's current source markers rather than their own
 event, so the marker guards do not drop them as stale, and a revision that is already embedded or
 translated completes as a duplicate. Enrichment a listing already holds, and work recorded before it
-stopped being for sale, are kept; a content change while it is not for sale still invalidates them
-as usual, and their replacement waits for the return to sale.
+stopped being for sale, are kept; a content change while it is not for sale still invalidates title
+translations and moves the embedding revision on as usual, and their replacement waits for the
+return to sale.
 
 Until then, reads of a listing without translations of its current title show the original title
 in every language. Similar listings for a listing without an embedding are an empty list rather

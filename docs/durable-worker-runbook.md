@@ -260,9 +260,11 @@ healthy. Every worker consuming that scope also runs the embedding rounds with
 `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` (`global`, `us` or `eu`, where
 `gemini-embedding-2` batch prediction runs) and `VERTEX_AI_EMBEDDING_BATCH_BUCKET`; work waits in
 `product_listing_embedding_work` and batches in `product_listing_embedding_batches`, neither of
-which is ever purged except by settlement.
+which is ever purged except by settlement. The input behind each listing's vector is recorded in
+`product_listing_embedding_inputs`.
 
-- Each round logs `product.embedding.round.completed` with its counts, or
+- Each round logs `product.embedding.round.completed` with its counts, including `confirmed`
+  revisions kept without a provider call next to `applied` vectors, or
   `product.embedding.round.failed` with the failed stage and safe categories; the next round
   continues from the durable state. Each job logs `product.embedding.batch.submitted` with its ID
   and size, and `product.embedding.batch.collected` with its size, answered requests, outcome
@@ -270,7 +272,10 @@ which is ever purged except by settlement.
   cannot be collected logs `product.embedding.batch_failed` and is retried next round without
   holding back other batches or new work; a vector whose guarded write fails logs
   `product.embedding.write_failed` and spends an attempt. Work whose persisted document is
-  invalid logs `product.embedding.work_invalid` and is parked alone. The worker keeps these
+  invalid logs `product.embedding.work_invalid` and is parked alone; an invalid recorded input
+  logs `product.embedding.input_invalid` and the revision is embedded again, which replaces it. A
+  new first-image URL that cannot be fetched or decoded for comparison logs
+  `EMBEDDING_IMAGE_UNHASHED` with its bounded cause and is embedded again. The worker keeps these
   records at `info` whatever `LOG_LEVEL` says.
 - The `…-host-embedding-backlog-age` alarm fires when work that is neither committed nor parked
   is 36 hours old: the rounds are not running, submissions fail, or jobs keep failing as a whole
@@ -284,6 +289,19 @@ which is ever purged except by settlement.
 - Parked work (`parked IS NOT NULL`) spent three attempts or cannot be embedded. It waits for a
   content change. To retry it after fixing a cause, set `parked` to `NULL` and `attempts` to `0`
   for the selected listings; never delete work to silence it.
+
+### Forced re-embedding
+
+A round confirms a revision whose input did not change meaningfully, so a change of the
+embedding model or of what a request sends (text layout, image preparation) never reaches
+listings by itself. Ship such a change with a migration that, in one transaction, deletes the
+rows of `product_listing_embedding_inputs` and records pending work for every listing that is
+[discoverable](product-listing.md#enrichment-of-listings-not-for-sale) at its current
+`embedding_source_event_id`, leaving existing work alone (`ON CONFLICT (product_listing_id) DO
+NOTHING`). Without a recorded input every revision counts as changed and is embedded again; the
+old vectors keep serving until then. Rounds submit at most 10,000 embeddings each, so plan the
+backlog alarm and provider quota for the catalogue's size. Vectors of different models are not
+comparable: a model switch also needs its own search plan, which this procedure does not cover.
 
 ## Listing shipping recovery
 

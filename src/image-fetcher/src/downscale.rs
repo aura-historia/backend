@@ -9,6 +9,8 @@ use image::{
 };
 use std::io::Cursor;
 
+use crate::ImageHash;
+
 /// Images with more pixels are not decoded.
 const MAX_IMAGE_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_DECODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
@@ -67,6 +69,11 @@ pub struct DecodedImage {
 }
 
 impl DecodedImage {
+    /// The hash of the upright picture, which matches rescaled and re-encoded copies.
+    pub fn perceptual_hash(&self) -> ImageHash {
+        ImageHash::of(&self.image, self.orientation)
+    }
+
     /// What to send for the image within `budget`, given its file's size in bytes.
     pub fn downscale(self, file_bytes: usize, budget: PixelBudget) -> Downscaled {
         reencoded(self, file_bytes, budget).map_or(Downscaled::Original, Downscaled::Jpeg)
@@ -149,7 +156,7 @@ fn within_pixel_budget(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
 }
 
 /// JPEG has no transparency: transparent pixels become white, as product photos usually show.
-fn opaque_rgb(image: DynamicImage) -> RgbImage {
+pub(crate) fn opaque_rgb(image: DynamicImage) -> RgbImage {
     if !image.color().has_alpha() {
         return image.into_rgb8();
     }
