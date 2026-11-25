@@ -935,3 +935,127 @@ async fn should_settle_a_redirect_by_the_stored_rows_at_its_target_before_extrac
     );
     assert_eq!(removal.evidence.final_url, Some(category));
 }
+
+const MOVED_FROM: &str =
+    "https://www.antiquariat-immanuel.de/index.php?action=bookshop&ShowBookDetails=36145";
+const MOVED_TO: &str =
+    "https://www.immanuel-galerie.de/index.php?action=bookshop&ShowBookDetails=36145";
+
+/// A scraper whose shop's old host answers `stored` with a redirect to `target` on another host,
+/// and whose new host serves the product page under `target` when it is requested.
+fn scraper_redirecting_off_host(
+    stored: Url,
+    target: Url,
+    id: ListingSourceId,
+) -> ScraperServiceImpl {
+    let mut fetcher = MockHtmlFetcher::new();
+    let redirect_target = target.clone();
+    fetcher
+        .expect_fetch()
+        .withf(move |url| url == &stored)
+        .once()
+        .returning(move |_| {
+            let final_url = redirect_target.clone();
+            Box::pin(async move {
+                Err(
+                    crate::scraper::scraper_service::html_fetcher::FetchError::RedirectOffHost {
+                        final_url,
+                    },
+                )
+            })
+        });
+    fetcher
+        .expect_fetch()
+        .withf(move |url| url == &target)
+        .times(..=1)
+        .returning(move |url| {
+            let served = url.clone();
+            Box::pin(async move { Ok(fetch_result_for(sample_html(), served)) })
+        });
+    let schema = listing_source_product_schemas(id);
+    let mut schema_svc = MockProductListingSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .times(..=1)
+        .returning(move |_| {
+            let schema = schema.clone();
+            Box::pin(async move { Ok(Some(schema)) })
+        });
+    ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Arc::new(MockScraperCandidateService::new()),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    )
+}
+
+/// A shop that moved to the ListingSource's crawl host and kept its paths is scraped there, and
+/// the URL stored on the old host keeps its row and identity (#3151).
+#[tokio::test]
+async fn should_capture_product_under_stored_url_when_the_shop_moved_to_its_crawl_host() {
+    let id = listing_source_id();
+    let stored = Url::parse(MOVED_FROM).unwrap();
+    let service = scraper_redirecting_off_host(stored.clone(), Url::parse(MOVED_TO).unwrap(), id);
+    let request = ScrapeRequest {
+        crawl_host: "immanuel-galerie.de".to_owned(),
+        ..primary_only_request(&id, &stored)
+    };
+
+    let outcome = with_test_scrape_observation(service.scrape(request)).await;
+
+    let scraped = outcome
+        .result
+        .unwrap_or_else(|error| panic!("{error:?}"))
+        .expect("the moved page must be captured");
+    assert_eq!(scraped.effective_url, stored);
+    assert_eq!(
+        outcome.scrape_health,
+        crate::scraper::scraper_service::domain::product::DomainFetchHealth::Responsive
+    );
+}
+
+/// A redirect off the crawl host that is no move there, such as a WordPress share link or a move
+/// the ListingSource does not name yet, fails without the target being fetched, naming where
+/// it led; the shop answered, so it counts as responsive.
+#[tokio::test]
+async fn should_fail_naming_the_target_host_when_a_redirect_leaves_the_crawl_host() {
+    let id = listing_source_id();
+    for (stored, target) in [
+        (
+            "https://shop.example/produkt/vase?share=facebook",
+            "https://www.facebook.com/sharer/sharer.php?u=vase",
+        ),
+        (MOVED_FROM, MOVED_TO),
+    ] {
+        let stored = Url::parse(stored).unwrap();
+        let target = Url::parse(target).unwrap();
+        let service = scraper_redirecting_off_host(stored.clone(), target.clone(), id);
+
+        let outcome =
+            with_test_scrape_observation(service.scrape(primary_only_request(&id, &stored))).await;
+
+        match outcome.result {
+            Err(ScraperError::HttpError {
+                kind: crate::network::policy::NetworkErrorKind::UnsafeTarget,
+                details,
+                ..
+            }) => assert!(
+                details.contains(&format!(
+                    "redirected off its crawl host to {}",
+                    target.host_str().unwrap()
+                )),
+                "{details}"
+            ),
+            other => panic!(
+                "{stored}: expected an off-host failure, got {:?}",
+                other.err()
+            ),
+        }
+        assert_eq!(
+            outcome.scrape_health,
+            crate::scraper::scraper_service::domain::product::DomainFetchHealth::Responsive,
+            "{stored}"
+        );
+    }
+}

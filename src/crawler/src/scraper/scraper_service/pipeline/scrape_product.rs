@@ -1,4 +1,4 @@
-use crate::network::policy::NetworkErrorKind;
+use crate::network::policy::{NetworkErrorKind, canonical_crawl_host};
 
 use crate::logging::warn_in_source;
 use crate::scraper::candidate_service::RedirectDestination;
@@ -150,6 +150,30 @@ fn differ_only_in_language_segment(left: &CrawledUrl, right: &CrawledUrl) -> boo
     let left = left_unprefixed.unwrap_or_else(|| left.page_spelling());
     let right = right_unprefixed.unwrap_or_else(|| right.page_spelling());
     left.path() == right.path() && left.query() == right.query()
+}
+
+/// Whether `final_url`, where the host `url` is stored on sent it, is the page `url` names on
+/// the ListingSource's crawl host `crawl_host`: the shop moved to the crawl host and kept its
+/// paths, so the row keeps its URL and identity and is captured from the moved page
+/// (`docs/crawler/networking.md#host-moves`). Only the host, the scheme, the trailing slash and
+/// the language segment may differ; a move that also renames the page fails closed, and so does
+/// any redirect while the crawl host is still the host `url` is stored on.
+pub(crate) fn is_host_move(url: &Url, final_url: &Url, crawl_host: &str) -> bool {
+    let crawl_host = canonical_crawl_host(crawl_host);
+    let on_crawl_host = |url: &Url| {
+        url.host_str()
+            .is_some_and(|host| canonical_crawl_host(host) == crawl_host)
+    };
+    if on_crawl_host(url) || !on_crawl_host(final_url) {
+        return false;
+    }
+    let mut moved = url.clone();
+    if moved.set_host(final_url.host_str()).is_err()
+        || moved.set_scheme(final_url.scheme()).is_err()
+    {
+        return false;
+    }
+    Redirect::of(&moved, final_url, None).target == RedirectTarget::SamePage
 }
 
 pub(crate) fn is_same_logical_host(left: &Url, right: &Url) -> bool {
@@ -358,17 +382,29 @@ struct FetchedProductPage {
 }
 
 impl FetchedProductPage {
-    /// Locates the page `fetched` from the requested `url`. A redirect that only adds or removes
-    /// the trailing slash or a language segment leads to the page the row is stored under, so
-    /// the row keeps its URL (`docs/crawler/networking.md#stored-urls`). Fails when a redirect
-    /// left the requested URL's host (or its `www.` twin) or led to the homepage.
+    /// Locates the page `fetched` from the URL `request` names. A redirect that only adds or
+    /// removes the trailing slash or a language segment leads to the page the row is stored
+    /// under, so the row keeps its URL (`docs/crawler/networking.md#stored-urls`), and so does a
+    /// [host move](is_host_move) to the ListingSource's crawl host. Fails when a redirect
+    /// otherwise left the requested URL's host (or its `www.` twin) or led to the homepage.
     #[allow(clippy::result_large_err)]
     fn locate(
-        url: &Url,
+        request: &ScrapeRequest,
         fetched: FetchedHtml,
-        product_url_pattern: Option<&ProductUrlPattern>,
         acquired_at: time::OffsetDateTime,
     ) -> Result<Self, ScraperError> {
+        let url = &request.url;
+        let product_url_pattern = request.product_url_pattern.as_ref();
+        if is_host_move(url, &fetched.final_url, &request.crawl_host) {
+            return Ok(Self {
+                acquired_at,
+                html: fetched.html,
+                effective_url: url.clone(),
+                status: fetched.status.as_u16(),
+                final_url: fetched.final_url,
+                redirect: RedirectTarget::SamePage,
+            });
+        }
         if !is_same_logical_host(url, &fetched.final_url) {
             return Err(ScraperError::HttpError {
                 url: url.clone(),
@@ -582,12 +618,7 @@ impl ScraperServiceImpl {
             .host_str()
             .ok_or_else(|| ScraperError::NoHost { url: url.clone() })?;
         let fetched = self.fetch_product_page(request, domain).await?;
-        let page = FetchedProductPage::locate(
-            url,
-            fetched,
-            request.product_url_pattern.as_ref(),
-            time::OffsetDateTime::now_utc(),
-        )?;
+        let page = FetchedProductPage::locate(request, fetched, time::OffsetDateTime::now_utc())?;
 
         // Where the redirect led is known from the fetch, so a page the crawler stores settles
         // the URL before anything is extracted from it.
@@ -822,6 +853,77 @@ impl ScraperServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn host_move(stored: &str, served: &str, crawl_host: &str) -> bool {
+        is_host_move(
+            &Url::parse(stored).unwrap(),
+            &Url::parse(served).unwrap(),
+            crawl_host,
+        )
+    }
+
+    /// antiquariat-immanuel.de moved to immanuel-galerie.de and kept its paths (#3151).
+    #[test]
+    fn should_take_the_same_page_on_the_crawl_host_a_shop_moved_to_for_a_host_move() {
+        let stored =
+            "https://www.antiquariat-immanuel.de/index.php?action=bookshop&ShowBookDetails=36145";
+        for served in [
+            "https://www.immanuel-galerie.de/index.php?action=bookshop&ShowBookDetails=36145",
+            "https://immanuel-galerie.de/index.php?action=bookshop&ShowBookDetails=36145",
+        ] {
+            assert!(host_move(stored, served, "immanuel-galerie.de"), "{served}");
+        }
+        assert!(host_move(
+            "http://old.example/products/1",
+            "https://www.new.example/en/products/1/",
+            "new.example"
+        ));
+    }
+
+    #[test]
+    fn should_not_take_a_redirect_as_a_host_move_unless_it_reaches_the_same_page_on_the_crawl_host()
+    {
+        for (stored, served, crawl_host) in [
+            // the crawl host is still the stored host: a share link, or a move not yet configured
+            (
+                "https://shop.example/produkt/x?share=facebook",
+                "https://www.facebook.com/sharer/sharer.php?u=x",
+                "shop.example",
+            ),
+            (
+                "https://old.example/products/1",
+                "https://new.example/products/1",
+                "old.example",
+            ),
+            // another host than the crawl host
+            (
+                "https://old.example/products/1",
+                "https://other.example/products/1",
+                "new.example",
+            ),
+            // the move renamed the page or dropped its identifying query
+            (
+                "https://old.example/products/1",
+                "https://new.example/products/2",
+                "new.example",
+            ),
+            (
+                "https://old.example/index.php?id=1",
+                "https://new.example/index.php",
+                "new.example",
+            ),
+            (
+                "https://old.example/products/1",
+                "https://new.example/",
+                "new.example",
+            ),
+        ] {
+            assert!(
+                !host_move(stored, served, crawl_host),
+                "{stored} -> {served}"
+            );
+        }
+    }
 
     fn target(original: &str, served: &str, pattern: Option<&str>) -> RedirectTarget {
         RedirectTarget::of(

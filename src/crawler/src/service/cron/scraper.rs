@@ -1005,6 +1005,7 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
     ScrapeRequest {
         listing_source_id: candidate.listing_source_id,
         url: candidate.url.clone(),
+        crawl_host: candidate.crawl_host.clone(),
         source_record_key: candidate.source_record_key.clone(),
         last_source_listing_id: candidate.last_source_listing_id.clone(),
         product_url_pattern: candidate.url_pattern.clone(),

@@ -70,6 +70,10 @@ pub struct FetchFailureContext {
 pub struct ScrapeRequest {
     pub listing_source_id: ListingSourceId,
     pub url: Url,
+    /// The host the ListingSource is crawled on, without one leading `www.`
+    /// (`docs/crawler/README.md#listingsource-scope`). A URL stored on the host a shop moved away
+    /// from is captured from the same page on it (`docs/crawler/networking.md#host-moves`).
+    pub crawl_host: String,
     pub source_record_key: String,
     /// Source listing id captured by the last successful scrape of this URL, when
     /// known. The removal guard only accepts product evidence under this identity.

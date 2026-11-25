@@ -31,6 +31,9 @@ fn primary_request(
         listing_source_id,
         source_record_key: url.to_string(),
         last_source_listing_id: None,
+        crawl_host: crate::network::policy::canonical_crawl_host(
+            url.host_str().unwrap_or_default(),
+        ),
         url,
         product_url_pattern: None,
         last_scraped_hash: None,

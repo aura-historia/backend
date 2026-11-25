@@ -41,6 +41,7 @@ use std::sync::Arc;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, DevDatabase};
 use crawler::logging::{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, tls_verifier_handshake_error_filter};
+use crawler::network::policy::canonical_crawl_host;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
@@ -152,6 +153,7 @@ async fn main() {
                 .scrape(ScrapeRequest {
                     listing_source_id,
                     url: url.clone(),
+                    crawl_host: canonical_crawl_host(url.host_str().unwrap_or_default()),
                     source_record_key: url.to_string(),
                     last_source_listing_id: None,
                     product_url_pattern: None,

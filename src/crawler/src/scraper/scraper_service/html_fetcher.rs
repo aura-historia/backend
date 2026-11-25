@@ -151,6 +151,11 @@ pub enum FetchError {
     /// target was not requested.
     #[error("redirect target is disallowed by robots.txt: final_url={final_url}")]
     RedirectDisallowed { final_url: Url },
+    /// The URL redirected to `final_url` on another host than its own (bare or `www.`); the
+    /// target was not requested. Where the redirect leads is for the caller to judge
+    /// (`docs/crawler/networking.md#host-moves`).
+    #[error("redirect target host does not match configured host: final_url={final_url}")]
+    RedirectOffHost { final_url: Url },
     /// The shop answered `final_url`, the page the fetch ended on after any redirects, and that
     /// page's own robots directives forbid capturing it.
     #[error("page directives refuse capture: final_url={final_url}, details={details}")]
@@ -164,6 +169,7 @@ impl FetchError {
             FetchError::NetworkWithMetadata { kind, .. } => *kind,
             FetchError::RobotsRefused { refusal, .. } => robots_refusal_kind(*refusal),
             FetchError::RedirectDisallowed { .. } => NetworkErrorKind::RobotsDisallowed,
+            FetchError::RedirectOffHost { .. } => NetworkErrorKind::UnsafeTarget,
             FetchError::PageDirectiveRefused { .. } => NetworkErrorKind::PageDirectiveDisallowed,
         }
     }
@@ -173,6 +179,7 @@ impl FetchError {
             FetchError::Network { .. }
             | FetchError::RobotsRefused { .. }
             | FetchError::RedirectDisallowed { .. }
+            | FetchError::RedirectOffHost { .. }
             | FetchError::PageDirectiveRefused { .. } => None,
             FetchError::NetworkWithMetadata { status, .. } => *status,
         }
@@ -183,6 +190,7 @@ impl FetchError {
             FetchError::Network { .. }
             | FetchError::RobotsRefused { .. }
             | FetchError::RedirectDisallowed { .. }
+            | FetchError::RedirectOffHost { .. }
             | FetchError::PageDirectiveRefused { .. } => None,
             FetchError::NetworkWithMetadata { retry_after, .. } => *retry_after,
         }
@@ -424,9 +432,9 @@ impl ReqwestHtmlFetcher {
                 break;
             }
             if !is_same_or_www_host(url, &next_url) {
-                return Err(AttemptError::Failed(unsafe_fetch_error(
-                    "redirect target host does not match configured host",
-                )));
+                return Err(AttemptError::Failed(FetchError::RedirectOffHost {
+                    final_url: next_url,
+                }));
             }
             self.trailing_slash
                 .observe_redirect(&current_url, &next_url);

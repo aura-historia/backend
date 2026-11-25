@@ -58,6 +58,9 @@ pub(super) fn primary_only_request(
     ScrapeRequest {
         listing_source_id: *listing_source_id,
         url: url.clone(),
+        crawl_host: crate::network::policy::canonical_crawl_host(
+            url.host_str().unwrap_or_default(),
+        ),
         source_record_key: url.to_string(),
         last_source_listing_id: None,
         product_url_pattern: None,

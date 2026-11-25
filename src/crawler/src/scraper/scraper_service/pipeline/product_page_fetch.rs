@@ -11,7 +11,7 @@ use crate::scraper::scraper_service::domain::product::{
 };
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, robots_refusal_kind};
 use crate::scraper::scraper_service::pipeline::scrape_product::{
-    RedirectTarget, is_same_logical_host,
+    RedirectTarget, is_host_move, is_same_logical_host,
 };
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use tracing::debug;
@@ -106,7 +106,9 @@ impl ScraperServiceImpl {
     /// 404 or 410, or a redirect on the shop's own host to the homepage or to a page outside the
     /// product URL pattern that robots.txt disallows, fails as a removed listing; every other
     /// fetch failure fails as an HTTP error. A disallowed target is not fetched, so its URL alone
-    /// judges it (`docs/crawler/networking.md#redirect-removal-evidence`).
+    /// judges it (`docs/crawler/networking.md#redirect-removal-evidence`). A redirect to the same
+    /// page on the ListingSource's crawl host, where the shop moved, is followed there, and that
+    /// fetch is judged as the URL's own (`docs/crawler/networking.md#host-moves`).
     pub(super) async fn fetch_product_page(
         &self,
         request: &ScrapeRequest,
@@ -117,7 +119,15 @@ impl ScraperServiceImpl {
             request.expected_last_captured_raw_input_sha256.as_deref();
         debug!(domain, "Fetching product page HTML");
         let fetch_started_at = std::time::Instant::now();
-        let fetch_result = self.html_fetcher.fetch(url).await;
+        let fetch_result = match self.html_fetcher.fetch(url).await {
+            Err(FetchError::RedirectOffHost { final_url })
+                if is_host_move(url, &final_url, &request.crawl_host) =>
+            {
+                debug!(domain, moved_to = %final_url, "Following the shop's move to its crawl host");
+                self.html_fetcher.fetch(&final_url).await
+            }
+            result => result,
+        };
         record_product_page_fetch(answered_status(&fetch_result), fetch_started_at.elapsed());
         match fetch_result {
             Ok(fetched) => {
@@ -148,6 +158,29 @@ impl ScraperServiceImpl {
                     kind: NetworkErrorKind::RobotsDisallowed,
                     details: format!(
                         "product URL redirected to a URL robots.txt disallows: final={final_url}"
+                    ),
+                })
+            }
+            // The shop answered with a redirect to another host that is no move to the crawl host:
+            // the URL fails, naming the host, so a shop that moved shows where it went.
+            Err(FetchError::RedirectOffHost { final_url }) => {
+                let kind = NetworkErrorKind::UnsafeTarget;
+                record_transport_failure(
+                    url,
+                    FetchFailureSource::Primary,
+                    expected_last_captured_raw_input_sha256,
+                    kind,
+                    None,
+                    None,
+                    None,
+                );
+                record_transport_success();
+                Err(ScraperError::HttpError {
+                    url: url.clone(),
+                    kind,
+                    details: format!(
+                        "product URL redirected off its crawl host to {}: original={url}, final={final_url}",
+                        final_url.host_str().unwrap_or_default()
                     ),
                 })
             }
@@ -274,6 +307,7 @@ mod tests {
             listing_source_id: listing_source_core::ListingSourceId::new(),
             source_record_key: url.to_string(),
             last_source_listing_id: None,
+            crawl_host: "shop.example".to_owned(),
             url,
             product_url_pattern: Some(ProductUrlPattern::parse("/product/").unwrap()),
             last_scraped_hash: None,
