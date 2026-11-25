@@ -200,6 +200,26 @@ struct EvaluatedRevision {
     issues: Vec<NormalizationIssue>,
 }
 
+/// An evaluation that cannot complete its revision. `issues` is present for a system failure of
+/// the evaluator, which is recorded as a diagnostic case on its own.
+struct EvaluationFailure {
+    error: NormalizeProductListingRawRevisionError,
+    issues: Option<Vec<NormalizationIssue>>,
+}
+
+/// A completion applied inside the head's transaction, with what follows its commit.
+struct CompletedRevision {
+    completion: ProductListingRawNormalizationCompletion,
+    after_commit: AfterCommit,
+}
+
+/// The effects of a completion that only a committed transaction may produce.
+struct AfterCommit {
+    issues: Vec<NormalizationIssue>,
+    diagnostic: Option<RevisionDiagnostic>,
+    shipping_observation: Option<CrawlerShippingObservation>,
+}
+
 /// Composition without durable diagnostic cases. Events are still emitted; production
 /// composition supplies a case writer so every unsolved input enters the replay corpus.
 #[derive(Debug, Clone, Copy, Default)]
@@ -320,30 +340,15 @@ where
             let Some(candidate) = candidate else {
                 return StreamDrainResult::completed(results);
             };
-            if let Err(error) = validate_stored_schema(&candidate.input) {
-                return StreamDrainResult::failed(results, error);
-            }
-            let evaluation = self.normalizer.evaluate(&candidate.input);
-            let evaluated = EvaluatedRevision {
-                normalized: evaluation.outcome,
-                issues: evaluation.report.into_issues(),
-            };
-            let normalized = match require_terminal_normalization_outcome(evaluated.normalized) {
-                Ok(normalized) => normalized,
-                Err(error) => {
-                    // No completion owns a system failure: record it on its own so the
-                    // diagnosis survives, then fail the stream for operational retry.
-                    let error = match self
-                        .record_system_failure(&candidate, &evaluated.issues)
-                        .await
-                    {
-                        Ok(()) => error,
-                        Err(record_error) => record_error,
-                    };
-                    return StreamDrainResult::failed(results, error);
+            let evaluated = match self.evaluate(&candidate) {
+                Ok(evaluated) => evaluated,
+                Err(failure) => {
+                    return StreamDrainResult::failed(
+                        results,
+                        self.record_evaluation_failure(&candidate, failure).await,
+                    );
                 }
             };
-            let issues = evaluated.issues;
             let mut tx = match self.unit_of_work.begin().await {
                 Ok(tx) => tx,
                 Err(source) => {
@@ -370,39 +375,21 @@ where
             {
                 continue;
             }
-            let head_listing_source_id = work.head.listing_source_id;
-            let mut shipping_observation = None;
-            let completion = match self
-                .complete_work_in_transaction(
-                    &mut tx,
-                    work.head,
-                    revision,
-                    &normalized,
-                    &mut shipping_observation,
-                )
+            let completed = match self
+                .complete_revision(&mut tx, work.head, &candidate, revision, evaluated)
                 .await
             {
-                Ok(completion) => completion,
+                Ok(completed) => completed,
                 Err(error) => return StreamDrainResult::failed(results, error),
             };
+            let CompletedRevision {
+                completion,
+                after_commit,
+            } = completed;
             let result = NormalizedRawRevisionResult {
                 product_listing_raw_stream_id,
                 revision: completion.revision,
                 outcome: completion.outcome,
-            };
-            let issues = with_completion_issues(issues, completion.error_code);
-            let diagnostic = match self
-                .record_terminal_case(
-                    &mut tx,
-                    &candidate,
-                    &head_listing_source_id,
-                    &result,
-                    &issues,
-                )
-                .await
-            {
-                Ok(diagnostic) => diagnostic,
-                Err(error) => return StreamDrainResult::failed(results, error),
             };
             if let Err(error) = self
                 .raw_normalizations
@@ -418,34 +405,116 @@ where
                     NormalizeProductListingRawRevisionError::CommitTransactionFailed { source },
                 );
             }
-            // Events describe committed handling; an uncommitted attempt is retried and logged
-            // by the evaluation that commits.
-            if let Some(diagnostic) = diagnostic {
-                diagnostic.log(&issues);
-            }
-            // Shipping is optional and commits independently after the catalog and raw progress.
-            // Its command keeps the version from that transaction, even after a lost response.
-            if let (Some(shipping), Some(observation)) =
-                (&self.crawler_shipping, shipping_observation)
-            {
-                let raw_revision_id = observation.raw_revision_id;
-                // Application failures after commit are operational, not heuristic misses.
-                match shipping.execute(observation).await {
-                    Ok(outcome) => {
-                        tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            %raw_revision_id,
-                            error_code = error.diagnostic_code(),
-                            "crawler shipping application failed after normalization commit"
-                        );
-                    }
-                }
-            }
+            self.finish_committed(after_commit).await;
             results.push(result);
         }
         StreamDrainResult::completed(results)
+    }
+
+    /// Evaluates a stored revision. A system failure of the evaluator keeps its issues so they
+    /// can be recorded outside any transaction that holds the stream head.
+    fn evaluate(
+        &self,
+        candidate: &crate::ports::ProductListingRawRevision,
+    ) -> Result<EvaluatedRevision, EvaluationFailure> {
+        validate_stored_schema(&candidate.input).map_err(|error| EvaluationFailure {
+            error,
+            issues: None,
+        })?;
+        let evaluation = self.normalizer.evaluate(&candidate.input);
+        let issues = evaluation.report.into_issues();
+        match require_terminal_normalization_outcome(evaluation.outcome) {
+            Ok(normalized) => Ok(EvaluatedRevision { normalized, issues }),
+            Err(error) => Err(EvaluationFailure {
+                error,
+                issues: Some(issues),
+            }),
+        }
+    }
+
+    /// No completion owns a system failure: record it on its own so the diagnosis survives, then
+    /// fail the stream for operational retry. Call it while no transaction holds the head.
+    async fn record_evaluation_failure(
+        &self,
+        candidate: &crate::ports::ProductListingRawRevision,
+        failure: EvaluationFailure,
+    ) -> NormalizeProductListingRawRevisionError {
+        let Some(issues) = failure.issues else {
+            return failure.error;
+        };
+        match self.record_system_failure(candidate, &issues).await {
+            Ok(()) => failure.error,
+            Err(record_error) => record_error,
+        }
+    }
+
+    /// Applies an evaluated revision to the canonical listing and records its diagnostic case
+    /// inside the transaction that holds the stream head. The caller persists the completion.
+    async fn complete_revision(
+        &self,
+        tx: &mut U::Tx,
+        head: ProductListingRawNormalizationHead,
+        candidate: &crate::ports::ProductListingRawRevision,
+        revision: crate::ports::ProductListingRawRevision,
+        evaluated: EvaluatedRevision,
+    ) -> Result<CompletedRevision, NormalizeProductListingRawRevisionError> {
+        let head_listing_source_id = head.listing_source_id;
+        let mut shipping_observation = None;
+        let completion = self
+            .complete_work_in_transaction(
+                tx,
+                head,
+                revision,
+                &evaluated.normalized,
+                &mut shipping_observation,
+            )
+            .await?;
+        let result = NormalizedRawRevisionResult {
+            product_listing_raw_stream_id: completion.product_listing_raw_stream_id,
+            revision: completion.revision,
+            outcome: completion.outcome,
+        };
+        let issues = with_completion_issues(evaluated.issues, completion.error_code);
+        let diagnostic = self
+            .record_terminal_case(tx, candidate, &head_listing_source_id, &result, &issues)
+            .await?;
+        Ok(CompletedRevision {
+            completion,
+            after_commit: AfterCommit {
+                issues,
+                diagnostic,
+                shipping_observation,
+            },
+        })
+    }
+
+    /// What follows a committed completion: its diagnostic events, then crawler shipping.
+    async fn finish_committed(&self, after_commit: AfterCommit) {
+        // Events describe committed handling; an uncommitted attempt is retried and logged
+        // by the evaluation that commits.
+        if let Some(diagnostic) = after_commit.diagnostic {
+            diagnostic.log(&after_commit.issues);
+        }
+        // Shipping is optional and commits independently after the catalog and raw progress.
+        // Its command keeps the version from that transaction, even after a lost response.
+        if let (Some(shipping), Some(observation)) =
+            (&self.crawler_shipping, after_commit.shipping_observation)
+        {
+            let raw_revision_id = observation.raw_revision_id;
+            // Application failures after commit are operational, not heuristic misses.
+            match shipping.execute(observation).await {
+                Ok(outcome) => {
+                    tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
+                }
+                Err(error) => {
+                    tracing::error!(
+                        %raw_revision_id,
+                        error_code = error.diagnostic_code(),
+                        "crawler shipping application failed after normalization commit"
+                    );
+                }
+            }
+        }
     }
 
     async fn complete_work_in_transaction(
