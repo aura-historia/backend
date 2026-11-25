@@ -105,7 +105,7 @@ fn any_has_rule(evaluations: &[&SchemaPageEvaluation], fields: &[&str]) -> bool 
 }
 
 /// What the ProductListing normalization makes of an extracted `state`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct StateReading {
     /// What the whole `state` resolves to, as the scraper does at runtime and the only value that
     /// becomes the listing's availability; `None` for a value that is no whole availability label.
@@ -129,11 +129,39 @@ impl StateReading {
         }
     }
 
+    /// The reading of the `state` `raw` extracts, `None` without one. A status that the page's
+    /// title holds, such as a `[sold]` suffix, is no mention when the `state` repeats the title,
+    /// as a `state` rule or fallback on the product heading does: only what the `state` holds
+    /// beside the title can mention one. Such a rule gives no listing an availability, so its sold
+    /// page would let the sold-page check pass on a `state` that never resolves.
+    pub(crate) fn of_extraction(raw: &RawExtractedProduct) -> Option<Self> {
+        let state = raw.state()?;
+        let reading = Self::of(state);
+        let Some(beside_title) = raw.title().and_then(|title| text_beside(state, title)) else {
+            return Some(reading);
+        };
+        Some(Self {
+            mentioned: reading
+                .mentioned
+                .and_then(|_| mentioned_unsold_status(&beside_title)),
+            ..reading
+        })
+    }
+
     /// Whether the sold-page check counts the `state` as sold or unavailable: it resolves to such
     /// an availability or mentions one.
     pub(crate) fn shows_sold_or_unavailable(self) -> bool {
         self.mentioned.is_some() || is_sold_or_unavailable(self.resolved)
     }
+}
+
+/// What `state` holds beside `title`, its whitespace runs collapsed; `None` when it does not
+/// hold the title.
+fn text_beside(state: &str, title: &str) -> Option<String> {
+    let collapse = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let title = collapse(title);
+    let state = collapse(state);
+    (!title.is_empty() && state.contains(&title)).then(|| state.replacen(&title, " ", 1))
 }
 
 fn resolved_availability(state: &str) -> Option<ListingAvailability> {
@@ -176,15 +204,16 @@ pub(crate) fn candidate_has_sold_state(pages: &[SchemaPageEvaluation]) -> bool {
         .iter()
         .filter(|page| page.apply_ok)
         .filter_map(|page| page.extracted.as_ref())
-        .filter_map(RawExtractedProduct::state)
-        .any(|state| StateReading::of(state).shows_sold_or_unavailable())
+        .filter_map(StateReading::of_extraction)
+        .any(StateReading::shows_sold_or_unavailable)
 }
 
-/// The `state` each candidate schema extracts on `page`, for the schemas that apply to it.
+/// The `state` each candidate schema extracts on `page`, for the schemas that apply to it, with
+/// its reading.
 fn applied_states<'a>(
     matrix: &'a SchemaMatrix,
     page: &CrawlerReviewPage,
-) -> impl Iterator<Item = &'a str> {
+) -> impl Iterator<Item = (&'a str, StateReading)> {
     let reference = SchemaPageReference::Persisted {
         review_page_id: page.review_page_id,
     };
@@ -194,22 +223,22 @@ fn applied_states<'a>(
         .flat_map(|candidate| &candidate.pages)
         .filter(move |evaluation| evaluation.page_reference == reference && evaluation.apply_ok)
         .filter_map(|evaluation| evaluation.extracted.as_ref())
-        .filter_map(RawExtractedProduct::state)
+        .filter_map(|raw| Some((raw.state()?, StateReading::of_extraction(raw)?)))
 }
 
 /// Whether a review page shows a sold or unavailable product: a template captures it as removed,
 /// or a candidate schema extracts a `state` that the ProductListing normalization resolves to sold
 /// out, out of stock or unavailable, as a `schema.org/SoldOut` read from JSON-LD or the label
-/// "Sold" does, or a sentence that mentions such a status. A `state` that names none, such as an
-/// add-to-cart button's text, says nothing about the page.
+/// "Sold" does, or a sentence that mentions such a status beside the page's title
+/// ([`StateReading::of_extraction`]). A `state` that names none, such as an add-to-cart button's
+/// text, says nothing about the page.
 pub(crate) fn shows_sold_or_unavailable_page(
     matrix: &SchemaMatrix,
     coverages: &[(&CrawlerReviewPage, PageCoverage)],
 ) -> bool {
     coverages.iter().any(|(page, coverage)| {
         *coverage == PageCoverage::CapturedAsRemoved
-            || applied_states(matrix, page)
-                .any(|state| StateReading::of(state).shows_sold_or_unavailable())
+            || applied_states(matrix, page).any(|(_, reading)| reading.shows_sold_or_unavailable())
     })
 }
 
@@ -232,8 +261,7 @@ pub(crate) fn states_seen(
 ) -> Vec<SeenState> {
     let mut seen: Vec<SeenState> = Vec::new();
     for (page, _) in coverages {
-        for state in applied_states(matrix, page) {
-            let reading = StateReading::of(state);
+        for (state, reading) in applied_states(matrix, page) {
             let entry = SeenState {
                 url: page.url.clone(),
                 state: shortened(state),

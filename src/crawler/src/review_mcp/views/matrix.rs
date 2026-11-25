@@ -346,7 +346,7 @@ fn code_of(check: &impl Serialize) -> String {
 
 impl ExtractedView {
     fn of(extracted: RawExtractedProduct) -> Self {
-        let reading = StateReading::of(extracted.state.as_deref().unwrap_or_default());
+        let reading = StateReading::of_extraction(&extracted).unwrap_or_default();
         let code = |availability: ListingAvailability| availability.as_str().to_owned();
         Self {
             source_listing_id: value(&extracted.source_listing_id),

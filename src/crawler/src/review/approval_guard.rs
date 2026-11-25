@@ -1713,6 +1713,38 @@ mod tests {
         }
     }
 
+    /// A `state` that repeats the page's title, as a fallback on the product heading does, gives
+    /// no listing an availability: the sold marker the title holds counts only beside it (#2878).
+    #[test]
+    fn should_count_no_sold_marker_a_state_reads_from_the_title() {
+        for (title, state, counts) in [
+            (
+                "Vintage satijnen sjaal (rood) – [sold]",
+                "Vintage satijnen sjaal (rood) – [sold]",
+                false,
+            ),
+            (
+                "Vintage satijnen sjaal (rood)",
+                "Vintage satijnen sjaal (rood) is verkocht",
+                true,
+            ),
+        ] {
+            let (page, html) = product_page("sjaal", "h1", title);
+            let pages = [(page, html.replace("Available", state))];
+            let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+            let refused = checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false,
+            );
+
+            assert_eq!(refused.is_empty(), counts, "{state}: {refused:?}");
+        }
+    }
+
     /// The labels the normalization resolves to sold or unavailable count, whichever language or
     /// schema.org spelling the shop uses; a cart action or an available label does not.
     #[test]
