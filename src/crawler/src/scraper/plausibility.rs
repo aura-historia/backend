@@ -5,12 +5,12 @@
 //! belong to the ProductListing normalization worker, which reports what it cannot
 //! normalize.
 
+use crate::scraper::availability_text::{is_recognised_availability, resolved_availability};
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
@@ -536,9 +536,7 @@ fn availability_text_check(price: &str) -> Option<PlausibilityCheck> {
         return None;
     }
     let gone = matches!(
-        quick_check_availability(price)
-            .ok()
-            .and_then(ListingAvailabilityQuickCheck::availability),
+        resolved_availability(price),
         Some(
             ListingAvailability::SoldOut
                 | ListingAvailability::OutOfStock
@@ -592,12 +590,7 @@ fn symbols_only_state_check(state: &str) -> Option<PlausibilityCheck> {
 /// `https://schema.org/SoldOut/`), as a JSON-LD offer carries it.
 fn is_availability_value(state: &str) -> bool {
     let schema_org_availability = regex!(r"(?i)^https?://(?:www\.)?schema\.org/[a-z]+/?$");
-    schema_org_availability.is_match(state.trim())
-        || matches!(
-            quick_check_availability(state),
-            Ok(ListingAvailabilityQuickCheck::Resolved(_)
-                | ListingAvailabilityQuickCheck::NoAssertion)
-        )
+    schema_org_availability.is_match(state.trim()) || is_recognised_availability(state)
 }
 
 /// The `state` finding of a value that is one URL, path or link ([`is_link_or_path`] with
@@ -695,16 +688,8 @@ fn is_status_label_beside_amount(state: &str) -> bool {
     let amount_and_connectors = regex!(
         r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b(?:[.,](?:--?|[–—]))?|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
     );
-    resolves_to_availability(state)
-        || resolves_to_availability(&amount_and_connectors.replace_all(state, " "))
-}
-
-/// Whether the ProductListing normalization resolves `text` to an availability.
-fn resolves_to_availability(text: &str) -> bool {
-    quick_check_availability(text)
-        .ok()
-        .and_then(ListingAvailabilityQuickCheck::availability)
-        .is_some()
+    resolved_availability(state).is_some()
+        || resolved_availability(&amount_and_connectors.replace_all(state, " ")).is_some()
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113",

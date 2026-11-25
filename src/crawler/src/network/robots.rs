@@ -345,7 +345,7 @@ fn parse_groups(body: &str) -> Vec<Group> {
         match key.as_str() {
             "allow" | "disallow" if !value.is_empty() => group.rules.push(Rule {
                 allow: key == "allow",
-                pattern: normalize_percent_encoding(value),
+                pattern: rule_pattern(value),
             }),
             "crawl-delay" => {
                 if let Some(delay) = parse_crawl_delay(value) {
@@ -405,6 +405,19 @@ fn parse_crawl_delay(value: &str) -> Option<Duration> {
         value[..number_end].parse::<f64>().ok()
     })?;
     (seconds >= 0.0).then(|| Duration::try_from_secs_f64(seconds).unwrap_or(Duration::MAX))
+}
+
+/// The pattern an `Allow` or `Disallow` value matches by. Every request path starts with `/`, so
+/// a value that starts with neither `/` nor `*`, such as `bestel.php`, is read as if it started
+/// with `/`: the lenient reading major crawlers apply to a path RFC 9309 requires to start with
+/// `/`, rather than a rule that never matches.
+fn rule_pattern(value: &str) -> String {
+    let pattern = normalize_percent_encoding(value);
+    if pattern.starts_with(['/', '*']) {
+        pattern
+    } else {
+        format!("/{pattern}")
+    }
 }
 
 /// Brings patterns and request paths into one form: non-ASCII characters
@@ -602,6 +615,34 @@ mod tests {
         assert!(!rules.allows(&url("/category?sort=price")));
         assert!(!rules.allows(&url("/files/catalogue.pdf")));
         assert!(rules.allows(&url("/files/catalogue.pdf.html")));
+    }
+
+    #[test]
+    fn should_read_a_rule_without_a_leading_slash_as_starting_at_the_path_root() {
+        let rules =
+            RobotsRules::parse("User-agent: *\nDisallow: bestel.php\nDisallow: /p\nAllow: page\n");
+
+        assert!(!rules.allows(&url("/bestel.php?kaart=5138")));
+        assert!(rules.allows(&url("/kaart/bestel.php")));
+        assert!(!rules.allows(&url("/products/1")));
+        assert!(rules.allows(&url("/page/2")));
+        assert_eq!(
+            Some("User-agent: *; Disallow: /bestel.php".to_owned()),
+            rules.refusing_rule(&url("/bestel.php"))
+        );
+    }
+
+    #[test]
+    fn should_keep_rules_starting_with_a_slash_or_a_wildcard_as_written() {
+        let rules = RobotsRules::parse("User-agent: *\nDisallow: /cart\nDisallow: *.pdf\n");
+
+        assert!(!rules.allows(&url("/cart/add")));
+        assert!(!rules.allows(&url("/files/catalogue.pdf")));
+        assert!(rules.allows(&url("/products/cart")));
+        assert_eq!(
+            Some("User-agent: *; Disallow: *.pdf".to_owned()),
+            rules.refusing_rule(&url("/catalogue.pdf"))
+        );
     }
 
     #[test]

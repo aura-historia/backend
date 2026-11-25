@@ -30,13 +30,7 @@ pub struct DenyList {
 impl RobotsRules {
     pub fn deny_list(&self) -> DenyList {
         let mut deny_list = DenyList::default();
-        // A rule matches from the path start, which is always `/`; one
-        // starting with anything but `/` or `*` matches no URL.
-        for disallow in self
-            .rules
-            .iter()
-            .filter(|rule| !rule.allow && rule.pattern.starts_with(['/', '*']))
-        {
+        for disallow in self.rules.iter().filter(|rule| !rule.allow) {
             let (expressible, inexpressible): (Vec<&Rule>, Vec<&Rule>) = self
                 .rules
                 .iter()
@@ -287,6 +281,21 @@ mod tests {
                 "/shop?sort=price",
                 "/a/catalogue.pdf",
                 "/a/catalogue.pdf.html",
+            ],
+        );
+    }
+
+    #[test]
+    fn should_deny_a_rule_without_a_leading_slash_from_the_path_root() {
+        assert_matches_rules(
+            "User-agent: *\nDisallow: bestel.php\nDisallow: shop\nAllow: shop/open\n",
+            &[
+                "/bestel.php",
+                "/bestel.php?kaart=5138",
+                "/kaart/bestel.php",
+                "/shop/cart",
+                "/shop/open/1",
+                "/products/1",
             ],
         );
     }

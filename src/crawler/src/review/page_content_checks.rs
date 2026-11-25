@@ -8,9 +8,9 @@ use crate::review::model::{
     CrawlerReviewPage, PageSignals, SchemaMatrix, SchemaPageEvaluation, SchemaPageReference,
 };
 use crate::review::page_coverage::PageCoverage;
+use crate::scraper::availability_text::resolved_availability;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use serde::Serialize;
 
 /// An optional field whose rule no schema applying to the pages has, though the pages show it.
@@ -134,12 +134,6 @@ impl StateReading {
     pub(crate) fn shows_sold_or_unavailable(self) -> bool {
         self.mentioned.is_some() || is_sold_or_unavailable(self.resolved)
     }
-}
-
-fn resolved_availability(state: &str) -> Option<ListingAvailability> {
-    quick_check_availability(state)
-        .ok()
-        .and_then(ListingAvailabilityQuickCheck::availability)
 }
 
 /// The most words of a status label the normalization's tables hold, such as "out of stock".
