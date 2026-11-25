@@ -86,8 +86,8 @@ pub struct SchemaPageView {
 /// code such as `SOLD_OUT`, `null` when `state` is no whole availability label (a sentence, a
 /// cart button): at runtime only this becomes the listing's availability. `state_mentions` is the
 /// sold, out of stock or unavailable code that a window of one to four words of an unresolved
-/// `state` names, such as a sentence announcing the sale. The approval guard's sold-page check
-/// accepts either.
+/// `state` names, such as a sentence announcing the sale, outside the extracted title where the
+/// `state` repeats it. The approval guard's sold-page check accepts either.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ExtractedView {
     pub source_listing_id: String,
