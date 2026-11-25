@@ -234,6 +234,17 @@ struct AfterCommit {
     shipping_observation: Option<CrawlerShippingObservation>,
 }
 
+impl AfterCommit {
+    /// Crawler shipping imports a revision once, keyed by its raw revision: a second import of
+    /// the same revision conflicts or is out of order, so a reapplied revision imports nothing.
+    fn without_crawler_shipping(self) -> Self {
+        Self {
+            shipping_observation: None,
+            ..self
+        }
+    }
+}
+
 /// Composition without durable diagnostic cases. Events are still emitted; production
 /// composition supplies a case writer so every unsolved input enters the replay corpus.
 #[derive(Debug, Clone, Copy, Default)]
@@ -1320,7 +1331,7 @@ mod tests {
         pending_requests: Vec<PendingProductListingRawStreamPageRequest>,
         pub(super) completions: Vec<ProductListingRawNormalizationCompletion>,
         completion_results: VecDeque<Result<(), ProductListingRawNormalizationPortError>>,
-        begins: usize,
+        pub(super) begins: usize,
         pub(super) commits: usize,
         pub(super) rollbacks: usize,
         pub(super) existing_product: Option<VersionedProductListing>,
@@ -1336,6 +1347,8 @@ mod tests {
         pub(super) reapplicable_requests: Vec<ReapplicableProductListingRawStreamPageRequest>,
         /// Completions recorded without moving a head.
         pub(super) reapplied: Vec<ProductListingRawNormalizationCompletion>,
+        /// Streams another stream bound to the same listing supersedes.
+        pub(super) superseded_streams: HashSet<ProductListingRawStreamId>,
     }
 
     #[derive(Clone)]
@@ -1646,6 +1659,16 @@ mod tests {
         ) -> Result<(), ProductListingRawNormalizationPortError> {
             lock(&self.0).reapplied.push(completion);
             Ok(())
+        }
+
+        async fn is_superseded(
+            &mut self,
+            product_listing_raw_stream_id: ProductListingRawStreamId,
+            _: ProductListingId,
+        ) -> Result<bool, ProductListingRawNormalizationPortError> {
+            Ok(lock(&self.0)
+                .superseded_streams
+                .contains(&product_listing_raw_stream_id))
         }
     }
 

@@ -318,7 +318,9 @@ After a deploy that raises the normalizer version, and once no older worker runs
    `--listing-source`. Watch `ops inspect` and the backlog alarms; lower `--max-backlog` if
    enrichment falls behind.
 3. An interrupted run resumes with `--after <last>`; a rerun from the start rescans every stream
-   but reapplies none twice.
+   but reapplies none twice. A run that aborted logs `ops.renormalize_raw.aborted` with its
+   partial report: resume with its `last`, and retry the failed streams with
+   `failureStreak.retryAfter` once their cause is fixed.
 
 ## Listing shipping recovery
 

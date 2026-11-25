@@ -1350,6 +1350,146 @@ async fn should_reapply_processed_latest_revision_once_without_moving_the_head()
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_not_reapply_a_stream_superseded_by_a_newer_stream_of_the_same_listing() {
+    use product_listing_postgres::SqlxNormalizationDiagnosticCaseWriterFactory;
+    use product_listing_service::ports::SourceRecordKeySha256;
+    use product_service::use_cases::{
+        RawRevisionReapplication, RawRevisionReapplicationMode, RawRevisionReapplicationSkip,
+        ReapplyProductListingRawRevisionsCommand, ReapplyProductListingRawRevisionsUseCase,
+        normalize_product_listing_raw_revision::NORMALIZER_VERSION,
+    };
+
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+    let handler = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .with_diagnostic_cases(SqlxNormalizationDiagnosticCaseWriterFactory::new());
+    let listing_source_id = seed_listing_source(&pool, "raw-reapply-superseded").await;
+    // Two streams, such as URL variants, feed one listing; the second was captured later.
+    let mut streams = Vec::new();
+    for (key, digest, price) in [("123", 8, "EUR 100"), ("456", 9, "EUR 200")] {
+        let mut write = raw_write(
+            listing_source_id,
+            RawProductListingOperation::Upsert,
+            upsert_values(price),
+            normalization_context(),
+            key,
+        );
+        write.source_record_key = key.to_owned();
+        write.source_record_key_sha256 = SourceRecordKeySha256::new([digest; 32]);
+        let (stream, revision_id, revision) =
+            changed_parts(capture(&unit_of_work, &capture_writer, write).await);
+        handler
+            .execute(NormalizeProductListingRawRevisionCommand {
+                mode: NormalizeProductListingRawRevisionMode::RawRevision {
+                    product_listing_raw_stream_id: stream,
+                    product_listing_raw_revision_id: revision_id,
+                    revision,
+                },
+                max_revisions_per_stream: 1,
+                pending_stream_limit: 1,
+            })
+            .await
+            .unwrap_or_else(|error| panic!("normalize stream: {error}"));
+        streams.push((stream, revision_id));
+    }
+    let older = i16::try_from(NORMALIZER_VERSION - 1).unwrap();
+    sqlx::query(
+        "UPDATE product_listing_raw_normalizations SET normalizer_version = $1 WHERE product_listing_raw_revision_id = ANY($2)",
+    )
+    .bind(older)
+    .bind(streams.iter().map(|(_, id)| *id.as_uuid()).collect::<Vec<_>>())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("age the normalizations: {error}"));
+    let bound: Vec<Option<uuid::Uuid>> = sqlx::query_scalar(
+        "SELECT product_listing_id FROM product_listing_raw_normalization_heads WHERE product_listing_raw_stream_id = ANY($1) ORDER BY product_listing_raw_stream_id",
+    )
+    .bind(streams.iter().map(|(id, _)| *id.as_uuid()).collect::<Vec<_>>())
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("read heads: {error}"));
+    assert!(
+        bound[0].is_some() && bound[0] == bound[1],
+        "both heads bind one listing"
+    );
+    let product_listing_id = bound[0].unwrap();
+    let price = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT price_amount FROM product_listings WHERE product_listing_id = $1",
+            )
+            .bind(product_listing_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read price: {error}"))
+        }
+    };
+    assert_eq!(Some(20_000), price().await);
+
+    let page = handler
+        .reapply_page(ReapplyProductListingRawRevisionsCommand {
+            mode: RawRevisionReapplicationMode::Apply,
+            after: None,
+            page_size: 10,
+            listing_source_id: Some(listing_source_id),
+        })
+        .await
+        .unwrap_or_else(|error| panic!("apply: {error}"));
+
+    let (older_stream, newer_stream) = (streams[0].0, streams[1].0);
+    let result = |stream| {
+        page.streams
+            .iter()
+            .find(|reapplied| reapplied.product_listing_raw_stream_id == stream)
+            .map(|reapplied| reapplied.result.as_ref().ok().cloned())
+            .unwrap_or_else(|| panic!("stream {stream} is reported"))
+    };
+    assert_eq!(
+        Some(RawRevisionReapplication::Skipped(
+            RawRevisionReapplicationSkip::SupersededByAnotherStream
+        )),
+        result(older_stream)
+    );
+    assert!(matches!(
+        result(newer_stream),
+        Some(RawRevisionReapplication::Completed(_))
+    ));
+    assert_eq!(
+        Some(20_000),
+        price().await,
+        "the older stream's price never returns"
+    );
+    // The check under the lock follows the same rule.
+    let mut tx = unit_of_work.begin().await.unwrap();
+    let writer = SqlxProductListingRawNormalizationWriterFactory::new();
+    let product_listing_id =
+        product_listing_core::product_listing_id::ProductListingId::try_from(product_listing_id)
+            .unwrap();
+    assert!(
+        writer
+            .in_transaction(&mut tx)
+            .is_superseded(older_stream, product_listing_id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !writer
+            .in_transaction(&mut tx)
+            .is_superseded(newer_stream, product_listing_id)
+            .await
+            .unwrap()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_normalize_valid_long_incompressible_url() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-long-url-source").await;

@@ -72,6 +72,9 @@ pub enum RawRevisionReapplicationSkip {
     NoLongerReapplicable,
     /// Another path withdrew the listing; reapplying an upsert would restore it.
     ListingWithdrawn,
+    /// Another stream bound to the same listing processed a revision captured at the same time or
+    /// later, such as a URL variant that replaced this one; reapplying would restore older state.
+    SupersededByAnotherStream,
 }
 
 impl RawRevisionReapplicationSkip {
@@ -79,6 +82,7 @@ impl RawRevisionReapplicationSkip {
         match self {
             Self::NoLongerReapplicable => "NO_LONGER_REAPPLICABLE",
             Self::ListingWithdrawn => "LISTING_WITHDRAWN",
+            Self::SupersededByAnotherStream => "SUPERSEDED_BY_ANOTHER_STREAM",
         }
     }
 }
@@ -188,9 +192,22 @@ where
                     NormalizeProductListingRawRevisionError::PendingStreamReadFailed { source }
                 })?;
         let mut page = ReapplyProductListingRawRevisionsPage {
-            streams: Vec::with_capacity(scanned.reapplicable.len()),
+            streams: Vec::with_capacity(scanned.reapplicable.len() + scanned.superseded.len()),
             last: scanned.last_scanned,
         };
+        page.streams.extend(
+            scanned
+                .superseded
+                .into_iter()
+                .map(
+                    |product_listing_raw_stream_id| ReappliedProductListingRawStream {
+                        product_listing_raw_stream_id,
+                        result: Ok(RawRevisionReapplication::Skipped(
+                            RawRevisionReapplicationSkip::SupersededByAnotherStream,
+                        )),
+                    },
+                ),
+        );
         for product_listing_raw_stream_id in scanned.reapplicable {
             let result = self
                 .reapply_stream(product_listing_raw_stream_id, command.mode)
@@ -246,13 +263,25 @@ where
             }
         };
         let before = self.current_listing(&mut tx, &work, &evaluated).await?;
-        if before
-            .as_ref()
-            .is_some_and(|listing| listing.lifecycle() == ListingLifecycle::Withdrawn)
-        {
-            return Ok(RawRevisionReapplication::Skipped(
-                RawRevisionReapplicationSkip::ListingWithdrawn,
-            ));
+        if let Some(listing) = &before {
+            if listing.lifecycle() == ListingLifecycle::Withdrawn {
+                return Ok(RawRevisionReapplication::Skipped(
+                    RawRevisionReapplicationSkip::ListingWithdrawn,
+                ));
+            }
+            // The page checked this too, but a stream may have bound the listing since, and an
+            // unbound head finds its listing only now.
+            if self
+                .raw_normalizations
+                .in_transaction(&mut tx)
+                .is_superseded(product_listing_raw_stream_id, listing.id())
+                .await
+                .map_err(map_port_error)?
+            {
+                return Ok(RawRevisionReapplication::Skipped(
+                    RawRevisionReapplicationSkip::SupersededByAnotherStream,
+                ));
+            }
         }
         let ProductListingRawReapplicationWork {
             head,
@@ -293,7 +322,8 @@ where
                 tx.commit().await.map_err(|source| {
                     NormalizeProductListingRawRevisionError::CommitTransactionFailed { source }
                 })?;
-                self.finish_committed(completed.after_commit).await;
+                self.finish_committed(completed.after_commit.without_crawler_shipping())
+                    .await;
             }
         }
         Ok(RawRevisionReapplication::Completed(reapplication))
@@ -547,6 +577,57 @@ mod tests {
             assert!(state.updated_products.is_empty());
             assert!(state.reapplied.is_empty());
             assert_eq!(0, state.commits);
+            Ok(())
+        }
+    }
+
+    mod a_stream_another_stream_superseded_since_the_page {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_be_skipped_under_the_lock() -> TestResult {
+            let fixture = Fixture::new("EUR 1.000 - 1.500", false)?;
+            lock(&fixture.state)
+                .superseded_streams
+                .insert(fixture.stream_id);
+
+            let result = fixture.reapply(RawRevisionReapplicationMode::Apply).await?;
+
+            assert_eq!(
+                RawRevisionReapplication::Skipped(
+                    RawRevisionReapplicationSkip::SupersededByAnotherStream
+                ),
+                result
+            );
+            let state = lock(&fixture.state);
+            assert!(state.updated_products.is_empty());
+            assert!(state.reapplied.is_empty());
+            assert_eq!(0, state.commits);
+            Ok(())
+        }
+    }
+
+    mod a_page_with_a_superseded_stream {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_report_it_without_locking_it() -> TestResult {
+            let fixture = Fixture::new("EUR 250", false)?;
+            {
+                let mut state = lock(&fixture.state);
+                state.reapplicable_page.reapplicable.clear();
+                state.reapplicable_page.superseded = vec![fixture.stream_id];
+            }
+
+            let result = fixture.reapply(RawRevisionReapplicationMode::Apply).await?;
+
+            assert_eq!(
+                RawRevisionReapplication::Skipped(
+                    RawRevisionReapplicationSkip::SupersededByAnotherStream
+                ),
+                result
+            );
+            assert_eq!(0, lock(&fixture.state).begins);
             Ok(())
         }
     }

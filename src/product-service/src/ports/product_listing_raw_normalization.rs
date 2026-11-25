@@ -83,6 +83,9 @@ pub struct ReapplicableProductListingRawStreamPageRequest {
 pub struct ReapplicableProductListingRawStreamPage {
     /// The scanned streams whose latest revision may be reapplied, in ID order.
     pub reapplicable: Vec<ProductListingRawStreamId>,
+    /// Scanned streams that would qualify, but another stream bound to the same listing has
+    /// processed a revision captured at the same time or later.
+    pub superseded: Vec<ProductListingRawStreamId>,
     /// The last scanned stream; `None` when nothing was left to scan.
     pub last_scanned: Option<ProductListingRawStreamId>,
 }
@@ -142,6 +145,15 @@ pub trait ProductListingRawNormalizationWriter: Send {
         &mut self,
         completion: ProductListingRawNormalizationCompletion,
     ) -> Result<(), ProductListingRawNormalizationPortError>;
+
+    /// Whether another stream bound to `product_listing_id` has processed a revision captured at
+    /// the same time as or later than this stream's processed revision. Reapplying this stream
+    /// would then overwrite that newer state with an older one.
+    async fn is_superseded(
+        &mut self,
+        product_listing_raw_stream_id: ProductListingRawStreamId,
+        product_listing_id: ProductListingId,
+    ) -> Result<bool, ProductListingRawNormalizationPortError>;
 }
 
 pub trait ProductListingRawNormalizationWriterFactory<Tx>: Send + Sync {

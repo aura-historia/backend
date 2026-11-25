@@ -1,7 +1,9 @@
 use crate::object_id::try_from_uuid;
 use application::error::box_error;
 
-use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_core::{
+    product_listing_id::ProductListingId, source_listing_id::SourceListingId,
+};
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingValues, SourcePayload,
@@ -326,6 +328,39 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
         }
         Ok(())
     }
+
+    async fn is_superseded(
+        &mut self,
+        product_listing_raw_stream_id: ProductListingRawStreamId,
+        product_listing_id: ProductListingId,
+    ) -> Result<bool, ProductListingRawNormalizationPortError> {
+        // Same rule as the reapplicable page; ties count as superseded.
+        sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM product_listing_raw_normalization_heads AS own
+                JOIN product_listing_raw_revisions AS own_revision
+                  ON own_revision.product_listing_raw_stream_id = own.product_listing_raw_stream_id
+                 AND own_revision.revision = own.last_processed_revision
+                JOIN product_listing_raw_normalization_heads AS other
+                  ON other.product_listing_id = $2
+                 AND other.product_listing_raw_stream_id <> own.product_listing_raw_stream_id
+                JOIN product_listing_raw_revisions AS other_revision
+                  ON other_revision.product_listing_raw_stream_id
+                     = other.product_listing_raw_stream_id
+                 AND other_revision.revision = other.last_processed_revision
+                WHERE own.product_listing_raw_stream_id = $1
+                  AND other_revision.captured_at >= own_revision.captured_at
+            )
+            "#,
+        )
+        .bind(product_listing_raw_stream_id.as_uuid())
+        .bind(product_listing_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(persistence)
+    }
 }
 
 #[async_trait::async_trait]
@@ -344,7 +379,7 @@ impl ReapplicableProductListingRawStreamReader for SqlxPendingProductListingRawS
             .map_err(|_| invalid_state("normalizer version exceeds storage range"))?;
         // A keyset page over the stream primary key; each scanned stream's checks use the head's
         // primary key, the stream-revision unique index and the normalization primary key.
-        let rows: Vec<(uuid::Uuid, bool)> = sqlx::query_as(
+        let rows: Vec<(uuid::Uuid, bool, Option<bool>)> = sqlx::query_as(
             r#"
             WITH scanned AS (
                 SELECT product_listing_raw_stream_id, latest_revision
@@ -353,27 +388,44 @@ impl ReapplicableProductListingRawStreamReader for SqlxPendingProductListingRawS
                   AND ($2::uuid IS NULL OR listing_source_id = $2)
                 ORDER BY product_listing_raw_stream_id
                 LIMIT $4
+            ),
+            candidate AS (
+                SELECT head.product_listing_raw_stream_id, head.product_listing_id,
+                       revision.captured_at
+                FROM scanned
+                JOIN product_listing_raw_normalization_heads AS head
+                  ON head.product_listing_raw_stream_id = scanned.product_listing_raw_stream_id
+                 AND head.last_processed_revision = scanned.latest_revision
+                JOIN product_listing_raw_revisions AS revision
+                  ON revision.product_listing_raw_stream_id = head.product_listing_raw_stream_id
+                 AND revision.revision = head.last_processed_revision
+                WHERE revision.operation = 'UPSERT'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM product_listing_raw_normalizations AS normalization
+                      WHERE normalization.product_listing_raw_revision_id
+                            = revision.product_listing_raw_revision_id
+                        AND normalization.normalizer_version >= $3
+                  )
             )
             SELECT
                 scanned.product_listing_raw_stream_id,
-                EXISTS (
+                candidate.product_listing_raw_stream_id IS NOT NULL AS qualifies,
+                candidate.product_listing_id IS NOT NULL AND EXISTS (
                     SELECT 1
-                    FROM product_listing_raw_normalization_heads AS head
-                    JOIN product_listing_raw_revisions AS revision
-                      ON revision.product_listing_raw_stream_id = head.product_listing_raw_stream_id
-                     AND revision.revision = head.last_processed_revision
-                    WHERE head.product_listing_raw_stream_id = scanned.product_listing_raw_stream_id
-                      AND head.last_processed_revision = scanned.latest_revision
-                      AND revision.operation = 'UPSERT'
-                      AND NOT EXISTS (
-                          SELECT 1
-                          FROM product_listing_raw_normalizations AS normalization
-                          WHERE normalization.product_listing_raw_revision_id
-                                = revision.product_listing_raw_revision_id
-                            AND normalization.normalizer_version >= $3
-                      )
-                ) AS reapplicable
+                    FROM product_listing_raw_normalization_heads AS other
+                    JOIN product_listing_raw_revisions AS other_revision
+                      ON other_revision.product_listing_raw_stream_id
+                         = other.product_listing_raw_stream_id
+                     AND other_revision.revision = other.last_processed_revision
+                    WHERE other.product_listing_id = candidate.product_listing_id
+                      AND other.product_listing_raw_stream_id
+                          <> candidate.product_listing_raw_stream_id
+                      AND other_revision.captured_at >= candidate.captured_at
+                ) AS superseded
             FROM scanned
+            LEFT JOIN candidate
+              ON candidate.product_listing_raw_stream_id = scanned.product_listing_raw_stream_id
             ORDER BY scanned.product_listing_raw_stream_id
             "#,
         )
@@ -387,10 +439,12 @@ impl ReapplicableProductListingRawStreamReader for SqlxPendingProductListingRawS
         let stream_id =
             |id| try_from_uuid(id, "ProductListing raw stream ID").map_err(invalid_state_error);
         let mut page = ReapplicableProductListingRawStreamPage::default();
-        for (id, reapplicable) in rows {
+        for (id, qualifies, superseded) in rows {
             let id = stream_id(id)?;
-            if reapplicable {
-                page.reapplicable.push(id);
+            match (qualifies, superseded.unwrap_or(false)) {
+                (true, true) => page.superseded.push(id),
+                (true, false) => page.reapplicable.push(id),
+                (false, _) => {}
             }
             page.last_scanned = Some(id);
         }

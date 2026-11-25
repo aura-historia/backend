@@ -76,29 +76,39 @@ cargo run --locked -p product-listing-normalization-replay -- seed
 ## Production reapplication
 
 `ops renormalize-raw (--dry-run | --apply)` ([ops](../src/aura-historia-ops/README.md)) normalizes
-the latest raw revision of each caught-up stream again with the deployed normalizer. It is the
-same revision arriving again: the drain's completion applies it, with its canonical write and
-event, diagnostic case and crawler shipping, and records a completion for the current normalizer
-version next to the earlier one. The stream head does not move; a listing the completion creates
-is bound to it.
+the latest raw revision of each caught-up stream again with the deployed normalizer. The drain's
+completion applies it, with its canonical write and event and its diagnostic case, and records a
+completion for the current normalizer version next to the earlier one. The stream head does not
+move; a listing the completion creates is bound to it. Crawler shipping is not imported again: it
+imports each raw revision once, and that revision's import already happened.
 
 - **Selection.** A stream qualifies while its head has processed its latest revision, that revision
   is an `UPSERT`, and no normalizer of the current or a newer version has completed it, so a
   rerun or an interrupted run never applies a revision twice. A stream with pending revisions
   belongs to the drain. `DELETE` revisions are never reapplied: the listing is already withdrawn,
   and withdrawing again would only undo a later restore.
+- **Superseded streams are skipped.** Several streams, such as URL variants of one page, can bind
+  one listing. A stream is skipped while another stream bound to the same listing has processed a
+  revision captured at the same time or later, because reapplying the older revision would
+  restore older state over the newer stream's. The page and the locked stream both check it.
 - **Withdrawn listings are skipped.** An upsert restores its listing, so reapplication never touches
   a listing that another path withdrew.
 - **Other writers.** Like the source's next change, a reapplied revision overwrites what the
   partner or administrator API changed on a raw-fed listing since.
-- **Dry run.** Each stream runs in a transaction that is rolled back: nothing is written, logged or
-  applied to shipping, but rows stay locked for the stream's few milliseconds. The report counts
-  recorded→new outcome transitions, changed listing facts, completion error codes and issue
-  reasons.
+- **Diagnostics.** A reapplied revision with issues refreshes its diagnostic case and counts as
+  one more evaluation of that input in `occurrences`, like any later evaluation.
+- **Dry run.** Each stream runs in a transaction that is rolled back: nothing is written or
+  logged, but rows stay locked for the stream's few milliseconds. The report counts recorded→new
+  outcome transitions, changed listing facts, completion error codes, issue reasons and skips by
+  cause.
 - **Paging and pacing.** Each stream commits on its own. A page scans a fixed number of streams by
   ID, so its read costs the same however few qualify; the report's `last` resumes a run with
-  `--after`, and SIGTERM ends it after the current page. With `--apply`, each page waits while the
-  outbox and the job queue together hold more than `--max-backlog` entries.
+  `--after`, and SIGTERM ends it after the current page. A failed page read, or 50 stream
+  failures without a success in between, ends the run with the partial report in the log: its
+  `last` continues past the failed streams and `failureStreak` names them, with the `retryAfter`
+  position that retries them. With `--apply`, each page waits while the outbox and the job
+  queue's ready jobs together hold more than `--max-backlog` entries, logging the count while it
+  waits.
 - **Effects.** A changed listing appends an ordinary event: projection, watchlist price-change
   notifications and the next periodic match follow, a created listing is enriched like any
   discovery, and a changed title or description is translated and, when the change is
