@@ -6879,7 +6879,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.46",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -6918,7 +6918,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -8338,9 +8338,9 @@ dependencies = [
 
 [[package]]
 name = "spider"
-version = "2.53.9"
+version = "2.54.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd745f8618f4081c53e38ca89adb5ff02f19a9e1ef3dbc87095b8e5824354775"
+checksum = "707a407a2cd808e14ff89c4e98334121c74dad55e77e5a51f308320ec8882fba"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -8352,6 +8352,7 @@ dependencies = [
  "dashmap",
  "h2 0.4.16",
  "hashbrown 0.17.1",
+ "http 1.5.0",
  "httpdate",
  "lazy_static",
  "libc",
@@ -8379,9 +8380,9 @@ dependencies = [
 
 [[package]]
 name = "spider_agent_types"
-version = "2.53.9"
+version = "2.54.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d540684645870a4f61295d2dea1a9976d3a0e5563038ffe286ecb61c5f98bd1c"
+checksum = "095688158561d41797d96de8548347a747123acf50853938939eaeac8848f853"
 dependencies = [
  "aho-corasick",
  "llm_models_spider",
