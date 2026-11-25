@@ -8,7 +8,7 @@
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use crate::scraper::price_status_label::price_status_label;
+use crate::scraper::price_status_label::is_price_status_label;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
@@ -499,11 +499,10 @@ fn price_checks(price: &str) -> Vec<PlausibilityCheck> {
     .collect()
 }
 
-/// A price that is an item's status label instead of an amount ([`price_status_label`]). Capture
-/// sends the label as the availability, not as the price, but the finding stays, so the agents
-/// repair the price rule that reads the status slot.
+/// A price that is an item's status label instead of an amount ([`is_price_status_label`]), so
+/// the agents repair the price rule that reads the status slot.
 fn availability_text_check(price: &str) -> Option<PlausibilityCheck> {
-    price_status_label(price).map(|_| PlausibilityCheck::AvailabilityText)
+    is_price_status_label(price).then_some(PlausibilityCheck::AvailabilityText)
 }
 
 fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
