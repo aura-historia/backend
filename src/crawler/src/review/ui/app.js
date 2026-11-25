@@ -4240,7 +4240,6 @@ const plausibilityCheckDescriptions = {
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
     SHARED_TITLE_SEGMENT: 'starts or ends with the same segment on every review page',
     LISTING_SOURCE_NAME: 'starts or ends with the name of the shop',
-    CONSTANT_UNRESOLVED_STATE: 'is the same on every review page and resolves to no availability',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
@@ -4280,7 +4279,6 @@ const CHECK_LABELS = {
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
     SHARED_TITLE_SEGMENT: 'Shared title segment',
     LISTING_SOURCE_NAME: 'Shop name',
-    CONSTANT_UNRESOLVED_STATE: 'Constant state',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity'
 };

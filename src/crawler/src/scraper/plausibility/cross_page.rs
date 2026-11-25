@@ -5,9 +5,7 @@
 //! it also share an identity or an image, or when every page shares it; otherwise it is the name
 //! two different products have in common. A segment after a bar that every title starts or ends
 //! with, and the ListingSource's name at a title's start or end, are what the title rule reads
-//! besides the product's name ([`title_affix`]). A `state` every page shares that resolves to no
-//! availability is page chrome rather than the product's status ([`constant_state`]). Runtime
-//! extraction sees one page at a time and cannot run them.
+//! besides the product's name ([`title_affix`]). Runtime extraction sees one page at a time and cannot run them.
 
 use super::PlausibilityField;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -17,7 +15,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use url::Url;
 
-mod constant_state;
 mod title_affix;
 
 /// The check a value failed against the candidate's extractions of the other pages.
@@ -37,21 +34,16 @@ pub enum CrossPageCheck {
     SharedTitleSegment,
     /// The title starts or ends with the ListingSource's name.
     ListingSourceName,
-    /// Every review page extracts the same `state`, which the ProductListing normalization
-    /// resolves to no availability: page chrome, such as a form button, the site navigation or
-    /// a shop-wide notice, rather than the product's status.
-    ConstantUnresolvedState,
 }
 
 impl CrossPageCheck {
     /// Every check, so tests can pin how the review console names each code.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 4] = [
         Self::RepeatedAcrossPages,
         Self::NoImageOnAnyPage,
         Self::SharedTitleSegment,
         Self::ListingSourceName,
-        Self::ConstantUnresolvedState,
     ];
 
     /// How the review console describes the check.
@@ -61,9 +53,6 @@ impl CrossPageCheck {
             Self::NoImageOnAnyPage => "yields no capturable image on any review page",
             Self::SharedTitleSegment => "starts or ends with the same segment on every review page",
             Self::ListingSourceName => "starts or ends with the name of the shop",
-            Self::ConstantUnresolvedState => {
-                "is the same on every review page and resolves to no availability"
-            }
         }
     }
 }
@@ -74,8 +63,7 @@ pub struct CrossPageFinding {
     pub field: PlausibilityField,
     pub check: CrossPageCheck,
     /// This page's values the check names, as extracted from this page: the values another
-    /// page shares, the shared title segments, the title affixed with the shop's name or the
-    /// `state` every page shares; empty
+    /// page shares, the shared title segments or the title affixed with the shop's name; empty
     /// for [`CrossPageCheck::NoImageOnAnyPage`], whose page has no image to name.
     pub values: Vec<String>,
 }
@@ -163,14 +151,10 @@ impl CrossPageFindings {
                 || shares_a_key(sharing, &image_groups)
         });
         let mut title_segments = shared_title_segments(pages, &title_groups);
-        let states: Vec<Option<&str>> = pages.iter().map(|page| page.raw.state()).collect();
-        let mut constant_states = constant_state::constant_unresolved_states(&states);
         let no_image_on_any_page = !pages.iter().any(|page| page.has_capturable_image);
 
-        use CrossPageCheck::{
-            ConstantUnresolvedState, ListingSourceName, RepeatedAcrossPages, SharedTitleSegment,
-        };
-        use PlausibilityField::{Images, SourceListingId, State, Title};
+        use CrossPageCheck::{ListingSourceName, RepeatedAcrossPages, SharedTitleSegment};
+        use PlausibilityField::{Images, SourceListingId, Title};
         use std::mem::take;
         pages
             .iter()
@@ -197,11 +181,6 @@ impl CrossPageFindings {
                             Title,
                             ListingSourceName,
                             title_holding_name(page, listing_source_name),
-                        ),
-                        CrossPageFinding::naming(
-                            State,
-                            ConstantUnresolvedState,
-                            take(&mut constant_states[index]),
                         ),
                         CrossPageFinding::naming(
                             Images,
@@ -917,59 +896,6 @@ mod tests {
         }
     }
 
-    mod constant_state {
-        use super::*;
-
-        fn in_state(identity: &str, title: &str, state: &str) -> RawExtractedProduct {
-            RawExtractedProduct {
-                state: Some(state.to_owned()),
-                ..product(identity, title, &[])
-            }
-        }
-
-        /// Napoli Antic's `state` rule reads the "Valider" button of a reminder form on every
-        /// product page (#2878).
-        #[test]
-        fn should_report_the_state_every_page_shares_on_the_state_field() {
-            let findings = findings_of(&[
-                (
-                    "https://shop.example/chambre",
-                    in_state("1", "Chambre Napoléon III", "Valider"),
-                ),
-                (
-                    "https://shop.example/buffet",
-                    in_state("2", "Buffet Louis XV", "Valider"),
-                ),
-            ]);
-
-            let constant_state = finding(
-                PlausibilityField::State,
-                CrossPageCheck::ConstantUnresolvedState,
-                &["Valider"],
-            );
-            assert_eq!(
-                findings,
-                vec![vec![constant_state.clone()], vec![constant_state]]
-            );
-        }
-
-        #[test]
-        fn should_leave_a_state_that_differs_between_pages_alone() {
-            let findings = findings_of(&[
-                (
-                    "https://shop.example/chambre",
-                    in_state("1", "Chambre Napoléon III", "Valider"),
-                ),
-                (
-                    "https://shop.example/buffet",
-                    in_state("2", "Buffet Louis XV", "Vendu"),
-                ),
-            ]);
-
-            assert_eq!(findings, vec![vec![], vec![]]);
-        }
-    }
-
     mod serialization {
         use super::*;
 
@@ -1048,15 +974,6 @@ mod tests {
                 }))
                 .ok(),
                 Some(CrossPageCheck::ListingSourceName)
-            );
-            assert_eq!(
-                check_of(serde_json::json!({
-                    "field": "state",
-                    "check": "CONSTANT_UNRESOLVED_STATE",
-                    "values": ["Valider"]
-                }))
-                .ok(),
-                Some(CrossPageCheck::ConstantUnresolvedState)
             );
             assert!(
                 check_of(serde_json::json!({

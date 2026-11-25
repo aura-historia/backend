@@ -87,8 +87,8 @@ pub struct SchemaPageView {
 /// code such as `SOLD_OUT`, `null` when `state` is no whole availability label (a sentence, a
 /// cart button): at runtime only this becomes the listing's availability. `state_mentions` is the
 /// sold, out of stock or unavailable code that a window of one to four words of an unresolved
-/// `state` names, such as a sentence announcing the sale, outside the extracted title where the
-/// `state` repeats it. The approval guard's sold-page check accepts either.
+/// `state` names, such as a sentence announcing the sale. The approval guard's sold-page check
+/// accepts either.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ExtractedView {
     pub source_listing_id: String,
@@ -350,7 +350,7 @@ fn code_of(check: &impl Serialize) -> String {
 
 impl ExtractedView {
     fn of(extracted: RawExtractedProduct) -> Self {
-        let reading = StateReading::of_extraction(&extracted).unwrap_or_default();
+        let reading = StateReading::of(extracted.state.as_deref().unwrap_or_default());
         let code = |availability: ListingAvailability| availability.as_str().to_owned();
         Self {
             source_listing_id: value(&extracted.source_listing_id),
