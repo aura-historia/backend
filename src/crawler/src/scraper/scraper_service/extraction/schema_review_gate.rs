@@ -5,9 +5,10 @@ use crate::review::model::{LinkIdentity, SchemaMatrix, SchemaPageReference};
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
-    evaluate_schema_matrix_for_inputs, implausible_pages, optional_rules_missing_on_every_page,
-    schema_matrix_deterministic_approval_ok, selector_field_anchors_page, selector_field_is_soft,
-    selector_field_matched_nothing, unused_schema_indices,
+    PriceTextAcceptance, evaluate_schema_matrix_for_inputs, implausible_pages,
+    optional_rules_missing_on_every_page, schema_matrix_deterministic_approval_ok,
+    selector_field_anchors_page, selector_field_is_soft, selector_field_matched_nothing,
+    unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -287,7 +288,11 @@ fn with_schema_matrix_summary(
         "optional_rules_missing_on_every_page": optional_rules_missing_on_every_page(matrix),
         // Every failed per-page or cross-page plausibility check blocks deterministic
         // approval, also on a page another candidate covers.
-        "implausible_pages": implausible_pages(matrix, LinkIdentity::Blocks),
+        "implausible_pages": implausible_pages(
+            matrix,
+            PriceTextAcceptance::OnStatusSlot,
+            LinkIdentity::Blocks,
+        ),
     });
 
     if let Some(object) = validation_summary.as_object_mut() {

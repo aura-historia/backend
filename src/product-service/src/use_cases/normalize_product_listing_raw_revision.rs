@@ -43,6 +43,15 @@ use product_listing_service::ports::{
 use std::time::Instant;
 use time::OffsetDateTime;
 
+mod reapply;
+
+pub use reapply::{
+    CompletedRawRevisionReapplication, ProductListingChanges, RawRevisionReapplication,
+    RawRevisionReapplicationMode, RawRevisionReapplicationSkip, ReappliedProductListingRawStream,
+    ReapplyProductListingRawRevisionsCommand, ReapplyProductListingRawRevisionsPage,
+    ReapplyProductListingRawRevisionsUseCase,
+};
+
 pub const NORMALIZER_VERSION: u16 =
     product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION;
 
@@ -155,6 +164,11 @@ pub enum NormalizeProductListingRawRevisionError {
         #[source]
         source: NormalizationDiagnosticCasePortError,
     },
+    #[error("failed to read the canonical product listing")]
+    ListingReadFailed {
+        #[source]
+        source: product_listing_service::ports::ProductListingRepositoryError,
+    },
 }
 
 #[derive(Debug)]
@@ -198,6 +212,37 @@ pub trait NormalizeProductListingRawRevisionUseCase: Send + Sync {
 struct EvaluatedRevision {
     normalized: ProductListingRawValuesNormalizationOutcome,
     issues: Vec<NormalizationIssue>,
+}
+
+/// An evaluation that cannot complete its revision. `issues` is present for a system failure of
+/// the evaluator, which is recorded as a diagnostic case on its own.
+struct EvaluationFailure {
+    error: NormalizeProductListingRawRevisionError,
+    issues: Option<Vec<NormalizationIssue>>,
+}
+
+/// A completion applied inside the head's transaction, with what follows its commit.
+struct CompletedRevision {
+    completion: ProductListingRawNormalizationCompletion,
+    after_commit: AfterCommit,
+}
+
+/// The effects of a completion that only a committed transaction may produce.
+struct AfterCommit {
+    issues: Vec<NormalizationIssue>,
+    diagnostic: Option<RevisionDiagnostic>,
+    shipping_observation: Option<CrawlerShippingObservation>,
+}
+
+impl AfterCommit {
+    /// Crawler shipping imports a revision once, keyed by its raw revision: a second import of
+    /// the same revision conflicts or is out of order, so a reapplied revision imports nothing.
+    fn without_crawler_shipping(self) -> Self {
+        Self {
+            shipping_observation: None,
+            ..self
+        }
+    }
 }
 
 /// Composition without durable diagnostic cases. Events are still emitted; production
@@ -299,14 +344,16 @@ where
     W: ProductListingRawNormalizationWriterFactory<U::Tx>,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
-    P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader,
     D: NormalizationDiagnosticCaseWriterFactory<U::Tx>,
 {
     async fn drain_stream(
         &self,
         product_listing_raw_stream_id: ProductListingRawStreamId,
         max_revisions: u32,
-    ) -> StreamDrainResult {
+    ) -> StreamDrainResult
+    where
+        P: ProductListingRawRevisionReader,
+    {
         let mut results = Vec::new();
         for _ in 0..max_revisions {
             let candidate = match self
@@ -320,30 +367,15 @@ where
             let Some(candidate) = candidate else {
                 return StreamDrainResult::completed(results);
             };
-            if let Err(error) = validate_stored_schema(&candidate.input) {
-                return StreamDrainResult::failed(results, error);
-            }
-            let evaluation = self.normalizer.evaluate(&candidate.input);
-            let evaluated = EvaluatedRevision {
-                normalized: evaluation.outcome,
-                issues: evaluation.report.into_issues(),
-            };
-            let normalized = match require_terminal_normalization_outcome(evaluated.normalized) {
-                Ok(normalized) => normalized,
-                Err(error) => {
-                    // No completion owns a system failure: record it on its own so the
-                    // diagnosis survives, then fail the stream for operational retry.
-                    let error = match self
-                        .record_system_failure(&candidate, &evaluated.issues)
-                        .await
-                    {
-                        Ok(()) => error,
-                        Err(record_error) => record_error,
-                    };
-                    return StreamDrainResult::failed(results, error);
+            let evaluated = match self.evaluate(&candidate) {
+                Ok(evaluated) => evaluated,
+                Err(failure) => {
+                    return StreamDrainResult::failed(
+                        results,
+                        self.record_evaluation_failure(&candidate, failure).await,
+                    );
                 }
             };
-            let issues = evaluated.issues;
             let mut tx = match self.unit_of_work.begin().await {
                 Ok(tx) => tx,
                 Err(source) => {
@@ -370,39 +402,21 @@ where
             {
                 continue;
             }
-            let head_listing_source_id = work.head.listing_source_id;
-            let mut shipping_observation = None;
-            let completion = match self
-                .complete_work_in_transaction(
-                    &mut tx,
-                    work.head,
-                    revision,
-                    &normalized,
-                    &mut shipping_observation,
-                )
+            let completed = match self
+                .complete_revision(&mut tx, work.head, &candidate, evaluated)
                 .await
             {
-                Ok(completion) => completion,
+                Ok(completed) => completed,
                 Err(error) => return StreamDrainResult::failed(results, error),
             };
+            let CompletedRevision {
+                completion,
+                after_commit,
+            } = completed;
             let result = NormalizedRawRevisionResult {
                 product_listing_raw_stream_id,
                 revision: completion.revision,
                 outcome: completion.outcome,
-            };
-            let issues = with_completion_issues(issues, completion.error_code);
-            let diagnostic = match self
-                .record_terminal_case(
-                    &mut tx,
-                    &candidate,
-                    &head_listing_source_id,
-                    &result,
-                    &issues,
-                )
-                .await
-            {
-                Ok(diagnostic) => diagnostic,
-                Err(error) => return StreamDrainResult::failed(results, error),
             };
             if let Err(error) = self
                 .raw_normalizations
@@ -418,41 +432,123 @@ where
                     NormalizeProductListingRawRevisionError::CommitTransactionFailed { source },
                 );
             }
-            // Events describe committed handling; an uncommitted attempt is retried and logged
-            // by the evaluation that commits.
-            if let Some(diagnostic) = diagnostic {
-                diagnostic.log(&issues);
-            }
-            // Shipping is optional and commits independently after the catalog and raw progress.
-            // Its command keeps the version from that transaction, even after a lost response.
-            if let (Some(shipping), Some(observation)) =
-                (&self.crawler_shipping, shipping_observation)
-            {
-                let raw_revision_id = observation.raw_revision_id;
-                // Application failures after commit are operational, not heuristic misses.
-                match shipping.execute(observation).await {
-                    Ok(outcome) => {
-                        tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            %raw_revision_id,
-                            error_code = error.diagnostic_code(),
-                            "crawler shipping application failed after normalization commit"
-                        );
-                    }
-                }
-            }
+            self.finish_committed(after_commit).await;
             results.push(result);
         }
         StreamDrainResult::completed(results)
+    }
+
+    /// Evaluates a stored revision. A system failure of the evaluator keeps its issues so they
+    /// can be recorded outside any transaction that holds the stream head.
+    fn evaluate(
+        &self,
+        candidate: &crate::ports::ProductListingRawRevision,
+    ) -> Result<EvaluatedRevision, EvaluationFailure> {
+        validate_stored_schema(&candidate.input).map_err(|error| EvaluationFailure {
+            error,
+            issues: None,
+        })?;
+        let evaluation = self.normalizer.evaluate(&candidate.input);
+        let issues = evaluation.report.into_issues();
+        match require_terminal_normalization_outcome(evaluation.outcome) {
+            Ok(normalized) => Ok(EvaluatedRevision { normalized, issues }),
+            Err(error) => Err(EvaluationFailure {
+                error,
+                issues: Some(issues),
+            }),
+        }
+    }
+
+    /// No completion owns a system failure: record it on its own so the diagnosis survives, then
+    /// fail the stream for operational retry. Call it while no transaction holds the head.
+    async fn record_evaluation_failure(
+        &self,
+        candidate: &crate::ports::ProductListingRawRevision,
+        failure: EvaluationFailure,
+    ) -> NormalizeProductListingRawRevisionError {
+        let Some(issues) = failure.issues else {
+            return failure.error;
+        };
+        match self.record_system_failure(candidate, &issues).await {
+            Ok(()) => failure.error,
+            Err(record_error) => record_error,
+        }
+    }
+
+    /// Applies an evaluated revision to the canonical listing and records its diagnostic case
+    /// inside the transaction that holds the stream head, which must stand at `revision`. The
+    /// caller persists the completion.
+    async fn complete_revision(
+        &self,
+        tx: &mut U::Tx,
+        head: ProductListingRawNormalizationHead,
+        revision: &crate::ports::ProductListingRawRevision,
+        evaluated: EvaluatedRevision,
+    ) -> Result<CompletedRevision, NormalizeProductListingRawRevisionError> {
+        let head_listing_source_id = head.listing_source_id;
+        let mut shipping_observation = None;
+        let completion = self
+            .complete_work_in_transaction(
+                tx,
+                head,
+                revision,
+                &evaluated.normalized,
+                &mut shipping_observation,
+            )
+            .await?;
+        let result = NormalizedRawRevisionResult {
+            product_listing_raw_stream_id: completion.product_listing_raw_stream_id,
+            revision: completion.revision,
+            outcome: completion.outcome,
+        };
+        let issues = with_completion_issues(evaluated.issues, completion.error_code);
+        let diagnostic = self
+            .record_terminal_case(tx, revision, &head_listing_source_id, &result, &issues)
+            .await?;
+        Ok(CompletedRevision {
+            completion,
+            after_commit: AfterCommit {
+                issues,
+                diagnostic,
+                shipping_observation,
+            },
+        })
+    }
+
+    /// What follows a committed completion: its diagnostic events, then crawler shipping.
+    async fn finish_committed(&self, after_commit: AfterCommit) {
+        // Events describe committed handling; an uncommitted attempt is retried and logged
+        // by the evaluation that commits.
+        if let Some(diagnostic) = after_commit.diagnostic {
+            diagnostic.log(&after_commit.issues);
+        }
+        // Shipping is optional and commits independently after the catalog and raw progress.
+        // Its command keeps the version from that transaction, even after a lost response.
+        if let (Some(shipping), Some(observation)) =
+            (&self.crawler_shipping, after_commit.shipping_observation)
+        {
+            let raw_revision_id = observation.raw_revision_id;
+            // Application failures after commit are operational, not heuristic misses.
+            match shipping.execute(observation).await {
+                Ok(outcome) => {
+                    tracing::info!(%raw_revision_id, outcome, "crawler shipping normalization finished");
+                }
+                Err(error) => {
+                    tracing::error!(
+                        %raw_revision_id,
+                        error_code = error.diagnostic_code(),
+                        "crawler shipping application failed after normalization commit"
+                    );
+                }
+            }
+        }
     }
 
     async fn complete_work_in_transaction(
         &self,
         tx: &mut U::Tx,
         head: ProductListingRawNormalizationHead,
-        revision: crate::ports::ProductListingRawRevision,
+        revision: &crate::ports::ProductListingRawRevision,
         normalized: &ProductListingRawValuesNormalizationOutcome,
         shipping_observation: &mut Option<CrawlerShippingObservation>,
     ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
@@ -471,7 +567,7 @@ where
         {
             return Ok(completion(
                 &head,
-                &revision,
+                revision,
                 ProductListingRawNormalizationOutcome::Rejected,
                 None,
                 None,
@@ -481,18 +577,18 @@ where
         match normalized {
             ProductListingRawValuesNormalizationOutcome::Invalid(error) => Ok(completion(
                 &head,
-                &revision,
+                revision,
                 ProductListingRawNormalizationOutcome::Rejected,
                 None,
                 None,
                 Some(normalization_error_code(error)),
             )),
             ProductListingRawValuesNormalizationOutcome::Delete { source_listing_id } => {
-                self.complete_delete(tx, &head, &revision, source_listing_id.as_ref())
+                self.complete_delete(tx, &head, revision, source_listing_id.as_ref())
                     .await
             }
             ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
-                self.complete_upsert(tx, &head, &revision, resolved, shipping_observation)
+                self.complete_upsert(tx, &head, revision, resolved, shipping_observation)
                     .await
             }
         }
@@ -1026,6 +1122,7 @@ impl NormalizeProductListingRawRevisionError {
             Self::CanonicalWriteFailed { .. } => "CANONICAL_WRITE_FAILED",
             Self::CommitTransactionFailed { .. } => "COMMIT_TRANSACTION_FAILED",
             Self::DiagnosticCaseRecordFailed { .. } => "DIAGNOSTIC_CASE_RECORD_FAILED",
+            Self::ListingReadFailed { .. } => "LISTING_READ_FAILED",
         }
     }
 }
@@ -1177,7 +1274,9 @@ mod tests {
     use super::*;
     use crate::ports::{
         PendingProductListingRawStream, PendingProductListingRawStreamPage,
-        ProductListingRawNormalizationWork,
+        ProductListingRawNormalizationWork, ProductListingRawReapplicationWork,
+        ReapplicableProductListingRawStreamPage, ReapplicableProductListingRawStreamPageRequest,
+        ReapplicableProductListingRawStreamReader,
     };
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use domain_primitives::versioned::Versioned;
@@ -1210,8 +1309,8 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use url::Url;
 
-    type SharedState = Arc<Mutex<TestState>>;
-    type TestHandler = NormalizeProductListingRawRevisionHandler<
+    pub(super) type SharedState = Arc<Mutex<TestState>>;
+    pub(super) type TestHandler = NormalizeProductListingRawRevisionHandler<
         TestUnitOfWork,
         RawPortsFake,
         ProductsFake,
@@ -1225,27 +1324,35 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct TestState {
+    pub(super) struct TestState {
         streams: Vec<TestStream>,
         revision_failures: HashSet<ProductListingRawStreamId>,
         pending_page: PendingProductListingRawStreamPage,
         pending_requests: Vec<PendingProductListingRawStreamPageRequest>,
-        completions: Vec<ProductListingRawNormalizationCompletion>,
+        pub(super) completions: Vec<ProductListingRawNormalizationCompletion>,
         completion_results: VecDeque<Result<(), ProductListingRawNormalizationPortError>>,
-        begins: usize,
-        commits: usize,
-        rollbacks: usize,
-        existing_product: Option<VersionedProductListing>,
+        pub(super) begins: usize,
+        pub(super) commits: usize,
+        pub(super) rollbacks: usize,
+        pub(super) existing_product: Option<VersionedProductListing>,
         key_lookups: Vec<ProductListingKey>,
         id_lookups: Vec<ProductListingId>,
         key_lookup_error: Option<ProductListingRepositoryError>,
-        updated_products: Vec<ProductListing>,
+        pub(super) updated_products: Vec<ProductListing>,
         update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
-        diagnostic_cases: Vec<NormalizationDiagnosticCase>,
+        pub(super) diagnostic_cases: Vec<NormalizationDiagnosticCase>,
+        /// Streams whose latest revision a reapplication may lock.
+        pub(super) reapplications: Vec<ProductListingRawReapplicationWork>,
+        pub(super) reapplicable_page: ReapplicableProductListingRawStreamPage,
+        pub(super) reapplicable_requests: Vec<ReapplicableProductListingRawStreamPageRequest>,
+        /// Completions recorded without moving a head.
+        pub(super) reapplied: Vec<ProductListingRawNormalizationCompletion>,
+        /// Streams another stream bound to the same listing supersedes.
+        pub(super) superseded_streams: HashSet<ProductListingRawStreamId>,
     }
 
     #[derive(Clone)]
-    struct DiagnosticCasesFake(SharedState);
+    pub(super) struct DiagnosticCasesFake(pub(super) SharedState);
 
     struct DiagnosticCaseWriterFake(SharedState);
 
@@ -1271,29 +1378,29 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct TestUnitOfWork(SharedState);
+    pub(super) struct TestUnitOfWork(SharedState);
 
-    struct TestTransaction {
+    pub(super) struct TestTransaction {
         state: SharedState,
         committed: bool,
     }
 
     #[derive(Clone)]
-    struct RawPortsFake(SharedState);
+    pub(super) struct RawPortsFake(SharedState);
 
     struct RawWriterFake(SharedState);
 
     #[derive(Clone)]
-    struct ProductsFake(SharedState);
+    pub(super) struct ProductsFake(SharedState);
 
     struct ProductRepositoryFake(SharedState);
 
     #[derive(Clone, Copy)]
-    struct EventsFake;
+    pub(super) struct EventsFake;
 
     struct EventAppenderFake;
 
-    fn lock(state: &SharedState) -> MutexGuard<'_, TestState> {
+    pub(super) fn lock(state: &SharedState) -> MutexGuard<'_, TestState> {
         match state.lock() {
             Ok(state) => state,
             Err(poisoned) => poisoned.into_inner(),
@@ -1312,7 +1419,7 @@ mod tests {
         }
     }
 
-    fn raw_head(
+    pub(super) fn raw_head(
         stream_id: ProductListingRawStreamId,
         listing_source_id: ListingSourceId,
         product_listing_id: Option<ProductListingId>,
@@ -1327,7 +1434,7 @@ mod tests {
         }
     }
 
-    fn revision(
+    pub(super) fn revision(
         stream_id: ProductListingRawStreamId,
         revision: u64,
         input: ProductListingNormalizationInput,
@@ -1359,7 +1466,7 @@ mod tests {
         )
     }
 
-    fn upsert_input(
+    pub(super) fn upsert_input(
         price: &str,
     ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
         ProductListingNormalizationInput::new(
@@ -1391,7 +1498,7 @@ mod tests {
         )
     }
 
-    fn existing_listing(
+    pub(super) fn existing_listing(
         product_listing_id: ProductListingId,
         listing_source_id: ListingSourceId,
         source_listing_id: SourceListingId,
@@ -1430,7 +1537,7 @@ mod tests {
         Ok((listing, auction))
     }
 
-    fn handler(state: &SharedState) -> TestHandler {
+    pub(super) fn handler(state: &SharedState) -> TestHandler {
         NormalizeProductListingRawRevisionHandler::new(
             TestUnitOfWork(Arc::clone(state)),
             RawPortsFake(Arc::clone(state)),
@@ -1527,6 +1634,55 @@ mod tests {
             state.completions.push(completion);
             Ok(())
         }
+
+        async fn lock_reapplication(
+            &mut self,
+            product_listing_raw_stream_id: ProductListingRawStreamId,
+            normalizer_version: u16,
+        ) -> Result<
+            Option<ProductListingRawReapplicationWork>,
+            ProductListingRawNormalizationPortError,
+        > {
+            assert_eq!(NORMALIZER_VERSION, normalizer_version);
+            Ok(lock(&self.0)
+                .reapplications
+                .iter()
+                .find(|work| {
+                    work.head.product_listing_raw_stream_id == product_listing_raw_stream_id
+                })
+                .cloned())
+        }
+
+        async fn complete_reapplication(
+            &mut self,
+            completion: ProductListingRawNormalizationCompletion,
+        ) -> Result<(), ProductListingRawNormalizationPortError> {
+            lock(&self.0).reapplied.push(completion);
+            Ok(())
+        }
+
+        async fn is_superseded(
+            &mut self,
+            product_listing_raw_stream_id: ProductListingRawStreamId,
+            _: ProductListingId,
+        ) -> Result<bool, ProductListingRawNormalizationPortError> {
+            Ok(lock(&self.0)
+                .superseded_streams
+                .contains(&product_listing_raw_stream_id))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ReapplicableProductListingRawStreamReader for RawPortsFake {
+        async fn list_reapplicable_streams(
+            &self,
+            request: ReapplicableProductListingRawStreamPageRequest,
+        ) -> Result<ReapplicableProductListingRawStreamPage, ProductListingRawNormalizationPortError>
+        {
+            let mut state = lock(&self.0);
+            state.reapplicable_requests.push(request);
+            Ok(state.reapplicable_page.clone())
+        }
     }
 
     #[async_trait::async_trait]
@@ -1585,6 +1741,17 @@ mod tests {
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             let mut state = lock(&self.0);
             state.id_lookups.push(product_listing_id);
+            if let Some(updated) = state
+                .updated_products
+                .iter()
+                .rev()
+                .find(|product| product.id() == product_listing_id)
+            {
+                return Ok(Some(Versioned::new(
+                    updated.clone(),
+                    ProductListingStorageVersion::INITIAL.next(),
+                )));
+            }
             Ok(state
                 .existing_product
                 .as_ref()

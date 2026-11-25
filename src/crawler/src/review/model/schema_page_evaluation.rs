@@ -42,8 +42,11 @@ pub struct SchemaPageEvaluation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PriceTextOnState {
     Blocks,
-    /// The candidate's `state` rule reads a status slot: it resolves to sold or unavailable on
-    /// another review page, so the amount it shows while the item is for sale is no defect.
+    /// The price text is on fewer than most of the pages the candidate applies to, and the
+    /// decision accepts it there: the agents' approval on a status slot, whose rule resolves to
+    /// sold or unavailable on another review page, so the amount it shows while the item is for
+    /// sale is no defect; the live schema audit on any candidate, so an odd page does not reopen
+    /// a source.
     Accepted,
 }
 
@@ -61,14 +64,6 @@ pub enum LinkIdentity {
 pub struct ApprovalExemptions {
     pub price_text: PriceTextOnState,
     pub link_identity: LinkIdentity,
-}
-
-impl ApprovalExemptions {
-    /// Every finding that blocks approval blocks it, as deterministic approval decides.
-    pub const NONE: Self = Self {
-        price_text: PriceTextOnState::Blocks,
-        link_identity: LinkIdentity::Blocks,
-    };
 }
 
 impl SchemaPageEvaluation {

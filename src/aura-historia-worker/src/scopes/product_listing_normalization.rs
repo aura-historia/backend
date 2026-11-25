@@ -152,7 +152,8 @@ fn normalization_error_disposition(
         | E::PersistenceFailed { .. }
         | E::CanonicalWriteFailed { .. }
         | E::CommitTransactionFailed { .. }
-        | E::DiagnosticCaseRecordFailed { .. } => {
+        | E::DiagnosticCaseRecordFailed { .. }
+        | E::ListingReadFailed { .. } => {
             ProductListingRawNormalizationJobDisposition::DependencyUnavailable(failure)
         }
     }
@@ -194,6 +195,7 @@ fn normalization_failure(error: &NormalizeProductListingRawRevisionError) -> Fai
         E::DiagnosticCaseRecordFailed { .. } => {
             FailureDiagnostic::postgres("diagnostic_case_record", error)
         }
+        E::ListingReadFailed { .. } => FailureDiagnostic::postgres("listing_read", error),
     }
 }
 

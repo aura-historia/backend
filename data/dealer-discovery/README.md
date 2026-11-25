@@ -7,8 +7,11 @@ explain the onboarding operations. Discovery order is Germany → Central Europe
 rest of Europe → US → Canada; suitable incidental finds elsewhere are welcome.
 
 Add independent dealers, with first-party evidence and assessed confidence above 95%
-for every imported fact. Exclude marketplaces and all auction businesses. Historical
-militaria alone is not disqualifying. Do not contact merchants or create partnerships.
+for every imported fact. Exclude marketplaces, all auction businesses and contemporary-art
+businesses (galleries of living artists, artists selling their own work, shops for new
+prints, editions or decor art; `EXCLUDED` with reason code `CONTEMPORARY_ART`, see the
+skill for the line). Historical militaria alone is not disqualifying. Do not contact
+merchants or create partnerships.
 **Leave ingestion methods empty. Identify platform technology independently**, preferring
 the commerce platform over its underlying CMS. Unknown platform remains absent.
 

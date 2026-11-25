@@ -41,7 +41,8 @@ def check_identity_fields(source, party, row, ids):
     check_party_fields(party, row)
     require(source["url"] == row["url"] and source["name"] == value(row, "name"),
             "Source presentation differs")
-    require(source["ingestionMethods"] == [], "Ingestion methods must remain empty")
+    # Discovery never enables ingestion, but the owner may enable it afterwards: record, don't assert.
+    require(isinstance(source.get("ingestionMethods"), list), "Ingestion methods must be a list")
     require(source.get("platformTechnology") == value(row, "platformTechnology"),
             "Platform technology differs")
     require(source.get("image") == value(row, "logo", {}).get("url"), "Source image differs")
@@ -146,7 +147,8 @@ def verify_dealer(api, row):
     return {"domain": row["domain"], "listingSourceId": ids["listingSourceId"],
             "partyId": ids["partyId"], "locations": len(locations),
             "logo": bool(source.get("image")), "platform": source.get("platformTechnology"),
-            "deliveryProfile": bool(ids.get("shippingProfileId")), "ingestionMethods": [],
+            "deliveryProfile": bool(ids.get("shippingProfileId")),
+            "ingestionMethods": sorted(source["ingestionMethods"]),
             "verified": True, "verifiedAt": now(), "observationDigest": observation_digest(row)}
 
 
@@ -199,13 +201,17 @@ def main():
         baseline = json.loads(args.output.read_text(encoding="utf-8"))
         require(baseline["environment"] == PRODUCTION, "Baseline environment differs")
     results, checked = verify_with_baseline(api, added, baseline)
+    live_methods = {s["listingSourceId"]: sorted(s.get("ingestionMethods") or []) for s in sources}
+    for result in results:  # reused baseline records carry the methods of their own run
+        result["ingestionMethods"] = live_methods[result["listingSourceId"]]
     counts = {"parties": len({r["partyId"] for r in results}), "listingSources": len(results),
               "locations": len({location for row in added
                                 for location in row["backend"].get("partyLocationIds", [])}),
               "logos": sum(r["logo"] for r in results),
               "identifiedPlatforms": sum(bool(r["platform"]) for r in results),
               "deliveryProfiles": sum(r["deliveryProfile"] for r in results),
-              "emptyIngestionMethods": len(results),
+              "emptyIngestionMethods": sum(not r["ingestionMethods"] for r in results),
+              "ingestionConfigured": sum(bool(r["ingestionMethods"]) for r in results),
               "excluded": sum(r["status"] == "EXCLUDED" for r in ledger.values()),
               "deferred": sum(r["status"] == "DEFERRED" for r in ledger.values())}
     timestamp = now()
@@ -218,7 +224,7 @@ def main():
                "paidDataSpendUsd": args.paid_data_spend_usd,
                "checks": ["Live managed Party contacts and ownership match reviewed evidence",
                           "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-                          "Managed ingestion lists empty; platform metadata independent",
+                          "Live ingestion methods recorded per dealer (discovery never enables them); platform metadata independent",
                           "Profile terms and active defaults match reviewed observations",
                           "Inventory inheritance has explicit evidence or the single-location dealer policy"],
                "dealers": results}

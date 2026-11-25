@@ -1,52 +1,34 @@
 {
-  "run": "tw-2026-11-04-152",
-  "verifiedAt": "2026-11-04T16:15:43.858471Z",
-  "scope": "INCREMENTAL",
+  "run": "2026-11-25-removal-refresh",
+  "verifiedAt": "2026-11-25T08:43:28.027633Z",
+  "scope": "FULL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-04T16:05:25.221402Z",
+  "fullVerifiedAt": "2026-11-25T08:43:28.027633Z",
   "dealersCheckedThisRun": 0,
-  "dealersReused": 1,
+  "dealersReused": 0,
   "counts": {
-    "parties": 1,
-    "listingSources": 1,
+    "parties": 0,
+    "listingSources": 0,
     "locations": 0,
     "logos": 0,
     "identifiedPlatforms": 0,
     "deliveryProfiles": 0,
     "emptyIngestionMethods": 0,
-    "preservedExternalIngestionMethods": 1,
-    "excluded": 0,
+    "ingestionConfigured": 0,
+    "excluded": 1,
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 4712,
-    "listingSources": 4757
+    "parties": 4428,
+    "listingSources": 4465
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
-    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
-    "Profile terms and active defaults match reviewed observations.",
-    "Inventory inheritance requires explicit separate evidence."
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Live ingestion methods recorded per dealer (discovery never enables them); platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance has explicit evidence or the single-location dealer policy"
   ],
-  "externalIngestionAuthorization": "external-ingestion-observations.json",
-  "dealers": [
-    {
-      "domain": "tba.tw",
-      "listingSourceId": "ls_01m6hf6a9aev2t7jt54f0c4qk3",
-      "partyId": "pty_01m6hf6a8jerjrs4xv1k275tqe",
-      "locations": 0,
-      "logo": false,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-04T16:05:25.220829Z",
-      "observationDigest": "d733b76776c59bbc9e3a86ba4ec40fb5250cbc2593aef7c5f8cf7fa1747206ea",
-      "externalIngestionConfigurationPreserved": true
-    }
-  ]
+  "dealers": []
 }

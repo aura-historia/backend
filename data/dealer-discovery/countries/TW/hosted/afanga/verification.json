@@ -1,50 +1,34 @@
 {
-  "run": "tw-2026-11-04-152",
-  "verifiedAt": "2026-11-04T16:15:12.022294Z",
-  "scope": "INCREMENTAL",
+  "run": "2026-11-25-removal-refresh",
+  "verifiedAt": "2026-11-25T08:42:55.257124Z",
+  "scope": "FULL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-04T16:04:40.214890Z",
+  "fullVerifiedAt": "2026-11-25T08:42:55.257124Z",
   "dealersCheckedThisRun": 0,
-  "dealersReused": 1,
+  "dealersReused": 0,
   "counts": {
-    "parties": 1,
-    "listingSources": 1,
+    "parties": 0,
+    "listingSources": 0,
     "locations": 0,
-    "logos": 1,
-    "identifiedPlatforms": 1,
+    "logos": 0,
+    "identifiedPlatforms": 0,
     "deliveryProfiles": 0,
-    "emptyIngestionMethods": 1,
-    "preservedExternalIngestionMethods": 0,
-    "excluded": 0,
+    "emptyIngestionMethods": 0,
+    "ingestionConfigured": 0,
+    "excluded": 1,
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 4712,
-    "listingSources": 4757
+    "parties": 4428,
+    "listingSources": 4465
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
-    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
-    "Profile terms and active defaults match reviewed observations.",
-    "Inventory inheritance requires explicit separate evidence."
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Live ingestion methods recorded per dealer (discovery never enables them); platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance has explicit evidence or the single-location dealer policy"
   ],
-  "externalIngestionAuthorization": "external-ingestion-observations.json",
-  "dealers": [
-    {
-      "domain": "pinkoi.com",
-      "listingSourceId": "ls_01m6kbfm8eefgr3m5198xry6bv",
-      "partyId": "pty_01m6kbfm7sevtbbp3t1zx3ehpv",
-      "locations": 0,
-      "logo": true,
-      "platform": "PINKOI",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-04T16:04:40.214593Z",
-      "observationDigest": "1ff3064941ad7ec251900254fc13fe6fdaaba2154a326e6d74e19965140a22cb",
-      "externalIngestionConfigurationPreserved": false
-    }
-  ]
+  "dealers": []
 }

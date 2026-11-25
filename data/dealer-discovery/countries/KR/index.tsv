@@ -32,7 +32,7 @@ artmarket22.com	DEFERRED				2026-11-03T22:52:56.578590Z		www.artmarket22.com
 artmusee.com	EXCLUDED				2026-11-03T20:12:48.902462Z		www.artmusee.com
 artnshop.net	EXCLUDED				2026-11-03T22:55:24.254247Z		www.artnshop.net
 artpam.com	DEFERRED				2026-11-03T22:28:00.716229Z		
-artpurl.com	ADDED	CAFE24	ls_01m6ht8r75e33vkn50dj3ex30z	pty_01m6ht8r6ne09984bvsk970stk	2026-11-03T23:00:23.183520Z		www.artpurl.com
+artpurl.com	EXCLUDED	CAFE24			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	www.artpurl.com
 artwiki.co.kr	EXCLUDED				2026-11-03T20:11:14.460573Z		
 at-franc.com	DEFERRED				2026-11-03T21:55:03.600615Z		
 atelier-terra.kr	DEFERRED				2026-11-03T12:59:26.417790Z	FIRST_PARTY_ACCESS	
@@ -116,7 +116,7 @@ japanpost.co.kr	EXCLUDED				2026-11-03T17:37:37.037403Z
 jjcollection.kr	ADDED	CAFE24	ls_01m6gv1dfzek7rcek4tw9fdf5f	pty_01m6gv1dffefe8n517ryry46ga	2026-11-03T18:39:15.114171Z		
 joshop.co.kr	DEFERRED				2026-11-03T12:59:26.417834Z	ANTIQUE_SCOPE_UNCONFIRMED	
 journeedemarcelle.com	DEFERRED				2026-11-03T18:45:48.917824Z		
-jpleart.com	ADDED	CAFE24	ls_01m6hh790zey0b431ar6yf7m6c	pty_01m6hh790dej3rqv2j2h18xcvp	2026-11-03T20:22:18.971036Z		
+jpleart.com	EXCLUDED	CAFE24			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
 juncamera.co.kr	ADDED	CAFE24	ls_01m6h0wbw9ehvveahprxrzwesh	pty_01m6h0wbvwe1t8hpg958edtdkg	2026-11-03T18:39:15.114171Z		
 junggolife.co.kr	ADDED	CAFE24	ls_01m6hacxssexbre8vhz6z9h4v9	pty_01m6hacxsget6b75h5rtjyrgzz	2026-11-03T18:39:15.114171Z		www.junggolife.co.kr
 juvin.co.kr	DEFERRED				2026-11-03T14:00:34.486882Z		
@@ -248,7 +248,7 @@ vintagedaracbang.com	ADDED	CAFE24	ls_01m6h2acb7epht5cp8vemdsd3m	pty_01m6h2acaref
 vintageyoyo.com	ADDED	MAKESHOP	ls_01m6gvk7vcec29e8ftsg8szhry	pty_01m6gvk7tyen08j57v2jn97smm	2026-11-03T18:39:15.114171Z		
 w01088994989.wazzang.com	DEFERRED				2026-11-03T22:31:10.749883Z		
 wam.kr	DEFERRED				2026-11-03T22:31:10.749903Z		
-wart.co.kr	ADDED	CAFE24	ls_01m6hte673ey7rz80js4bp0dgt	pty_01m6hte66geqes19njg694pj4r	2026-11-03T23:03:20.944464Z		www.wart.co.kr
+wart.co.kr	EXCLUDED	CAFE24			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	www.wart.co.kr
 washop.com	EXCLUDED				2026-11-03T20:11:14.460584Z		
 watchbon.com	ADDED	CAFE24	ls_01m6h97dv1ejtr301c9dzp7cf4	pty_01m6h97dtmed7vehwjkktddf30	2026-11-03T18:39:15.114171Z		
 weseb.com	DEFERRED				2026-11-03T17:40:10.092522Z		

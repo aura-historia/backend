@@ -7,9 +7,10 @@
 //!
 //! A constant value that resolves to an availability, such as "Sold" on every page of a sold
 //! archive or an "Add to cart" action on every live page, is no finding: the listings get an
-//! availability from it.
+//! availability from it. Nor is price text, which the per-page `PRICE_TEXT` check names and which
+//! blocks on every page when most of them show it.
 
-use super::super::resolves_to_availability;
+use super::super::{price_text_check, resolves_to_availability};
 use super::collapse_whitespace;
 
 /// For each page of `states`, its `state` when every page extracts the same one, compared with
@@ -28,7 +29,9 @@ pub(super) fn constant_unresolved_states(states: &[Option<&str>]) -> Vec<Vec<Str
         .collect();
     let is_constant_chrome = keys.is_some_and(|keys| match keys.as_slice() {
         [first, rest @ ..] if !rest.is_empty() => {
-            rest.iter().all(|key| key == first) && !resolves_to_availability(first)
+            rest.iter().all(|key| key == first)
+                && !resolves_to_availability(first)
+                && price_text_check(first).is_none()
         }
         _ => false,
     });
@@ -104,6 +107,15 @@ mod tests {
     #[case::schema_org("https://schema.org/InStock")]
     fn should_not_name_a_shared_state_that_resolves_to_an_availability(#[case] status: &str) {
         assert_eq!(named(&[Some(status); 3]), vec![Vec::<String>::new(); 3]);
+    }
+
+    /// The per-page `PRICE_TEXT` check names a price every page shows in its `state`.
+    #[test]
+    fn should_leave_price_text_every_page_shares_to_the_price_text_check() {
+        assert_eq!(
+            named(&[Some("£ 1,800 plus VAT"); 3]),
+            vec![Vec::<String>::new(); 3]
+        );
     }
 
     #[test]
