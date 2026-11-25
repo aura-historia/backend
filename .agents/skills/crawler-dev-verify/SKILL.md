@@ -169,7 +169,11 @@ review agents working the reviews as in production:
    `qualification` `QUALIFIED` (with `qualification_note`, `qualified_at` and `qualified_by`
    `HUMAN`), a `MATCHED` URL pattern and a later `next_crawl_at`, and insert the sample product
    URLs into `listing_source_urls` (`url_class` `product`, `raw_source_record_key` the URL), so
-   the next start captures them under the installed schemas. Clone that database
+   the next start captures them under the installed schemas; the live schema audit samples only
+   captured pages, so it audits a source once its URLs were scraped; a human request
+   (`POST /api/listing-sources/{id}/schema-audit` with a `note`) opens an audit review of a
+   source whose checks find nothing. Console routes take the `ls_…` and `cr_…` ids the log
+   prints, not the database UUIDs. Clone that database
    (`CREATE DATABASE … TEMPLATE …`) so `origin/develop` and the change start from the same
    state. Run `origin/develop` on that state and record the faulty behaviour, then the change
    on the same state. Report a situation that cannot be reproduced, with what was tried.
@@ -183,16 +187,21 @@ review agents working the reviews as in production:
    as in production. If the runner cannot log in from the session, restart with
    `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER=false`, act as the agents through `review-mcp`
    ([Agent mode](#agent-mode) step 3) and say so in the report.
-4. **Binaries through cargo.** In a cloud container `target/` can be a symlink to a directory
-   outside the session's working directory, so a command that names `target/debug/...`, such
-   as copying or starting a binary, asks the user to approve it. Build the runner's binaries
-   first (`cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner`, which
-   `dev` starts from next to itself), then start `dev` with
+4. **Binaries through cargo.** In a cloud container `target/` is a symlink to
+   `/root/.cache/aura-backend-target`, outside the session's working directory, so any command
+   that names `target/...` (starting or copying `target/debug/dev`, writing a log to
+   `target/soak/`) asks the user to approve it. Build the runner's binaries first
+   (`cargo build --locked -p crawler --bin dev --bin review-mcp --bin review-agent-runner`;
+   `dev` starts the runner from next to itself), then start `dev` with
    `cargo run --locked -p crawler --bin dev` and `review-mcp` with
    `cargo run --locked -p crawler --bin review-mcp -- --role author`, all with
-   `CARGO_PROFILE_DEV_DEBUG=0`. Compare by running `origin/develop` first and the change
-   afterwards, each on its own clone of the prepared database, instead of copying binaries out
-   of `target/`; name in the report any prompt that could not be avoided.
+   `CARGO_PROFILE_DEV_DEBUG=0`, and write logs and helper files to the scratchpad. For the
+   `origin/develop` run, `git worktree add --detach <scratchpad>/develop-wt origin/develop`,
+   apply the same temporary `dev.rs` edit there and `cargo run` from it with its own
+   `CARGO_TARGET_DIR` under `/root/.cache/`, so neither build replaces the other's binaries;
+   remove the worktree at the end. Run `origin/develop` first and the change afterwards, each on
+   its own clone of the prepared database. Name in the report any prompt that could not be
+   avoided.
 5. **Shops that refuse cloud addresses.** Some shops answer 403 or reset the connection for a
    cloud IP range. Replace such a shop with another one the ticket names and say which.
 6. **Fix what gets in the way.** Fix a setup problem (Docker, image pulls, database, ports) in
