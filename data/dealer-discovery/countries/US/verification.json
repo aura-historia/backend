@@ -1,33 +1,34 @@
 {
-  "run": "2026-11-03-us-079",
-  "verifiedAt": "2026-11-03T20:27:20.042556Z",
-  "scope": "INCREMENTAL",
+  "run": "2026-11-25-removal-refresh",
+  "verifiedAt": "2026-11-25T08:50:31.651752Z",
+  "scope": "FULL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T20:04:37.084207Z",
-  "dealersCheckedThisRun": 3,
-  "dealersReused": 173,
+  "fullVerifiedAt": "2026-11-25T08:50:31.651752Z",
+  "dealersCheckedThisRun": 367,
+  "dealersReused": 0,
   "counts": {
-    "parties": 175,
-    "listingSources": 176,
-    "locations": 204,
-    "logos": 147,
-    "identifiedPlatforms": 151,
-    "deliveryProfiles": 107,
-    "emptyIngestionMethods": 176,
-    "excluded": 26,
-    "deferred": 106
+    "parties": 363,
+    "listingSources": 367,
+    "locations": 413,
+    "logos": 292,
+    "identifiedPlatforms": 309,
+    "deliveryProfiles": 180,
+    "emptyIngestionMethods": 348,
+    "ingestionConfigured": 19,
+    "excluded": 50,
+    "deferred": 202
   },
   "environmentCounts": {
-    "parties": 3567,
-    "listingSources": 3603
+    "parties": 4428,
+    "listingSources": 4465
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
     "Live managed Party contacts and ownership match reviewed evidence",
     "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
+    "Live ingestion methods recorded per dealer (discovery never enables them); platform metadata independent",
     "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Inventory inheritance has explicit evidence or the single-location dealer policy"
   ],
   "dealers": [
     {
@@ -40,7 +41,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:03.351271Z",
+      "verifiedAt": "2026-11-25T08:49:56.363119Z",
       "observationDigest": "04e270ee548d233f2379f70da3bca1fed7bf1ef774cd5cd95ea467e4e92bc1dd"
     },
     {
@@ -53,7 +54,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:03.339683Z",
+      "verifiedAt": "2026-11-25T08:49:56.272168Z",
       "observationDigest": "e29cb50eafd87539b82edbe9d4bc266f5958d4cd8b8b9e4fd0a288ce216219ee"
     },
     {
@@ -66,7 +67,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:03.294862Z",
+      "verifiedAt": "2026-11-25T08:49:56.269411Z",
       "observationDigest": "2d9a1058a899c9b0678c94af33a0ae8f067273801af0707ec7b8007088502007"
     },
     {
@@ -77,9 +78,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:03.836771Z",
+      "verifiedAt": "2026-11-25T08:49:56.605787Z",
       "observationDigest": "a8a84cc3bdffaa41654e639eb93db42fc69d0385f108faa0ef8185c4d5d251bc"
     },
     {
@@ -92,7 +95,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:04.161642Z",
+      "verifiedAt": "2026-11-25T08:49:56.656316Z",
       "observationDigest": "2aea69834f98ead665d57356738dfbe93ebf108fb70153160fe389cedd98f10c"
     },
     {
@@ -105,7 +108,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:04.064349Z",
+      "verifiedAt": "2026-11-25T08:49:56.659021Z",
       "observationDigest": "9284f4fe1b1b85495bdb858dbb3514b136fa2dada9904134781b58946a044e62"
     },
     {
@@ -118,7 +121,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:04.788473Z",
+      "verifiedAt": "2026-11-25T08:49:56.970469Z",
       "observationDigest": "45ce946789cdea3963848950b2bcf52e479a68e2abbf5dc24eb99101be81de52"
     },
     {
@@ -131,7 +134,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:04.560529Z",
+      "verifiedAt": "2026-11-25T08:49:56.909065Z",
       "observationDigest": "fb6e638e6e937a0b21335a2e73ba4b21525b28a97279183a2f43a396bcc46487"
     },
     {
@@ -144,7 +147,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:05.006970Z",
+      "verifiedAt": "2026-11-25T08:49:57.086034Z",
       "observationDigest": "6a6bd57328619db5e4b9efe651adcb1498257c020846a12a05f32fb775b3ac46"
     },
     {
@@ -157,7 +160,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:05.069277Z",
+      "verifiedAt": "2026-11-25T08:49:57.166257Z",
       "observationDigest": "abaffbbcc12f2ea74c0fc1570481d647103c0b869af96bdd8e111c9c994599e6"
     },
     {
@@ -170,7 +173,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:05.387974Z",
+      "verifiedAt": "2026-11-25T08:49:57.266381Z",
       "observationDigest": "e9680f851384d3063c169f7539c946eb00f3cfb52653f3e66f2aae2d1d512055"
     },
     {
@@ -183,7 +186,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:05.491945Z",
+      "verifiedAt": "2026-11-25T08:49:57.354013Z",
       "observationDigest": "b01f991eb838daaadc9765b6a1846943654477fb064cf1c4de0efc850209fae3"
     },
     {
@@ -196,7 +199,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:05.613221Z",
+      "verifiedAt": "2026-11-25T08:49:57.437843Z",
       "observationDigest": "4e00b671886e01b921f258454476717d53087f89f0e413a78ebd89dc390d0604"
     },
     {
@@ -209,7 +212,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:05.851748Z",
+      "verifiedAt": "2026-11-25T08:49:57.572812Z",
       "observationDigest": "56a31aec1db27aed4b7c90f2655fac85028889d33ec1c1c1bc93faa07d1ece2b"
     },
     {
@@ -222,7 +225,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:06.070752Z",
+      "verifiedAt": "2026-11-25T08:49:57.616385Z",
       "observationDigest": "3a69260ace1334e4832a0a3df8540b792051abce94c73314d30302c6e695d9ba"
     },
     {
@@ -233,9 +236,11 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:06.308760Z",
+      "verifiedAt": "2026-11-25T08:49:57.743080Z",
       "observationDigest": "37555a54b5a19fbaaab4c5f62b48bacf22582d7be6f65f14e76e12085bf4e9f1"
     },
     {
@@ -248,7 +253,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:06.766949Z",
+      "verifiedAt": "2026-11-25T08:49:57.866832Z",
       "observationDigest": "d49d7b96f99ee628038b73faabd1977555a576859b1383059f043768f9edc393"
     },
     {
@@ -261,8 +266,21 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:06.902578Z",
+      "verifiedAt": "2026-11-25T08:49:57.920605Z",
       "observationDigest": "1f6e7f800a18506c01dd24e5cdc777e0511d2a0b602a60a8a3225d633321e106"
+    },
+    {
+      "domain": "bostonraremaps.com",
+      "listingSourceId": "ls_01m6hr4qtgehhafea861fsyt78",
+      "partyId": "pty_01m6hr4qt1efxtmr4y1n16kajn",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:49:58.064071Z",
+      "observationDigest": "2876ce98a93ae790c31f7e0926173c81d9c0add52c110fc82585983eef9658c1"
     },
     {
       "domain": "wardmaps.com",
@@ -274,7 +292,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:06.843961Z",
+      "verifiedAt": "2026-11-25T08:49:58.192331Z",
       "observationDigest": "4222af61f03a10eea6f4d3b04e03bbb0c6474384ec492dd06d458b5280673915"
     },
     {
@@ -287,7 +305,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:07.296346Z",
+      "verifiedAt": "2026-11-25T08:49:58.242536Z",
       "observationDigest": "fe2cf0354bf75f31d2b0816b4bc972a6b00f0f7a3234603e7f043d1e996dc3b7"
     },
     {
@@ -300,7 +318,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:07.289299Z",
+      "verifiedAt": "2026-11-25T08:49:58.289989Z",
       "observationDigest": "8e9233d440942e2f643b5dab7bbf3fbf1b2706a1c0e464dc06dbc1e3962ae944"
     },
     {
@@ -313,7 +331,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:07.349534Z",
+      "verifiedAt": "2026-11-25T08:49:58.471542Z",
       "observationDigest": "8d6084f84dd79346edd81073f843bbeea4663ad4866769166af16f320680a73e"
     },
     {
@@ -326,7 +344,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:07.951552Z",
+      "verifiedAt": "2026-11-25T08:49:58.565420Z",
       "observationDigest": "bdc2d37b54978800cb5933ce7adee8019cbe1b88ce6c59407db4f867e8808290"
     },
     {
@@ -339,7 +357,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:07.823510Z",
+      "verifiedAt": "2026-11-25T08:49:58.611353Z",
       "observationDigest": "0ee6f4754d402fd13eac3f820ce56a3c8961ab3f6e5cf9e107edfebef2620f7a"
     },
     {
@@ -352,7 +370,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:07.825534Z",
+      "verifiedAt": "2026-11-25T08:49:58.750011Z",
       "observationDigest": "5ac1e56e13014c6981b1782e6c9c60102d3d6a5ec70b7df9675a458ba30cc735"
     },
     {
@@ -365,7 +383,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:08.543819Z",
+      "verifiedAt": "2026-11-25T08:49:58.889658Z",
       "observationDigest": "a9cf2ad83e9a7804b25671fa2d58268bf411e658e1212d8de69b861f0caa0406"
     },
     {
@@ -378,7 +396,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:08.527569Z",
+      "verifiedAt": "2026-11-25T08:49:58.935645Z",
       "observationDigest": "4d6a972c81e1d061a191e7bb9a8fbfa32770f3c7587351c944fc0536e7e0dbf1"
     },
     {
@@ -389,9 +407,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:08.414534Z",
+      "verifiedAt": "2026-11-25T08:49:59.029761Z",
       "observationDigest": "b6068b957a01ef4268339096c783fbdde9b39795195237e4c37001cff3e36944"
     },
     {
@@ -404,7 +424,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:08.870797Z",
+      "verifiedAt": "2026-11-25T08:49:59.169640Z",
       "observationDigest": "2b42c96190c6f0033e50ace97073c83179394d184c68d838bd717ab74e6a7533"
     },
     {
@@ -417,7 +437,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:09.004612Z",
+      "verifiedAt": "2026-11-25T08:49:59.213028Z",
       "observationDigest": "b1ac5abfdaaca75b7e629f0a4383b44b31f1d3cb1caf8ef58716c49058807e7e"
     },
     {
@@ -430,7 +450,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:08.987078Z",
+      "verifiedAt": "2026-11-25T08:49:59.305219Z",
       "observationDigest": "e81c5e6f4e62c61868f807aac54aa1968f1ee300a1b9bd41feb4057265ea56d9"
     },
     {
@@ -443,7 +463,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:09.332893Z",
+      "verifiedAt": "2026-11-25T08:49:59.443745Z",
       "observationDigest": "fd6211b5109402f3d960f59cf19bcf67e8a96fb4d4429103c89821495b2a64f2"
     },
     {
@@ -456,7 +476,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:09.402825Z",
+      "verifiedAt": "2026-11-25T08:49:59.484461Z",
       "observationDigest": "f4313b56b06069e1196761f68f426673795bfc8b8075dd0edb57a3acf3fb1db7"
     },
     {
@@ -469,7 +489,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:09.479309Z",
+      "verifiedAt": "2026-11-25T08:49:59.582150Z",
       "observationDigest": "eb43cbd43e3988307676a47f14e261e8ca3dc7b5e0007eb03fd8ea2b83399c22"
     },
     {
@@ -482,7 +502,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:10.022191Z",
+      "verifiedAt": "2026-11-25T08:49:59.763463Z",
       "observationDigest": "36b6aee4244f6b89d6d22bded628cbb858627b550532b3b46838dd130b851d6a"
     },
     {
@@ -495,7 +515,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:10.005912Z",
+      "verifiedAt": "2026-11-25T08:49:59.756265Z",
       "observationDigest": "0711f1e9c28df63f0fa382c58c4fcf71c7f0e94ac7acd2a85163b822f5a12ead"
     },
     {
@@ -508,7 +528,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:10.168847Z",
+      "verifiedAt": "2026-11-25T08:49:59.942846Z",
       "observationDigest": "d7d460ca4af8d6521ee3efd7912512f85e4527b6c72fe6c76a728486116dafa5"
     },
     {
@@ -521,7 +541,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:10.673787Z",
+      "verifiedAt": "2026-11-25T08:50:00.087959Z",
       "observationDigest": "6b6915601df802655acd9ce375bf6309104284eb8b412cea768f164c1634daf9"
     },
     {
@@ -534,7 +554,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:10.670477Z",
+      "verifiedAt": "2026-11-25T08:50:00.078337Z",
       "observationDigest": "d267f3b80accaa572785856d313474383757ed859fe67912f5ae588e64b042cf"
     },
     {
@@ -547,7 +567,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:10.715247Z",
+      "verifiedAt": "2026-11-25T08:50:00.254916Z",
       "observationDigest": "e26f5d1a7955fa5eb7b061790f7c8fd224fcbbaf396eedbe7cd54f657ba294d5"
     },
     {
@@ -558,9 +578,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:11.159799Z",
+      "verifiedAt": "2026-11-25T08:50:00.345265Z",
       "observationDigest": "6d0dfaface0aae38d1734d140515c6c9703790e28b964e9f5131d3ad81d93d64"
     },
     {
@@ -573,7 +595,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:11.274454Z",
+      "verifiedAt": "2026-11-25T08:50:00.421789Z",
       "observationDigest": "cfb7eecfc6ac7d3a6f23cae91e0320f3cc19946a29018ca835aeb25daff18708"
     },
     {
@@ -586,7 +608,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:11.381262Z",
+      "verifiedAt": "2026-11-25T08:50:00.573898Z",
       "observationDigest": "51d55b61eea6a2bc9626cc9a0c354584a52122867943e047bf674dae649cec27"
     },
     {
@@ -599,7 +621,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:11.705774Z",
+      "verifiedAt": "2026-11-25T08:50:00.664648Z",
       "observationDigest": "64bdf64436b7426e62a6e04a4fd7d856b37818b9c7ad139b46a9b19ab7d51b2a"
     },
     {
@@ -612,7 +634,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:11.800687Z",
+      "verifiedAt": "2026-11-25T08:50:00.696464Z",
       "observationDigest": "267a46e2c507907ad33f7764038e8ac00fb740a9d4331fc7919551f637a12276"
     },
     {
@@ -625,7 +647,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:11.965364Z",
+      "verifiedAt": "2026-11-25T08:50:00.891758Z",
       "observationDigest": "f0a01b0baf76a6399de4a843b928d98626a5e5657146832fc1cabfa09a9f011e"
     },
     {
@@ -638,7 +660,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:12.352581Z",
+      "verifiedAt": "2026-11-25T08:50:00.986858Z",
       "observationDigest": "2043f7a0141f01717b96b30f2408bd623ad4166bd7ff791165af6503d97c5634"
     },
     {
@@ -651,7 +673,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:12.380532Z",
+      "verifiedAt": "2026-11-25T08:50:01.015509Z",
       "observationDigest": "88e3d41cd32b4b5728b78a1c00dda61c1118fda9faa1a2e89bc2c15c1d74cdf3"
     },
     {
@@ -664,7 +686,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:12.502021Z",
+      "verifiedAt": "2026-11-25T08:50:01.220920Z",
       "observationDigest": "a507f67f2feb25ce768180360b8f38808c66ed4684ac647ee9d1956c939f1ab2"
     },
     {
@@ -677,7 +699,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:12.839159Z",
+      "verifiedAt": "2026-11-25T08:50:01.266606Z",
       "observationDigest": "980e86a63c4dfdf4700e2150a9abe3a119929f755184147bb79753de5225848f"
     },
     {
@@ -690,7 +712,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:12.913727Z",
+      "verifiedAt": "2026-11-25T08:50:01.331780Z",
       "observationDigest": "aea49b3453c9cfa61fc1312683955340ad12993ae43de81a965366c02468380c"
     },
     {
@@ -703,7 +725,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:13.066600Z",
+      "verifiedAt": "2026-11-25T08:50:01.530809Z",
       "observationDigest": "bc0ee2fdc1aa17593896c1fa0f7bf882956fd34eeae4bac6f1a2eaabafe0363c"
     },
     {
@@ -716,7 +738,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:13.472815Z",
+      "verifiedAt": "2026-11-25T08:50:01.587925Z",
       "observationDigest": "498fe1539bd60fa3f85037f20d20376888191c6f80bb8225556454b8626bc434"
     },
     {
@@ -729,7 +751,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:13.592899Z",
+      "verifiedAt": "2026-11-25T08:50:01.583892Z",
       "observationDigest": "11c0376391c3c05b4a72392114d1a3e7ee96ecb35bea16dc46d533100e54c0bb"
     },
     {
@@ -742,7 +764,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:13.623321Z",
+      "verifiedAt": "2026-11-25T08:50:01.823038Z",
       "observationDigest": "fd0962cfb6eccf4a13c15923642a908c09ffa71a2d1aa0d098dead21b98c9b1e"
     },
     {
@@ -755,7 +777,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:14.123489Z",
+      "verifiedAt": "2026-11-25T08:50:01.886496Z",
       "observationDigest": "54a863b480d2caa0858577886c975a3d1dddf13b772c52b45ce836103a5b509a"
     },
     {
@@ -768,7 +790,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:14.248194Z",
+      "verifiedAt": "2026-11-25T08:50:01.897635Z",
       "observationDigest": "def757b350463ec47de7863e9bbc06e960edf1af482094321e3edf74a4db3dd3"
     },
     {
@@ -781,7 +803,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:14.081823Z",
+      "verifiedAt": "2026-11-25T08:50:02.097027Z",
       "observationDigest": "fe43da5383acc5fb77d127870071ebd6367226ba3689c0cc8b1261911c5a80b5"
     },
     {
@@ -794,7 +816,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:14.671218Z",
+      "verifiedAt": "2026-11-25T08:50:02.202914Z",
       "observationDigest": "614c9057de16be342c61fef6cf6eadd353ea99e1ab04f9a455fd9e899a489c9b"
     },
     {
@@ -807,7 +829,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:14.735486Z",
+      "verifiedAt": "2026-11-25T08:50:02.206177Z",
       "observationDigest": "69d73d768e4c298cf5927ff14e82f5977970368e8a0ba5769b4eef9e947f2e8e"
     },
     {
@@ -820,7 +842,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:14.859494Z",
+      "verifiedAt": "2026-11-25T08:50:02.457928Z",
       "observationDigest": "b989707e5d58b86603c99cc7343406de21ec6acbc7b45ddc5141592014b7e133"
     },
     {
@@ -833,7 +855,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:15.199959Z",
+      "verifiedAt": "2026-11-25T08:50:02.515878Z",
       "observationDigest": "5693c43b79181179b3043cabe5e28996a6e8930020d8314cb7913b67d4710d22"
     },
     {
@@ -846,7 +868,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:15.271038Z",
+      "verifiedAt": "2026-11-25T08:50:02.518665Z",
       "observationDigest": "667becc16891c79e717e74a692bdacf6945360a1b0c7e67388cd6b7421ca402d"
     },
     {
@@ -859,7 +881,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:15.460690Z",
+      "verifiedAt": "2026-11-25T08:50:02.731166Z",
       "observationDigest": "2273a02f7809cc5fb567ea0b5c40949a0424104e7ac78ad4aa9e42e47d16bb1c"
     },
     {
@@ -872,7 +894,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:15.730633Z",
+      "verifiedAt": "2026-11-25T08:50:02.826860Z",
       "observationDigest": "608cc98c397933217174d08e1f9140e22df31a836ca6c33212aaf6d1f8479dcf"
     },
     {
@@ -885,7 +907,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:15.805888Z",
+      "verifiedAt": "2026-11-25T08:50:02.783527Z",
       "observationDigest": "68b4e78ff2896745c52111b83a141b399816c888435e3327e0843d67b27b775b"
     },
     {
@@ -898,7 +920,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:16.018480Z",
+      "verifiedAt": "2026-11-25T08:50:03.011362Z",
       "observationDigest": "2bbf5b4183faea83a5695ccc03e3371dfce8adb776b1ff3e9f6300e976594b6a"
     },
     {
@@ -911,7 +933,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:16.346834Z",
+      "verifiedAt": "2026-11-25T08:50:03.059035Z",
       "observationDigest": "12349115ee966e608d9075292cb3d6e10de56cd96294aededd23c70ad821d3b6"
     },
     {
@@ -924,7 +946,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:16.290068Z",
+      "verifiedAt": "2026-11-25T08:50:03.102176Z",
       "observationDigest": "366fa285b5ce09650f4f45180b1c98604c665bb434e39fcd0ad9f0c6dfceab7f"
     },
     {
@@ -937,7 +959,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:16.749926Z",
+      "verifiedAt": "2026-11-25T08:50:03.341151Z",
       "observationDigest": "012de09a990086c6347e3a4f7591e7a6b93b1e8b8f3319984ed37d07fbe74e17"
     },
     {
@@ -950,7 +972,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:16.888387Z",
+      "verifiedAt": "2026-11-25T08:50:03.386393Z",
       "observationDigest": "5373feb53d5d11feb8cab8767fa7e880738cf67f0e5445cd9051746c195b7e8c"
     },
     {
@@ -963,7 +985,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:16.837903Z",
+      "verifiedAt": "2026-11-25T08:50:03.389957Z",
       "observationDigest": "33783976221023b35e018ff443b0d2aaf223c85b973e3e4a3523c08cf1c89258"
     },
     {
@@ -976,7 +998,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:17.289336Z",
+      "verifiedAt": "2026-11-25T08:50:03.582895Z",
       "observationDigest": "0fa4c2a85a5f6abc191410bafab2db1b315bb667ee26cbe42bf2d266138649f3"
     },
     {
@@ -989,7 +1011,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:17.526039Z",
+      "verifiedAt": "2026-11-25T08:50:03.646813Z",
       "observationDigest": "4a9ad2a9c80664a9f3f247f6d19a10b01a0542c2a7f7101873f3bae0be91fa76"
     },
     {
@@ -1002,7 +1024,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:17.572509Z",
+      "verifiedAt": "2026-11-25T08:50:03.649120Z",
       "observationDigest": "1b0dbcf19b00d5b0bc95cb1fdbcbe19b9ad9a0ddd5226d91d0a62ba6357d20cb"
     },
     {
@@ -1015,7 +1037,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:17.750448Z",
+      "verifiedAt": "2026-11-25T08:50:03.802731Z",
       "observationDigest": "a5cd81d2a799262844a38113a42b8d342daba69264a5540bfabaa1ef5f9d8800"
     },
     {
@@ -1028,7 +1050,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:18.136479Z",
+      "verifiedAt": "2026-11-25T08:50:03.929802Z",
       "observationDigest": "bd5d21d456b4b5c184ddc8494f3b0457fcdc569ba129039478058460dc01efb5"
     },
     {
@@ -1041,7 +1063,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:18.065026Z",
+      "verifiedAt": "2026-11-25T08:50:03.881405Z",
       "observationDigest": "8ecced2d46dfb9d2918e94070f3af9104ac3c5fdce0527d93e8998e1ce9c81b3"
     },
     {
@@ -1052,9 +1074,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:18.595789Z",
+      "verifiedAt": "2026-11-25T08:50:04.212825Z",
       "observationDigest": "e81cf57fa83c40d68b6ebe5f94b05a6670299827258083af4e9568bdad98306f"
     },
     {
@@ -1067,7 +1091,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:18.592818Z",
+      "verifiedAt": "2026-11-25T08:50:04.217857Z",
       "observationDigest": "f6b78dd4072d51fd811312d8501a36c4a70e05aef2dedc515fb9711fa8ff6dd9"
     },
     {
@@ -1078,9 +1102,11 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:18.749984Z",
+      "verifiedAt": "2026-11-25T08:50:04.249796Z",
       "observationDigest": "f054d7635fb03885c2c53ad4b77cf6338fd57a218f7a78e1e758ebb0238b7721"
     },
     {
@@ -1091,9 +1117,11 @@
       "logo": true,
       "platform": "ARTLOGIC",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:19.144377Z",
+      "verifiedAt": "2026-11-25T08:50:04.536637Z",
       "observationDigest": "5f4077fcf3487ce6312ad87d9782d4af00a948f03129eb82353a823fbe39c603"
     },
     {
@@ -1106,7 +1134,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:19.328260Z",
+      "verifiedAt": "2026-11-25T08:50:04.539813Z",
       "observationDigest": "468b66463cb0f733243660843d1e41c7373800bf01e1795420857ce7f4443dd8"
     },
     {
@@ -1119,7 +1147,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:19.550803Z",
+      "verifiedAt": "2026-11-25T08:50:04.521564Z",
       "observationDigest": "27c1281b69b12f21b713ef72e665a6996885cd77c1bfbee5cbee650e673feb74"
     },
     {
@@ -1132,7 +1160,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:19.843460Z",
+      "verifiedAt": "2026-11-25T08:50:04.802777Z",
       "observationDigest": "11c0587b1e37caf3e0a16ce9a8316f106d61d447c6e8d131ac10d5e5c8e60ce4"
     },
     {
@@ -1145,7 +1173,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:19.906562Z",
+      "verifiedAt": "2026-11-25T08:50:04.854827Z",
       "observationDigest": "bdeb1ae1020341358971779c286a9a5d8995e327412b6d8c88043572e64f0307"
     },
     {
@@ -1158,7 +1186,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:20.179479Z",
+      "verifiedAt": "2026-11-25T08:50:04.851725Z",
       "observationDigest": "7eda48decbd1efec70ea95c9546477d35f420aa58e7855ee5ed90eeaa617b761"
     },
     {
@@ -1171,7 +1199,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:20.532396Z",
+      "verifiedAt": "2026-11-25T08:50:05.120507Z",
       "observationDigest": "cc16af21ca0ff84b47c7a0afaa1557f006f5ef887da17305f96e78274ca27e68"
     },
     {
@@ -1184,7 +1212,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:20.563526Z",
+      "verifiedAt": "2026-11-25T08:50:05.169472Z",
       "observationDigest": "2ed5917b6af382647d47a9f2cfef0c7f81a3460ae26c8622c5612b86a452d1ae"
     },
     {
@@ -1197,7 +1225,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:20.854140Z",
+      "verifiedAt": "2026-11-25T08:50:05.171979Z",
       "observationDigest": "4f7e16b19c03cc0f64ef94d50e08279d0873ca1c99cf5265024eaed0a28ebfdb"
     },
     {
@@ -1210,7 +1238,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:21.446223Z",
+      "verifiedAt": "2026-11-25T08:50:05.531351Z",
       "observationDigest": "7b0e78b70a7e646eaf65d2396a6c9a7dbb170518702cf47684508388bcfae749"
     },
     {
@@ -1223,7 +1251,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:21.271210Z",
+      "verifiedAt": "2026-11-25T08:50:05.493650Z",
       "observationDigest": "4c60521ede7acdf35011faf0abd72912867a29a2cbd141baaf3b8941ff6a8cd2"
     },
     {
@@ -1236,7 +1264,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:21.606567Z",
+      "verifiedAt": "2026-11-25T08:50:05.491568Z",
       "observationDigest": "897652c284aa19340e87b2b39f969d01a735633ee7d62523c006f12826bee1d4"
     },
     {
@@ -1249,7 +1277,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:21.889195Z",
+      "verifiedAt": "2026-11-25T08:50:05.758498Z",
       "observationDigest": "0a744cb103cb6fc9d5fd1295e6d12977dfe68be996e348b49f633a29c5ab42d7"
     },
     {
@@ -1262,7 +1290,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:22.052521Z",
+      "verifiedAt": "2026-11-25T08:50:05.762296Z",
       "observationDigest": "0e2c5d9cfa0003270ae86c2ec77246de5f50f184a56b44f894b2b2e53e1892af"
     },
     {
@@ -1275,7 +1303,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:22.178711Z",
+      "verifiedAt": "2026-11-25T08:50:05.804030Z",
       "observationDigest": "502fce70ebf7d448587215ba15198c9a3db1ea4f9771cfc0a8d0ee1d23e8d30e"
     },
     {
@@ -1288,7 +1316,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:22.456933Z",
+      "verifiedAt": "2026-11-25T08:50:06.084399Z",
       "observationDigest": "f6c121765f189c609ad4c6ca0fce6b1cc03f25ac093e7d82768dcb5be78c0b10"
     },
     {
@@ -1301,7 +1329,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:22.791645Z",
+      "verifiedAt": "2026-11-25T08:50:06.139053Z",
       "observationDigest": "802a00eed9d814285d6a6dc011071ef8c6d70defe46dfe93ba61245c8dd40941"
     },
     {
@@ -1314,7 +1342,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:22.812291Z",
+      "verifiedAt": "2026-11-25T08:50:06.135869Z",
       "observationDigest": "426404d9a42c188a6734cc31a3d86e3def2010b18375d727cffa06b04b371662"
     },
     {
@@ -1327,7 +1355,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:23.046500Z",
+      "verifiedAt": "2026-11-25T08:50:06.402594Z",
       "observationDigest": "53cc8f562f8f9ee0c0bae2591a0217c2468a7c34ecf42b5d83ea643eb24eda74"
     },
     {
@@ -1340,7 +1368,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:23.417355Z",
+      "verifiedAt": "2026-11-25T08:50:06.460519Z",
       "observationDigest": "03b1de51ea51701c338cbbd52a14521a7796f9db17c59c61d5d7e79243eeaf3f"
     },
     {
@@ -1353,7 +1381,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:23.510191Z",
+      "verifiedAt": "2026-11-25T08:50:06.465881Z",
       "observationDigest": "4820372c43a697a0ad7f964dd1b73a7c8e459e8e6c6b302e88a7f01bba4e3517"
     },
     {
@@ -1366,7 +1394,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:23.705229Z",
+      "verifiedAt": "2026-11-25T08:50:06.718058Z",
       "observationDigest": "2c7baf82ee0f196f07c2a69ab6182ffe1ef9449577199d1f1fd00d070bb1a5e1"
     },
     {
@@ -1379,7 +1407,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:23.974140Z",
+      "verifiedAt": "2026-11-25T08:50:06.784158Z",
       "observationDigest": "66fac80917108465ef1dd8570ebe0b7a95d169fb7f78dbc8fd818c0762297384"
     },
     {
@@ -1392,7 +1420,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:24.185539Z",
+      "verifiedAt": "2026-11-25T08:50:06.788609Z",
       "observationDigest": "6ea91d979de912d2d2a0acc57df874a17ba8805d24c0f2460567e726969ffeea"
     },
     {
@@ -1405,7 +1433,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:24.277360Z",
+      "verifiedAt": "2026-11-25T08:50:07.033675Z",
       "observationDigest": "61a306c7e8e949c20d004674e4265200c802d1a152041c6bedcba1743acc607c"
     },
     {
@@ -1418,7 +1446,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:24.717760Z",
+      "verifiedAt": "2026-11-25T08:50:07.108957Z",
       "observationDigest": "01138e1da77a34d22ddc249ee029c643e51679065c3116541ab357dd38134e40"
     },
     {
@@ -1431,7 +1459,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:24.812592Z",
+      "verifiedAt": "2026-11-25T08:50:07.059237Z",
       "observationDigest": "cd39d8dd4d2f2bcb729cdda687af23890918c132ee8ee050e68b0fc0be2ab129"
     },
     {
@@ -1444,7 +1472,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:25.020384Z",
+      "verifiedAt": "2026-11-25T08:50:07.356631Z",
       "observationDigest": "3630f4bea50145cf4354d095038ecb407ba9156199cc95b4a50eb42f994fa6c0"
     },
     {
@@ -1455,9 +1483,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:25.449794Z",
+      "verifiedAt": "2026-11-25T08:50:07.325985Z",
       "observationDigest": "ee05ce4306250beee846d9cf21b18c01d6dd3e1050421146e5d9bc55c13456b9"
     },
     {
@@ -1470,7 +1500,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:25.638513Z",
+      "verifiedAt": "2026-11-25T08:50:07.475295Z",
       "observationDigest": "e869649592d5e489352cbca87a288407c90911660c1cc5327433b0cf11570f31"
     },
     {
@@ -1483,7 +1513,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:25.731027Z",
+      "verifiedAt": "2026-11-25T08:50:07.624420Z",
       "observationDigest": "4e8de998063290cebbf066060bd609181940289dab4c093895d54a3f08037850"
     },
     {
@@ -1496,7 +1526,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:26.158986Z",
+      "verifiedAt": "2026-11-25T08:50:07.648565Z",
       "observationDigest": "272c2729b2d2e3a8b1471e8364686d9bcc0406e29d06f3c2c8f3b0f11c41a758"
     },
     {
@@ -1509,7 +1539,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:26.265766Z",
+      "verifiedAt": "2026-11-25T08:50:07.768462Z",
       "observationDigest": "069c6d543ca970f9e8f33469003bb716bd94b12924512e77f261bf6afb7d6df3"
     },
     {
@@ -1522,7 +1552,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:26.322213Z",
+      "verifiedAt": "2026-11-25T08:50:07.939732Z",
       "observationDigest": "26a8c879791712f3fdca01c7c1bb9c4f05e8c389951c8fa7078f8747444dbe2f"
     },
     {
@@ -1533,9 +1563,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:26.762504Z",
+      "verifiedAt": "2026-11-25T08:50:07.961035Z",
       "observationDigest": "9a8b06c8eab5f1535f40a2509683f6c32a53bc27bc0a011484e2269983a59bbb"
     },
     {
@@ -1548,7 +1580,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:26.996172Z",
+      "verifiedAt": "2026-11-25T08:50:08.130641Z",
       "observationDigest": "d1f8248c083b0e91f2a62c07779db5e0a8f210ef6205b6d9dc03afca83bb0f38"
     },
     {
@@ -1561,7 +1593,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:26.777478Z",
+      "verifiedAt": "2026-11-25T08:50:08.214841Z",
       "observationDigest": "67e8d4ea89b98ea5db67f225fd316ecf574984a9ccc1233242b5284abcc7e30a"
     },
     {
@@ -1574,7 +1606,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:27.499182Z",
+      "verifiedAt": "2026-11-25T08:50:08.318685Z",
       "observationDigest": "caa03355aaf59e5c3a927d6d41dfb41aa08094dca4430cad0f6c9ec616e23a2d"
     },
     {
@@ -1587,7 +1619,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:27.397492Z",
+      "verifiedAt": "2026-11-25T08:50:08.450065Z",
       "observationDigest": "a6aad0fbd7cc6f642a6742831e155fe8671c6a3330c2a134dfaf70296180d5a4"
     },
     {
@@ -1600,7 +1632,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:27.794675Z",
+      "verifiedAt": "2026-11-25T08:50:08.535575Z",
       "observationDigest": "c5046568f1c968438b8d1eb3e3c5f9be9e8df559ab826dd2fa227a7b6de36486"
     },
     {
@@ -1613,7 +1645,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:28.131628Z",
+      "verifiedAt": "2026-11-25T08:50:08.636057Z",
       "observationDigest": "35c12c1a515a3dc5c9d283d497337315309f290d6014eb0f16ae2a25609d5750"
     },
     {
@@ -1626,7 +1658,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:28.228618Z",
+      "verifiedAt": "2026-11-25T08:50:08.753206Z",
       "observationDigest": "eaecceecfd7fb962de54211c9f11ccc56ac86c773846f2203449a0e8607479f4"
     },
     {
@@ -1639,7 +1671,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:28.347497Z",
+      "verifiedAt": "2026-11-25T08:50:08.777261Z",
       "observationDigest": "502cee3cbfa54a799fcd8aac0318f3d8256c04b96b2b25b081d871359eddd9f7"
     },
     {
@@ -1652,7 +1684,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:28.857070Z",
+      "verifiedAt": "2026-11-25T08:50:08.913754Z",
       "observationDigest": "9ca2919a27f280a699eff1181927f8ce08ec6d7e025393d10c85b194d5f3f561"
     },
     {
@@ -1665,7 +1697,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:28.813208Z",
+      "verifiedAt": "2026-11-25T08:50:08.907420Z",
       "observationDigest": "7fd7d145f180b04b5eee7e8d13e82e27865a3a0faa3b108a7d65e6dd09006501"
     },
     {
@@ -1676,9 +1708,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:29.049577Z",
+      "verifiedAt": "2026-11-25T08:50:09.055983Z",
       "observationDigest": "5d89f5ee5aff9b3b60bfd23cb931fea275e7a98361f68f436f650cd80993a8e1"
     },
     {
@@ -1691,7 +1725,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:29.418217Z",
+      "verifiedAt": "2026-11-25T08:50:09.197696Z",
       "observationDigest": "e9efab0ef77a73689c134cffec5c724603402f5e8a83cb1fdab04b4c10cc9c95"
     },
     {
@@ -1704,7 +1738,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:29.725317Z",
+      "verifiedAt": "2026-11-25T08:50:09.291549Z",
       "observationDigest": "6ce2eb05dbfd51179147272edc9b23cc521f1e01805384d240be6bff148b70b1"
     },
     {
@@ -1715,9 +1749,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:29.644690Z",
+      "verifiedAt": "2026-11-25T08:50:09.383702Z",
       "observationDigest": "75620f7d1efc91278e4c6b27d47f7c220c675982341c0b12e8e9862653346954"
     },
     {
@@ -1730,7 +1766,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:30.003787Z",
+      "verifiedAt": "2026-11-25T08:50:09.466305Z",
       "observationDigest": "a88defc9440dd8466912fdc0f0fc55e171bd2b45a3649e4b75b5add0ce9b9b14"
     },
     {
@@ -1743,7 +1779,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:30.555488Z",
+      "verifiedAt": "2026-11-25T08:50:09.654802Z",
       "observationDigest": "f14350702f145a5a0609584f4e22a17d8a302655e3c6ceb84cbf0c57f580600e"
     },
     {
@@ -1756,7 +1792,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:30.579299Z",
+      "verifiedAt": "2026-11-25T08:50:09.703121Z",
       "observationDigest": "f03bffe9408ea5fde4f29c7081af5d84e9c7e2ef31ef9390c08253413b2d6e8b"
     },
     {
@@ -1769,7 +1805,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:31.020991Z",
+      "verifiedAt": "2026-11-25T08:50:09.871665Z",
       "observationDigest": "a4f065c22853f07f78adca02240efbfe0ef270349d0e2691ee5c145b510f185d"
     },
     {
@@ -1782,7 +1818,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:31.339251Z",
+      "verifiedAt": "2026-11-25T08:50:09.922154Z",
       "observationDigest": "32e72eb0bdd910f549ed62e0580185b447702101440c377ee610011134c01bb5"
     },
     {
@@ -1795,7 +1831,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:31.275372Z",
+      "verifiedAt": "2026-11-25T08:50:09.969232Z",
       "observationDigest": "1dca31d6cfb8683bdb6fb2a62e1bc42f8a75a746cb1b1f5147fa96530af56732"
     },
     {
@@ -1808,7 +1844,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:31.537630Z",
+      "verifiedAt": "2026-11-25T08:50:10.140152Z",
       "observationDigest": "c6077d5a306574e02966f0b5a897b2967b758ef3cc765792ee04cb24a71d9a72"
     },
     {
@@ -1821,7 +1857,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:31.798463Z",
+      "verifiedAt": "2026-11-25T08:50:10.188459Z",
       "observationDigest": "18feeb17bc706d81ce0cdaf953789c612b82edd42589910a52b13f2184b5248a"
     },
     {
@@ -1834,7 +1870,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:31.948806Z",
+      "verifiedAt": "2026-11-25T08:50:10.289272Z",
       "observationDigest": "3f52693f1227723b0a7ac349e9953df904c9fe4803dadda8ce5cdd6b7e5b9166"
     },
     {
@@ -1847,7 +1883,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:32.122145Z",
+      "verifiedAt": "2026-11-25T08:50:10.458930Z",
       "observationDigest": "6135ea92e92db80cc7dc8179d39c6b05f15a7335f6c5ac45d201e9a70f2b9adf"
     },
     {
@@ -1858,9 +1894,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:32.330235Z",
+      "verifiedAt": "2026-11-25T08:50:10.478644Z",
       "observationDigest": "411379a43065dad2fcae8e1b77abd5d90a552098c87344198065a10beacdee97"
     },
     {
@@ -1873,7 +1911,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:32.551304Z",
+      "verifiedAt": "2026-11-25T08:50:10.598851Z",
       "observationDigest": "1d934b50d799c86c2b7d9611875225d6da4836503199515e9a13e0800d09ac35"
     },
     {
@@ -1886,7 +1924,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:32.725469Z",
+      "verifiedAt": "2026-11-25T08:50:10.772955Z",
       "observationDigest": "048cf53a5b89c7bf7656f9e0b95470bf5d65f3d98714fb74bc4d077c06096c9f"
     },
     {
@@ -1899,7 +1937,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:32.781065Z",
+      "verifiedAt": "2026-11-25T08:50:10.745119Z",
       "observationDigest": "7d167b4829bc8f409a4c39a070932670d4c6b2a1cfc417feac6a13240c3e545e"
     },
     {
@@ -1912,7 +1950,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:33.220038Z",
+      "verifiedAt": "2026-11-25T08:50:10.918561Z",
       "observationDigest": "7689c92fa16af269993b8b07a44c8244ccb0d7fc87ab04bd1e7bbe2b06446536"
     },
     {
@@ -1925,7 +1963,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:33.347089Z",
+      "verifiedAt": "2026-11-25T08:50:11.016176Z",
       "observationDigest": "a3bd477a4c41f7eaae424707a249b4c30881ee9e6da3b759b47169d9af1d61da"
     },
     {
@@ -1938,7 +1976,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:33.587098Z",
+      "verifiedAt": "2026-11-25T08:50:11.093012Z",
       "observationDigest": "be5dfe8475f7bfad76b419d41eb12a3f63799f3d8243df707d6e451aee23faa8"
     },
     {
@@ -1951,7 +1989,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:33.823951Z",
+      "verifiedAt": "2026-11-25T08:50:11.158420Z",
       "observationDigest": "6420311b6a343ae2bbd883b44f0bfe0e1d059bd5fb384cdf8b77d79d43a245c5"
     },
     {
@@ -1964,7 +2002,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:33.874276Z",
+      "verifiedAt": "2026-11-25T08:50:11.224886Z",
       "observationDigest": "5215cf5d3ac2f0d8832545eff170b20a8f2524fcccdffbe3f307a34d2468e92f"
     },
     {
@@ -1977,7 +2015,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:34.179820Z",
+      "verifiedAt": "2026-11-25T08:50:11.311560Z",
       "observationDigest": "acb4cfd42d3a16e170fcfa54fba9ae23cdede8e847e4bd1aaa27cfc365ed1201"
     },
     {
@@ -1990,7 +2028,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:34.336862Z",
+      "verifiedAt": "2026-11-25T08:50:11.403071Z",
       "observationDigest": "124e8c70fcd8609fbfbc83c20673c921ee26f2c8e213660b5ffef2e98e8c13cb"
     },
     {
@@ -2001,9 +2039,11 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:34.411137Z",
+      "verifiedAt": "2026-11-25T08:50:11.495765Z",
       "observationDigest": "2826df7acbe51cb880727482b03a95eec53b9f83e5cddb4918fecf92c0f0cb23"
     },
     {
@@ -2016,7 +2056,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:34.638192Z",
+      "verifiedAt": "2026-11-25T08:50:11.589156Z",
       "observationDigest": "b7cf021633547787802b81f46b29e1e102b88c6d8636171213ab41a899f92c9d"
     },
     {
@@ -2029,7 +2069,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:34.953027Z",
+      "verifiedAt": "2026-11-25T08:50:11.718848Z",
       "observationDigest": "0995664349e2bd3be3fed7a9cf1c986c54c2413fe1af247252b4ecceaf5bf356"
     },
     {
@@ -2042,7 +2082,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:34.974722Z",
+      "verifiedAt": "2026-11-25T08:50:11.765644Z",
       "observationDigest": "00de9ba6da075e16cff9eba8a81580248b53fa90b9ca8af6196e391f35a775c2"
     },
     {
@@ -2055,7 +2095,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:35.241788Z",
+      "verifiedAt": "2026-11-25T08:50:11.916656Z",
       "observationDigest": "3726a27d60c785e3273316ab74c0065ed14e0c287f38f53963a50a39d0b68ba6"
     },
     {
@@ -2068,7 +2108,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:35.697804Z",
+      "verifiedAt": "2026-11-25T08:50:11.991665Z",
       "observationDigest": "48c416b57343f212c649befc233f7cd3f3bee2e1f0fc62331060d2521f35ed07"
     },
     {
@@ -2081,7 +2121,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:35.690294Z",
+      "verifiedAt": "2026-11-25T08:50:12.128825Z",
       "observationDigest": "2d957476b01865e9786a19723e7607327f293292aef42f9c06e97a8c2e937d4b"
     },
     {
@@ -2094,7 +2134,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:35.920939Z",
+      "verifiedAt": "2026-11-25T08:50:12.228185Z",
       "observationDigest": "bcd28ef6a19d8839fffca9b278edd8d9353814b8159333940c893be39940173c"
     },
     {
@@ -2107,7 +2147,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:36.396699Z",
+      "verifiedAt": "2026-11-25T08:50:12.320255Z",
       "observationDigest": "37369d727f1a0dca61f0bf33a2bec60286c7498fab043f3611faa81aefdbd556"
     },
     {
@@ -2120,7 +2160,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:36.290733Z",
+      "verifiedAt": "2026-11-25T08:50:12.405885Z",
       "observationDigest": "65b2c0a9d382d1048c1a683074fb29e492c9506b22dce982509c27bb81765712"
     },
     {
@@ -2131,9 +2171,11 @@
       "logo": true,
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:36.491753Z",
+      "verifiedAt": "2026-11-25T08:50:12.503154Z",
       "observationDigest": "99283c44f57502c79642bfc9d284d75f5eac8f82aa4bfa808aaeb9fc88741ede"
     },
     {
@@ -2146,21 +2188,8 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:37.082458Z",
+      "verifiedAt": "2026-11-25T08:50:12.593857Z",
       "observationDigest": "11c08cff17f1989151f52786f178e6898744c110a6f532ff94b97ab489649920"
-    },
-    {
-      "domain": "daiichiarts.com",
-      "listingSourceId": "ls_01m6hg5aqfehg8f69xj7pg6e34",
-      "partyId": "pty_01m6hg5aq0e5e8dvzmh8nnnbdm",
-      "locations": 1,
-      "logo": true,
-      "platform": "ARTLOGIC",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:04:37.079139Z",
-      "observationDigest": "7d797202c427cd5d969588468347154b6188aafe5dcc1e2bff1fb3f6cd5ef314"
     },
     {
       "domain": "macklowegallery.com",
@@ -2172,7 +2201,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:07:51.602662Z",
+      "verifiedAt": "2026-11-25T08:50:12.718874Z",
       "observationDigest": "54c3a9ca728538a67cc6a1787b318ac682bceaf167a0311683b453c163d7b384"
     },
     {
@@ -2185,7 +2214,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:07:51.728624Z",
+      "verifiedAt": "2026-11-25T08:50:12.866320Z",
       "observationDigest": "b323977a9fd476800618a48914b549aa0edbafbfa46f3ad88d0df1363cb5b2ff"
     },
     {
@@ -2198,7 +2227,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:07:51.651420Z",
+      "verifiedAt": "2026-11-25T08:50:12.915619Z",
       "observationDigest": "c333fde4eef3e1dbca18ea447018e39eeac494aedade8c372fcbdc472fa003a1"
     },
     {
@@ -2209,9 +2238,11 @@
       "logo": false,
       "platform": "ARTLOGIC",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:11:49.437650Z",
+      "verifiedAt": "2026-11-25T08:50:13.039175Z",
       "observationDigest": "f57e987181c48f020ecd62035abeb703ad49dcddbf64e611583d2e50ea7c322a"
     },
     {
@@ -2224,7 +2255,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:11:49.318273Z",
+      "verifiedAt": "2026-11-25T08:50:13.132153Z",
       "observationDigest": "1959645d523e137f4a34872d9f4181f6a2c037eef6bb4d4c255f95d8be6aed7a"
     },
     {
@@ -2237,7 +2268,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:11:49.367178Z",
+      "verifiedAt": "2026-11-25T08:50:13.224010Z",
       "observationDigest": "392ac58eb009100d9f53745ff5bf1a2d24ca931bd020216fc37cd43056034a00"
     },
     {
@@ -2248,9 +2279,11 @@
       "logo": false,
       "platform": "PH9",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:19:03.518282Z",
+      "verifiedAt": "2026-11-25T08:50:13.309846Z",
       "observationDigest": "99a4a4d5c113e2e79c826613c580ea4816d9cbff083e75864a12e8e118275f14"
     },
     {
@@ -2263,7 +2296,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:19:03.717024Z",
+      "verifiedAt": "2026-11-25T08:50:13.441755Z",
       "observationDigest": "d97f0c1ca16493f1ec3e88729e37bd5bedde17010d701b0c34275fea59d51866"
     },
     {
@@ -2276,7 +2309,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:19:03.603539Z",
+      "verifiedAt": "2026-11-25T08:50:13.541002Z",
       "observationDigest": "50d4b82204b73b46f0dddbb5ee1fd4db10522923912e0d5adfd719af02ab8d11"
     },
     {
@@ -2289,7 +2322,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:27:20.034992Z",
+      "verifiedAt": "2026-11-25T08:50:13.633378Z",
       "observationDigest": "09eed9bc096bcd1e0484ffbaa0286f6d126a19fc4b677a6677fc0b26ad0f6e6e"
     },
     {
@@ -2300,9 +2333,11 @@
       "logo": false,
       "platform": "PH9",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:27:20.041372Z",
+      "verifiedAt": "2026-11-25T08:50:13.710179Z",
       "observationDigest": "b43970730bc76bedc5e514ce9f384c66fa99abb2de8fd885c667b2db194a963c"
     },
     {
@@ -2315,8 +2350,2495 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:27:19.912561Z",
+      "verifiedAt": "2026-11-25T08:50:13.815498Z",
       "observationDigest": "c2687e6d924ef7a2d6c9596040608ecdc080aeb7192c9c516303ca0db6d0b123"
+    },
+    {
+      "domain": "averygalleries.com",
+      "listingSourceId": "ls_01m6hhsf23ecy9bjkrxvh0ayja",
+      "partyId": "pty_01m6hhsf1meegajsmchgvqht9b",
+      "locations": 2,
+      "logo": false,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:13.945207Z",
+      "observationDigest": "43e57db1da62f8615e185c57a411f5974d8f17fedeeff9f1cd97e864ad120bc5"
+    },
+    {
+      "domain": "mongersongallery.com",
+      "listingSourceId": "ls_01m6hjddt7en0v4rp4kkhp673q",
+      "partyId": "pty_01m6hjdds5emg8444acd97db80",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:13.964858Z",
+      "observationDigest": "4fff21596a0f7df3663b315b8595ecbef5a23934c76aac119e9679abdd1b53bf"
+    },
+    {
+      "domain": "grahamshay.com",
+      "listingSourceId": "ls_01m6hjresee4frzjdjfwh8bepy",
+      "partyId": "pty_01m6hjrerwe1vvydpt36keaf32",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.069314Z",
+      "observationDigest": "c3ee75c38640363d969da0757173bfa9b1f777c2e5eef7af0938d923986b4221"
+    },
+    {
+      "domain": "schoelkopfgallery.com",
+      "listingSourceId": "ls_01m6hjrgrdem5bycb6jh3v92rm",
+      "partyId": "pty_01m6hjrgqpevsb0afx9ngt5br2",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.206284Z",
+      "observationDigest": "e920909fcf346ad2713678cc71f45b9b1325f6c8c6769b71e496b3d363fa7c19"
+    },
+    {
+      "domain": "sullivangoss.com",
+      "listingSourceId": "ls_01m6hk4nntedqs0nvg5g13crde",
+      "partyId": "pty_01m6hk4nnae9vbqqp8pxv3ps39",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.237511Z",
+      "observationDigest": "0685ca9ba9fe2f925db135ad2d73cc17a94f875b0e66d33f4dad97de0344175f"
+    },
+    {
+      "domain": "forumgallery.com",
+      "listingSourceId": "ls_01m6hk4qd4e6zsjndvd480wbvy",
+      "partyId": "pty_01m6hk4qcqecavgavnb74ypejx",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.342684Z",
+      "observationDigest": "a8c454690075b280f6216ecbd5db740643492f348ebff52f31532ca696a83326"
+    },
+    {
+      "domain": "guariscogallery.com",
+      "listingSourceId": "ls_01m6hk4s20ewpra44skbkfadw2",
+      "partyId": "pty_01m6hk4s1cepvbmdf92vv19yyh",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.478758Z",
+      "observationDigest": "d9e9876534629d90bb172ef35b7cdf2b47080fef9493df75b2a9b130bd011a90"
+    },
+    {
+      "domain": "usfolkart.com",
+      "listingSourceId": "ls_01m6hkdnare3qt2vxytzdsmt9y",
+      "partyId": "pty_01m6hkdn9seaktk0e39etz53vn",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.506742Z",
+      "observationDigest": "e03e22ee6f656e7b2d11f06d2b2830e3f4d1dac2cffbb752e50ae24cf21ca8a4"
+    },
+    {
+      "domain": "samuelherrup.com",
+      "listingSourceId": "ls_01m6hkdp9ce2ys2w9g591vfhv5",
+      "partyId": "pty_01m6hkdp8ye8q9y58tke420a4n",
+      "locations": 3,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.708631Z",
+      "observationDigest": "695b78eb4be591eff7fbc84e9317c907fdbfa311b68a0c6d2e7228c636e8d580"
+    },
+    {
+      "domain": "petereaton.com",
+      "listingSourceId": "ls_01m6hkvxjcekwrjn0dzag40tz7",
+      "partyId": "pty_01m6hkvxhvezjagt08k3g93252",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.844163Z",
+      "observationDigest": "7b4285955fb23832d3769cd70e73d66106b0b5334bd90dd154774fdb79b4b153"
+    },
+    {
+      "domain": "leatherwoodantiques.com",
+      "listingSourceId": "ls_01m6hkw06heppvhtz8eyj7j4t7",
+      "partyId": "pty_01m6hkw062ea48dpx0hc2mbfv1",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.773193Z",
+      "observationDigest": "615b3a667cb466249c038bb33bcd0c7554a1473b1377eb03923341073f939b6d"
+    },
+    {
+      "domain": "ironhorseantiques.com",
+      "listingSourceId": "ls_01m6hmc94zejwtbsz9v83dmh38",
+      "partyId": "pty_01m6hmc94feqg8j1p8pvht8ypd",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:14.973162Z",
+      "observationDigest": "776f53bd98e830e7be4e10ddf86955e7c7a907b8f03382f289cbabe0d9058a23"
+    },
+    {
+      "domain": "garveyrita.com",
+      "listingSourceId": "ls_01m6hmwngveght7yb1qh9g5303",
+      "partyId": "pty_01m6hmwngcezh89vdpcs04tvxn",
+      "locations": 2,
+      "logo": true,
+      "platform": "ICOMPENDIUM",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.085580Z",
+      "observationDigest": "ac850e3ad767eaa7eabb2a4b56a042b8d2641231151bfce086d2f66faf683715"
+    },
+    {
+      "domain": "findlaygalleries.com",
+      "listingSourceId": "ls_01m6hns8d5ekq867cje4n4w6k5",
+      "partyId": "pty_01m6hns8cme4er7cztpqbfve2c",
+      "locations": 2,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.165177Z",
+      "observationDigest": "2a77327be4bd07a441c9fff06992bb5d7770c04ec8a6e14c2096bf614feab474"
+    },
+    {
+      "domain": "thepreservationstation.com",
+      "listingSourceId": "ls_01m6hpnj7ye5y99q83zq408tnj",
+      "partyId": "pty_01m6hpnj79ea88v2yvv8f1y95k",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.243647Z",
+      "observationDigest": "c9f483a0681a38b718181697f534747c6e7ecdebb3a583a4545ade7db98f806e"
+    },
+    {
+      "domain": "demolitiondepot.com",
+      "listingSourceId": "ls_01m6hpnm0qe0mazsxrw2s40hmc",
+      "partyId": "pty_01m6hpnm05exbaec2g7709d64q",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.350782Z",
+      "observationDigest": "18e8735983176da6ae614ac7ba91c0e3b46e9be1873b7cae9ef12e70e667b6bc"
+    },
+    {
+      "domain": "historichouseparts.com",
+      "listingSourceId": "ls_01m6hpzjs3e9ksbzcxf0cr697b",
+      "partyId": "pty_01m6hpzjrjewkva3v5vgyq658a",
+      "locations": 1,
+      "logo": true,
+      "platform": "X_CART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.481522Z",
+      "observationDigest": "1b94f26eb986f10dbc578c4a37653cd6bffd965a9328466f1ef36ac923bff401"
+    },
+    {
+      "domain": "recyclingthepast.com",
+      "listingSourceId": "ls_01m6hpzmtke798f83t9b94ahr5",
+      "partyId": "pty_01m6hpzmt6eqarag9e5k892zph",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.559663Z",
+      "observationDigest": "544c37fcfb0064ad9bd6f513dc967bfc75d6e400857bbfaef713750946dfa927"
+    },
+    {
+      "domain": "oldhouseparts.com",
+      "listingSourceId": "ls_01m6hq7am9efd8kvxpssnx5n8w",
+      "partyId": "pty_01m6hq7akte1z93zdmhcrqk1tw",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.662111Z",
+      "observationDigest": "a8e7117722a29355b946ab2dcdc39290d73f8ccc8ea78bb35b1cc8cb58ac448c"
+    },
+    {
+      "domain": "lahardware.com",
+      "listingSourceId": "ls_01m6hq7cpfe309rb383mv63aky",
+      "partyId": "pty_01m6hq7cp1ew1by9gpa8ys6mqk",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.750318Z",
+      "observationDigest": "6c76150551ad4ad7064da44edce1bbb40a01a8d757f7730d1bc82bcc08aa4138"
+    },
+    {
+      "domain": "schillerssalvage.com",
+      "listingSourceId": "ls_01m6hqf4d9es9sgqb7awc717hb",
+      "partyId": "pty_01m6hqf4cteyxaxmevwvp841b4",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.799265Z",
+      "observationDigest": "2d4c4c0f8383cd7582e422c61c8bdea86d24be8e3fbd573076739fde4f4097cf"
+    },
+    {
+      "domain": "noreast1.com",
+      "listingSourceId": "ls_01m6hqq4e2e72r7aefq65a50gj",
+      "partyId": "pty_01m6hqq4dpeyms1bys8bhzyrmr",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:15.940204Z",
+      "observationDigest": "6aaa14be102edeedc360610ace9f9b0869c3ad14d7534399c2979fecea89fda1"
+    },
+    {
+      "domain": "governorsantiques.com",
+      "listingSourceId": "ls_01m6hqq6egeg5btg79142g1mwz",
+      "partyId": "pty_01m6hqq6e4exzt2j2b6b03ax5y",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.075229Z",
+      "observationDigest": "f33d133f224b4c897a6456233626b6aacfa3e48f9d560f2926ddd0057a138473"
+    },
+    {
+      "domain": "curtiswrightmaps.com",
+      "listingSourceId": "ls_01m6hr4t2xe50b6zfnthdt17te",
+      "partyId": "pty_01m6hr4t1ne358qnz7nhmyvzc4",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.119227Z",
+      "observationDigest": "b74cae6a45582bf8945c260f873e3e2611f27bd5ea25fca794eef812e6ba7f70"
+    },
+    {
+      "domain": "highridgebooks.com",
+      "listingSourceId": "ls_01m6hrcw12e58s44ed8j6qxycz",
+      "partyId": "pty_01m6hrcw0sen0aw3xggnx6sq07",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.211891Z",
+      "observationDigest": "a761e73f7a3eef69c89d2e597ea9d7a68f02031364ff0a37a7b5fbc0f9bad02b"
+    },
+    {
+      "domain": "printsoldandrare.com",
+      "listingSourceId": "ls_01m6hs022feg0b6f2snyg7mqz8",
+      "partyId": "pty_01m6hs021ze61t935qpyr3w4p0",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.393239Z",
+      "observationDigest": "dbedebd5659dec0cffe51e564b534a04e55bc61b99506e40ac95cd5c5a3c74ce"
+    },
+    {
+      "domain": "mapsandart.com",
+      "listingSourceId": "ls_01m6hs0482em99wdv88hd62t3v",
+      "partyId": "pty_01m6hs047ge3j90cpyjbvv0893",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.438114Z",
+      "observationDigest": "257f7ab37c460d414cbc58c30d34ca67359c66357380f2b60748826846537f14"
+    },
+    {
+      "domain": "brierhillgallery.com",
+      "listingSourceId": "ls_01m6hsch1ke3ys78dkwedpavkv",
+      "partyId": "pty_01m6hsch1bepvb5ndzzqsrz0e6",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.478630Z",
+      "observationDigest": "b2ab78e7837e9785aca83d6432f141d09eb8592b3b2852b564cf75e937a20619"
+    },
+    {
+      "domain": "williampcarlfineprints.com",
+      "listingSourceId": "ls_01m6hscjfzee5av3d930a7tt10",
+      "partyId": "pty_01m6hscjfcer1ty50ns5jqpc8k",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.677940Z",
+      "observationDigest": "2b8ff776a73b9ba2042c4c8ed882ebd169d5f4dde447437a53d264cc279f7a30"
+    },
+    {
+      "domain": "dolanmaxwell.com",
+      "listingSourceId": "ls_01m6hsjrgzejr8bbqy684mhvkj",
+      "partyId": "pty_01m6hsjrgfe9dtnfnjardksvd8",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.681150Z",
+      "observationDigest": "03e3548ead393ec2856e2869903aeae4ffdb54cfa19a6aa9ce79b563725b17e0"
+    },
+    {
+      "domain": "paramourfinearts.com",
+      "listingSourceId": "ls_01m6hsjt8bebys9jcvg41vj1n8",
+      "partyId": "pty_01m6hsjt7te51t31tg1tj06vms",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.775657Z",
+      "observationDigest": "6ae4c8d42a54284c18581c4608e26bc27ce5366cdc943c157c4bc2bb26820e80"
+    },
+    {
+      "domain": "conradgraeber.com",
+      "listingSourceId": "ls_01m6hsjwgsehfv5h2xh0xa5ww6",
+      "partyId": "pty_01m6hsjwg8e5c8xmhjn2p7ag42",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.957114Z",
+      "observationDigest": "c42ac19b8d4afbb53ff83ea7528b9d23d32dc24ac13a9b31b3115748c6deddd5"
+    },
+    {
+      "domain": "allinsongallery.com",
+      "listingSourceId": "ls_01m6hsvq0je08tzp8347tcneyr",
+      "partyId": "pty_01m6hsvq02et4a3nn3pyjhcz14",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:16.959108Z",
+      "observationDigest": "e38f9cd55e92a6678908a94c33095fbf6aa4443ee52d739d7bda92857c30853b"
+    },
+    {
+      "domain": "thomasfrenchfineart.com",
+      "listingSourceId": "ls_01m6hsvrgbe3bry3x6bgwk91vt",
+      "partyId": "pty_01m6hsvrfvehyaznhmgyz3m8n4",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.097760Z",
+      "observationDigest": "0c54f280b80e292796af098ed19ba9894534b9ef129352ebdc624394e4122024"
+    },
+    {
+      "domain": "hill-stone.com",
+      "listingSourceId": "ls_01m6ht3b88ebnbk9t4jnq1afd9",
+      "partyId": "pty_01m6ht3b7veqjsd8kj6y2x7w38",
+      "locations": 1,
+      "logo": true,
+      "platform": "PH9",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.237013Z",
+      "observationDigest": "5f6948872e7bbcc553054e006f41361853deb91bdd30ec5ec6800187074f0449"
+    },
+    {
+      "domain": "tunickart.com",
+      "listingSourceId": "ls_01m6ht3cx9en2v9wrnjvxm3fj4",
+      "partyId": "pty_01m6ht3cwwempsa0bepfrttnwy",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.239218Z",
+      "observationDigest": "c796e531abe6b2e958803d9104b63916bda52c404ee2fb43d79e55f36b550b10"
+    },
+    {
+      "domain": "childsgallery.com",
+      "listingSourceId": "ls_01m6htbzfde87s8bjypeyx2szg",
+      "partyId": "pty_01m6htbzf1eq2b80qzb765exc2",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.373428Z",
+      "observationDigest": "d8883a5409b492ddef8ff43bd2eed3a2d2c1b0bcad3c0fd7e735cebbebaf1575"
+    },
+    {
+      "domain": "relewis.com",
+      "listingSourceId": "ls_01m6htc157e6p81tyws2kkb5kk",
+      "partyId": "pty_01m6htc14vewrv70nkmvagq93b",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.514587Z",
+      "observationDigest": "2a7cec9b61e74dd35dc68faf47f553e034b76b34ad742cae93766052311d524f"
+    },
+    {
+      "domain": "oldmasterdrawings.com",
+      "listingSourceId": "ls_01m6jt2shkecdvrf051mjpry0e",
+      "partyId": "pty_01m6jt2sh0emvakqvf7brrkdtg",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.512630Z",
+      "observationDigest": "f1310314339acdb5d7d40d402b168278b22d0f4cd0fd6ee7624beaac2e9ac957"
+    },
+    {
+      "domain": "markmurray.com",
+      "listingSourceId": "ls_01m6jt2v1hekfsw7bp1bd3f35e",
+      "partyId": "pty_01m6jt2v0fez3awf91b9x8yxhp",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.650863Z",
+      "observationDigest": "3bf5bd71112aca67919dfdf8b790fb0f4928b1feae6e8be155fbae2f935c3686"
+    },
+    {
+      "domain": "hirschlandadler.com",
+      "listingSourceId": "ls_01m6jtpxb1e94byhbghqsx44xf",
+      "partyId": "pty_01m6jtpxaqej48kaex1grg24yp",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.773374Z",
+      "observationDigest": "831b6ffd783e68996b9f6ea9186ec1bf472a9f47ce153f4670d76fcfc03e3f44"
+    },
+    {
+      "domain": "patmcganngallery.com",
+      "listingSourceId": "ls_01m6jv8ejretbt91rv29qsmn0w",
+      "partyId": "pty_01m6jv8ejbecwv90z56mtk5nhb",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:17.816486Z",
+      "observationDigest": "928724ea882e049f703ac41de0d48c5b4aa6d93942dd7df6cfd815de7575823e"
+    },
+    {
+      "domain": "galeriehalf.com",
+      "listingSourceId": "ls_01m6jv8gg6ednswxggp89qeach",
+      "partyId": "pty_01m6jv8gftesj9nxbqaykdsxe7",
+      "locations": 3,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.004587Z",
+      "observationDigest": "7959b18c0ed5a87274b34391b674e9bc8860e006517cd4bfa27115caa79b7264"
+    },
+    {
+      "domain": "jfchen.com",
+      "listingSourceId": "ls_01m6jv8jk7ek5sfh1bb3qyjz0r",
+      "partyId": "pty_01m6jv8jjvezsv3dk3d5zh66ys",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.048884Z",
+      "observationDigest": "183087b505567a5393704af577dddee6ac024426d50fb66d09c812f13de8c214"
+    },
+    {
+      "domain": "leestanton.com",
+      "listingSourceId": "ls_01m6jvtqc0eht8s4f3nbgm29y3",
+      "partyId": "pty_01m6jvtqbheketh6sbskgnnt2h",
+      "locations": 3,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.223902Z",
+      "observationDigest": "1f8588661dd47a389565a167257f87ecf3916cce3f2528b21418bc9efda82e56"
+    },
+    {
+      "domain": "blackmancruz.com",
+      "listingSourceId": "ls_01m6jvtt2cektt16vktpz0nas5",
+      "partyId": "pty_01m6jvtt23e878tthdvb38vwsy",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.322155Z",
+      "observationDigest": "2a2ed6a4dcefa139a365be4a715029d5323da55dc950b07f71af9e4053f2b805"
+    },
+    {
+      "domain": "thewellbybdantiques.com",
+      "listingSourceId": "ls_01m6jwb20je4g827p8h2gce04b",
+      "partyId": "pty_01m6jwb202e6nv3mykr4833739",
+      "locations": 4,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.454448Z",
+      "observationDigest": "6102b79883d1b8fb700c83c5b9152ce0e8d61d9507947d69051a3dcdd88b8f24"
+    },
+    {
+      "domain": "melissalevinson.com",
+      "listingSourceId": "ls_01m6jwb4w7ejm8m2vna9pea3tw",
+      "partyId": "pty_01m6jwb4t8e2js0kr6tcxy7t09",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.537915Z",
+      "observationDigest": "5253e68a8c22f4a59b3027e76ce867de0f095a1577933c881899c10645b2ab3e"
+    },
+    {
+      "domain": "aaxsf.com",
+      "listingSourceId": "ls_01m6jwb752e52sd0c1z3g65zwt",
+      "partyId": "pty_01m6jwb74je5p9mk1n61bj3cnn",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.634644Z",
+      "observationDigest": "1697407c0d16247c9666d0dc854daafe9e144a1756043c18e457cc00b5b3135b"
+    },
+    {
+      "domain": "peterfetterman.com",
+      "listingSourceId": "ls_01m6jwqnyweqgs1q47grqytjjt",
+      "partyId": "pty_01m6jwqnx3e9xs611f84tbq5ty",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.724667Z",
+      "observationDigest": "004e9bd4704cd04a0189ba0e74c0f82000718ed3339de61c3302ec279232904a"
+    },
+    {
+      "domain": "clintonhowellantiques.com",
+      "listingSourceId": "ls_01m6jwqqq6e1bs64h8n50vna9s",
+      "partyId": "pty_01m6jwqqpxet1r2knhfsa8e99y",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.823317Z",
+      "observationDigest": "617f001f429ba36dc3a1559a2f7024893fd0295669df95029f2054d7ece7d4b3"
+    },
+    {
+      "domain": "richardnortongallery.com",
+      "listingSourceId": "ls_01m6jx1053e9xvt7a20069qjaz",
+      "partyId": "pty_01m6jx104jeh988q4r586yg1xm",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:18.914842Z",
+      "observationDigest": "50954e9338a32f297e3c797e54d1d4ea5782f739c6447e8a757cd95bb4c745d4"
+    },
+    {
+      "domain": "owingsgallery.com",
+      "listingSourceId": "ls_01m6jxbftkekxbqjpm0ycg0jr8",
+      "partyId": "pty_01m6jxbft4ebw9xa1p95mv2685",
+      "locations": 2,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.044513Z",
+      "observationDigest": "f5577204e95ffcbde74640e17f2c221e8bd08bcbf84814185e63286d41642d3d"
+    },
+    {
+      "domain": "foltzgallery.com",
+      "listingSourceId": "ls_01m6jxyzq3e2za17d4hqazb1n6",
+      "partyId": "pty_01m6jxyzpge29sa6sybrcmbhj3",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTCLOUD",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.094986Z",
+      "observationDigest": "d7c0adf9d019dd43e4aa035cd2ac9e2bf83a3e8017058700330ea5a90643ffe7"
+    },
+    {
+      "domain": "fredmoheban.com",
+      "listingSourceId": "ls_01m6jyhs8qez3vv5vqbh9zzgjf",
+      "partyId": "pty_01m6jyhs87e7q86jwvsdd8z9t9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.183067Z",
+      "observationDigest": "e610440d4318487f35f49dc58465aa9a307fa25f2dc7ab93b3793752525d4688"
+    },
+    {
+      "domain": "mksrugs.com",
+      "listingSourceId": "ls_01m6jyhtzke7p82n9183mg904d",
+      "partyId": "pty_01m6jyhtz3e369sp4nsa9yxbkp",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.358845Z",
+      "observationDigest": "715042c0593aeaa80e24aa1146d78c3578e3a3cc14ab2df908bea42c77e2e949"
+    },
+    {
+      "domain": "wirthmoreantiques.com",
+      "listingSourceId": "ls_01m6jz4cz4ec09dyg0djmtjtx6",
+      "partyId": "pty_01m6jz4cyhe1f8ntmpsfpsrf3d",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.412571Z",
+      "observationDigest": "6e9dc9f819aafdf8fe69d9d200926ca7829955022bb6ea1d588fcb3d7f90fa6b"
+    },
+    {
+      "domain": "rehs.com",
+      "listingSourceId": "ls_01m6jz4f93ezzvp94spta4vj73",
+      "partyId": "pty_01m6jz4f8mey1b54sbys2rmna5",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.447762Z",
+      "observationDigest": "90d6de45448e02c76cf8717d4f5afa516a8df8057955b8728a2f6851a584526c"
+    },
+    {
+      "domain": "egenolfgallery.com",
+      "listingSourceId": "ls_01m6k12s38ej2bdjj2n6gr26ry",
+      "partyId": "pty_01m6k12s2wen0r7m4sfkf0pqf1",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.636711Z",
+      "observationDigest": "e2a66254fdb0b4228b3b5f88f360fe88817c7f45484943e71505a49f7743f248"
+    },
+    {
+      "domain": "azumagallery.com",
+      "listingSourceId": "ls_01m6k12v1veq4saj7jtfsa0rv6",
+      "partyId": "pty_01m6k12v0nev6ase4nqfwjmb7j",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.632480Z",
+      "observationDigest": "83db8bbd3e9e37a0ea9282739af587167aff3b0dadf297c83266814febe21d07"
+    },
+    {
+      "domain": "schneiblefinearts.com",
+      "listingSourceId": "ls_01m6k1sbhrekg8eah9nxqp21gr",
+      "partyId": "pty_01m6k1sbhbe1yr2c1faapkgkm7",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.772275Z",
+      "observationDigest": "b47648c114e9d6dc20c8215cb2195ce7f5c718645bca59b747333f3696dae3a2"
+    },
+    {
+      "domain": "tmurrayarts.com",
+      "listingSourceId": "ls_01m6k255ehe0pb7rrnrj4wkb6t",
+      "partyId": "pty_01m6k255e0ed2takpyr66g1164",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.869939Z",
+      "observationDigest": "96287e290d5d5f062af9e75250d97ac57bee34759d0b5a1e877b54253c3819df"
+    },
+    {
+      "domain": "kangcollection.com",
+      "listingSourceId": "ls_01m6k256y9e7n91c9vze9qy0a9",
+      "partyId": "pty_01m6k256xwe0gadmntnjjc9sq2",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.872673Z",
+      "observationDigest": "720293cf1e45cbd731adaee3669cd39359bfc24628f6927c909bd229335b997d"
+    },
+    {
+      "domain": "jacarandatribal.com",
+      "listingSourceId": "ls_01m6k2npnde1yt1167cjreay93",
+      "partyId": "pty_01m6k2npmrew5vjre29aq6zpc1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WEBFLOW",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:19.982949Z",
+      "observationDigest": "ade48a6f4a1dc900d5b6b4b28df82ea9fadae66c00217ae7020e77d8a6da0ac0"
+    },
+    {
+      "domain": "jrusselljinishiangallery.com",
+      "listingSourceId": "ls_01m6k32tdweh7vnkekxtqvvbft",
+      "partyId": "pty_01m6k32tdgegma59j3p6terk6h",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.112947Z",
+      "observationDigest": "6863a3f2b84897669fa9e59151d39d8faa7fa2e985b4efe21c36bb516138edc4"
+    },
+    {
+      "domain": "beauchampantiques.com",
+      "listingSourceId": "ls_01m6k3kcpbew18mbxnsgyb1ses",
+      "partyId": "pty_01m6k3kcnre1nadcmh9vv60ajs",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.166294Z",
+      "observationDigest": "4fd80bdd0c9bd26334a21077d665c9bdd81a775d3190e8cf9d25a78d617733c8"
+    },
+    {
+      "domain": "rmchait.com",
+      "listingSourceId": "ls_01m6k45ab5e4j85svv0dp815r3",
+      "partyId": "pty_01m6k45aa9e99s0ne2x3yq4e6h",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.255840Z",
+      "observationDigest": "56846603830466591326cf4b8a6465a3f78571e2e64a7df3ef6483258a1a2906"
+    },
+    {
+      "domain": "dwigmore.com",
+      "listingSourceId": "ls_01m6k45c7xem38b9tbwpq3p7qr",
+      "partyId": "pty_01m6k45c7aeett0jwdb5d02c12",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.391141Z",
+      "observationDigest": "e334668633e894a932a03f70bf22cd16d78ce80b80abd363b1853acaa7f267af"
+    },
+    {
+      "domain": "ophirgallery.com",
+      "listingSourceId": "ls_01m6k45e30e54asecg9642aepx",
+      "partyId": "pty_01m6k45e2ee05svbn1v7gtg4q8",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.436494Z",
+      "observationDigest": "5dea1c811af6bb0429fede34d2ae1706eefab13ed4ba6713e9bc85e95a47c797"
+    },
+    {
+      "domain": "robuck.co",
+      "listingSourceId": "ls_01m6k5k3beecmsws78eaqddzdg",
+      "partyId": "pty_01m6k5k3b4ecfayrm8k52k64ej",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.530821Z",
+      "observationDigest": "2b0da40f3b9e8c54d5c2db2ce7e9639313a8fa0aa7cd0a783ee426c9c0f45b71"
+    },
+    {
+      "domain": "millhouseantiquesandgardens.com",
+      "listingSourceId": "ls_01m6k6fehzes58hq55gk41wjde",
+      "partyId": "pty_01m6k6fehked29tdtef5z0c0bs",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.696402Z",
+      "observationDigest": "219bdb9a223b2ccaa92934d4311f9a0992a3b915b7bb7990f16421a7d414d3b5"
+    },
+    {
+      "domain": "galerielerebours.com",
+      "listingSourceId": "ls_01m6k6fgjxeh19rxvxy9fkt4x9",
+      "partyId": "pty_01m6k6fgjke4pr2jr193xn9t8c",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.688392Z",
+      "observationDigest": "130868925ee82386e6516776684e00813e35cdcc6a2f93ddc7409d2dafe48a13"
+    },
+    {
+      "domain": "adelsongalleries.com",
+      "listingSourceId": "ls_01m6k6w74dek8svr7k3gsadn94",
+      "partyId": "pty_01m6k6w740ecybpzxwxpsm53e1",
+      "locations": 2,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.852072Z",
+      "observationDigest": "186885be7d47cdf77286bee9fce50a490ef3eda3d06b32372c1319f230e1eb82"
+    },
+    {
+      "domain": "alexandregallery.com",
+      "listingSourceId": "ls_01m6k6w9g8ezdaws5xd1ypf0ge",
+      "partyId": "pty_01m6k6w9fdebvbaekjne3ebz97",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.930603Z",
+      "observationDigest": "f497d8c3b13151f304ac73145c86916ee62fc5aba05fd895d4564117df0ae283"
+    },
+    {
+      "domain": "nicholashall.art",
+      "listingSourceId": "ls_01m6k6wc4ted5r5h1xxezr7skv",
+      "partyId": "pty_01m6k6wc4cejvbadejmb5fcdwm",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:20.974630Z",
+      "observationDigest": "6e353cffae60750113dc7389d56f5c1d59975f4b803cacbca09566adc171ffac"
+    },
+    {
+      "domain": "hawthornefineart.com",
+      "listingSourceId": "ls_01m6k74vtbeafte3m5a6sqk00c",
+      "partyId": "pty_01m6k74vszet6by94w9wg43b0a",
+      "locations": 2,
+      "logo": true,
+      "platform": "LIVEBOOKS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.136660Z",
+      "observationDigest": "6044261f8a3014976428f2b244e34bc46167bff9a3e25cf65b308fa1dc8d358b"
+    },
+    {
+      "domain": "susansheehangallery.com",
+      "listingSourceId": "ls_01m6k74xqxenp90nrf8v1p62z1",
+      "partyId": "pty_01m6k74xqbeaz94x51h5kpz31b",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.173504Z",
+      "observationDigest": "80f3a2bdd08ef10452d5f634d8dc7bb6f9335a2a0fc8f7bda531cf275191263a"
+    },
+    {
+      "domain": "michaelrosenfeld.com",
+      "listingSourceId": "ls_01m6k7gfq8e5rvh1721acbfaay",
+      "partyId": "pty_01m6k7gfpbeacvtbhqtpaft895",
+      "locations": 1,
+      "logo": false,
+      "platform": "OCTOBER_CMS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.218531Z",
+      "observationDigest": "c4b27954d9e7ed07372587c94b3a63ee6ba3d50a0fd9eba0054eb707a86ac841"
+    },
+    {
+      "domain": "kraushaargalleries.com",
+      "listingSourceId": "ls_01m6k7gheeeyd98fpnetfjg4er",
+      "partyId": "pty_01m6k7ghe1e97bcq74tb9cz5gc",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.380719Z",
+      "observationDigest": "4312b22a2939219785c5184f764cc69a723fa84c7d591f1488220ef6b4be9f9f"
+    },
+    {
+      "domain": "bkrulikfineart.com",
+      "listingSourceId": "ls_01m6k7gk80eytr10v2mf8nxzd1",
+      "partyId": "pty_01m6k7gk7cekbb0yx6x8x9mm0c",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.418531Z",
+      "observationDigest": "9c1c8aeda6c20502914ab987d1cb6f86910062d661b0946ec1054286aa7532cd"
+    },
+    {
+      "domain": "michaeltrapp.com",
+      "listingSourceId": "ls_01m6k82vf3ep1a9fa661xwrqcm",
+      "partyId": "pty_01m6k82venedtsr5w4bq9a9ztn",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.500812Z",
+      "observationDigest": "16d93fb9cdec2b38e87240f2fe7191a14a02b9f3aeafd16fc06f5bc5b93b6e79"
+    },
+    {
+      "domain": "balsamoantiques.com",
+      "listingSourceId": "ls_01m6k82xknetrbn4r0h3dacjvt",
+      "partyId": "pty_01m6k82xjxecmr4takpbd1rwx3",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.638241Z",
+      "observationDigest": "1732bdcb82ab5991690726a05797caf6328c07686b1738e6b39ad9174eb009f1"
+    },
+    {
+      "domain": "jamescomptongallery.com",
+      "listingSourceId": "ls_01m6k8gxtfezzs02x0pkyqaxzv",
+      "partyId": "pty_01m6k8gxsye8zrm29jc20kwt8f",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.667878Z",
+      "observationDigest": "5c68e8908ab0af986d60c4780fe57fe8c3e5a7f5a2a2bc97a2d1239b671fd36f"
+    },
+    {
+      "domain": "michaelhallantiques.com",
+      "listingSourceId": "ls_01m6k8zhjperbvmw23n95ccdaw",
+      "partyId": "pty_01m6k8zhhqe00tg4w2pawjy715",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.779993Z",
+      "observationDigest": "9650b941a6ba1c569a60842b082f1a95f96ce6bd32dbad6693579b1857086ccb"
+    },
+    {
+      "domain": "gsergeant.com",
+      "listingSourceId": "ls_01m6k8zkmae9xt0gdfx5nbjys8",
+      "partyId": "pty_01m6k8zkkye538w1ht8hszfkrz",
+      "locations": 1,
+      "logo": true,
+      "platform": "MASTERPIECE_ONLINE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.844343Z",
+      "observationDigest": "51ab1024701893ca599d80eb3a10287166c913adb34d3f10eb3016e64269b07b"
+    },
+    {
+      "domain": "kelleherfineart.com",
+      "listingSourceId": "ls_01m6k9wwx5e3bses952pzm63ca",
+      "partyId": "pty_01m6k9wwwhevwv67cma2nxxq21",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:21.934143Z",
+      "observationDigest": "84d5f18801a6f395625894f813ccf8ecdfcc485d927805a47cbe5dfe3ffd3058"
+    },
+    {
+      "domain": "acanthusantiques.com",
+      "listingSourceId": "ls_01m6kanycpe1vsc1qq4syhe709",
+      "partyId": "pty_01m6kanycdej5b6fykp8qcvr63",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.069069Z",
+      "observationDigest": "2e89ab3b4198d3a8db7384805f6cfd238f3f8ca815e12a06f84963ec244db963"
+    },
+    {
+      "domain": "davidcookgalleries.com",
+      "listingSourceId": "ls_01m6kawck2ebp9myqj6vs362tq",
+      "partyId": "pty_01m6kawcjjewxah17pgkdf7d5x",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.168057Z",
+      "observationDigest": "07be542b0b9b28f21f803da47f6087f70b655a360fa5de1c359aeb06c7d75852"
+    },
+    {
+      "domain": "store.sternfinearts.com",
+      "listingSourceId": "ls_01m6kb3rgbezssa7gptjm9zehv",
+      "partyId": "pty_01m6kb3rg1ewgrtc9788kt8za2",
+      "locations": 1,
+      "logo": true,
+      "platform": "TURBIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.224874Z",
+      "observationDigest": "41229348386b3c4e5d4b3903febd454b9c0c34b661d90197e9b0d835392ac9b6"
+    },
+    {
+      "domain": "hardygalleries.com",
+      "listingSourceId": "ls_01m6kbcrn1e7kbpvtfjawy55en",
+      "partyId": "pty_01m6kbcrmhe78av6hkfb207jp8",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.339559Z",
+      "observationDigest": "7d0315bf1ad9c6ba39031b4bd277699c21ba47299c82d9137a6e1b2eccfd49b5"
+    },
+    {
+      "domain": "tuckerpayneantiques.com",
+      "listingSourceId": "ls_01m6kbqy1qe78977chhdpgwpx6",
+      "partyId": "pty_01m6kbqy1bextt6t4hgw1e8p5r",
+      "locations": 1,
+      "logo": true,
+      "platform": "FIRST_DIBS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.436428Z",
+      "observationDigest": "dd87a206d844306d75c5c534442f7c13e0a7a9ca0228628d67358c9b39096ceb"
+    },
+    {
+      "domain": "thistleamericana.com",
+      "listingSourceId": "ls_01m6kc181zebh9brp5estpd823",
+      "partyId": "pty_01m6kc1817e8p98fv6hva1qp3d",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.539421Z",
+      "observationDigest": "80e5b2265864cec517bb6a3ea5819688736290ec0730f1f6470385cafe8a9a44"
+    },
+    {
+      "domain": "sylviaantiques.com",
+      "listingSourceId": "ls_01m6kc1a4necyt4hbc9f4zvg43",
+      "partyId": "pty_01m6kc1a43emva6h2511s8xrb1",
+      "locations": 2,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.664470Z",
+      "observationDigest": "2dfafa062762530293d48169677f813865143fddd6bc91bedffcb8def3707c5b"
+    },
+    {
+      "domain": "robertofreitas.com",
+      "listingSourceId": "ls_01m6kcgf0yef1tpk2mzsffqwem",
+      "partyId": "pty_01m6kcgf0eemnbctm7zpe6g2rc",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.707956Z",
+      "observationDigest": "20fbc73a5fe412dd5aa2ebf1481b21b910ebe6c2f254aeebf38e31a05dba6824"
+    },
+    {
+      "domain": "peaceandplentyantiques.com",
+      "listingSourceId": "ls_01m6kcggkfenya1t0bk6g61yby",
+      "partyId": "pty_01m6kcggk5e1btkd1hq68wmgkn",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.806564Z",
+      "observationDigest": "359a3d513406b51bd4acd05da503886f73f77400c2edd2679f74efeeb19ebc28"
+    },
+    {
+      "domain": "helenafoxfineart.com",
+      "listingSourceId": "ls_01m6kd77w9eem9w713fn8ts93w",
+      "partyId": "pty_01m6kd77vzecnb9emyrfyqg7vb",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:22.988920Z",
+      "observationDigest": "23568ae4ce8f940da8fbd6a4cbeef36ee752520c606aa5793029d09f937f0e98"
+    },
+    {
+      "domain": "goldentriangle.biz",
+      "listingSourceId": "ls_01m6kebfmbe46tdr7y4mcmjnzv",
+      "partyId": "pty_01m6kebfkje3nrp5bjbbexk9gq",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.028841Z",
+      "observationDigest": "e7534e2551f32b14667776581e9bd4686ff325c62ed0b476bd485b5148dc051a"
+    },
+    {
+      "domain": "pagodared.com",
+      "listingSourceId": "ls_01m6kebhxdeycbrm1b5gc4e56y",
+      "partyId": "pty_01m6kebhwre4arxa0d9f7mmd6p",
+      "locations": 1,
+      "logo": true,
+      "platform": "SPREE_COMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.128062Z",
+      "observationDigest": "3dcf0e917da4453894d02bcaa2574004700eaca4d12dc768b6aba23fa7a3c7b3"
+    },
+    {
+      "domain": "atlasshowroom.com",
+      "listingSourceId": "ls_01m6kebm2dehgaef2rzwsqj327",
+      "partyId": "pty_01m6kebm1we7w991qs6hvabpte",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.295335Z",
+      "observationDigest": "a22a88d1a2283a19efca33dbbeab2cbe7d8830739fdc282971e4bc333cbd76f1"
+    },
+    {
+      "domain": "fostergwin.com",
+      "listingSourceId": "ls_01m6kfeekvefdvj5n3jgt1x4qm",
+      "partyId": "pty_01m6kfeek3e72stgr39yj1ckav",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.289600Z",
+      "observationDigest": "7ba575a4afdbe904168d1bdee239dd9eede116bb6944a29cf8bf688f42f477ef"
+    },
+    {
+      "domain": "annlongfineart.com",
+      "listingSourceId": "ls_01m6kgcm7mexqs4qa4aa0fyw8g",
+      "partyId": "pty_01m6kgcm6pe87tbngvrmqpaens",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.378478Z",
+      "observationDigest": "6260a7fd270f7629389fccb26b34f253fdd857b8abd8c2ea70246800c78e366b"
+    },
+    {
+      "domain": "jmwgallery.com",
+      "listingSourceId": "ls_01m6kgcp7bebx811ajpmbqdjhh",
+      "partyId": "pty_01m6kgcp6vecvbrxw20zsv74eq",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.544988Z",
+      "observationDigest": "6ec7442639e4cb3290cf7f3d4c1395a31c435f27ecf723a5cc78f30f74254e18"
+    },
+    {
+      "domain": "eastwoodgallery.com",
+      "listingSourceId": "ls_01m6kgcqz6etg94ez8v7w08a6x",
+      "partyId": "pty_01m6kgcqypefgtszsnvk1c8mp0",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.551773Z",
+      "observationDigest": "351c546c9a6354e03072778478562bce9d0559e28d446d2b206108f094567bfa"
+    },
+    {
+      "domain": "kindredstylesantiques.com",
+      "listingSourceId": "ls_01m6kgrtvdeap9bwxmsx66qjbj",
+      "partyId": "pty_01m6kgrttqej7tw4317dsxvqtm",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.681529Z",
+      "observationDigest": "a764d3278cc8d8ef29e38afaf9a37b3be1431a44e76f5869388f5b7507a1ab39"
+    },
+    {
+      "domain": "thecenturygallery.com",
+      "listingSourceId": "ls_01m6kgrx5wem3rbhdbeevztb7j",
+      "partyId": "pty_01m6kgrx5ceygs6f5nzyp3w8rs",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.809245Z",
+      "observationDigest": "f98f2bce8dfd35fd64929bf24efa066412bde22b57c15531c9ad692f37b036ea"
+    },
+    {
+      "domain": "patspots.com",
+      "listingSourceId": "ls_01m6kh5e91egpv1rna85nxb5fn",
+      "partyId": "pty_01m6kh5e8ge3wv8k2vwqpeed8f",
+      "locations": 2,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:23.857547Z",
+      "observationDigest": "7dcfd09c729b3e59ff5d1d985ab23be68eefbcda687bb1ab1f70d1bab7c585b1"
+    },
+    {
+      "domain": "japanesewoodblockprints.gallery",
+      "listingSourceId": "ls_01m6khrxwxezn8v8t0r3rnj9c7",
+      "partyId": "pty_01m6kh5e8ge3wv8k2vwqpeed8f",
+      "locations": 2,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.038225Z",
+      "observationDigest": "8a278ec5a13d905f32ef206595c7558a75a176830c25dab40194e89ba227557d"
+    },
+    {
+      "domain": "ingramantiques.com",
+      "listingSourceId": "ls_01m6khs00rejptxdtz195emzq5",
+      "partyId": "pty_01m6khs001erer30g018j1v5hq",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.124022Z",
+      "observationDigest": "db398302f231fc74a047fe5efa99c497d4ed34e6194b9cd7ae08e9b978e046f5"
+    },
+    {
+      "domain": "eriksedge.com",
+      "listingSourceId": "ls_01m6khs20ee1wtj0b6xf6qr41c",
+      "partyId": "pty_01m6khs1zxe94a4zhtzmv1x9ft",
+      "locations": 2,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.210780Z",
+      "observationDigest": "fa000cf6b79fb1c18afd3762f0db74a239037f0d614c840b71640b4e9db075ee"
+    },
+    {
+      "domain": "farrowfineart.com",
+      "listingSourceId": "ls_01m6kj5c6de6m9bt6na1t2gp5p",
+      "partyId": "pty_01m6khs1zxe94a4zhtzmv1x9ft",
+      "locations": 2,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.378448Z",
+      "observationDigest": "2130474648eac486496e4856353db84313efff16e67db6597c7ae3b797e44620"
+    },
+    {
+      "domain": "andresmoragatextileart.com",
+      "listingSourceId": "ls_01m6kj5e7eex1s02x053zjbwkz",
+      "partyId": "pty_01m6kj5e6zeb1tazp7xpa9t389",
+      "locations": 1,
+      "logo": true,
+      "platform": "CONCRETE5",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.375309Z",
+      "observationDigest": "c75a237afc62279b9e6e13caec084dda06f2f61e3d1f1d5f6b0cd11871c064de"
+    },
+    {
+      "domain": "joeloux.com",
+      "listingSourceId": "ls_01m6kj5fvkemtsg6d66e36s3d7",
+      "partyId": "pty_01m6kj5ftwegrt82fxwcmhkkgg",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.458169Z",
+      "observationDigest": "5cdc74f158a138936a5f69f92ba6af2ac5289e48f6d44408c1ba1bd0fd1771fd"
+    },
+    {
+      "domain": "morganoakes.com",
+      "listingSourceId": "ls_01m6kk33vyejy8a5zja5jhp2cv",
+      "partyId": "pty_01m6kk33v7eq3b4az1jxgdpxq3",
+      "locations": 2,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.747395Z",
+      "observationDigest": "279abc36f289accdd8b3c1c21fa19a5bbe1d4f4fd2c8b53cfb1ddc543719eac3"
+    },
+    {
+      "domain": "africantribalart.com",
+      "listingSourceId": "ls_01m6kk36h9ek5b6fpmxab661zk",
+      "partyId": "pty_01m6kk36grejw8kq1yt4jbhpbe",
+      "locations": 2,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.696456Z",
+      "observationDigest": "ee3dd866ee0c097fd9ca6843cf50b57b0019818ce9763f2095cd4ca37eab98e7"
+    },
+    {
+      "domain": "mingeiarchive.com",
+      "listingSourceId": "ls_01m6km9redeenr3xvpqf5cjamw",
+      "partyId": "pty_01m6km9rdzexdv0hb3awj39cvp",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.779588Z",
+      "observationDigest": "bb7d01f3536a7a4d28393fb9d98a4b371a18442829bd145f2e3bc170ffc13d99"
+    },
+    {
+      "domain": "vickishiba.com",
+      "listingSourceId": "ls_01m6km9tj3ew5rfy418d9x4n7s",
+      "partyId": "pty_01m6km9thqekxb5gvab70qf6bs",
+      "locations": 2,
+      "logo": true,
+      "platform": "CONCRETE5",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.952205Z",
+      "observationDigest": "eef6bed7c5f4e81b4d2dd1f016b168ee9f9d6b352f5af70a7d7e990d52f9dfb0"
+    },
+    {
+      "domain": "koreanartandantiques.com",
+      "listingSourceId": "ls_01m6kq5et1eqwr0cnva2apr166",
+      "partyId": "pty_01m6kq5esget4vfhep8ks61h97",
+      "locations": 1,
+      "logo": false,
+      "platform": "VERVENDI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.954713Z",
+      "observationDigest": "378375325016598fe248f02ffcfbe7e978dee3afa6845ba7ba8be84aeaf06c4c"
+    },
+    {
+      "domain": "galleriesext.com",
+      "listingSourceId": "ls_01m6kq5gfpeentmsbz8bhzbyf3",
+      "partyId": "pty_01m6kq5gf3ewhtzevqhhsdjd63",
+      "locations": 1,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:24.994965Z",
+      "observationDigest": "a9c3e1a6e413e2519d593c55fe4f9bcea7069daa4236b7d19c50bdf4a557da89"
+    },
+    {
+      "domain": "furnishmevintage.com",
+      "listingSourceId": "ls_01m6kqgmdgee69s04n85fa1fxr",
+      "partyId": "pty_01m6kqgmcxesr99v66srb1pg1n",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.270556Z",
+      "observationDigest": "68e6114ea3216327a639b7edd7ddf4eb90ea84eec6fdfa1260026cf1a08634d6"
+    },
+    {
+      "domain": "japaneseartsite.com",
+      "listingSourceId": "ls_01m6kqgnnzep2bxdeq9rv5fvtb",
+      "partyId": "pty_01m6kq5esget4vfhep8ks61h97",
+      "locations": 1,
+      "logo": true,
+      "platform": "VERVENDI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.222188Z",
+      "observationDigest": "5982f93d58cdb21f6259e58b7a3eb2eb200d5646f123cdb3cea835afbb4653e3"
+    },
+    {
+      "domain": "maineantiquefurniture.com",
+      "listingSourceId": "ls_01m6kr694yedn9e7hfgj73y2sz",
+      "partyId": "pty_01m6kr694eekxbd591nkgktfh1",
+      "locations": 1,
+      "logo": true,
+      "platform": "BIGCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.308874Z",
+      "observationDigest": "85248a9fb639b1b1bfb593e061a9e1c96162300b86f3181fbc7185943c6417b0"
+    },
+    {
+      "domain": "antiquejewelrymall.com",
+      "listingSourceId": "ls_01m6kr6bb9eentw6v24hafaanx",
+      "partyId": "pty_01m6kr6bame3z9vh8pe3701eaw",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.545061Z",
+      "observationDigest": "834423e226e752603655a923637c7877c3b270c6212f505e5451532910e1e0ef"
+    },
+    {
+      "domain": "combraygallery.com",
+      "listingSourceId": "ls_01m6krqs1eeyj8xc7zmfqxsph9",
+      "partyId": "pty_01m6krqs0zee3t7bwfsavmjbk7",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.539011Z",
+      "observationDigest": "6da392b928a04fbdde7b55d67f953d947ece3a900bbe4f92bea4707486d4e558"
+    },
+    {
+      "domain": "nevenmoderne.com",
+      "listingSourceId": "ls_01m6krqtmyex39r00bw3gc5p4k",
+      "partyId": "pty_01m6krqtmnegfag8bmf6xm9cp8",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.581723Z",
+      "observationDigest": "33a98311b8e860d5079561e38520721198a601131b23f685169b8bf747ba2de2"
+    },
+    {
+      "domain": "modernonthehudson.com",
+      "listingSourceId": "ls_01m6krqw89e9arjxy037wzntg9",
+      "partyId": "pty_01m6krqw81excv8h2avn4ysvjj",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.829987Z",
+      "observationDigest": "f111cf7a5137b050dc3784fd1643fe16efbb0c7250dfb4ec4011d9d4ac69c6b7"
+    },
+    {
+      "domain": "ammiribar.com",
+      "listingSourceId": "ls_01m6kseyzwepdr08gwjyp39axv",
+      "partyId": "pty_01m6kseyz7eadbm11jwe3d28m3",
+      "locations": 1,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.799745Z",
+      "observationDigest": "75aad2dd78da9a0b8e3c2d7b496a5dbc9e53d0493fd052ad603793860e7739e4"
+    },
+    {
+      "domain": "quittnerhome.com",
+      "listingSourceId": "ls_01m6ksf0qveh4vs3yeze7namq1",
+      "partyId": "pty_01m6ksf0q9e1pb2amy6ebx4gpp",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:25.869013Z",
+      "observationDigest": "f088673b6185621ecc069247e37c4d024894221c9815d9eff11ee3fdb399f5ff"
+    },
+    {
+      "domain": "centerstageantiques.com",
+      "listingSourceId": "ls_01m75myabqe98rdbej34hpxmr8",
+      "partyId": "pty_01m75myab4ejds1ge9wb170es8",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.049274Z",
+      "observationDigest": "3d4f41e4b7a8e4475f4e17e2393530c7c8a814d34fe58ed6f066df0dedc845f2"
+    },
+    {
+      "domain": "susansilverantiques.com",
+      "listingSourceId": "ls_01m7e2xsvte898jeva6pd2mn1v",
+      "partyId": "pty_01m7e2xstje7qapg0qdrj6zs93",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.095343Z",
+      "observationDigest": "a14547c3fea0c87f6d3ce76ac25ad074ddd543287de35247fc50a09c62f826f1"
+    },
+    {
+      "domain": "hicksantiqueclocks.com",
+      "listingSourceId": "ls_01m7e32687ergbmtfnh9kadzhr",
+      "partyId": "pty_01m7e3267se13bh4csnzkhn80f",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.135687Z",
+      "observationDigest": "acd61a7952ddb5297be9a5a2cc3161ce405a35915b210116dabe1db81634d3b7"
+    },
+    {
+      "domain": "portnstarboardgallery.com",
+      "listingSourceId": "ls_01m7e34t6cey5v2mehbpt12pne",
+      "partyId": "pty_01m7e34t5we86spmzfy2r3t62p",
+      "locations": 1,
+      "logo": true,
+      "platform": "WEBFLOW",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.288831Z",
+      "observationDigest": "1f1aa6f3fa25bc87921ebc218ed2e30dc5e89ae35cb15a6c94340c3d9dcb7eb8"
+    },
+    {
+      "domain": "abbottoaks.com",
+      "listingSourceId": "ls_01m7e36vscemnrxksg594cvm5t",
+      "partyId": "pty_01m7e36vs4e70vy0m5j3h4prtc",
+      "locations": 0,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.248886Z",
+      "observationDigest": "3d8e041a703f8091b0ea84296b84213cbed310b5e89b94cda7f361083a00f1b8"
+    },
+    {
+      "domain": "trademarkantiques.com",
+      "listingSourceId": "ls_01m7e2yn3net7sph1ea4t40a8b",
+      "partyId": "pty_01m7e2yn2ze9aa77g5ftc7zsmh",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.415133Z",
+      "observationDigest": "fa7d482f0d7d51a97b230d741753c3acb65c105c4d460d5d67ee652f5e02b7be"
+    },
+    {
+      "domain": "feahome.com",
+      "listingSourceId": "ls_01m7e309kged9rzffw4yvezxm0",
+      "partyId": "pty_01m7e309jzemcspyzxhvfh5e1g",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.502595Z",
+      "observationDigest": "f8925cf608b8fd2d10fd6a829e3e0fb205552dc5f2d583ae64c163412cb4509b"
+    },
+    {
+      "domain": "highstyledeco.com",
+      "listingSourceId": "ls_01m7e32fn0e45a7ag8mtngykm0",
+      "partyId": "pty_01m7e32fmre6sa9gcgstr11g67",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.540655Z",
+      "observationDigest": "89300f9c6299b8a91220f5168e4ddd5c9725c05a8b70c465fdff35690df225b8"
+    },
+    {
+      "domain": "fineantiqueprints.com",
+      "listingSourceId": "ls_01m7e34e7jek2vm9eprnj0kd6k",
+      "partyId": "pty_01m7e34e72efa9k7npw5vjejfh",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.675896Z",
+      "observationDigest": "e6b95f8306d24c61e828102734ac436fd645715b9e472acc43da25eedd25d9cd"
+    },
+    {
+      "domain": "durlandco.com",
+      "listingSourceId": "ls_01m7e35drwehrbjj681xtf99zw",
+      "partyId": "pty_01m7e35drae7ts9h48rtj14ytw",
+      "locations": 0,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.728073Z",
+      "observationDigest": "91f924e23d83fef7c6d2724f510154468cb5f9bfa8b14feab440c9e70c95ee9d"
+    },
+    {
+      "domain": "maejeanvintage.com",
+      "listingSourceId": "ls_01m7e366b4eazv96xf92p5a3d5",
+      "partyId": "pty_01m7e366aqe4bbx89s635yghcf",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.859256Z",
+      "observationDigest": "ce51e58cbfdc7b8231c34a7f99c3c8c3dd6b9cfb811ae4ad8a7b0e4251b15e6a"
+    },
+    {
+      "domain": "christopherhjones.com",
+      "listingSourceId": "ls_01m7e30k12ed897238rnpzspxt",
+      "partyId": "pty_01m7e30k0he7xthzts7s0jb1en",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.955125Z",
+      "observationDigest": "dc763bdb2940fd83434aa64d5f0867df9908b9e4f7ff58a7dcd62a254cf793cf"
+    },
+    {
+      "domain": "sturgisantiques.com",
+      "listingSourceId": "ls_01m7e30mk5eab91qjrfnpg526c",
+      "partyId": "pty_01m7e30mjpezbactx3kxn4stah",
+      "locations": 0,
+      "logo": false,
+      "platform": "MANIFESTO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:26.908472Z",
+      "observationDigest": "2037edd26aa2fed20b46e0b589bbb13992e6724c3da9b9479140ecf82a4a62e7"
+    },
+    {
+      "domain": "bellusfineart.com",
+      "listingSourceId": "ls_01m7e30nkhe8984s23ztkqm1c0",
+      "partyId": "pty_01m7e30nk0ed3tb1zy2fy9gyen",
+      "locations": 0,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.037321Z",
+      "observationDigest": "fb41e25a1f6e66a49070af99ac498b969fa2e69cfd753d8c5166abc46a61c566"
+    },
+    {
+      "domain": "annapolismaritimeantiques.com",
+      "listingSourceId": "ls_01m7e34xw7e5sscthpp71yp246",
+      "partyId": "pty_01m7e34xvqehyrkvb04thvbjtz",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.177923Z",
+      "observationDigest": "c4feee1eb39e9ea7f8fc526359de2c4a833d4f93ad48d51d41577f53ee37a4d8"
+    },
+    {
+      "domain": "folkartisans.com",
+      "listingSourceId": "ls_01m7e315exeg697xtpv7f3x3gf",
+      "partyId": "pty_01m7e315enet2ty1r43ncf6g98",
+      "locations": 0,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.128608Z",
+      "observationDigest": "96459a5f16818723688af850b63e5ee7e52efae252bda9ba2c1e0e3ff3c1e85d"
+    },
+    {
+      "domain": "jacquelineadamsantiques.com",
+      "listingSourceId": "ls_01m7e348aqe069p20n4sp5j2ax",
+      "partyId": "pty_01m7e348a7ej6sa38khsycz65s",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.404475Z",
+      "observationDigest": "8c46b76f3175eeef8500d121ac0b7375d476deedd6f61f174843c64620130312"
+    },
+    {
+      "domain": "jsfearnley.com",
+      "listingSourceId": "ls_01m7e357dnetm88msvrk346a92",
+      "partyId": "pty_01m7e357d5e6nb2v0jvwxcpsqd",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.395793Z",
+      "observationDigest": "bd02cc8826d36adaa59117d4a29c43e36061ee5c3006e9a6dd1a64a0699bd460"
+    },
+    {
+      "domain": "stonegateantiques.net",
+      "listingSourceId": "ls_01m7e3676ce66vdw3bp06kdk3e",
+      "partyId": "pty_01m7e36765emetgcfh17n6z5jr",
+      "locations": 1,
+      "logo": false,
+      "platform": "VERVENDI",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.498187Z",
+      "observationDigest": "11f4708597b776c5579e66d5d5c573fa9f44aa2f1e4f6666d64d36618dc1cf68"
+    },
+    {
+      "domain": "roundtopranchantiques.com",
+      "listingSourceId": "ls_01m7e2zdg2eyxb9ee9zg9a786d",
+      "partyId": "pty_01m7e2zdf4ee186sw8515c76rz",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.692893Z",
+      "observationDigest": "f42770bed88c4d992651fbad3ed3d2846e712175de161cd1b08b647aff626bd9"
+    },
+    {
+      "domain": "theantiquarium.com",
+      "listingSourceId": "ls_01m7e31b6qe61bmdkwtq9mn6xr",
+      "partyId": "pty_01m7e31b68eb8a1g31hmrvg1s9",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.694773Z",
+      "observationDigest": "39d66d2aaf55db10aa37fac2ee83c1c4b318b8e9cce634672f8eb217625fd6a1"
+    },
+    {
+      "domain": "lelouvre-antiques.com",
+      "listingSourceId": "ls_01m7e33dx8et4aaabwk6x1fk3f",
+      "partyId": "pty_01m7e33dx0exhbwd13yrw2g9nt",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.782049Z",
+      "observationDigest": "5e4865acbd18331cfd3c13a249b0630aa78fc8227475957ef613c82b46c83220"
+    },
+    {
+      "domain": "opalineestatejewelry.com",
+      "listingSourceId": "ls_01m7e2zh3nestarcyaapehjnyk",
+      "partyId": "pty_01m7e2zh34e708n3mfhkkt9yjb",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.965465Z",
+      "observationDigest": "c0fb684ba533bdfbf5502ed76a2260de655c72bdb64e4e0f0f7cc68c5c99acd9"
+    },
+    {
+      "domain": "jeanjeanvintage.com",
+      "listingSourceId": "ls_01m7e308gger882b5q9my27q7j",
+      "partyId": "pty_01m7e308fte8kttspm66tqcvya",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:27.934370Z",
+      "observationDigest": "4b7f8ebbde2e63f76cdf817813f2e745f109d5dee82000f0a7b615121410fc4c"
+    },
+    {
+      "domain": "bargainjohn.com",
+      "listingSourceId": "ls_01m7e320v4eh4sw68vv3yh72xq",
+      "partyId": "pty_01m7e320tfec78yfp5pjch41g1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.005797Z",
+      "observationDigest": "fc20e0faf2f1d98077da812be17823a728532837bf3f4ffed199a7c81a8c415b"
+    },
+    {
+      "domain": "rezasruggallery.com",
+      "listingSourceId": "ls_01m7e33z6keqx8r12qy9abqf0e",
+      "partyId": "pty_01m7e33z63e9pa5p88rrnwaxje",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.281352Z",
+      "observationDigest": "7d86cc90e8cc89c3a962e1a8f2931bde9f803face8134b2197c0d88ba584295b"
+    },
+    {
+      "domain": "coppertonlane.com",
+      "listingSourceId": "ls_01m7e2zjjjeyqab10mwc44qqac",
+      "partyId": "pty_01m7e2zjhtepprxw9ex9m5z9dn",
+      "locations": 1,
+      "logo": true,
+      "platform": "ECOMMERCE_TEMPLATES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.285615Z",
+      "observationDigest": "bbc9757c0c36498c6d0b83a581be96009c90a0503c9bcc695a6a0c5355a0bb9b"
+    },
+    {
+      "domain": "gemsetlove.com",
+      "listingSourceId": "ls_01m7e31e33e84taak56aataaaf",
+      "partyId": "pty_01m7e31e2teb6srkev3xz0yhy3",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.319527Z",
+      "observationDigest": "7b792172903a66a9f2c23ba172e927b12f10087e841806d2a50e55cb1f2ea079"
+    },
+    {
+      "domain": "coloradoartifactual.com",
+      "listingSourceId": "ls_01m7e32n6xemz8vzm1yk5eea35",
+      "partyId": "pty_01m7e32n6de2bs1q738z168jv3",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.607017Z",
+      "observationDigest": "539d420f4282c0e6ca7454639248caaa2285bfcfc40db0e55457b51a187a62d9"
+    },
+    {
+      "domain": "turquoiseandtufa.com",
+      "listingSourceId": "ls_01m7e35desejrbx0qym25r66bw",
+      "partyId": "pty_01m7e35de7e7zt91vvaszahsag",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.609951Z",
+      "observationDigest": "bc49b4ec5da7df5b2fbd0c7e417b3bafa559bd6acaef0b658d207d4515429565"
+    },
+    {
+      "domain": "hippohardware.com",
+      "listingSourceId": "ls_01m7e371h2epytrvwkdq3r69y4",
+      "partyId": "pty_01m7e371gpe62sae9ftexbr404",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.585885Z",
+      "observationDigest": "6b66586261821102a8573c2fd113ce7f88b7a750f9023c0749e15e5387ece273"
+    },
+    {
+      "domain": "turnofthecenturyantiques.com",
+      "listingSourceId": "ls_01m7e39enweg9s41zze6344sgt",
+      "partyId": "pty_01m7e39enge91bssrxm5aqg0pm",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.866417Z",
+      "observationDigest": "dc7857d945fc3ebea94b39653d1570a9c2f671765e806214d435ab03105b1dae"
+    },
+    {
+      "domain": "kirkalbert.com",
+      "listingSourceId": "ls_01m7e39gageh58wza6t07e6bj7",
+      "partyId": "pty_01m7e39ga3edtrevx80w2w9nb0",
+      "locations": 0,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.787839Z",
+      "observationDigest": "1d35e7a8dd8c38e1ffcbbd01828f7c3415d503e6bbd4bd8f18145472bfbb175c"
+    },
+    {
+      "domain": "dispelaantiques.com",
+      "listingSourceId": "ls_01m7e3d4y2epjraesrcpg72fp3",
+      "partyId": "pty_01m7e3d4xbew4bzrscxn0k27wb",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:28.918941Z",
+      "observationDigest": "cdcdc34cc9db52299714d5556ad22e69c8d20a4d4d427d597fb30119ab35730f"
+    },
+    {
+      "domain": "jacobsestatejewelry.com",
+      "listingSourceId": "ls_01m7e3d6yaekbrcq3tmswmmqke",
+      "partyId": "pty_01m7e3d6xseq5s6fwmry5q20a5",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.028892Z",
+      "observationDigest": "ac6f6f539362dff3f83c1267a01f81caef79f60794a36c74c5da8f46c0b620cd"
+    },
+    {
+      "domain": "missiongalleryantiques.com",
+      "listingSourceId": "ls_01m7e3favceb0v2en0y7rdw2nv",
+      "partyId": "pty_01m7e3fatte4sbx51k7atwwfte",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.149833Z",
+      "observationDigest": "8c774a1e57c52806aef882e5794cb758e29e18d590657b719a554dd8dc6b1c30"
+    },
+    {
+      "domain": "westsea.com",
+      "listingSourceId": "ls_01m7e3g3tte12rcm18g6tntn4c",
+      "partyId": "pty_01m7e3g3t5e3395y4zbg28y9ms",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.154688Z",
+      "observationDigest": "4b6886dd3bb513a199f160c06e3cacf40c0cb99756fe18289fa4323bdf027f7e"
+    },
+    {
+      "domain": "seajunk.com",
+      "listingSourceId": "ls_01m7e3h0dfebwrkb3j3pf4jct8",
+      "partyId": "pty_01m7e3h0cxej39ee82dkh0p7t8",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.266872Z",
+      "observationDigest": "0bd0ed5cf220daec8bebeb8d9252b64242c36aebdf0f1d11d05987fc1caa7e94"
+    },
+    {
+      "domain": "antiquecupboard.net",
+      "listingSourceId": "ls_01m7e2zhveea3aftyda6ddy6q6",
+      "partyId": "pty_01m7e2zhtwewz9fj4fe6rgjs9j",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.438493Z",
+      "observationDigest": "7177f9ed82f25ece7be5961524afa307a5cdeb94763e3d79cabc7b89d3a6fd05"
+    },
+    {
+      "domain": "stricklandvintagewatches.com",
+      "listingSourceId": "ls_01m7e2zjrfen398h43gjm40n1p",
+      "partyId": "pty_01m7e2zjr4e2krg7vtyg3dcv4j",
+      "locations": 1,
+      "logo": false,
+      "platform": "WP_E_COMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.434373Z",
+      "observationDigest": "751ee980f66c3ada912ba221422410d32f87d4695f29687fd6b260662c9c3abd"
+    },
+    {
+      "domain": "lorimesa.com",
+      "listingSourceId": "ls_01m7e31s0fem5bavtt19wpwc0d",
+      "partyId": "pty_01m7e31s06ect8qb5x3xa03qnt",
+      "locations": 1,
+      "logo": true,
+      "platform": "WEEBLY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.556704Z",
+      "observationDigest": "ee1063cb7068e606e29433700e518f22d7a9bf1e9799c5d25a61b5b401bdf4aa"
+    },
+    {
+      "domain": "morninggloryjewelry.com",
+      "listingSourceId": "ls_01m7e33twwensb7rq3q56tqd0y",
+      "partyId": "pty_01m7e33twbe3mtbb0rgga395gc",
+      "locations": 0,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.659461Z",
+      "observationDigest": "167d990305e1ae52802e35b4883800efe647fd4bc59154b71f7b4ac377bad03b"
+    },
+    {
+      "domain": "panteek.com",
+      "listingSourceId": "ls_01m7e31nyxex9v26d98mzvdbd4",
+      "partyId": "pty_01m7e31nyke3bbhm6vmfmt080p",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.704046Z",
+      "observationDigest": "3aae2b7c17e98def024cf5ec2bfe953389bdd25da2ad253b6a87e84ff3e3ca00"
+    },
+    {
+      "domain": "rare-posters.com",
+      "listingSourceId": "ls_01m7e31qkfe45ad5pgh2py3kgv",
+      "partyId": "pty_01m7e31qk7e3qs2trgf0645jgw",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.870120Z",
+      "observationDigest": "ba77b5d53afd3b0c6f6bcaa10c6876dbd60ec5be325b8739e6433434be77e32d"
+    },
+    {
+      "domain": "authenticvintageposters.com",
+      "listingSourceId": "ls_01m7e31s1ee3qarmk7sc8gbdjz",
+      "partyId": "pty_01m7e31s16envaxya5gbhje75r",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:29.981392Z",
+      "observationDigest": "c2bf8b687b2dddf21596b98c5d830191884fe63f20ffb255f1826e5d7c56749f"
+    },
+    {
+      "domain": "roningallery.com",
+      "listingSourceId": "ls_01m7e35dqtefzvp2bd7kzf78ps",
+      "partyId": "pty_01m7e35dqje5naxzrr3k6b7gyx",
+      "locations": 1,
+      "logo": true,
+      "platform": "NETSUITE_SUITECOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.018929Z",
+      "observationDigest": "958ddf531edb1ab6be233c42df3d5cf6ff86a93ba372661be83941f67faefbea"
+    },
+    {
+      "domain": "chicagovintageposters.com",
+      "listingSourceId": "ls_01m7e35f2vevnr2ed3gvgb73n3",
+      "partyId": "pty_01m7e35f2ae9kbe8qzyvtb2zhb",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.176728Z",
+      "observationDigest": "7e043e5d263516ae54a327d0cf10db715f35bcab4ffafc5494dcaefbf7f3519b"
+    },
+    {
+      "domain": "thevintageposters.net",
+      "listingSourceId": "ls_01m7e35srmeq3sc0khvea234tr",
+      "partyId": "pty_01m7e35srce4bsj79w7qz80dxj",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.214654Z",
+      "observationDigest": "effd048a1e8e26dcbe64fa4f571e76c37da22cdad7992a689cfba649c0e85d18"
+    },
+    {
+      "domain": "wylerantiques.com",
+      "listingSourceId": "ls_01m7e31ezweexr6bey5tnbcd54",
+      "partyId": "pty_01m7e31ezbemranbsf95eseva9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.261758Z",
+      "observationDigest": "5c18bb8b90c845c3037738adfeffe62c692d7929d39aacd8d9f05491310e9ef5"
+    },
+    {
+      "domain": "zandkantiques.com",
+      "listingSourceId": "ls_01m7e31ftbectr0w6jspbz7nnn",
+      "partyId": "pty_01m7e31ft2enksdj9xeg5t3dpw",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.428162Z",
+      "observationDigest": "5114db0dbd3b51e42057767bbb3af7335541c4e178607f0ba09269d15029bd63"
+    },
+    {
+      "domain": "tamarackshackantiques.com",
+      "listingSourceId": "ls_01m7e329k4evhrkx6afsdskfs2",
+      "partyId": "pty_01m7e329jcevjr7t1wxmy1mm8p",
+      "locations": 0,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.422329Z",
+      "observationDigest": "0ef83426ba5f571302cce976d51f85d9033d37ac7c3ab8a1197c771b3692731b"
+    },
+    {
+      "domain": "artdecocollection.com",
+      "listingSourceId": "ls_01m7e30ygtej4tkk98yxfdg1sr",
+      "partyId": "pty_01m7e30ygaecn8yavr3x92rwj1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.518838Z",
+      "observationDigest": "fed4e66fd4016740af7def7cd03d83420bbacc60dfcc4ba12bb1937751542068"
+    },
+    {
+      "domain": "isaklindenauer.com",
+      "listingSourceId": "ls_01m7e32gype3pb3j9t4m4nb1v1",
+      "partyId": "pty_01m7e32gyde4ar8jfsqm36cefg",
+      "locations": 1,
+      "logo": false,
+      "platform": "WEEBLY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.675049Z",
+      "observationDigest": "b76f41f34f4457a8ec4d627a60b6b206b8aa014fa07d15a89a20ead4b7611d1b"
+    },
+    {
+      "domain": "modcitymad.com",
+      "listingSourceId": "ls_01m7e34kq2e8qvx006vjjf16fr",
+      "partyId": "pty_01m7e34kppe3fsa51xz3j601y9",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.722345Z",
+      "observationDigest": "07957ce3f3452eab1d4a92c4b5f3e01edf059a1217fff9cce77e5e4a98f42033"
+    },
+    {
+      "domain": "renaissanceantiques.com",
+      "listingSourceId": "ls_01m7e32habe3yrve2ns4axa88j",
+      "partyId": "pty_01m7e32h9teqpbhs31qphsa8ed",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.772937Z",
+      "observationDigest": "53d43ad37eb8af136f3906be9ad7217f9bfd6fe8128b23fb756da7324a756bdc"
+    },
+    {
+      "domain": "landandseacollection.com",
+      "listingSourceId": "ls_01m7e32k5re7arntqv67mwh4sh",
+      "partyId": "pty_01m7e32k5dezcszw7ges022gz9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.927874Z",
+      "observationDigest": "3d33a96aa12902392c7404b095cd6edf5859bc60f313b1a0d3f2679c853aff9d"
+    },
+    {
+      "domain": "oldnewhouse.com",
+      "listingSourceId": "ls_01m7e34bcfeyasg0mjm5sq7ejv",
+      "partyId": "pty_01m7e34bbze94s2b9bsd2qremk",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:30.972456Z",
+      "observationDigest": "e294eec5239176b8dfdc87226ecdab540192c3b22df08988119723e356a2749b"
+    },
+    {
+      "domain": "jdorientalrugs.com",
+      "listingSourceId": "ls_01m7e34d69ew7thctvt0t3x9j8",
+      "partyId": "pty_01m7e34d61ekn8f7a9b51k5n74",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.069757Z",
+      "observationDigest": "6a3fcf9eb5df8c740eb627555fc0cfffbf929d2d56462a7221f72230c5502aa4"
+    },
+    {
+      "domain": "rugsonnet.com",
+      "listingSourceId": "ls_01m7e369sqe8ftsghvtnb1d5j0",
+      "partyId": "pty_01m7e369sberj92yhrst7sn9kh",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.267579Z",
+      "observationDigest": "c2c9adafd23cfacbd77853ea461ba6918a6cfe350802f20d254ebbff8f286e8e"
+    },
+    {
+      "domain": "warrenantiques.com",
+      "listingSourceId": "ls_01m7e33n7dezjrxsddfwyn7whq",
+      "partyId": "pty_01m7e33n6wesgsh6h2msg6pmwp",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.222606Z",
+      "observationDigest": "b199ddc7c8d32084aeb36a0e0538243c93b0d1d0cbcf5aae6eb9dbe27a607327"
+    },
+    {
+      "domain": "cooleygallery.com",
+      "listingSourceId": "ls_01m7e33px3ek9a0cpmr5g65ygy",
+      "partyId": "pty_01m7e33pwpew49460ndfw736wm",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTSYSTEMS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.323822Z",
+      "observationDigest": "85b8e616ad9b4f3b54f552c75133944c6a34fecd6e4ac00afd12c9986b7f71ec"
+    },
+    {
+      "domain": "candbevansantiques.com",
+      "listingSourceId": "ls_01m7e379rqe6wrrt0a2wzk233z",
+      "partyId": "pty_01m7e379raejc9q9d8aets982s",
+      "locations": 0,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.392473Z",
+      "observationDigest": "2ee6ec74324fb3a583dd4c01cf18027b15a5215b2c09f7ba58d08dcfecef4071"
+    },
+    {
+      "domain": "jordanantiquarianbooks.com",
+      "listingSourceId": "ls_01m7e39czre3wbtfytrtqg27p4",
+      "partyId": "pty_01m7e39czce1qt0t9fsw8epr33",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.530838Z",
+      "observationDigest": "744cc59f0416a6e5dcb63f639471d68a5cbd5d6c069ab1ac79dfe453334f8216"
+    },
+    {
+      "domain": "theantiquehaus.com",
+      "listingSourceId": "ls_01m7jf0m9aej2sg79nqt9ymn0w",
+      "partyId": "pty_01m7jf0m87esw9h7bvz77jt185",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:50:31.639601Z",
+      "observationDigest": "e27b6330df34d5ffc738366b2d14817c1dde3ef1f32447283789f00037700de5"
     }
   ]
 }

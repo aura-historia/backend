@@ -1,33 +1,34 @@
 {
-  "run": "2026-11-03-at-103",
-  "verifiedAt": "2026-11-03T20:11:17.284831Z",
-  "scope": "INCREMENTAL",
+  "run": "2026-11-25-removal-refresh",
+  "verifiedAt": "2026-11-25T08:40:52.697669Z",
+  "scope": "FULL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T20:00:13.989999Z",
-  "dealersCheckedThisRun": 0,
-  "dealersReused": 166,
+  "fullVerifiedAt": "2026-11-25T08:40:52.697669Z",
+  "dealersCheckedThisRun": 137,
+  "dealersReused": 0,
   "counts": {
-    "parties": 162,
-    "listingSources": 166,
-    "locations": 202,
-    "logos": 139,
-    "identifiedPlatforms": 135,
-    "deliveryProfiles": 93,
-    "emptyIngestionMethods": 166,
-    "excluded": 22,
-    "deferred": 111
+    "parties": 135,
+    "listingSources": 137,
+    "locations": 170,
+    "logos": 116,
+    "identifiedPlatforms": 112,
+    "deliveryProfiles": 77,
+    "emptyIngestionMethods": 1,
+    "ingestionConfigured": 136,
+    "excluded": 118,
+    "deferred": 218
   },
   "environmentCounts": {
-    "parties": 3512,
-    "listingSources": 3548
+    "parties": 4428,
+    "listingSources": 4465
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
     "Live managed Party contacts and ownership match reviewed evidence",
     "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
+    "Live ingestion methods recorded per dealer (discovery never enables them); platform metadata independent",
     "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Inventory inheritance has explicit evidence or the single-location dealer policy"
   ],
   "dealers": [
     {
@@ -38,9 +39,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:39.913407Z",
+      "verifiedAt": "2026-11-25T08:40:39.398626Z",
       "observationDigest": "189c26d1d380297845c010bb25511c8d064a462a9c09f69befc924c23c964853"
     },
     {
@@ -51,9 +54,11 @@
       "logo": true,
       "platform": "SHOPIFY",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:39.684251Z",
+      "verifiedAt": "2026-11-25T08:40:39.356727Z",
       "observationDigest": "74e7ddd3e62d8388842c0a9a20454c72e379b53e0efde834a46ee2bab41a72e1"
     },
     {
@@ -64,9 +69,11 @@
       "logo": false,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:39.742997Z",
+      "verifiedAt": "2026-11-25T08:40:39.396053Z",
       "observationDigest": "8426d2cded202e80f13e474e3bf8c34e10789dc0d960885a69225efb434315ac"
     },
     {
@@ -79,7 +86,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:40.152446Z",
+      "verifiedAt": "2026-11-25T08:40:39.586608Z",
       "observationDigest": "1175d9a1f298f1616e92ab3f05b7c106173dfda2f991ad2dec2e94e07b33ae9d"
     },
     {
@@ -90,9 +97,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:40.341385Z",
+      "verifiedAt": "2026-11-25T08:40:39.674193Z",
       "observationDigest": "1036456bf30ab4374ee9d96238b2021cc6a6e67a9e9365cfe189e2e010e3f560"
     },
     {
@@ -103,9 +112,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:40.593730Z",
+      "verifiedAt": "2026-11-25T08:40:39.768885Z",
       "observationDigest": "d3ce93131ae68d02f1bbc92393fa8e71e46abc3bb7584461b4a8992824e337bf"
     },
     {
@@ -116,9 +127,11 @@
       "logo": true,
       "platform": "NEXTJS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:40.576635Z",
+      "verifiedAt": "2026-11-25T08:40:39.863287Z",
       "observationDigest": "7de80e1af3d5e61ccc1baa2f76eff546357e519b526c6f2aeaa0aef51ea781d7"
     },
     {
@@ -129,9 +142,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:40.863552Z",
+      "verifiedAt": "2026-11-25T08:40:40.004013Z",
       "observationDigest": "74191769f0331cce04ff377ee3bb8eb4151853681d1757af378279bc7bda1ac0"
     },
     {
@@ -142,9 +157,11 @@
       "logo": true,
       "platform": "SHOPWARE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.054753Z",
+      "verifiedAt": "2026-11-25T08:40:40.102291Z",
       "observationDigest": "4b2a39b695e7d77f1bea100cc6935c94dd536134ef942703e266945bc3b66eab"
     },
     {
@@ -155,9 +172,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.096116Z",
+      "verifiedAt": "2026-11-25T08:40:40.193842Z",
       "observationDigest": "fbc01b7bf897ad5fd33d54f5973cc259605b144d9781dd68d563ad3b578a6829"
     },
     {
@@ -168,9 +187,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.374273Z",
+      "verifiedAt": "2026-11-25T08:40:40.323896Z",
       "observationDigest": "9aa27e77d4c5787907991255a46aa85ca4a7c6a44ccdfd52a100db5286307e89"
     },
     {
@@ -181,9 +202,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.625064Z",
+      "verifiedAt": "2026-11-25T08:40:40.375272Z",
       "observationDigest": "38fa8e4cf0ca0efca2c8794dcc4a1d6ed0302688b9f2d4cab864ee56df618d10"
     },
     {
@@ -194,9 +217,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.519742Z",
+      "verifiedAt": "2026-11-25T08:40:40.466032Z",
       "observationDigest": "6322003ca1252bf57e4b55eb3599543537666cc077737d7626b8fa63e05dbcec"
     },
     {
@@ -207,9 +232,11 @@
       "logo": true,
       "platform": "JOOMLA",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.936096Z",
+      "verifiedAt": "2026-11-25T08:40:40.636152Z",
       "observationDigest": "7da4d5fd69507925fdf7fefafb7270e0075be2567c0735637cde8747014e9bab"
     },
     {
@@ -220,9 +247,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:41.970060Z",
+      "verifiedAt": "2026-11-25T08:40:40.643848Z",
       "observationDigest": "6deee78ed11a13fca67bb5ffec261e03d03690c5a3fe44a77d9a4ea5cdc35e37"
     },
     {
@@ -233,9 +262,11 @@
       "logo": true,
       "platform": "DRUPAL",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:42.503868Z",
+      "verifiedAt": "2026-11-25T08:40:40.827986Z",
       "observationDigest": "20acfa758c8479eedf3a7cccc923a1b0e4622afbaf1be33cdee8628224aeed6e"
     },
     {
@@ -246,9 +277,11 @@
       "logo": true,
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:42.646545Z",
+      "verifiedAt": "2026-11-25T08:40:40.915507Z",
       "observationDigest": "b55c10edd02a78b2bc1c256b550e2dc565cefef2624beb3d49960a85e113b913"
     },
     {
@@ -259,9 +292,11 @@
       "logo": true,
       "platform": "JOOMLA",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:42.605879Z",
+      "verifiedAt": "2026-11-25T08:40:40.917557Z",
       "observationDigest": "db6b8c42f5f86dfbc9ced1ea58c2b8907622383a032d35b212b609bcf623dfe1"
     },
     {
@@ -272,9 +307,11 @@
       "logo": true,
       "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.007619Z",
+      "verifiedAt": "2026-11-25T08:40:41.090897Z",
       "observationDigest": "9afba0fe2145921a78ef0d3b72e573012073a69429ef7c879119c5b9ebd0ef3a"
     },
     {
@@ -285,23 +322,12 @@
       "logo": true,
       "platform": "SHOPIFY",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.080954Z",
+      "verifiedAt": "2026-11-25T08:40:41.183406Z",
       "observationDigest": "a9874f9c9f861f3d0ed692068e993ce78e697088f57379b9f3911ee5a259980c"
-    },
-    {
-      "domain": "bakerhousegallery.com",
-      "listingSourceId": "ls_01m6gf2k78ey9aczya32pgwqcg",
-      "partyId": "pty_01m6gf2k6yetma8dyardd5fhsq",
-      "locations": 2,
-      "logo": false,
-      "platform": "SHOPIFY",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.345679Z",
-      "observationDigest": "c45a680ad4b4389ef11479dcfd52e33317ecf68701264ca8d07f165ab18515d5"
     },
     {
       "domain": "antikmarkt-tirol.at",
@@ -311,9 +337,11 @@
       "logo": true,
       "platform": "PRESTASHOP",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.454620Z",
+      "verifiedAt": "2026-11-25T08:40:41.138570Z",
       "observationDigest": "39ad57042d3ce4c116cd6a1e889387a397529ab1eb877169b0a88c18e27dd7e7"
     },
     {
@@ -324,9 +352,11 @@
       "logo": false,
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.508492Z",
+      "verifiedAt": "2026-11-25T08:40:41.371030Z",
       "observationDigest": "5cc7bc36d7de2caefbe781ce3ce4894759592c9f228e290168513da50822d676"
     },
     {
@@ -337,9 +367,11 @@
       "logo": false,
       "platform": "TYPO3",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.940680Z",
+      "verifiedAt": "2026-11-25T08:40:41.511372Z",
       "observationDigest": "a6291c2c6ca5a5d4c5cef1f9660d46ce113c7ee7dfbc93bc3977fdb1f86f2c82"
     },
     {
@@ -350,9 +382,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:44.073599Z",
+      "verifiedAt": "2026-11-25T08:40:41.545978Z",
       "observationDigest": "f1641044d11a15fd2ac096700a6f5bcd91f12e7e1d9baa38defa0628820b0395"
     },
     {
@@ -363,9 +397,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:43.915352Z",
+      "verifiedAt": "2026-11-25T08:40:41.645636Z",
       "observationDigest": "f6597620b63c1e7e1979abbdd810f1bd39a5de249e6a9b93857eb961a9b406a0"
     },
     {
@@ -376,9 +412,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:44.338964Z",
+      "verifiedAt": "2026-11-25T08:40:41.808792Z",
       "observationDigest": "3aad4887a21ae030becbcf6be43ade91826a15015b0d6a23e71dbd086b95cfae"
     },
     {
@@ -389,9 +427,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:44.593597Z",
+      "verifiedAt": "2026-11-25T08:40:41.918080Z",
       "observationDigest": "f6fbe369484ac2cf6ace79733623ad7dc787fa48312a2e966e889f234645b6ff"
     },
     {
@@ -402,23 +442,12 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:44.574167Z",
+      "verifiedAt": "2026-11-25T08:40:41.914774Z",
       "observationDigest": "d17646cedc37dfcdfbcb20bd46005dcb99dee21ea155f4417416b62b7c372fc5"
-    },
-    {
-      "domain": "robertakeil.com",
-      "listingSourceId": "ls_01m6gfv5jwey896t5xyvy4y9wd",
-      "partyId": "pty_01m6gfv5jeej8vpqfzg504rgt7",
-      "locations": 1,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:44.785965Z",
-      "observationDigest": "a4d2113caa322f387a502b1827596739da7c4f83ec44e725f47d0e862b29ea65"
     },
     {
       "domain": "leskovarfineart.at",
@@ -428,9 +457,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:45.165901Z",
+      "verifiedAt": "2026-11-25T08:40:42.056376Z",
       "observationDigest": "89fa55f037632ffc37121afeece32795beabe25bd3e2cfc4ea9272239352113c"
     },
     {
@@ -441,9 +472,11 @@
       "logo": true,
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:45.240698Z",
+      "verifiedAt": "2026-11-25T08:40:42.126408Z",
       "observationDigest": "2c713fa581be0d0dda3105f2b7fa8101e83f7cbca16d944f833bb1fdf13b4926"
     },
     {
@@ -454,9 +487,11 @@
       "logo": true,
       "platform": "TYPO3",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:45.483577Z",
+      "verifiedAt": "2026-11-25T08:40:42.129561Z",
       "observationDigest": "ad1fda85c8a67e1f55d1f88b67866b413dd83e97e0a357fb02696c4dd2a7a07a"
     },
     {
@@ -467,9 +502,11 @@
       "logo": true,
       "platform": "SHOPIFY",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:45.868694Z",
+      "verifiedAt": "2026-11-25T08:40:42.334372Z",
       "observationDigest": "52c3e1587b16f94f0d07eea8539f962ce17980ca81725dca1a16e3b1a29e1bb2"
     },
     {
@@ -480,9 +517,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:45.922279Z",
+      "verifiedAt": "2026-11-25T08:40:42.474829Z",
       "observationDigest": "ade54afeda736a00cdb47e17a3cbad7b09306b3163a0d064c915146d79b516c4"
     },
     {
@@ -493,9 +532,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:45.977537Z",
+      "verifiedAt": "2026-11-25T08:40:42.383359Z",
       "observationDigest": "44e10881704fcd9aab735a08b7f9f7640977f005fd0580c88402928b0fd5cfe1"
     },
     {
@@ -506,9 +547,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:46.404748Z",
+      "verifiedAt": "2026-11-25T08:40:42.662681Z",
       "observationDigest": "c49975ec6b1ec490f1aa1c73229c0303118350ea3bd3a40a99a608ac4d9b5550"
     },
     {
@@ -519,9 +562,11 @@
       "logo": false,
       "platform": "DUDA",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:46.333488Z",
+      "verifiedAt": "2026-11-25T08:40:42.658819Z",
       "observationDigest": "35c74394065acf1524afabdbcff25ed5a847505d38a507316254b5c56a0aa6f3"
     },
     {
@@ -532,9 +577,11 @@
       "logo": true,
       "platform": "JIMDO",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:46.529689Z",
+      "verifiedAt": "2026-11-25T08:40:42.747141Z",
       "observationDigest": "8491f6f76f5654c9ac9cf7e05da5de16ae1384e5c821d330bec3806cf01efcff"
     },
     {
@@ -545,9 +592,11 @@
       "logo": true,
       "platform": "JOOMLA",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:46.912485Z",
+      "verifiedAt": "2026-11-25T08:40:42.982679Z",
       "observationDigest": "346e6de70fcc045289ab02c421364f6680b551e08c66750331ebf993ce62d852"
     },
     {
@@ -558,9 +607,11 @@
       "logo": true,
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:46.982538Z",
+      "verifiedAt": "2026-11-25T08:40:42.976831Z",
       "observationDigest": "9cf2cc7379aee08d0bc58ec73766ffcddfdace036b3da5128142a2577e1c3afc"
     },
     {
@@ -571,9 +622,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:47.078133Z",
+      "verifiedAt": "2026-11-25T08:40:43.075727Z",
       "observationDigest": "6bf2115fd34956cb6fe75431a6f247fbc11975e7dd315d153892254d7f704120"
     },
     {
@@ -584,23 +637,12 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:47.519343Z",
+      "verifiedAt": "2026-11-25T08:40:43.252417Z",
       "observationDigest": "d051b2fb66fb79b2c12944c4afe665070b56aa8e48ed66220a51ef89fdd61c41"
-    },
-    {
-      "domain": "galeriesommer.com",
-      "listingSourceId": "ls_01m6gh1v6ke5w82xcxd4kkty8p",
-      "partyId": "pty_01m6gh1v5vee4vk7k413ejfk7c",
-      "locations": 1,
-      "logo": true,
-      "platform": "CM4ALL",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:47.433638Z",
-      "observationDigest": "0b8b9c56d442bd9bccd20d46a0cf522bb97c1cfb231965e08824f97a89ad336e"
     },
     {
       "domain": "kunstwelt.at",
@@ -610,9 +652,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:47.542609Z",
+      "verifiedAt": "2026-11-25T08:40:43.274661Z",
       "observationDigest": "7bb886fe421a8228e67814f3d3045f19a2786e2e668c2bf8cc4fd5750f410a84"
     },
     {
@@ -623,9 +667,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:47.919571Z",
+      "verifiedAt": "2026-11-25T08:40:43.326004Z",
       "observationDigest": "9e7dff6c2b85f49887e9b3bb8142640bf07fbc07c578a43b3e7b714fd4b0f885"
     },
     {
@@ -636,9 +682,11 @@
       "logo": true,
       "platform": "TYPO3",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:48.081636Z",
+      "verifiedAt": "2026-11-25T08:40:43.549741Z",
       "observationDigest": "6cbe5290d0ad0bcb8ad37ddc58241159711f0d9eea8851051396bd0f7064c912"
     },
     {
@@ -649,9 +697,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:48.214062Z",
+      "verifiedAt": "2026-11-25T08:40:43.583602Z",
       "observationDigest": "5127c557ba1e8a406e1cd5a94e7c31edb8fa7196070a02bf1d9d9e70252f79f4"
     },
     {
@@ -662,9 +712,11 @@
       "logo": true,
       "platform": "SIQUANDO",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:48.400661Z",
+      "verifiedAt": "2026-11-25T08:40:43.589835Z",
       "observationDigest": "8487def5626a7f39f13b93a6c8b36f88bbe968b3490b2938fee72a173e76ae64"
     },
     {
@@ -675,9 +727,11 @@
       "logo": true,
       "platform": "WIX",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:48.538564Z",
+      "verifiedAt": "2026-11-25T08:40:43.818539Z",
       "observationDigest": "a04008fa68286f1abb3b6408ca39ee7705be14329191abd08bc1f285585e194e"
     },
     {
@@ -688,9 +742,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:48.888095Z",
+      "verifiedAt": "2026-11-25T08:40:43.939340Z",
       "observationDigest": "4517c7bb57c9ddf38bbe6e0630eb1aae0b5fe18db3227020db5e8768ebf70c1f"
     },
     {
@@ -701,9 +757,11 @@
       "logo": false,
       "platform": "WIX",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:48.985353Z",
+      "verifiedAt": "2026-11-25T08:40:43.905733Z",
       "observationDigest": "ade5876df1273d72796f973dc4ad31d321ff47c471e7f2c789b55aad98d736b6"
     },
     {
@@ -714,23 +772,12 @@
       "logo": false,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:49.075054Z",
+      "verifiedAt": "2026-11-25T08:40:44.136449Z",
       "observationDigest": "6ab295f718a81c013119ae3b544f6df72e2fc6e1be0f97340757c4dc24516616"
-    },
-    {
-      "domain": "galerie-felixhoeller.shop",
-      "listingSourceId": "ls_01m6gjpzz5ernvtmjn504wsk4f",
-      "partyId": "pty_01m6gjpzyge048je0749d49a11",
-      "locations": 1,
-      "logo": true,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:49.445783Z",
-      "observationDigest": "7d7cec9e5cfc5485b333c36b822b295c9b46e240d16be35ec70a63382a60c6c6"
     },
     {
       "domain": "studiocasita.at",
@@ -740,9 +787,11 @@
       "logo": false,
       "platform": "WIX",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:49.458949Z",
+      "verifiedAt": "2026-11-25T08:40:44.174891Z",
       "observationDigest": "cc1f9f35361b6db40702be102dc48db362659970169cfd2acc04c55902a195b1"
     },
     {
@@ -753,9 +802,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:49.576492Z",
+      "verifiedAt": "2026-11-25T08:40:44.253656Z",
       "observationDigest": "f20ac34fc5e334631840db5c1690a45300603a6ba75f466ccb396dddad349559"
     },
     {
@@ -766,23 +817,12 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:49.927966Z",
+      "verifiedAt": "2026-11-25T08:40:44.404459Z",
       "observationDigest": "102238600c57d231cb08e7d73773b4ddea0259e1ce37b6edbb60acab62fa10c4"
-    },
-    {
-      "domain": "arsartis.at",
-      "listingSourceId": "ls_01m6gk31kse1ptd3gp72mp7mc0",
-      "partyId": "pty_01m6gk31k5evf8f21n16bwv1ym",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:49.955668Z",
-      "observationDigest": "c52926b4228cc3a2f00b09c4da53c245d5f34693219b1af87b95f46ea8f58f0e"
     },
     {
       "domain": "ruberl.at",
@@ -792,9 +832,11 @@
       "logo": true,
       "platform": "CRAFT_CMS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:50.078387Z",
+      "verifiedAt": "2026-11-25T08:40:44.444671Z",
       "observationDigest": "d211d463b22e6dd234b75659620200c249aec5c1804b4b2c884b62ab61e2b771"
     },
     {
@@ -805,9 +847,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:50.498857Z",
+      "verifiedAt": "2026-11-25T08:40:44.550724Z",
       "observationDigest": "44449426411e2bfeaf77812e3b34b83699b89eaef5e29454d0b1c225fea71939"
     },
     {
@@ -818,9 +862,11 @@
       "logo": true,
       "platform": "MOTO_CMS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:50.642987Z",
+      "verifiedAt": "2026-11-25T08:40:44.696467Z",
       "observationDigest": "397914fa0e9d89a182af0d371e2c4ed30b244accef88a0ae6efc44f9b35ef561"
     },
     {
@@ -831,9 +877,11 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:50.483411Z",
+      "verifiedAt": "2026-11-25T08:40:44.659431Z",
       "observationDigest": "c9feb6d9f07aff4f00efe555f2c6933134f6b76903bb9f727487a23af429e748"
     },
     {
@@ -844,9 +892,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:50.966888Z",
+      "verifiedAt": "2026-11-25T08:40:44.766243Z",
       "observationDigest": "615db7f7536a92110c0f32763be83e3c5f4ef9dd3b0afece4b4990bf4efda7e6"
     },
     {
@@ -857,9 +907,11 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:51.100802Z",
+      "verifiedAt": "2026-11-25T08:40:44.960578Z",
       "observationDigest": "e8ab02e83edcc471b8a6eb2cfa63b83390a244583734dcfb534bfdfb6265e37f"
     },
     {
@@ -870,9 +922,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:51.251055Z",
+      "verifiedAt": "2026-11-25T08:40:45.011057Z",
       "observationDigest": "8ff483fa214633e0c29e1dbb235134de7ae311e6f22b61684423e2e4f7f0f82c"
     },
     {
@@ -883,49 +937,12 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:51.533671Z",
+      "verifiedAt": "2026-11-25T08:40:45.084892Z",
       "observationDigest": "f925ea26fc6e8f721a5e6add991000454d329aaac519dd69a1b1fcb4aa91d88a"
-    },
-    {
-      "domain": "galeriemaximilianhutz.at",
-      "listingSourceId": "ls_01m6gnrhrveyht7t06aewvf9rs",
-      "partyId": "pty_01m6gnrhr9ed3arwp7z9p5h457",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:51.506721Z",
-      "observationDigest": "b3f84ff8ad88b69ff916040ae9847b33fd35abdfa57d62e31bfbb31fd15ca77d"
-    },
-    {
-      "domain": "c-art.at",
-      "listingSourceId": "ls_01m6gnrkh7ex9twt0d2ssvrqb2",
-      "partyId": "pty_01m6gnrkgse6ermaewee73z72k",
-      "locations": 1,
-      "logo": false,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:51.662896Z",
-      "observationDigest": "78dd9669fb294032cef9a99139cf502a17d9585443c302563febec8180633297"
-    },
-    {
-      "domain": "shop.galerie-lisihaemmerle.at",
-      "listingSourceId": "ls_01m6gnrn8mer4rwpx520z17t98",
-      "partyId": "pty_01m6gnrn81e7sr3qnbxg4s899q",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:51.976944Z",
-      "observationDigest": "ce8812a59eac5b9aeb30cc19c98033d268c98a014471f6f26bffe307704ee065"
     },
     {
       "domain": "antikshop-riegersburg.at",
@@ -935,9 +952,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:52.049864Z",
+      "verifiedAt": "2026-11-25T08:40:45.286920Z",
       "observationDigest": "d2427159cabea987c8b68ed728a3bf07441fd4828c451c84955ae32ba4992c8e"
     },
     {
@@ -948,9 +967,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:52.208064Z",
+      "verifiedAt": "2026-11-25T08:40:45.332611Z",
       "observationDigest": "d8d02404ec3ee3b72257c07232c6c71ff8401e8276b61cdf4edb68e9caded033"
     },
     {
@@ -961,9 +982,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:52.535601Z",
+      "verifiedAt": "2026-11-25T08:40:45.406279Z",
       "observationDigest": "3321ad9920952b64d4c1fd78ec1cda6286e5d3ff83d9a41a135a094a45a0e1f0"
     },
     {
@@ -974,9 +997,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:52.605033Z",
+      "verifiedAt": "2026-11-25T08:40:45.616169Z",
       "observationDigest": "ec52a514b502bfa2d59299f7a4500bde503b17d327ab491ea740861bba1e024a"
     },
     {
@@ -987,9 +1012,11 @@
       "logo": false,
       "platform": "CM4ALL",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:52.601445Z",
+      "verifiedAt": "2026-11-25T08:40:45.602452Z",
       "observationDigest": "d325bdf88602c95f8bb4ece5f8d49bfce9421502556d97f62abc79102e93f720"
     },
     {
@@ -1000,9 +1027,11 @@
       "logo": false,
       "platform": "IONOS_MYWEBSITE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:53.047996Z",
+      "verifiedAt": "2026-11-25T08:40:45.678913Z",
       "observationDigest": "d87f44d5baa7be8b520c916c3e3f57e3650c7088555c9072c4884ca49643c8b5"
     },
     {
@@ -1013,9 +1042,11 @@
       "logo": true,
       "platform": "MODIFIED_ECOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:53.303990Z",
+      "verifiedAt": "2026-11-25T08:40:45.960305Z",
       "observationDigest": "bab7e2f9619d6734c021477a42cdfa440df130ab4b99388d3601b49e5518f866"
     },
     {
@@ -1026,9 +1057,11 @@
       "logo": false,
       "platform": "IONOS_MYWEBSITE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:53.120493Z",
+      "verifiedAt": "2026-11-25T08:40:45.923676Z",
       "observationDigest": "b433df9ff5bbbc09fa4f9bf1e10cc56bb8974cbf4e02604318a5ac3c93cb2575"
     },
     {
@@ -1039,9 +1072,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:53.501152Z",
+      "verifiedAt": "2026-11-25T08:40:45.948127Z",
       "observationDigest": "97e7210e1f3976e4dd629a356260b56da33aadb8a660176b8706508d9f160868"
     },
     {
@@ -1052,9 +1087,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:53.686742Z",
+      "verifiedAt": "2026-11-25T08:40:46.234776Z",
       "observationDigest": "7b2a25e907809dca31eec9c8946656e856a35303465db37351962ed7b6f7f1fa"
     },
     {
@@ -1065,9 +1102,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:53.856098Z",
+      "verifiedAt": "2026-11-25T08:40:46.265581Z",
       "observationDigest": "e0951bf5849f735301442bfa230e085b00ede255816daa6202f5c3a54521d11a"
     },
     {
@@ -1078,9 +1117,11 @@
       "logo": true,
       "platform": "WEBADOR",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:54.191970Z",
+      "verifiedAt": "2026-11-25T08:40:46.273775Z",
       "observationDigest": "8d84bf11a5fa50deac0e44b0f82eb78b71e414c6cd93a4f7b16d4069ea6bd137"
     },
     {
@@ -1091,9 +1132,11 @@
       "logo": true,
       "platform": "CMS_MADE_SIMPLE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:54.348474Z",
+      "verifiedAt": "2026-11-25T08:40:46.601297Z",
       "observationDigest": "a27416cb8c6cc4cb01f1e56ecd557154b8d7de39c81d695c2915d78d876e9a71"
     },
     {
@@ -1104,9 +1147,11 @@
       "logo": true,
       "platform": "XT_COMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:54.429493Z",
+      "verifiedAt": "2026-11-25T08:40:46.582322Z",
       "observationDigest": "15d506b3e0744e1058e22cbb02b08f795c9d6b0651342f61183007a987d48a65"
     },
     {
@@ -1117,9 +1162,11 @@
       "logo": true,
       "platform": "SHOPWARE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:54.921837Z",
+      "verifiedAt": "2026-11-25T08:40:46.635754Z",
       "observationDigest": "6f8ee02440f526fb1ed8dc2425b86e2106995437be47a609f550bcf275b26747"
     },
     {
@@ -1130,9 +1177,11 @@
       "logo": true,
       "platform": "MAGENTO",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:54.850483Z",
+      "verifiedAt": "2026-11-25T08:40:46.911564Z",
       "observationDigest": "4cb01f0c27af64197f436fbefba52a6e3c0af1303cb1b172cd0be8a83a4b51d3"
     },
     {
@@ -1143,75 +1192,12 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:54.976367Z",
+      "verifiedAt": "2026-11-25T08:40:46.916290Z",
       "observationDigest": "5dd3a85ee2c1155dfc1a1772b8a9126a3c8c97861aae80848d21e9403dc47ec5"
-    },
-    {
-      "domain": "hg-art.at",
-      "listingSourceId": "ls_01m6gt7j8mehztgcs69j46fvvn",
-      "partyId": "pty_01m6gt7j88eh3rnd9mwek4rkx7",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:55.405190Z",
-      "observationDigest": "1ff5eccb54b5f08ed44affb6d761511d0953f07aa9c2a84ce3402191746f362f"
-    },
-    {
-      "domain": "galerie-leonhard.at",
-      "listingSourceId": "ls_01m6gvd4z3ed8a2tnf66t66bjj",
-      "partyId": "pty_01m6gvd4ynee1twfxf2318amgx",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:55.424880Z",
-      "observationDigest": "366c12fa0eb78fb8e2cff6f9a0a0e5e361c2c7e846e2f8f345db7f8a61865fa1"
-    },
-    {
-      "domain": "seli.at",
-      "listingSourceId": "ls_01m6gvd7p7e98vqg5hhges53q9",
-      "partyId": "pty_01m6gvd7nqemjvg0103s1hzp6t",
-      "locations": 1,
-      "logo": true,
-      "platform": "ECWID",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:55.466058Z",
-      "observationDigest": "3864b1fc58e4ed7eb6886037f93d5cb4bf55aced9a7f27b7bdc1caa3800c7abe"
-    },
-    {
-      "domain": "ruzicska.com",
-      "listingSourceId": "ls_01m6gxp5xbeq3vh77991zq5y4e",
-      "partyId": "pty_01m6gxp5x1e1va30pwarh0np2t",
-      "locations": 1,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:55.877820Z",
-      "observationDigest": "fee59a401bc5087efd1e57d90e8372b2a1de9b40e69f93d5eb0e3efb19c78ac5"
-    },
-    {
-      "domain": "art-michael-alexander-seywald.com",
-      "listingSourceId": "ls_01m6gxp7aceewam5jajv577krf",
-      "partyId": "pty_01m6gxp7a2edztf5k01vjx3fjb",
-      "locations": 1,
-      "logo": false,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:55.996081Z",
-      "observationDigest": "beca28c83b33a19a112446ea3a2e8ef9875ccb20597a7ffbcfc8930e2e119ead"
     },
     {
       "domain": "kunsthandel-fiedler.at",
@@ -1221,9 +1207,11 @@
       "logo": true,
       "platform": "WEBNODE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:55.963204Z",
+      "verifiedAt": "2026-11-25T08:40:46.905382Z",
       "observationDigest": "9fe67f87a521b0166b779a045d82c1a76832ed11555e053a98474557ceb006c6"
     },
     {
@@ -1234,9 +1222,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:56.460402Z",
+      "verifiedAt": "2026-11-25T08:40:47.237386Z",
       "observationDigest": "8ec0fe21bb64a5f44369464b2c8c83afeff896ffa7404b86176b77b90803f042"
     },
     {
@@ -1247,9 +1237,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:56.561081Z",
+      "verifiedAt": "2026-11-25T08:40:47.292220Z",
       "observationDigest": "616b24016a85efa42717fe402ec74ca84c648f4e143eefd22e6d69d0277eae1e"
     },
     {
@@ -1260,9 +1252,11 @@
       "logo": true,
       "platform": "SHOPIFY",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:56.581687Z",
+      "verifiedAt": "2026-11-25T08:40:47.240847Z",
       "observationDigest": "d8fd2fc3a0e2390ff9585a344e43cba506d7eab3f2db3b88c4c9d9248e9484be"
     },
     {
@@ -1273,9 +1267,11 @@
       "logo": false,
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:56.968751Z",
+      "verifiedAt": "2026-11-25T08:40:47.489783Z",
       "observationDigest": "c6831319f8c5a0a562b64b271ff1d334068dfd2ccdd94b7c959cbce0b95defc1"
     },
     {
@@ -1286,9 +1282,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:57.179027Z",
+      "verifiedAt": "2026-11-25T08:40:47.538386Z",
       "observationDigest": "a4392273665ff5a7d1018cbb57adbefdfcd12427e69ab4bb8d6c1159f27dbbe3"
     },
     {
@@ -1299,9 +1297,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:57.250686Z",
+      "verifiedAt": "2026-11-25T08:40:47.629276Z",
       "observationDigest": "1312ca5c88eee9fce73a6d8c7dd2f7ed705c654d3b36d462bbfc4f0c6521d770"
     },
     {
@@ -1312,9 +1312,11 @@
       "logo": true,
       "platform": "HESCOM_SHOP",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:57.536561Z",
+      "verifiedAt": "2026-11-25T08:40:47.792622Z",
       "observationDigest": "4c07111a4a3f9b1769f9b868b3fa42c0dcf850aed8f5b91aeb4ec6c62e4bae07"
     },
     {
@@ -1325,62 +1327,12 @@
       "logo": true,
       "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:57.801077Z",
+      "verifiedAt": "2026-11-25T08:40:47.842966Z",
       "observationDigest": "c8df7d961b936a48b02d110b178ae72cea2ca62b233a54a06557acb367ccc6f4"
-    },
-    {
-      "domain": "anzenbergergallery-bookshop.com",
-      "listingSourceId": "ls_01m6h1e1mcescb9e46tvbapks6",
-      "partyId": "pty_01m6h1e1kpea2989z9b11zjr5n",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:57.793744Z",
-      "observationDigest": "ce8880251c6fe1679335690f691deb37d17b39f2a666a17a5bbfda851545dea4"
-    },
-    {
-      "domain": "anzenbergergallery.com",
-      "listingSourceId": "ls_01m6h1f9ece6wa6tvzxbc2epgb",
-      "partyId": "pty_01m6h1e1kpea2989z9b11zjr5n",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:58.149356Z",
-      "observationDigest": "23eedfb7d0cab5be638587fe90ece76d4c77d4d1a2ec6c71d6666e3f1a9d0f94"
-    },
-    {
-      "domain": "reginaanzenberger.com",
-      "listingSourceId": "ls_01m6h1fbche3z8cgzgh42s13as",
-      "partyId": "pty_01m6h1e1kpea2989z9b11zjr5n",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:58.355164Z",
-      "observationDigest": "b1e10d7257b912245ce44073ea3f08f53824486c3f52dff868e255f0f6020212"
-    },
-    {
-      "domain": "hilger.at",
-      "listingSourceId": "ls_01m6h1m969e6st76kv3vrmya40",
-      "partyId": "pty_01m6h1m95se5hvfn6zh1ctwdp7",
-      "locations": 2,
-      "logo": true,
-      "platform": "ARTBUTLER_WEB",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:58.415462Z",
-      "observationDigest": "1991a869a1835f6724e6fc693f25ca7a29c8654a6976b8eced879b2782f11e15"
     },
     {
       "domain": "orientteppich-koppensteiner.com",
@@ -1390,9 +1342,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:58.542684Z",
+      "verifiedAt": "2026-11-25T08:40:47.889232Z",
       "observationDigest": "1f456c335042857b5528d47e3ccb01e223b3f28c40dd7fddc6e5448abcb4d763"
     },
     {
@@ -1403,23 +1357,12 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:58.860390Z",
+      "verifiedAt": "2026-11-25T08:40:48.035262Z",
       "observationDigest": "990ada8eac0bebc256ad395e059b472423ed00fdf845fb57eb87c3062c339af9"
-    },
-    {
-      "domain": "galerie3.com",
-      "listingSourceId": "ls_01m6h21jcjevjb6zp8gf4t0g5g",
-      "partyId": "pty_01m6h21jb5ecp9bz58vnqgb4x0",
-      "locations": 2,
-      "logo": true,
-      "platform": "ARTBUTLER_WEB",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T19:59:59.055356Z",
-      "observationDigest": "7cd882de5fc035f9e2aca884cc3ea47716357569df9e3c7167abd6f70b39d9fc"
     },
     {
       "domain": "raritaeten-shop.com",
@@ -1429,9 +1372,11 @@
       "logo": true,
       "platform": "MODIFIED_ECOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:59.076838Z",
+      "verifiedAt": "2026-11-25T08:40:48.103916Z",
       "observationDigest": "8eeb32e196f638f01126e995e85ab99c2a75f3a4569e8774d47b059653af34ea"
     },
     {
@@ -1442,9 +1387,11 @@
       "logo": false,
       "platform": "WEBNODE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:59.301146Z",
+      "verifiedAt": "2026-11-25T08:40:48.106036Z",
       "observationDigest": "1827a22f1a8eb3cb6e360ea6dba9e04f0e9d74aeaee18304ffc43a995c1fe006"
     },
     {
@@ -1455,9 +1402,11 @@
       "logo": false,
       "platform": "WEBADOR",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:59.609317Z",
+      "verifiedAt": "2026-11-25T08:40:48.289537Z",
       "observationDigest": "5e03fd03133d7fbd77b617d117c27bb59f3d72cdc773bea22e696008758182f0"
     },
     {
@@ -1468,9 +1417,11 @@
       "logo": true,
       "platform": "WEBADOR",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:59.675966Z",
+      "verifiedAt": "2026-11-25T08:40:48.359026Z",
       "observationDigest": "f97f47f1d1222a628c3cf8527341809631a419f8118f497a2fb0943aa11ec0f9"
     },
     {
@@ -1481,9 +1432,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:59:59.770277Z",
+      "verifiedAt": "2026-11-25T08:40:48.326688Z",
       "observationDigest": "41a15b9596995d28fd38bdc641f0acc9f39afb8d8e491740241795d454fa8acd"
     },
     {
@@ -1494,9 +1447,11 @@
       "logo": false,
       "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:00.907928Z",
+      "verifiedAt": "2026-11-25T08:40:48.535606Z",
       "observationDigest": "90f42369a1949f8d6576e375d6a921c41b1a3772eeaae827bd230454a543479c"
     },
     {
@@ -1507,9 +1462,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:00.936585Z",
+      "verifiedAt": "2026-11-25T08:40:48.592975Z",
       "observationDigest": "10958c5cebfb0f0191a3486a1de9abd13584ddc4e5fce6f75f2977cf8a565324"
     },
     {
@@ -1520,9 +1477,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:01.341579Z",
+      "verifiedAt": "2026-11-25T08:40:48.644781Z",
       "observationDigest": "7fd897df11e9eed50e1185dcd1841caf2d0b47a2c40e8a79f80dcfa63c45a90e"
     },
     {
@@ -1533,9 +1492,11 @@
       "logo": true,
       "platform": "JIMDO",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:01.970220Z",
+      "verifiedAt": "2026-11-25T08:40:48.841641Z",
       "observationDigest": "9bd27885f36a6bb7ace37b045d57f5b16167d4620c66710a57f2443229dccbf3"
     },
     {
@@ -1546,9 +1507,11 @@
       "logo": true,
       "platform": "JIMDO",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:02.174509Z",
+      "verifiedAt": "2026-11-25T08:40:48.875639Z",
       "observationDigest": "d50171decbed1d7cfd811a6320457e6e3f13d499b3c4a157715d19937f958287"
     },
     {
@@ -1559,9 +1522,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:02.376717Z",
+      "verifiedAt": "2026-11-25T08:40:48.921424Z",
       "observationDigest": "af028c7f9c7fdcab6a040f5308c687fa420d68775ac36af9e3deae1b03668f9c"
     },
     {
@@ -1572,9 +1537,11 @@
       "logo": true,
       "platform": "MAGENTO",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:02.777898Z",
+      "verifiedAt": "2026-11-25T08:40:49.193993Z",
       "observationDigest": "152dce7fbad01d4bb8b1939fe203c1dd3994a87d6e2bcc81043973b91af35c4d"
     },
     {
@@ -1585,9 +1552,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:03.186431Z",
+      "verifiedAt": "2026-11-25T08:40:49.145411Z",
       "observationDigest": "ca15085b1ab41a3e6323d9d019263e4ac3957e5565da6d6f2253af16831d52b0"
     },
     {
@@ -1598,9 +1567,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:03.067762Z",
+      "verifiedAt": "2026-11-25T08:40:49.196167Z",
       "observationDigest": "d81318ad37e2c32cadacb722ce863ba51fb77ca7479aff8bb92757089c8490dc"
     },
     {
@@ -1611,9 +1582,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:03.597767Z",
+      "verifiedAt": "2026-11-25T08:40:49.414261Z",
       "observationDigest": "4a56b2bb74bf31e31bb7b90e1ab41256988e4455dbece2552c4e224d496314a8"
     },
     {
@@ -1624,9 +1597,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:04.388303Z",
+      "verifiedAt": "2026-11-25T08:40:49.516192Z",
       "observationDigest": "e5647c88c5417f9f85da2d49f976728ba30ed4165f80128612a76b65a74beb56"
     },
     {
@@ -1637,9 +1612,11 @@
       "logo": true,
       "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:04.111603Z",
+      "verifiedAt": "2026-11-25T08:40:49.483323Z",
       "observationDigest": "e922a2a2ee6c1e91c6dd4b57e6cc87059bcd1901e00b28adc708e8975460ac72"
     },
     {
@@ -1650,9 +1627,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:04.726816Z",
+      "verifiedAt": "2026-11-25T08:40:49.671615Z",
       "observationDigest": "de7d3803abd8a46e05427a7bcc9d76c0b1755937d733be54a05db5875e6125f8"
     },
     {
@@ -1663,9 +1642,11 @@
       "logo": true,
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:04.889391Z",
+      "verifiedAt": "2026-11-25T08:40:49.719938Z",
       "observationDigest": "6caa5426389ce22e769b7f61a8e4e3dbdb23479d5aec6f1162f1e8c062702006"
     },
     {
@@ -1676,9 +1657,11 @@
       "logo": true,
       "platform": "SHOPIFY",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:05.102225Z",
+      "verifiedAt": "2026-11-25T08:40:49.818851Z",
       "observationDigest": "84706f5de8d2f5ae8838a28a59395926074c15a8aefb6fa3debfcefa2b1b0b09"
     },
     {
@@ -1689,9 +1672,11 @@
       "logo": true,
       "platform": "JIMDO",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:05.873577Z",
+      "verifiedAt": "2026-11-25T08:40:50.036985Z",
       "observationDigest": "e1900a1230e9a53466ed4bd9f73548a45d5a49d9ae176da89fdcd219e0c0b957"
     },
     {
@@ -1702,9 +1687,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:05.423940Z",
+      "verifiedAt": "2026-11-25T08:40:49.987911Z",
       "observationDigest": "572f4e5a95421a9dc3bdfd806b0c49ccc8a089c9c560d35373be694296825d22"
     },
     {
@@ -1715,23 +1702,12 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:05.906527Z",
+      "verifiedAt": "2026-11-25T08:40:50.133497Z",
       "observationDigest": "0f9078c609252f416d2b04002f5376382ba40dca14155f8d36412b9f06124583"
-    },
-    {
-      "domain": "galerie21.at",
-      "listingSourceId": "ls_01m6h7m18fenxv9wx6myhc6zyh",
-      "partyId": "pty_01m6h7m17yeyn92wh02rhqg0e1",
-      "locations": 2,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:06.221036Z",
-      "observationDigest": "96904ee70f7c2da7cb78bb5ccba0fa32a3019f86e18cf5db57b98684d3730bb3"
     },
     {
       "domain": "antik-kabinett.at",
@@ -1741,9 +1717,11 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:06.777262Z",
+      "verifiedAt": "2026-11-25T08:40:50.257363Z",
       "observationDigest": "a58a59eca385174e3702d2bc4ba872b5353458155532f5ca785229ce52cfe54e"
     },
     {
@@ -1754,9 +1732,11 @@
       "logo": true,
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:06.553607Z",
+      "verifiedAt": "2026-11-25T08:40:50.335862Z",
       "observationDigest": "2d4fc7a4a3624a21cfa20eeb6562661fa97e7f6cc9c745a8e6591e461a7f9bc2"
     },
     {
@@ -1767,9 +1747,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:07.143367Z",
+      "verifiedAt": "2026-11-25T08:40:50.433612Z",
       "observationDigest": "f293d1d20da742574f2b1eec1cce0dd4f7f590f4967a21ccd13987c577d1d201"
     },
     {
@@ -1780,9 +1762,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:07.620098Z",
+      "verifiedAt": "2026-11-25T08:40:50.599517Z",
       "observationDigest": "d1803b8cdb56cf02227f57a9cf0c34a3bd9e2efb171ad7886e8aa675776cdd10"
     },
     {
@@ -1793,9 +1777,11 @@
       "logo": true,
       "platform": "SHOPIFY",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:07.739504Z",
+      "verifiedAt": "2026-11-25T08:40:50.662769Z",
       "observationDigest": "501acda2a042cc448808f236803630cbdb74893e149acca153a60fb2835b5f41"
     },
     {
@@ -1806,9 +1792,11 @@
       "logo": false,
       "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:07.917911Z",
+      "verifiedAt": "2026-11-25T08:40:50.761003Z",
       "observationDigest": "5c4180fd6e768a0789a0f1767bf71c14863067f587b720a830e6fc3093bb2d84"
     },
     {
@@ -1819,9 +1807,11 @@
       "logo": true,
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:08.424731Z",
+      "verifiedAt": "2026-11-25T08:40:50.964209Z",
       "observationDigest": "532c17b4da52e18bbe6c54e29c587161a2d9c51cdae4bac33804686f22e67d8f"
     },
     {
@@ -1832,9 +1822,11 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:08.377779Z",
+      "verifiedAt": "2026-11-25T08:40:50.976716Z",
       "observationDigest": "a36bb10f92ece61e6a185d1546d47d3c1d4f006608dda733266d0768d1257e6b"
     },
     {
@@ -1845,49 +1837,12 @@
       "logo": true,
       "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:08.729173Z",
+      "verifiedAt": "2026-11-25T08:40:51.088273Z",
       "observationDigest": "c8340bd13cc5774e16ab7a75c8855a26f7525577a49fbc6713a945de0fa70750"
-    },
-    {
-      "domain": "galeriegrill.com",
-      "listingSourceId": "ls_01m6hbqrc9e50bawknvxhaha69",
-      "partyId": "pty_01m6hbqrbvencrg8wzxths12et",
-      "locations": 1,
-      "logo": true,
-      "platform": "SHOPIFY",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:08.980410Z",
-      "observationDigest": "343338db306b8d2e4699a7bfb4aad2c81f1d4358ab7d864decf70849f78368ce"
-    },
-    {
-      "domain": "burn-in.at",
-      "listingSourceId": "ls_01m6hbqth1eyg9wp176gfz02v3",
-      "partyId": "pty_01m6hbqtgmepm9q4572vb1n9mn",
-      "locations": 2,
-      "logo": true,
-      "platform": "DRUPAL_COMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:09.204237Z",
-      "observationDigest": "fa62001b13dd3d66f12e1dd9939858f95782d0dedce975f424d8d24e2a2b32e5"
-    },
-    {
-      "domain": "galerie-augustin.com",
-      "listingSourceId": "ls_01m6hbqwxberj9vsb9r0gzq9q3",
-      "partyId": "pty_01m6hbqwwxeqkvn1r1jct7a5m7",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:09.202071Z",
-      "observationDigest": "99f4dd448394f9ce04d7878356a8fc12ff23712b8978ce0627e7a8871b2d72a9"
     },
     {
       "domain": "antik-art.at",
@@ -1897,9 +1852,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:09.989066Z",
+      "verifiedAt": "2026-11-25T08:40:51.272305Z",
       "observationDigest": "5fde8ef48ea53b152695777bbdb8c3c57b5bfc31397a91617da582d51eda8283"
     },
     {
@@ -1910,36 +1867,12 @@
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:09.840800Z",
+      "verifiedAt": "2026-11-25T08:40:51.191162Z",
       "observationDigest": "726cff64b7fd4ed931e2cad0a447a6b71e675519432dfd8c0ff1fb1ffee91138"
-    },
-    {
-      "domain": "galerie3034.at",
-      "listingSourceId": "ls_01m6hcj2d1ejv8n4skr9apmnqx",
-      "partyId": "pty_01m6hcj2cge0sbzwygvcm0pby7",
-      "locations": 1,
-      "logo": true,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:09.781538Z",
-      "observationDigest": "78841df2b2719f55043c6739ad665cf96fb74beceecf7f0dc126b19318c111e5"
-    },
-    {
-      "domain": "silverfineart.com",
-      "listingSourceId": "ls_01m6hcj4fseszapf0sgjvqe9xs",
-      "partyId": "pty_01m6hcj4f2ej4rjpzwztmdrh50",
-      "locations": 2,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:10.717267Z",
-      "observationDigest": "b4ccc2f4b9258c0b0ca1290605d65a0caf650672817497c164fc4065a0ad8f1a"
     },
     {
       "domain": "moebel-kunst-galerie.com",
@@ -1949,9 +1882,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:10.729525Z",
+      "verifiedAt": "2026-11-25T08:40:51.373451Z",
       "observationDigest": "02b946203dec27a56b8688ec12384e8d6ac10846c9869ae014c0871ab94c472e"
     },
     {
@@ -1962,49 +1897,12 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:10.541038Z",
+      "verifiedAt": "2026-11-25T08:40:51.466555Z",
       "observationDigest": "e43b55c171aaf4d89c7ed8c4fd5da679bb25e6274135cccd49279e1dbf8468f0"
-    },
-    {
-      "domain": "ateliervogelfrei.com",
-      "listingSourceId": "ls_01m6hdgybxef3rrtjnwsge1g1v",
-      "partyId": "pty_01m6hdgybgenga6yh3smxz00qc",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:11.361203Z",
-      "observationDigest": "633c799a14c6032d14b2b2ed3781216d89f765905f6e0b11b48a800b305136c7"
-    },
-    {
-      "domain": "judith-artdesign.com",
-      "listingSourceId": "ls_01m6hdgzyfe60ba7gk8yenzqkm",
-      "partyId": "pty_01m6hdgzxzen1aj6f7vk3y5ywe",
-      "locations": 1,
-      "logo": true,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:11.380341Z",
-      "observationDigest": "968b6a832b6cafb00afc638fa5e34a5a3a27a68116f1c69c4f4be5a4150c5aa6"
-    },
-    {
-      "domain": "hias86.bigcartel.com",
-      "listingSourceId": "ls_01m6hdpdh4e73s9np9g3z6w2zv",
-      "partyId": "pty_01m6hdpdgpetqaxr2ym765xcb7",
-      "locations": 1,
-      "logo": true,
-      "platform": "BIG_CARTEL",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:11.686221Z",
-      "observationDigest": "a4074664b4c2ca1c7c612c28e093ec559b7efa93c635ed72989b71764420c85f"
     },
     {
       "domain": "xn--antiquitten-reich-xqb.at",
@@ -2014,9 +1912,11 @@
       "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:11.973489Z",
+      "verifiedAt": "2026-11-25T08:40:51.546505Z",
       "observationDigest": "e93ef590f6ccecad998e6392062fa0664260eafdd4ccff40c27c4b006762630b"
     },
     {
@@ -2027,9 +1927,11 @@
       "logo": false,
       "platform": "JIMDO",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:12.197164Z",
+      "verifiedAt": "2026-11-25T08:40:51.685065Z",
       "observationDigest": "898c6fb968e5a8aa7d26021733709da6035bc1d77921bbcbbf7372b8513fd13a"
     },
     {
@@ -2040,153 +1942,147 @@
       "logo": true,
       "platform": "TYPO3",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:12.516042Z",
+      "verifiedAt": "2026-11-25T08:40:51.756441Z",
       "observationDigest": "e798a7d71a732b5f9b016c398629790a7f9ac3ca9efb5ff0c2072b07ae3377e7"
     },
     {
-      "domain": "amart.at",
-      "listingSourceId": "ls_01m6he1mvsez4vz56hp6ekge45",
-      "partyId": "pty_01m6he1mvfe0f9za6wwv76am6h",
+      "domain": "dekorative.at",
+      "listingSourceId": "ls_01m6jt04zaehsbsgwn4tah6s9j",
+      "partyId": "pty_01m6jt04z3ez7twp325pd760jk",
       "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:40:51.857830Z",
+      "observationDigest": "b220afb6839f00be39493b3a54026970ea8566d8d8623c8e8237d110b5a2f002"
+    },
+    {
+      "domain": "antik-kachelofen.com",
+      "listingSourceId": "ls_01m6jvh7ggedys0j05gpyqjd5m",
+      "partyId": "pty_01m6jvh7eveenbcnk9mjrfjrq1",
+      "locations": 1,
       "logo": true,
       "platform": "JIMDO",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:12.777561Z",
-      "observationDigest": "3559e0dd635930715dc78bb27b057b1b3810910bbfe30727f14162e05d2f8ad4"
+      "verifiedAt": "2026-11-25T08:40:51.898057Z",
+      "observationDigest": "55bc320b3c36a165d1cb7a18fa3c2e7b4481ae4cf2ddf60ded00476b92427b31"
     },
     {
-      "domain": "galerie-10erhaus.at",
-      "listingSourceId": "ls_01m6heev2perr88t5vdks4x26m",
-      "partyId": "pty_01m6heev23eegr0zk22ga7wnyy",
+      "domain": "antiquitaeten-taeuber.com",
+      "listingSourceId": "ls_01m6jw828se2vsp60ryeaq4jtg",
+      "partyId": "pty_01m6jw828he2hrg6dz4bkkp505",
       "locations": 1,
-      "logo": true,
-      "platform": "VIRTUEMART",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:12.910733Z",
-      "observationDigest": "11f2d1ccdaa6190b7ceb83b785fc74ea415d596af3e6780eb4ea63d5a0596331"
-    },
-    {
-      "domain": "shop.galeriethoman.com",
-      "listingSourceId": "ls_01m6heey1aejqr96n78nm3a61x",
-      "partyId": "pty_01m6heey0qepwry1gswp60b39a",
-      "locations": 2,
       "logo": false,
-      "platform": "SHOPIFY",
+      "platform": "SQUARESPACE",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:13.362137Z",
-      "observationDigest": "e91ef2561c7ef323e63f9bb18a076b5f939b008cfc113ec891bb2f2940850ad2"
+      "verifiedAt": "2026-11-25T08:40:52.039781Z",
+      "observationDigest": "718966ef3d775e04e671ede241055be8f1ab80e38a74f791e8c046e50d08bdfd"
     },
     {
-      "domain": "galeriedornerbauer.com",
-      "listingSourceId": "ls_01m6hen4pqe63923d0w81ksrnt",
-      "partyId": "pty_01m6hen4p3e4avq9scykxa843v",
+      "domain": "bild-und-rahmen.at",
+      "listingSourceId": "ls_01m6jzqt8he3bv7camt0d6x99d",
+      "partyId": "pty_01m6jzqt84evfsq33nr9d2d93p",
       "locations": 1,
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:00:13.355619Z",
-      "observationDigest": "d82404dc642f1179954988aac3c56d176855c7fd9ea0467498ca8166c4ffbcd1"
+      "verifiedAt": "2026-11-25T08:40:52.089179Z",
+      "observationDigest": "dc6017461eed4352550359d2e26712c0e2e781513f4cfa026e33b2abf31371c7"
     },
     {
-      "domain": "artmoments.at",
-      "listingSourceId": "ls_01m6hetxebef3v6vpstbr74bkd",
-      "partyId": "pty_01m6hetxdye6jafct2mzwtj61w",
-      "locations": 2,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:13.765609Z",
-      "observationDigest": "773f2148f43493592ea701766decd96b545e78afcefb2f71ff3e3c17bd321065"
-    },
-    {
-      "domain": "artforyou.at",
-      "listingSourceId": "ls_01m6hf9jayeckb9vjhmcf3bs12",
-      "partyId": "pty_01m6hf9ja6eetst3eazdt86c19",
-      "locations": 0,
-      "logo": false,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:00:13.988463Z",
-      "observationDigest": "66d7d9b20a43b8eda1dad302856ede72a57421b716b9ee1d9ea6bab1f8ee2bab"
-    },
-    {
-      "domain": "galerie-krinzinger-shop.at",
-      "listingSourceId": "ls_01m6hg5xz4e8t9hnpbwan2rj6m",
-      "partyId": "pty_01m6hg5xyqef7vmwc20ccj4yqn",
+      "domain": "galerie-albertina.at",
+      "listingSourceId": "ls_01m6k1fzbkexqbc9nj729zq9sy",
+      "partyId": "pty_01m6k1fzb1ebataa5w5myp4sff",
       "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:40:52.185562Z",
+      "observationDigest": "e38a9508ac1cf540d52e7b6aac21698c243760cec84c86d9b143e7a8344effd7"
+    },
+    {
+      "domain": "ikonen-mautner.com",
+      "listingSourceId": "ls_01m6k9h5rge40rjbd3kfkyeqcc",
+      "partyId": "pty_01m6k9h5r2eeebj38s99j5h0kw",
+      "locations": 1,
+      "logo": true,
+      "platform": "BASE44",
+      "deliveryProfile": true,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-25T08:40:52.367066Z",
+      "observationDigest": "74dcc4a4350880f1aa87ae0541cb3e364058ad95f3e8dd8eb20bc36aa9c59bfd"
+    },
+    {
+      "domain": "edelwerkstatt.at",
+      "listingSourceId": "ls_01m6kbcwqxe42v6xyn4nbjcyjv",
+      "partyId": "pty_01m6kbcwqdegmvs162bpa9gxgk",
+      "locations": 3,
       "logo": true,
       "platform": "JIMDO",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:04:25.833423Z",
-      "observationDigest": "4fe8239f32b44d4cc70a2bc66bf939fcd90f7d9161f497f739b9899ce684157c"
+      "verifiedAt": "2026-11-25T08:40:52.509733Z",
+      "observationDigest": "7ea61ad1cbaab6fba2eca444a6798b111103cec49cb3c55fd1cbedceebdc0658"
     },
     {
-      "domain": "graessle.art",
-      "listingSourceId": "ls_01m6hgff72evkt4t7ckmensvtx",
-      "partyId": "pty_01m6hgff6geerrhr1bmyqbnbng",
+      "domain": "kunstkauf-online.at",
+      "listingSourceId": "ls_01m6kbnaa4eccbnejz7s05q0sj",
+      "partyId": "pty_01m6kbna9kej3a8tzhvk9s809r",
       "locations": 1,
       "logo": false,
-      "platform": "WIX",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:09:39.911350Z",
-      "observationDigest": "28a19577f0fdb87ddb0674a9a9e20bf3f071327f9c4b3427c3cb44c602206e6e"
+      "verifiedAt": "2026-11-25T08:40:52.512520Z",
+      "observationDigest": "02e9cf3de356cd672c154ca2ff00f7591f1fdd0b0a1f4acb89c04a714baf6bf5"
     },
     {
-      "domain": "christine-scherl.at",
-      "listingSourceId": "ls_01m6hgfgyeexrbd0pc840gvnm1",
-      "partyId": "pty_01m6hgfgxyemtby5bh490aen86",
-      "locations": 1,
-      "logo": false,
-      "platform": "WIX",
-      "deliveryProfile": false,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:09:39.879261Z",
-      "observationDigest": "d19314092277f5f5e5de0929c230057ac182a7accc62a6263a283fc293dcf8a6"
-    },
-    {
-      "domain": "wiebkenicklisch.com",
-      "listingSourceId": "ls_01m6hgfjxde2v9549v6yzkjtcb",
-      "partyId": "pty_01m6hgfjwwe50ss5e7rypvn9xg",
+      "domain": "antikhof-figl.at",
+      "listingSourceId": "ls_01m6kc00m9ez3bn84797nts2mx",
+      "partyId": "pty_01m6kc00kpeg1b23fcjeavxt39",
       "locations": 2,
-      "logo": false,
-      "platform": "WIX",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
-      "verified": true,
-      "verifiedAt": "2026-11-03T20:09:40.090068Z",
-      "observationDigest": "0b1738ff7072a1e9e5e364caeeb8deaf994810609147a1a83769ef151d321d09"
-    },
-    {
-      "domain": "atelier-elisabeth.at",
-      "listingSourceId": "ls_01m6hgfp1zepp8g4jkg3zd9hb6",
-      "partyId": "pty_01m6hgfp1ce9y8v2bg8f7h9pn6",
-      "locations": 1,
       "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [],
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:09:40.427343Z",
-      "observationDigest": "c89bd8e4d8516c4d13f0dc221773f4ed1f8280dc3a8c69a39cb9db5a8dd6b82e"
+      "verifiedAt": "2026-11-25T08:40:52.687971Z",
+      "observationDigest": "b53d35636eb06b8e3ea4fec198c7f5b6d12aa8dcc3986840a07092606b01a45a"
     }
   ]
 }

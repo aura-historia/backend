@@ -1,6 +1,6 @@
 ---
 name: discover-antique-dealers
-description: Research independent antique dealers and onboard verified parties, listing sources, locations and advertised shipping through the Aura Historia API. Continue the repository discovery ledger when asked to find more dealers. Excludes auction businesses and marketplaces.
+description: Research independent antique dealers and onboard verified parties, listing sources, locations and advertised shipping through the Aura Historia API. Continue the repository discovery ledger when asked to find more dealers. Excludes auction businesses, marketplaces and contemporary-art businesses.
 ---
 
 # Discover antique dealers
@@ -29,7 +29,15 @@ buying data subscriptions or changing backend runtime code.
 - Include independent businesses selling genuine antiques, vintage, art or design
   from their own stock. Exclude marketplaces, auctions, auction houses and platforms,
   including businesses that also operate an auction house. Historical militaria alone
-  is not an exclusion. Exclude obviously untrustworthy sites; defer unclear identities,
+  is not an exclusion. Exclude contemporary-art businesses (decided 2026-11-24): galleries
+  and dealers whose stock is mainly works by living or recently active artists (roughly
+  post-1970), artists or studios selling their own current work, and shops selling new
+  prints, editions, reproductions or decorative wall art. Judge by stock, not by
+  "Galerie"/"Gallery" in the name: dealers of antiques, old masters, 19th-century and
+  earlier art, or substantial antique stock remain eligible even when they also show some
+  contemporary work; a dealer in 20th-century modern or post-war masters is a separate
+  case, so defer it for the owner. Record exclusions as `EXCLUDED` with reason code
+  `CONTEMPORARY_ART`. Exclude obviously untrustworthy sites; defer unclear identities,
   contradictions and uncertain current activity. General recent secondhand fashion
   needs independently qualified antique or historically collectible stock; a directory
   category label alone does not bring it into this antique-dealer task.
@@ -153,6 +161,9 @@ all managed Party/source metadata is still fetched and checked. Each dealer reta
 its actual resource verification date, and `fullVerifiedAt` records the last complete
 readback. Use a full check periodically, for example every five batches, or after
 external edits/contract changes. These commands do not alter backend records.
+Onboarding still creates sources with empty ingestion, but the owner may enable ingestion
+afterwards, so the verifier records each dealer's live `ingestionMethods` (and counts
+`emptyIngestionMethods` / `ingestionConfigured`) instead of requiring an empty list.
 
 The [inventory reconciler](scripts/inventory.py) applies the single-location dealer
 policy to every listing source, including ones not created through this ledger. It is

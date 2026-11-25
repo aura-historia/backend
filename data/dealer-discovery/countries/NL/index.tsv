@@ -4,7 +4,7 @@ domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases	catalog
 2uiltjes.nl	ADDED		ls_01m6chfgvpe7bad0sk1g69ana8	pty_01m6chfgv8efs9wg4f5trfgmp3	2026-11-01T21:50:35.736219Z			https://2uiltjes.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 aabookstore.com	ADDED	SHOPIFY	ls_01m6d82z0ve18975jw4wm6hdcs	pty_01m6d82z0jewbak6e1crrq2sk4	2026-11-02T04:25:41.307556Z			https://aabookstore.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 aaknoop.nl	DEFERRED				2026-11-02T21:55:43Z	CURRENT_ITEM_OFFERS_NOT_INSPECTABLE		https://www.aaknoop.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
-aanblick.nl	ADDED	WOOCOMMERCE	ls_01m6g807gkecmr58rc9ssrddb0	pty_01m6g807fse449h7nzsae43ds8	2026-11-03T08:21:54.799922Z			https://www.aanblick.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
+aanblick.nl	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.aanblick.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 aandelingedijkbrocante.nl	DEFERRED				2026-11-01T20:42:36.542181Z	PRIMARY_CONNECTION_REFUSED		https://www.aandelingedijkbrocante.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 aandepunt.nl	ADDED	MIJNWEBWINKEL	ls_01m6cmjejkebhvyh902dxjvh08	pty_01m6cmjej4ebn8v7tbf86nh2wv	2026-11-01T22:44:37.464616Z			https://www.aandepunt.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 aardewerk.com	ADDED	WORDPRESS	ls_01m6cnhv02e5rvh4baxdfbn3ah	pty_01m6cnhtzje47vn5zxz6r5xxe8	2026-11-01T23:01:46.274819Z			https://www.aardewerk.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
@@ -98,7 +98,7 @@ art-leap.com	EXCLUDED				2026-11-01T20:30:57.849730Z	OWN_AUCTION_SALES		https://
 artdecoonline.nl	ADDED	JOUWWEB	ls_01m6fhz9gyevzrm4bb8g7ycqd1	pty_01m6fhz9gjeyavwkprvjx37m4c	2026-11-03T01:56:55.791110Z			https://www.artdecoonline.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 artdecowebwinkel.com	DEFERRED				2026-11-03T05:44:42Z	QUALIFYING_ANTIQUE_STOCK_UNCONFIRMED		https://www.artdecowebwinkel.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 artemrarebooks.com	ADDED	SHOPIFY	ls_01m6cgnmxaezfsbqfp95xxdjk9	pty_01m6cgnmwkekrtb9pq67psq10v	2026-11-01T21:36:28.340911Z			https://artemrarebooks.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
-artenmore.nl	ADDED	JOUWWEB	ls_01m6cd00ftecevh9srkprt6k1n	pty_01m6cd00fde078z0x2zkc0k03c	2026-11-01T20:32:13.322897Z			https://www.artenmore.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
+artenmore.nl	EXCLUDED	JOUWWEB			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.artenmore.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 artiquair.nl	ADDED	WOOCOMMERCE	ls_01m6g020xkeedrva45qnvrxpmh	pty_01m6g020x2ecasejjdrhqd7h3b	2026-11-03T06:03:05.551214Z			https://www.artiquair.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 artistiekbureau.com	ADDED	WIX	ls_01m6df6zezehr9f3n6svxz6n7q	pty_01m6df6zeceqybwc9qnh3fa911	2026-11-02T06:30:13.254290Z			https://www.artistiekbureau.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 artnouveauplateel.nl	ADDED	WOOCOMMERCE	ls_01m6chnx9ze738pxx1z9w40b5b	pty_01m6chnx9keph86107jj54g6em	2026-11-01T21:54:05.117064Z		artnouveaupottery.com	https://artnouveauplateel.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
@@ -489,7 +489,7 @@ mittens.nl	ADDED	WOOCOMMERCE	ls_01m6cx4j5xeqrr5801tg9tzdk1	pty_01m6cx4j5ce629ggv
 modeltreinmarkt.nl	DEFERRED				2026-11-03T04:26:00Z	VINTAGE_ITEM_AGE_NOT_VERIFIED		https://www.modeltreinmarkt.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 monkeystyle.nl	DEFERRED				2026-11-03T03:01:00Z	CURRENT_STOCK_STATUS_CONTRADICTION		https://monkeystyle.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 mooiexemplaar.nl	ADDED	ANTIQBOOK	ls_01m6d0gmqaedfrkhck8rtx8zk3	pty_01m6d0gmpxet0b8dwtbh4nrsf0	2026-11-02T02:13:21.050699Z		boek-en-wikkel.nl	https://www.mooiexemplaar.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
-morrengalleries.nl	ADDED	ARTLOGIC	ls_01m6cfqy8wetz9t5rk7d358tf8	pty_01m6cfqy8ee6arrsztfy2gtk03	2026-11-01T21:20:13.936183Z			https://morrengalleries.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
+morrengalleries.nl	EXCLUDED	ARTLOGIC			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://morrengalleries.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 morrienantiek.nl	ADDED	WOOCOMMERCE	ls_01m6cfqtgpea48x9ke3t5taamz	pty_01m6cfqtg4eg7vfx3e4aw5zx51	2026-11-01T21:20:10.162597Z			https://www.morrienantiek.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 morsink.com	EXCLUDED				2026-11-01T23:28:00.021832Z	CONFIRMED_COMMERCIAL_CESSATION		https://www.morsink.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 mouthaanklokken.nl	ADDED	WOOCOMMERCE	ls_01m6dwpqq3e3nsc1d8nbjgg8c8	pty_01m6dwpqpmeg4sj2pkrhmnfmtd	2026-11-02T10:26:00.615700Z			https://mouthaanklokken.nl/collectie/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
@@ -573,7 +573,7 @@ redesignvintage.nl	EXCLUDED				2026-11-02T17:44:00Z	MARKETPLACE		https://redesig
 regtsdelfttiles.com	ADDED	MAGENTO	ls_01m6ftq4chedrva90bxmzsht9n	pty_01m6ftq4bwefmanhmy6rddwxbx	2026-11-03T04:29:45.361367Z		antieketegel.nl	https://www.regtsdelfttiles.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 relimarkt.nl	DEFERRED				2026-11-03T08:55:00Z	INDEPENDENT_DEALER_STATUS_UNCLEAR_PRIVATE_COLLECTION_SALE	collectionsale.nl	https://relimarkt.nl/info	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 renetro.nl	ADDED	SHOPIFY	ls_01m6eta5psevcv4nysakazctwv	pty_01m6eta5p2e03v5bx6gyz0ahv9	2026-11-02T19:03:27.254323Z			https://renetro.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
-renssenartgallery.com	ADDED	ARTLOGIC	ls_01m6cfr00fetat0kw3csayttpa	pty_01m6cfr001e6s9rzxrqrrt1txy	2026-11-01T21:20:16.808947Z			https://renssenartgallery.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
+renssenartgallery.com	EXCLUDED	ARTLOGIC			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://renssenartgallery.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 replate.nl	ADDED	WOOCOMMERCE	ls_01m6g7c8rkee9b401420rsdyrj	pty_01m6g7c8r2ee89wnm8cqyfnqmb	2026-11-03T08:13:25Z			https://replate.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 retrostudio.nl	ADDED	PRESTASHOP	ls_01m6csqrzpe4dt3j5y2p7t3x37	pty_01m6csqrz6e4et33ypcbc8d9qq	2026-11-02T00:14:54.966286Z			https://www.retrostudio.nl/nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 retroxl.nl	ADDED	MIJNWEBWINKEL	ls_01m6d5g6t1eb0tmj9jyhc2jgef	pty_01m6d5g6smezh8k8nvqrg7cwmf	2026-11-02T03:40:29.652866Z			https://www.retroxl.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
@@ -644,7 +644,7 @@ studio1900.nl	ADDED	WOOCOMMERCE	ls_01m6er40m7ecc875d0ey4fr01m	pty_01m6er40kvecqa
 studio29penbox.nl	DEFERRED				2026-11-03T04:26:00Z	CURRENT_ITEMIZED_PEN_STOCK_NOT_VERIFIED		https://www.studio29penbox.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 studioaver.com	EXCLUDED				2026-11-02T03:26:50.498405Z	NON_DEALER_DOMAIN		https://www.studioaver.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 studiobonteboel.nl	DEFERRED				2026-11-02T02:02:47.451389Z	CURRENT_QUALIFYING_STOCK_UNVERIFIED		https://studiobonteboel.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
-studiodepelikanen.com	ADDED	WIX	ls_01m6dsqv1ce0hb3r9yxhgkeyth	pty_01m6dsqv0we8q8xewaaxbk2gac	2026-11-02T09:34:11.501930Z			https://www.studiodepelikanen.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
+studiodepelikanen.com	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.studiodepelikanen.com/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 studiogalli.nl	ADDED	JOUWWEB	ls_01m6g1pa40ejp82d029ka9ajtv	pty_01m6g1pa3ee3e9azp4nt3zrtn3	2026-11-03T06:31:38.341201Z			https://www.studiogalli.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 svenskafynd.nl	ADDED	WOOCOMMERCE	ls_01m6csqvc3enktstyrxjft97c4	pty_01m6csqvbje8rs9kxnwm608d8h	2026-11-02T00:14:57.278373Z			https://svenskafynd.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN
 sytsma.nl	ADDED		ls_01m6drrcrfe4wscqz1w719mp21	pty_01m6drrcqvea6bh859z4dvyf15	2026-11-02T09:17:01.216811Z			https://www.sytsma.nl/	data/dealer-discovery/countries/NL/dealers.jsonl	DEALER_DOMAIN

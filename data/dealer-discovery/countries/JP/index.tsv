@@ -45,7 +45,7 @@ art-kigen.jp	EXCLUDED				2026-11-04T12:39:07.389134Z	AUCTION_OPERATOR
 art-morita.com	DEFERRED				2026-11-04T08:12:16.914646Z	INSPECTABLE_CURRENT_STOCK_REQUIRED	
 art-yamagen.com	DEFERRED				2026-11-03T19:28:53.074888Z	LEGAL_OPERATOR_AND_CURRENT_STOCK_UNVERIFIED	
 artclub.jp	EXCLUDED				2026-11-04T08:12:16.914650Z	MARKETPLACE_NOT_INDEPENDENT_DEALER	
-artgallery-komori.myshopify.com	ADDED	SHOPIFY	ls_01m6hswbpcea889w52hnap7b23	pty_01m6hswbnzepgbcdmw8dzdwe5x	2026-11-03T22:53:36.640699Z		
+artgallery-komori.myshopify.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 artra.thebase.in	ADDED	BASE	ls_01m6grv0pse3r99x6syae90cjr	pty_01m6grv0paex3vpgj34n7hkb4z	2026-11-03T13:16:09.742364Z		gallery-artra.com
 artyoshikiri.jp	ADDED	WOOCOMMERCE	ls_01m6hd8dy3eskrqwzjmv4hy4t2	pty_01m6hd8dxhed7bzmhrvdehz6qf	2026-11-03T19:13:01.369060Z		
 asahido-kochi.com	DEFERRED				2026-11-03T22:37:47.500967Z	INSPECTABLE_CURRENT_STOCK_REQUIRED	
@@ -56,7 +56,7 @@ atelier-shion.com	ADDED	OLIVECART	ls_01m6k10dwmekpr4rpmdzbsdnqx	pty_01m6k10dw2e2
 ato-gallery.com	DEFERRED				2026-11-04T12:39:07.389151Z	CURRENT_INDIVIDUAL_STOCK_REQUIRED	
 aunties-collect.ocnk.net	ADDED	OCNK_NET	ls_01m6h4yg0recevy0s0nyd1b0a2	pty_01m6h4yfyveg1vcbhht6avtdr7	2026-11-03T20:34:47.876167Z		
 azuchi.cocolog-nifty.com	DEFERRED				2026-11-03T20:59:45.888917Z	EVIDENCE_INCOMPLETE	
-baiken.jp	ADDED	WORDPRESS	ls_01m6kd0401edya2ds8spgvvxjh	pty_01m6kd03zdedhs8q52y9wwbsz8	2026-11-04T13:46:57.655952Z		
+baiken.jp	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 bakumatsuya.com	ADDED		ls_01m6hjt0aaerkvv5dj0brm3j7w	pty_01m6hjt09we0bb3s5xjrjqxr5a	2026-11-03T20:49:59.947559Z		
 balmoralantiques.studio.site	DEFERRED				2026-11-03T17:54:23.674815Z	OPERATOR_AND_CURRENT_STOCK_UNVERIFIED	
 banul-online-shop.com	ADDED	SHOPIFY	ls_01m6h88s8mej7bs9jf2hawxxa7	pty_01m6h88s7gej38qgevcn5egv71	2026-11-03T17:45:49.836041Z		
@@ -396,7 +396,7 @@ nara-nakagami.com	ADDED	WORDPRESS	ls_01m6hgmyk7e918xxg0eytydn37	pty_01m6hgmyjkek
 narasoukodo.base.shop	ADDED	BASE	ls_01m6hqbdpme6btqnn2scwp6s8p	pty_01m6hqbdp4efevkq2jak2y72e5	2026-11-03T22:09:24.961797Z		
 naturalartmu.base.shop	ADDED	BASE	ls_01m6kgt76hezrt8spw4epmatt8	pty_01m6kgt765ebbs9ev5en05mt0b	2026-11-04T14:53:38.179260Z		
 nihei-furukagu.shop-pro.jp	ADDED	COLOR_ME_SHOP	ls_01m6h0jzwqeyn9vm5b266jvcvw	pty_01m6h0jzvzexardenn4yeb4pbd	2026-11-03T15:31:36.490324Z		
-nihonbookart.com	ADDED	SHOP_SERVE	ls_01m6hqktm8eh89fn4rws42p041	pty_01m6hqktkreatvpfpvtk5ez8gf	2026-11-03T22:13:59.829213Z		
+nihonbookart.com	EXCLUDED	SHOP_SERVE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 nishiharu-kyoto.com	DEFERRED				2026-11-03T19:07:56.252548Z	LEGAL_OPERATOR_UNVERIFIED	
 nitaantiques.com	ADDED	WELCART	ls_01m6gq47zdearv8b1hyct8sf63	pty_01m6gq47z2e9rar8q036j03s5y	2026-11-03T12:46:15.312013Z		
 nitigetu.com	DEFERRED				2026-11-04T13:45:56.474475Z	CURRENT_STOCK_UNVERIFIED	
@@ -422,7 +422,7 @@ panieggrose.com	DEFERRED				2026-11-03T16:38:50.101112Z	PRIMARY_SITE_UNAVAILABLE
 parthenon-antique.com	ADDED	EC_CUBE	ls_01m6gwzbn1e27vzrggfbr114jb	pty_01m6gwzbmnedmb0phcr4yx85jb	2026-11-03T14:28:26.693049Z		
 pearl1996-okinawa.com	DEFERRED				2026-11-03T13:57:16.127542Z	FIRST_PARTY_IDENTITY_AND_STOCK_INCOMPLETE	
 pechka2008.ocnk.net	DEFERRED				2026-11-03T18:04:27.136918Z	MERCHANT_CATALOGUE_UNAVAILABLE	
-peintre8.base.shop	ADDED	BASE	ls_01m6jwt5jwek6a5cetqdawcja8	pty_01m6jwt5jaep3sj6add24wy7x9	2026-11-04T09:04:05.046964Z		
+peintre8.base.shop	EXCLUDED	BASE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 pm31.co.jp	DEFERRED				2026-11-03T13:29:33.050363Z	RELOCATION_PLACEHOLDER_STOCK_INCOMPLETE	
 pocketwatch.jp	ADDED	SHOPIFY	ls_01m6h68pqweryrcc49fb53mpar	pty_01m6h68pqbe75txq3rvdjs4e8n	2026-11-03T17:10:50.067933Z		
 pottery-guy.com	DEFERRED				2026-11-03T20:21:22.654574Z	CURRENT_QUALIFYING_STOCK_UNVERIFIED	
@@ -527,7 +527,7 @@ soukenclub.com	ADDED	WIX	ls_01m6hgyrabe7btgxw618gxysy5	pty_01m6hgyr9qeq2a1bzg28k
 soumei.biz	ADDED		ls_01m6hczx38etaasb10b76ztaxv	pty_01m6hczx2reva8dwtmgaxwzssc	2026-11-03T20:51:33.175324Z		
 standard-coin.jp	ADDED	SHOPIFY	ls_01m6h0k9caen0bvgck5xakpbpd	pty_01m6h0k9bqecra67ybj85tdmkc	2026-11-03T15:31:44.912228Z		
 store.3hige.com	ADDED	BASE	ls_01m6hew48re9aa1a5rbmsj572e	pty_01m6hew487eprry7kdt6s8k810	2026-11-03T19:41:15.166856Z		
-store.adachi-hanga.com	ADDED	SHOPIFY	ls_01m6k0fss3eczvgctqfc8nh7hm	pty_01m6k0fsrnedsr0xb8r83ymtz9	2026-11-04T10:08:19.844111Z		
+store.adachi-hanga.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 store.izumiyoko.co.jp	ADDED	WOOCOMMERCE	ls_01m6h6rxb4ea4bw1zzy03sr2kk	pty_01m6h6rxakeahs5c54vpv8vb1p	2026-11-03T17:19:41.035560Z		
 store.rebuildingcenter.jp	ADDED	BASE	ls_01m6h8snm6es3avy8dccjh2k6m	pty_01m6h8snksecz91qya0vsydcg0	2026-11-03T17:55:03.225169Z		
 suga.ocnk.net	DEFERRED				2026-11-03T16:46:53.874366Z	CURRENT_RETAIL_AVAILABILITY_UNVERIFIED	
@@ -595,7 +595,7 @@ yamatoe.com	DEFERRED				2026-11-03T22:42:25.127871Z	PRIMARY_PAGES_UNAVAILABLE
 yamazaki92.com	DEFERRED				2026-11-04T08:21:34.828484Z	LEGAL_OPERATOR_REQUIRED	
 yau-antiques.com	DEFERRED				2026-11-03T17:02:33.009872Z	PRIMARY_SITE_UNAVAILABLE	
 yoneyamadou.com	ADDED		ls_01m6hrb6wbe68ajbrm89krcg5f	pty_01m6hrb6vze4frsqz01r2n2ydz	2026-11-03T22:26:46.618520Z		
-yoseido.com	ADDED	WIX_STORES	ls_01m6k2ys00etya4mpp9v0d77pd	pty_01m6k2yrzdex9bysefpam5ge06	2026-11-04T10:51:27.706299Z		
+yoseido.com	EXCLUDED	WIX_STORES			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 yoshioka-arts-shop.com	EXCLUDED				2026-11-03T21:45:27.749334Z	AUCTION_OPERATOR	yoshioka-art.co.jp
 you-raku.biz	ADDED		ls_01m6jv9wg7eb2sm25p3qvqs24m	pty_01m6jv9wfpe96rgz26nscft81w	2026-11-04T08:37:43.373759Z		
 yumeido-fukuoka.com	EXCLUDED				2026-11-03T18:38:47.781905Z	AUCTION_OPERATOR	
