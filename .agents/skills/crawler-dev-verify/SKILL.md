@@ -183,9 +183,19 @@ review agents working the reviews as in production:
    as in production. If the runner cannot log in from the session, restart with
    `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER=false`, act as the agents through `review-mcp`
    ([Agent mode](#agent-mode) step 3) and say so in the report.
-4. **Shops that refuse cloud addresses.** Some shops answer 403 or reset the connection for a
+4. **Binaries through cargo.** In a cloud container `target/` can be a symlink to a directory
+   outside the session's working directory, so a command that names `target/debug/...`, such
+   as copying or starting a binary, asks the user to approve it. Build the runner's binaries
+   first (`cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner`, which
+   `dev` starts from next to itself), then start `dev` with
+   `cargo run --locked -p crawler --bin dev` and `review-mcp` with
+   `cargo run --locked -p crawler --bin review-mcp -- --role author`, all with
+   `CARGO_PROFILE_DEV_DEBUG=0`. Compare by running `origin/develop` first and the change
+   afterwards, each on its own clone of the prepared database, instead of copying binaries out
+   of `target/`; name in the report any prompt that could not be avoided.
+5. **Shops that refuse cloud addresses.** Some shops answer 403 or reset the connection for a
    cloud IP range. Replace such a shop with another one the ticket names and say which.
-5. **Fix what gets in the way.** Fix a setup problem (Docker, image pulls, database, ports) in
+6. **Fix what gets in the way.** Fix a setup problem (Docker, image pulls, database, ports) in
    the session rather than skipping the run, and fix a defect the run exposes in the change or
    in the code it relies on. Other findings follow the rules below.
 
