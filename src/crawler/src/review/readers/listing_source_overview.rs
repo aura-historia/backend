@@ -75,7 +75,22 @@ pub struct IdentityConflictedSource {
 /// the query may list. Binds `$1`, the one ListingSource to read or null for all, `$2`, the crawl
 /// outcome that waits for an operator, and `$3`, the error kind of a held removal. A URL's
 /// identity conflict run is read only while `SourceListingIdConflict` is its last error kind.
-const OVERVIEW_CTES: &str = "WITH blocking AS (
+const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
+    -- The first product-schema review of a ListingSource without a product schema: the
+    -- ListingSource scrapes none of its URLs while it is pending. Not materialized, so the
+    -- read of one ListingSource reads only its reviews.
+    SELECT pr.listing_source_id, pr.review_id, pr.created
+    FROM crawler_reviews pr
+    WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
+      AND pr.status = 'PENDING_REVIEW'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM listing_source_product_schemas ps
+          WHERE ps.listing_source_id = pr.listing_source_id
+            AND (jsonb_typeof(ps.product_schema) <> 'array'
+                 OR jsonb_array_length(ps.product_schema) > 0)
+      )
+), blocking AS (
     -- The oldest pending review a ListingSource's blocked URLs wait on: a review a
     -- URL recorded as its wait, or the first product-schema review of a ListingSource
     -- without a product schema.
@@ -89,17 +104,7 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         WHERE su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
         UNION ALL
-        SELECT pr.listing_source_id, pr.review_id, pr.created
-        FROM crawler_reviews pr
-        WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
-          AND pr.status = 'PENDING_REVIEW'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM listing_source_product_schemas ps
-              WHERE ps.listing_source_id = pr.listing_source_id
-                AND (jsonb_typeof(ps.product_schema) <> 'array'
-                     OR jsonb_array_length(ps.product_schema) > 0)
-          )
+        SELECT listing_source_id, review_id, created FROM first_schema_waits
     ) waited_on
     ORDER BY listing_source_id, created, review_id
 ), overview AS (
@@ -186,20 +191,9 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
                                     AND cr.status = 'PENDING_REVIEW'
                                     AND su.last_error_kind = 'PendingSchemaReview'
         LEFT JOIN (
-            -- A ListingSource without a product schema scrapes none of its URLs while
-            -- its first product-schema review is pending.
-            SELECT pr.listing_source_id, MIN(pr.created) AS created
-            FROM crawler_reviews pr
-            WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
-              AND pr.status = 'PENDING_REVIEW'
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM listing_source_product_schemas ps
-                  WHERE ps.listing_source_id = pr.listing_source_id
-                    AND (jsonb_typeof(ps.product_schema) <> 'array'
-                         OR jsonb_array_length(ps.product_schema) > 0)
-              )
-            GROUP BY pr.listing_source_id
+            SELECT listing_source_id, MIN(created) AS created
+            FROM first_schema_waits
+            GROUP BY listing_source_id
         ) fs ON fs.listing_source_id = su.listing_source_id
         WHERE su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
