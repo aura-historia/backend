@@ -45,9 +45,9 @@ const FOLLOWED_PARAMETERS: &[ParameterName] = &[
     Exact("variant"),
 ];
 
-/// Facets, sort orders, grid or list views and currencies: the page the shop also links without
-/// them, shown in another form. Spider does not follow links carrying
-/// them, so facet combinations do not spend the crawl budget.
+/// Facets, sort orders, grid or list views, currencies and share buttons: links to the page the
+/// shop also links without them. Spider does not follow links carrying them, so facet
+/// combinations and share links do not spend the crawl budget.
 ///
 /// `view` is not among them: Joomla and VirtueMart route pages through it
 /// (`option=com_virtuemart&view=productdetails`). Neither are page sizes (`limit`), since offset
@@ -79,6 +79,9 @@ const PRESENTATION_PARAMETERS: &[ParameterName] = &[
     Exact("currency"),
     Exact("currency_code"),
     Exact("cur"),
+    // share buttons: WordPress Jetpack (Sharedaddy) links every page as `?share=<network>` from
+    // the page itself, and the link redirects to the network's site (#3150)
+    Exact("share"),
 ];
 
 impl ParameterName {
@@ -198,6 +201,23 @@ mod tests {
         }
     }
 
+    /// The share links of the 2026-11-25 run (#3150), which redirect to the social network.
+    #[test]
+    fn should_store_wordpress_share_links_as_the_page_they_share() {
+        for (fetched, stored) in [
+            (
+                "https://shop.antik-stilbruch.de/produkt/amethystfarbener-anhaenger-mit-kette?share=facebook",
+                "https://shop.antik-stilbruch.de/produkt/amethystfarbener-anhaenger-mit-kette",
+            ),
+            (
+                "https://stugalove.de/50er-cocktailsessel/?share=jetpack-whatsapp&nb=1",
+                "https://stugalove.de/50er-cocktailsessel/?nb=1",
+            ),
+        ] {
+            assert_eq!(stripped(fetched), stored, "{fetched}");
+        }
+    }
+
     #[test]
     fn should_store_cur_currency_variants_as_the_bare_item_url() {
         for variant in ["?cur=EUR", "?cur=GBP", "?CUR=eur"] {
@@ -241,6 +261,7 @@ mod tests {
             "https://example.com/shop/?product_cat=lamps&#038;orderby=price",
             "https://antikmoebel.de/moebel?page=8&#38;currency=EUR",
             "https://antikmoebel.de/moebel?page=8&#x26;currency=EUR",
+            "https://stugalove.de/50er-cocktailsessel/?share=pinterest&#038;nb=1",
         ] {
             assert!(pattern.is_match(refused), "{refused}");
         }
