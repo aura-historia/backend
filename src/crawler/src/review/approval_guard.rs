@@ -19,7 +19,8 @@ use crate::review::page_content_checks::{
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
-    ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
+    ImplausiblePage, OptionalRuleTotalMiss, PriceTextAcceptance, implausible_pages,
+    optional_rules_missing_on_every_page,
 };
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     RedirectTarget, is_same_logical_host,
@@ -391,7 +392,11 @@ pub(crate) fn product_schema_approval_checks(
     if !rules.is_empty() {
         failed.push(FailedApprovalCheck::RuleMatchesNothing { rules });
     }
-    let implausible = implausible_pages(matrix, evaluation.link_identity());
+    let implausible = implausible_pages(
+        matrix,
+        PriceTextAcceptance::OnStatusSlot,
+        evaluation.link_identity(),
+    );
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
@@ -672,8 +677,8 @@ mod tests {
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
-    use crate::scraper::plausibility::PlausibilityField;
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck};
+    use crate::scraper::plausibility::{PlausibilityField, PlausibilityFinding};
     use crate::spider::classification::product_url_pattern::UrlPatternMatching;
     use crate::{CrawlerReviewId, CrawlerReviewPageId};
     use std::collections::HashMap;
@@ -1088,7 +1093,11 @@ mod tests {
             [FailedApprovalCheck::ImplausibleExtraction { pages }] => {
                 assert_eq!(
                     *pages,
-                    implausible_pages(matrix, crate::review::model::LinkIdentity::Blocks)
+                    implausible_pages(
+                        matrix,
+                        PriceTextAcceptance::OnStatusSlot,
+                        crate::review::model::LinkIdentity::Blocks,
+                    )
                 );
                 pages.clone()
             }
@@ -1118,6 +1127,44 @@ mod tests {
             Vec::new()
         );
         assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+    }
+
+    /// A slot that shows the amount on most review pages leaves most listings without an
+    /// availability, so its price text is refused although the slot resolves to sold on one page.
+    #[test]
+    fn should_refuse_price_text_in_a_status_slot_on_most_pages() {
+        let pages = [
+            page_in_state("chair", "£ 3,800 plus VAT"),
+            page_in_state("desk", "195,-"),
+            page_in_state("table", "Sold"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks_recorded(
+            Some(&matrix),
+            &review_pages(&pages),
+            3,
+            CONFIGURATION,
+            false,
+        );
+
+        let implausible = refused
+            .iter()
+            .find_map(|check| match check {
+                FailedApprovalCheck::ImplausibleExtraction { pages } => Some(pages),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("expected implausible extractions: {refused:?}"));
+        assert_eq!(implausible.len(), 2, "{implausible:?}");
+        for page in implausible {
+            assert!(
+                page.plausibility_findings
+                    .as_slice()
+                    .iter()
+                    .all(PlausibilityFinding::is_price_text_on_state),
+                "{page:?}"
+            );
+        }
     }
 
     /// Without a page on which the slot resolves to sold, price text in `state` stays refused.

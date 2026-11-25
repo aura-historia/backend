@@ -3,10 +3,11 @@
 
 use super::{note, timestamp, value};
 use crate::review::model::{
-    LinkIdentity, LiveMatrixEvaluation, RemovedPageTemplateMatch, RemovedPageTemplateOutcome,
-    SchemaPageEvaluation, SchemaPageReference, SelectorFieldEvaluation,
+    LinkIdentity, LiveMatrixEvaluation, PriceTextOnState, RemovedPageTemplateMatch,
+    RemovedPageTemplateOutcome, SchemaPageEvaluation, SchemaPageReference, SelectorFieldEvaluation,
 };
-use crate::review::page_content_checks::{StateReading, candidate_has_sold_state};
+use crate::review::page_content_checks::StateReading;
+use crate::review::schema_evaluation::PriceTextAcceptance;
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use product_listing_core::listing_availability::ListingAvailability;
@@ -159,7 +160,8 @@ pub struct FindingView {
     pub values: Vec<String>,
     /// Price text in a `state` that an agent's approval accepts, because the same rule resolves
     /// to sold or unavailable on another review page (a status slot that shows the amount while
-    /// the item is for sale). The finding stays true; it just does not block.
+    /// the item is for sale) and shows the amount on fewer than most of the pages it applies to.
+    /// The finding stays true; it just does not block.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub exempt_as_status_slot: bool,
@@ -215,7 +217,9 @@ impl MatrixView {
                 .candidates
                 .into_iter()
                 .map(|candidate| {
-                    let status_slot = candidate_has_sold_state(&candidate.pages);
+                    let status_slot = PriceTextAcceptance::OnStatusSlot
+                        .for_candidate(&candidate.pages)
+                        == PriceTextOnState::Accepted;
                     SchemaResultView {
                         schema_index: candidate.schema_index,
                         pages: candidate
@@ -556,24 +560,35 @@ mod tests {
                     "images": [], "raw_attributes": {},
                 },
                 "error": null,
-                "plausibility_findings": [{ "field": "state", "check": "PRICE_TEXT" }],
+                "plausibility_findings": if state.starts_with('£') {
+                    json!([{ "field": "state", "check": "PRICE_TEXT" }])
+                } else {
+                    json!([])
+                },
                 "cross_page_findings": [], "identity_agreement_findings": [], "fields": [],
             })
         };
-        let matrix = |states: [&str; 2]| -> wire::ReviewMatrix {
+        let matrix = |states: &[&str]| -> wire::ReviewMatrix {
+            let pages: Vec<_> = states
+                .iter()
+                .enumerate()
+                .map(|(index, state)| page(&format!("https://shop.example/{index}"), state))
+                .collect();
             decoded(json!({
                 "review_id": null,
-                "candidates": [{ "schema_index": 0, "pages": [
-                    page("https://shop.example/a", states[0]),
-                    page("https://shop.example/b", states[1]),
-                ]}],
+                "candidates": [{ "schema_index": 0, "pages": pages }],
                 "removed_page_matches": [],
                 "not_evaluated_pages": [],
             }))
         };
 
-        let slot = json!(MatrixView::of(matrix(["£ 3,800 plus VAT", "Sold"])));
-        let none = json!(MatrixView::of(matrix(["£ 3,800 plus VAT", "POA"])));
+        let slot = json!(MatrixView::of(matrix(&["£ 3,800 plus VAT", "Sold"])));
+        let none = json!(MatrixView::of(matrix(&["£ 3,800 plus VAT", "POA"])));
+        let most = json!(MatrixView::of(matrix(&[
+            "£ 3,800 plus VAT",
+            "£ 450",
+            "Sold"
+        ])));
 
         assert_eq!(
             slot["schemas"][0]["pages"][0]["findings"][0]["check"],
@@ -586,6 +601,11 @@ mod tests {
         assert_eq!(
             none["schemas"][0]["pages"][0]["findings"][0].get("exempt_as_status_slot"),
             None
+        );
+        assert_eq!(
+            most["schemas"][0]["pages"][0]["findings"][0].get("exempt_as_status_slot"),
+            None,
+            "price text on most pages is never exempt"
         );
     }
 

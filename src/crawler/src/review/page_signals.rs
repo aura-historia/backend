@@ -1,5 +1,6 @@
 //! What a review page shows that a candidate schema should capture: a price, as an amount with its
-//! currency in a price element or as a price above zero the offers of the page's own JSON-LD item
+//! currency or a whole amount with a dash in place of the cents in a price element, or as a price
+//! above zero the offers of the page's own JSON-LD item
 //! state and its content shows, and a block of prose in a description element. They are conservative heuristics over the
 //! page's own content, so a shop that shows neither never needs the rule; the approval guard
 //! (`docs/crawler/extraction-and-review.md`) compares them with the rules of the candidate.
@@ -266,6 +267,23 @@ mod tests {
         assert_eq!(
             signals_of("<span class=\"price\">Sold for £500</span>"),
             (true, false)
+        );
+    }
+
+    /// A whole amount with a dash in place of the cents shows a price without a currency marker,
+    /// as the shops that print it show it; a zero amount does not.
+    #[rstest::rstest]
+    #[case("195,-", true)]
+    #[case("1.250,– EUR", true)]
+    #[case("0,-", false)]
+    fn should_see_a_whole_amount_with_a_dash_in_place_of_the_cents(
+        #[case] amount: &str,
+        #[case] shows_price: bool,
+    ) {
+        assert_eq!(
+            signals_of(&format!("<span class=\"price\">{amount}</span>")),
+            (shows_price, false),
+            "{amount}"
         );
     }
 

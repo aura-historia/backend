@@ -8,7 +8,8 @@
 use crate::review::captured_identity_sample::{CapturedIdentitySample, SampledCapturedPage};
 use crate::review::model::{LinkIdentity, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
-    ImplausiblePage, evaluate_schema_matrix_for_captured_pages, implausible_pages,
+    ImplausiblePage, PriceTextAcceptance, evaluate_schema_matrix_for_captured_pages,
+    implausible_pages,
 };
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::rule::{ExtractionKind, ExtractionRule};
@@ -120,11 +121,12 @@ impl SchemaAuditFindings {
 }
 
 /// Audits the ListingSource's `live_schemas` on its `sampled` captured product pages: every
-/// finding the approval guard refuses an agent's approval for, except price text in a `state`,
-/// which runtime capture accepts and an approval may have accepted on a status slot, and an
-/// identity that is the page URL the listings were captured under; the title source of every
-/// schema; and the [title hints](title_hints) the agents judge. A page that could not be fetched
-/// is left out; with none fetched the audit finds nothing.
+/// finding the approval guard refuses an agent's approval for, except price text in a `state` on
+/// fewer than most of the pages a schema applies to, which runtime capture accepts and an approval
+/// may have accepted on a status slot (price text on most of them leaves most listings without an
+/// availability, on a status slot too), and an identity that is the page URL the listings were
+/// captured under; the title source of every schema; and the [title hints](title_hints) the agents
+/// judge. A page that could not be fetched is left out; with none fetched the audit finds nothing.
 pub(crate) fn audit_live_schemas(
     listing_source_name: &str,
     live_schemas: &[ProductCssSelectorSchema],
@@ -165,10 +167,14 @@ pub(crate) fn audit_live_schemas(
     } else {
         LinkIdentity::Blocks
     };
-    let page_findings = implausible_pages(&matrix, link_identity)
-        .iter()
-        .flat_map(blocking_codes)
-        .collect::<Vec<_>>();
+    let page_findings = implausible_pages(
+        &matrix,
+        PriceTextAcceptance::ShortOfMostPages,
+        link_identity,
+    )
+    .iter()
+    .flat_map(blocking_codes)
+    .collect::<Vec<_>>();
     let title_sources = live_schemas
         .iter()
         .filter_map(|schema| schema.title.as_ref().and_then(TitleSource::of))
@@ -185,14 +191,12 @@ pub(crate) fn audit_live_schemas(
     )
 }
 
-/// The `field CHECK` codes of the findings that keep `page` out of approval, price text in a
-/// `state` aside.
+/// The `field CHECK` codes of the findings that keep `page` out of approval.
 fn blocking_codes(page: &ImplausiblePage) -> Vec<String> {
     let per_page = page
         .plausibility_findings
         .as_slice()
         .iter()
-        .filter(|finding| !finding.is_price_text_on_state())
         .map(|finding| field_code(finding.field.as_str(), &finding.check));
     let cross_page = page
         .cross_page_findings
@@ -363,10 +367,9 @@ mod tests {
             assert!(findings.is_empty(), "{findings:?}");
         }
 
-        /// Runtime capture accepts price text in a `state`, and an approval may have accepted it
-        /// on a status slot whose sold page is not in the sample.
+        /// Runtime capture accepts price text in a `state`, so one odd page reopens nothing.
         #[test]
-        fn should_leave_price_text_in_a_state_alone() {
+        fn should_leave_price_text_in_the_state_of_an_odd_page_alone() {
             let sampled = vec![
                 captured("131033", "Human Condition", "Price: $1,800"),
                 captured("130034", "Suttree", "In stock"),
@@ -379,6 +382,38 @@ mod tests {
             );
 
             assert!(findings.is_empty(), "{findings:?}");
+        }
+
+        /// anticstore.com's `state` fallback reads the price block, snackersantiques.com's the
+        /// list item that shows `195,-`: a `state` that reads price text on most pages leaves most
+        /// listings without an availability, so the audit reopens the source and holds its new
+        /// listings back, even where the same rule shows the sold label on a sold page.
+        #[rstest::rstest]
+        #[case::every_page(["2 800 €", "195,-", "€100.00"])]
+        #[case::status_slot(["£795.00", "Sold", "1250.-"])]
+        fn should_report_price_text_in_the_state_of_most_pages(#[case] states: [&str; 3]) {
+            let sampled: Vec<SampledCapturedPage> = ["131033", "130034", "128871"]
+                .into_iter()
+                .zip(["Human Condition", "Suttree", "Blood Meridian"])
+                .zip(states)
+                .map(|((id, name), state)| captured(id, name, state))
+                .collect();
+
+            let findings = audit_live_schemas(
+                "Bauman Rare Books",
+                &[schema_with_title(text("h4"))],
+                &sampled,
+            );
+
+            assert_eq!(findings.codes(), vec!["state PRICE_TEXT"]);
+            assert!(findings.holds_new_listings());
+            // The code names no page, so a human's decision on one sample's review accepts it
+            // for every later sample of the same live schemas.
+            assert!(
+                findings
+                    .excluding(&["state PRICE_TEXT".to_owned()])
+                    .is_empty()
+            );
         }
 
         #[test]
