@@ -38,7 +38,10 @@ const ADAPTIVE_ATTEMPT_TIMEOUT_LATENCY_FACTOR: u32 = 10;
 /// attempts; grows by the same amount as the attempt timeout.
 const HTML_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(20);
 const HTML_MAX_REDIRECTS: usize = 5;
-const HTML_MAX_BYTES: usize = 2 * 1024 * 1024;
+/// The decoded body size an HTML page may have: the crawler's own response-body ceiling, which
+/// also bounds the spider's `SPIDER_MAX_SIZE_BYTES`, so a page the spider stores can be scraped.
+/// Shop pages that carry large cross-selling sliders pass 1 MiB (#3152).
+const HTML_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait
@@ -487,6 +490,9 @@ impl ReqwestHtmlFetcher {
         self.record_domain_success_latency(domain, started.elapsed());
         let final_url = response.url().clone();
         let headers = response.headers().clone();
+        if let Some(media_type) = non_html_media_type(&headers) {
+            return Err(not_html_fetch_error(&final_url, media_type).into());
+        }
         // The body is read even when the header refuses capture, since a challenge page sends
         // such a header too; a body that cannot be read leaves the header's refusal standing.
         let html = match read_bounded_html(response).await {
@@ -750,6 +756,39 @@ fn bot_challenge_fetch_error(
     }
 }
 
+/// Media families no page is served as. A URL that answers one, such as a WordPress attachment
+/// page redirecting to its image file, is not read: its body is no HTML to extract and may be as
+/// large as the body limit allows.
+const NON_HTML_MEDIA_FAMILIES: &[&str] = &["image/", "audio/", "video/", "font/"];
+const NON_HTML_MEDIA_TYPES: &[&str] = &["application/pdf", "application/zip"];
+
+/// The media type of an answer whose `Content-Type` declares something that is no page. An
+/// answer without the header, or with one that cannot be read, is read as HTML.
+fn non_html_media_type(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let content_type = headers.get(reqwest::header::CONTENT_TYPE)?.to_str().ok()?;
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let is_page = !NON_HTML_MEDIA_FAMILIES
+        .iter()
+        .any(|family| media_type.starts_with(family))
+        && !NON_HTML_MEDIA_TYPES.contains(&media_type.as_str());
+    (!is_page).then_some(media_type)
+}
+
+/// A URL that answered something other than a page is not read, like one whose body exceeds the
+/// size limit; the shop's own answer names it, so the failure stays with the URL.
+fn not_html_fetch_error(final_url: &Url, media_type: String) -> FetchAttemptError {
+    FetchAttemptError {
+        error: unsafe_fetch_error(format!(
+            "response is not an HTML page: content_type={media_type}, final_url={final_url}"
+        )),
+    }
+}
+
 async fn read_bounded_html(response: reqwest::Response) -> Result<String, FetchAttemptError> {
     let content_type = response
         .headers()
@@ -989,7 +1028,9 @@ mod tests {
         assert!(html.contains("<p>ü</p>"), "{html}");
     }
 
-    use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, client_fetch_error};
+    use super::{
+        FetchError, HtmlFetcher, ReqwestHtmlFetcher, client_fetch_error, non_html_media_type,
+    };
     use crate::network::policy::{CrawlerClientError, NetworkErrorKind, RetryPolicy};
     use crate::network::{CRAWLER_ACCEPT, CRAWLER_USER_AGENT};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
@@ -1649,6 +1690,88 @@ mod tests {
 
         assert_eq!(error.kind(), NetworkErrorKind::PageDirectiveDisallowed);
         assert_eq!(shop.page_requests().len(), 1, "a refusal is not retried");
+    }
+
+    /// A product page beyond the former 2 MiB limit is read: shops with large cross-selling
+    /// sliders serve pages above 1 MiB (#3152).
+    #[tokio::test]
+    async fn should_fetch_a_page_larger_than_two_mebibytes() {
+        let body = format!("<html><body>{}</body></html>", "x".repeat(3 * 1024 * 1024));
+        let response: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .into_boxed_str(),
+        );
+        let url = spawn_shop_without_robots(vec![response]).await;
+
+        let fetched = unthrottled_fetcher().fetch(&url).await.unwrap();
+
+        assert_eq!(fetched.html.len(), body.len());
+    }
+
+    /// A URL that answers an image, such as a WordPress attachment page redirecting to its file,
+    /// fails without its body being read or the fetch being retried.
+    #[tokio::test]
+    async fn should_refuse_an_answer_that_is_no_html_page_without_reading_it() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![
+                redirect_to("/uploads/armchair.jpg"),
+                "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 999999999\r\nConnection: close\r\n\r\n",
+            ],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(3),
+            throttle_config(Duration::ZERO),
+        );
+
+        let error = fetcher.fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::UnsafeTarget);
+        assert!(
+            error
+                .to_string()
+                .contains("not an HTML page: content_type=image/jpeg"),
+            "{error}"
+        );
+        assert_eq!(shop.page_paths(), ["/product", "/uploads/armchair.jpg"]);
+    }
+
+    #[test]
+    fn non_html_media_type_should_name_only_media_no_page_is_served_as() {
+        let headers = |content_type: &str| {
+            reqwest::header::HeaderMap::from_iter([(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_str(content_type).unwrap(),
+            )])
+        };
+        for refused in [
+            "image/jpeg",
+            "Image/WebP; q=1",
+            "application/pdf",
+            "video/mp4",
+        ] {
+            assert!(
+                non_html_media_type(&headers(refused)).is_some(),
+                "{refused} should be refused"
+            );
+        }
+        for page in [
+            "text/html; charset=UTF-8",
+            "application/xhtml+xml",
+            "text/plain",
+            "application/octet-stream",
+        ] {
+            assert_eq!(non_html_media_type(&headers(page)), None, "{page}");
+        }
+        assert_eq!(
+            non_html_media_type(&reqwest::header::HeaderMap::new()),
+            None
+        );
     }
 
     /// A page whose header refuses capture is refused even when its body cannot be read, so the
