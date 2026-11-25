@@ -1,7 +1,9 @@
 use crate::object_id::try_from_uuid;
 use application::error::box_error;
 
-use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_core::{
+    product_listing_id::ProductListingId, source_listing_id::SourceListingId,
+};
 use product_listing_normalization::{
     NormalizationContext, ProductListingNormalizationInput, RawProductListingOperation,
     RawProductListingPayloadFormat, RawProductListingValues, SourcePayload,
@@ -11,9 +13,12 @@ use product_service::ports::{
     PendingProductListingRawStream, PendingProductListingRawStreamPage,
     PendingProductListingRawStreamPageRequest, PendingProductListingRawStreamReader,
     ProductListingRawNormalizationCompletion, ProductListingRawNormalizationHead,
-    ProductListingRawNormalizationPortError, ProductListingRawNormalizationWork,
-    ProductListingRawNormalizationWriter, ProductListingRawNormalizationWriterFactory,
+    ProductListingRawNormalizationOutcome, ProductListingRawNormalizationPortError,
+    ProductListingRawNormalizationWork, ProductListingRawNormalizationWriter,
+    ProductListingRawNormalizationWriterFactory, ProductListingRawReapplicationWork,
     ProductListingRawRevision, ProductListingRawRevisionReader,
+    ReapplicableProductListingRawStreamPage, ReapplicableProductListingRawStreamPageRequest,
+    ReapplicableProductListingRawStreamReader,
 };
 use sqlx::{PgConnection, PgPool};
 
@@ -36,6 +41,15 @@ struct RawNormalizationHeadRow {
     last_processed_revision: i64,
     product_listing_id: Option<uuid::Uuid>,
     source_listing_id: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RawReapplicationRow {
+    #[sqlx(flatten)]
+    head: RawNormalizationHeadRow,
+    #[sqlx(flatten)]
+    revision: RawRevisionRow,
+    recorded_outcome: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -167,37 +181,7 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
     ) -> Result<(), ProductListingRawNormalizationPortError> {
         let revision = i64::try_from(completion.revision)
             .map_err(|_| invalid_state("raw normalization revision exceeds storage range"))?;
-        let normalizer_version = i16::try_from(completion.normalizer_version)
-            .map_err(|_| invalid_state("normalizer version exceeds storage range"))?;
-        sqlx::query(
-            r#"
-            INSERT INTO product_listing_raw_normalizations (
-                product_listing_raw_revision_id,
-                product_listing_raw_stream_id,
-                revision,
-                normalizer_version,
-                outcome,
-                product_listing_id,
-                product_listing_event_id,
-                error_code
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            "#,
-        )
-        .bind(completion.product_listing_raw_revision_id.as_uuid())
-        .bind(completion.product_listing_raw_stream_id.as_uuid())
-        .bind(revision)
-        .bind(normalizer_version)
-        .bind(completion.outcome.as_str())
-        .bind(completion.product_listing_id.map(|value| value.into_uuid()))
-        .bind(
-            completion
-                .product_listing_event_id
-                .map(|value| value.into_uuid()),
-        )
-        .bind(completion.error_code)
-        .execute(&mut *self.connection)
-        .await
-        .map_err(persistence)?;
+        insert_normalization(self.connection, &completion).await?;
 
         let updated = sqlx::query(
             r#"
@@ -230,6 +214,241 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
             return Err(invalid_state("raw normalization head did not advance"));
         }
         Ok(())
+    }
+
+    async fn lock_reapplication(
+        &mut self,
+        product_listing_raw_stream_id: ProductListingRawStreamId,
+        normalizer_version: u16,
+    ) -> Result<Option<ProductListingRawReapplicationWork>, ProductListingRawNormalizationPortError>
+    {
+        let normalizer_version = i16::try_from(normalizer_version)
+            .map_err(|_| invalid_state("normalizer version exceeds storage range"))?;
+        let Some(row) = sqlx::query_as::<_, RawReapplicationRow>(
+            r#"
+            SELECT
+                head.product_listing_raw_stream_id,
+                stream.listing_source_id,
+                head.last_processed_revision,
+                head.product_listing_id,
+                head.source_listing_id,
+                revision.product_listing_raw_revision_id,
+                revision.revision,
+                revision.operation,
+                revision.payload_format,
+                revision.payload_schema_version,
+                revision.raw_values_schema_version,
+                revision.source_payload,
+                revision.raw_values,
+                revision.source_occurred_at,
+                revision.normalization_context,
+                (
+                    SELECT normalization.outcome
+                    FROM product_listing_raw_normalizations AS normalization
+                    WHERE normalization.product_listing_raw_revision_id
+                          = revision.product_listing_raw_revision_id
+                    ORDER BY normalization.normalizer_version DESC
+                    LIMIT 1
+                ) AS recorded_outcome
+            FROM product_listing_raw_normalization_heads AS head
+            JOIN product_listing_raw_streams AS stream
+              ON stream.product_listing_raw_stream_id = head.product_listing_raw_stream_id
+            JOIN product_listing_raw_revisions AS revision
+              ON revision.product_listing_raw_stream_id = head.product_listing_raw_stream_id
+             AND revision.revision = head.last_processed_revision
+            WHERE head.product_listing_raw_stream_id = $1
+              AND head.last_processed_revision = stream.latest_revision
+              AND revision.operation = 'UPSERT'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM product_listing_raw_normalizations AS normalization
+                  WHERE normalization.product_listing_raw_revision_id
+                        = revision.product_listing_raw_revision_id
+                    AND normalization.normalizer_version >= $2
+              )
+            FOR UPDATE OF head
+            "#,
+        )
+        .bind(product_listing_raw_stream_id.as_uuid())
+        .bind(normalizer_version)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(persistence)?
+        else {
+            return Ok(None);
+        };
+        let recorded_outcome = row
+            .recorded_outcome
+            .as_deref()
+            .and_then(ProductListingRawNormalizationOutcome::from_code)
+            .ok_or_else(|| invalid_state("processed raw revision has no valid normalization"))?;
+        Ok(Some(ProductListingRawReapplicationWork {
+            head: head_from_row(row.head)?,
+            revision: revision_from_row(row.revision)?,
+            recorded_outcome,
+        }))
+    }
+
+    async fn complete_reapplication(
+        &mut self,
+        completion: ProductListingRawNormalizationCompletion,
+    ) -> Result<(), ProductListingRawNormalizationPortError> {
+        let revision = i64::try_from(completion.revision)
+            .map_err(|_| invalid_state("raw normalization revision exceeds storage range"))?;
+        insert_normalization(self.connection, &completion).await?;
+        let updated = sqlx::query(
+            r#"
+            UPDATE product_listing_raw_normalization_heads
+            SET product_listing_id = $1,
+                source_listing_id = $2,
+                updated = now()
+            WHERE product_listing_raw_stream_id = $3
+              AND last_processed_revision = $4
+            "#,
+        )
+        .bind(
+            completion
+                .next_product_listing_id
+                .map(|value| value.into_uuid()),
+        )
+        .bind(
+            completion
+                .next_source_listing_id
+                .map(|value| value.to_string()),
+        )
+        .bind(completion.product_listing_raw_stream_id.as_uuid())
+        .bind(revision)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(persistence)?;
+        if updated.rows_affected() != 1 {
+            return Err(invalid_state(
+                "raw normalization head moved during reapplication",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn is_superseded(
+        &mut self,
+        product_listing_raw_stream_id: ProductListingRawStreamId,
+        product_listing_id: ProductListingId,
+    ) -> Result<bool, ProductListingRawNormalizationPortError> {
+        // Same rule as the reapplicable page; ties count as superseded.
+        sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM product_listing_raw_normalization_heads AS own
+                JOIN product_listing_raw_revisions AS own_revision
+                  ON own_revision.product_listing_raw_stream_id = own.product_listing_raw_stream_id
+                 AND own_revision.revision = own.last_processed_revision
+                JOIN product_listing_raw_normalization_heads AS other
+                  ON other.product_listing_id = $2
+                 AND other.product_listing_raw_stream_id <> own.product_listing_raw_stream_id
+                JOIN product_listing_raw_revisions AS other_revision
+                  ON other_revision.product_listing_raw_stream_id
+                     = other.product_listing_raw_stream_id
+                 AND other_revision.revision = other.last_processed_revision
+                WHERE own.product_listing_raw_stream_id = $1
+                  AND other_revision.captured_at >= own_revision.captured_at
+            )
+            "#,
+        )
+        .bind(product_listing_raw_stream_id.as_uuid())
+        .bind(product_listing_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(persistence)
+    }
+}
+
+#[async_trait::async_trait]
+impl ReapplicableProductListingRawStreamReader for SqlxPendingProductListingRawStreamReader {
+    async fn list_reapplicable_streams(
+        &self,
+        request: ReapplicableProductListingRawStreamPageRequest,
+    ) -> Result<ReapplicableProductListingRawStreamPage, ProductListingRawNormalizationPortError>
+    {
+        if request.limit == 0 {
+            return Err(invalid_state(
+                "reapplicable stream page limit must be greater than zero",
+            ));
+        }
+        let normalizer_version = i16::try_from(request.normalizer_version)
+            .map_err(|_| invalid_state("normalizer version exceeds storage range"))?;
+        // A keyset page over the stream primary key; each scanned stream's checks use the head's
+        // primary key, the stream-revision unique index and the normalization primary key.
+        let rows: Vec<(uuid::Uuid, bool, Option<bool>)> = sqlx::query_as(
+            r#"
+            WITH scanned AS (
+                SELECT product_listing_raw_stream_id, latest_revision
+                FROM product_listing_raw_streams
+                WHERE ($1::uuid IS NULL OR product_listing_raw_stream_id > $1)
+                  AND ($2::uuid IS NULL OR listing_source_id = $2)
+                ORDER BY product_listing_raw_stream_id
+                LIMIT $4
+            ),
+            candidate AS (
+                SELECT head.product_listing_raw_stream_id, head.product_listing_id,
+                       revision.captured_at
+                FROM scanned
+                JOIN product_listing_raw_normalization_heads AS head
+                  ON head.product_listing_raw_stream_id = scanned.product_listing_raw_stream_id
+                 AND head.last_processed_revision = scanned.latest_revision
+                JOIN product_listing_raw_revisions AS revision
+                  ON revision.product_listing_raw_stream_id = head.product_listing_raw_stream_id
+                 AND revision.revision = head.last_processed_revision
+                WHERE revision.operation = 'UPSERT'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM product_listing_raw_normalizations AS normalization
+                      WHERE normalization.product_listing_raw_revision_id
+                            = revision.product_listing_raw_revision_id
+                        AND normalization.normalizer_version >= $3
+                  )
+            )
+            SELECT
+                scanned.product_listing_raw_stream_id,
+                candidate.product_listing_raw_stream_id IS NOT NULL AS qualifies,
+                candidate.product_listing_id IS NOT NULL AND EXISTS (
+                    SELECT 1
+                    FROM product_listing_raw_normalization_heads AS other
+                    JOIN product_listing_raw_revisions AS other_revision
+                      ON other_revision.product_listing_raw_stream_id
+                         = other.product_listing_raw_stream_id
+                     AND other_revision.revision = other.last_processed_revision
+                    WHERE other.product_listing_id = candidate.product_listing_id
+                      AND other.product_listing_raw_stream_id
+                          <> candidate.product_listing_raw_stream_id
+                      AND other_revision.captured_at >= candidate.captured_at
+                ) AS superseded
+            FROM scanned
+            LEFT JOIN candidate
+              ON candidate.product_listing_raw_stream_id = scanned.product_listing_raw_stream_id
+            ORDER BY scanned.product_listing_raw_stream_id
+            "#,
+        )
+        .bind(request.after.map(|id| id.into_uuid()))
+        .bind(request.listing_source_id.map(|id| id.into_uuid()))
+        .bind(normalizer_version)
+        .bind(i64::from(request.limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(persistence)?;
+        let stream_id =
+            |id| try_from_uuid(id, "ProductListing raw stream ID").map_err(invalid_state_error);
+        let mut page = ReapplicableProductListingRawStreamPage::default();
+        for (id, qualifies, superseded) in rows {
+            let id = stream_id(id)?;
+            match (qualifies, superseded.unwrap_or(false)) {
+                (true, true) => page.superseded.push(id),
+                (true, false) => page.reapplicable.push(id),
+                (false, _) => {}
+            }
+            page.last_scanned = Some(id);
+        }
+        Ok(page)
     }
 }
 
@@ -334,6 +553,47 @@ impl PendingProductListingRawStreamReader for SqlxPendingProductListingRawStream
             next_cursor,
         })
     }
+}
+
+/// Records a revision's normalization by one normalizer version.
+async fn insert_normalization(
+    connection: &mut PgConnection,
+    completion: &ProductListingRawNormalizationCompletion,
+) -> Result<(), ProductListingRawNormalizationPortError> {
+    let revision = i64::try_from(completion.revision)
+        .map_err(|_| invalid_state("raw normalization revision exceeds storage range"))?;
+    let normalizer_version = i16::try_from(completion.normalizer_version)
+        .map_err(|_| invalid_state("normalizer version exceeds storage range"))?;
+    sqlx::query(
+        r#"
+        INSERT INTO product_listing_raw_normalizations (
+            product_listing_raw_revision_id,
+            product_listing_raw_stream_id,
+            revision,
+            normalizer_version,
+            outcome,
+            product_listing_id,
+            product_listing_event_id,
+            error_code
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(completion.product_listing_raw_revision_id.as_uuid())
+    .bind(completion.product_listing_raw_stream_id.as_uuid())
+    .bind(revision)
+    .bind(normalizer_version)
+    .bind(completion.outcome.as_str())
+    .bind(completion.product_listing_id.map(|value| value.into_uuid()))
+    .bind(
+        completion
+            .product_listing_event_id
+            .map(|value| value.into_uuid()),
+    )
+    .bind(completion.error_code)
+    .execute(connection)
+    .await
+    .map_err(persistence)?;
+    Ok(())
 }
 
 fn head_from_row(

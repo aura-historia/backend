@@ -51,6 +51,43 @@ impl ProductListingRawNormalizationOutcome {
             Self::Rejected => "REJECTED",
         }
     }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        [Self::Applied, Self::NoChange, Self::Ignored, Self::Rejected]
+            .into_iter()
+            .find(|outcome| outcome.as_str() == code)
+    }
+}
+
+/// A stream whose head has processed its latest revision, locked so that revision can be
+/// normalized again by a newer normalizer (docs/normalization-replay.md#production-reapplication).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductListingRawReapplicationWork {
+    pub head: ProductListingRawNormalizationHead,
+    /// The latest revision, which the head has already processed.
+    pub revision: ProductListingRawRevision,
+    /// The outcome recorded by the newest normalizer version that processed the revision.
+    pub recorded_outcome: ProductListingRawNormalizationOutcome,
+}
+
+/// Scans the next `limit` streams in ID order, so a page costs the same however few qualify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReapplicableProductListingRawStreamPageRequest {
+    pub after: Option<ProductListingRawStreamId>,
+    pub limit: u32,
+    pub listing_source_id: Option<ListingSourceId>,
+    pub normalizer_version: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ReapplicableProductListingRawStreamPage {
+    /// The scanned streams whose latest revision may be reapplied, in ID order.
+    pub reapplicable: Vec<ProductListingRawStreamId>,
+    /// Scanned streams that would qualify, but another stream bound to the same listing has
+    /// processed a revision captured at the same time or later.
+    pub superseded: Vec<ProductListingRawStreamId>,
+    /// The last scanned stream; `None` when nothing was left to scan.
+    pub last_scanned: Option<ProductListingRawStreamId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +130,30 @@ pub trait ProductListingRawNormalizationWriter: Send {
         &mut self,
         completion: ProductListingRawNormalizationCompletion,
     ) -> Result<(), ProductListingRawNormalizationPortError>;
+
+    /// Locks a stream whose head has processed its latest revision, an `UPSERT` that
+    /// `normalizer_version` has not normalized yet. `None` when the stream does not qualify.
+    async fn lock_reapplication(
+        &mut self,
+        product_listing_raw_stream_id: ProductListingRawStreamId,
+        normalizer_version: u16,
+    ) -> Result<Option<ProductListingRawReapplicationWork>, ProductListingRawNormalizationPortError>;
+
+    /// Records the completion of a reapplied revision and the head's binding, without moving the
+    /// head, which must still stand at that revision.
+    async fn complete_reapplication(
+        &mut self,
+        completion: ProductListingRawNormalizationCompletion,
+    ) -> Result<(), ProductListingRawNormalizationPortError>;
+
+    /// Whether another stream bound to `product_listing_id` has processed a revision captured at
+    /// the same time as or later than this stream's processed revision. Reapplying this stream
+    /// would then overwrite that newer state with an older one.
+    async fn is_superseded(
+        &mut self,
+        product_listing_raw_stream_id: ProductListingRawStreamId,
+        product_listing_id: ProductListingId,
+    ) -> Result<bool, ProductListingRawNormalizationPortError>;
 }
 
 pub trait ProductListingRawNormalizationWriterFactory<Tx>: Send + Sync {
@@ -110,6 +171,15 @@ pub trait ProductListingRawRevisionReader: Send + Sync {
         &self,
         product_listing_raw_stream_id: ProductListingRawStreamId,
     ) -> Result<Option<ProductListingRawRevision>, ProductListingRawNormalizationPortError>;
+}
+
+/// Pages streams whose latest revision may be reapplied, without locking them.
+#[async_trait]
+pub trait ReapplicableProductListingRawStreamReader: Send + Sync {
+    async fn list_reapplicable_streams(
+        &self,
+        request: ReapplicableProductListingRawStreamPageRequest,
+    ) -> Result<ReapplicableProductListingRawStreamPage, ProductListingRawNormalizationPortError>;
 }
 
 /// One bounded recovery candidate. It carries only scheduling metadata, never source payloads.

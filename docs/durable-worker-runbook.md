@@ -306,6 +306,22 @@ serving until then. Rounds submit at most 10,000 embeddings each, so plan the ba
 provider quota for the catalogue's size. Vectors of different models are not comparable: a model
 switch also needs its own search plan, which this procedure does not cover.
 
+## Raw normalization reapplication
+
+[Production reapplication](normalization-replay.md#production-reapplication) owns the contract.
+After a deploy that raises the normalizer version, and once no older worker runs:
+
+1. `compose.sh run --rm ops renormalize-raw --dry-run` and keep its report. `changes` and the
+   `transitions` into `APPLIED` size the events, notifications and enrichment that `--apply` will
+   cause; `failed` names stream failures by code, which a rerun retries.
+2. `compose.sh run --rm ops renormalize-raw --apply`, optionally first with `--limit` or one
+   `--listing-source`. Watch `ops inspect` and the backlog alarms; lower `--max-backlog` if
+   enrichment falls behind.
+3. An interrupted run resumes with `--after <last>`; a rerun from the start rescans every stream
+   but reapplies none twice. A run that aborted logs `ops.renormalize_raw.aborted` with its
+   partial report: resume with its `last`, and retry the failed streams with
+   `failureStreak.retryAfter` once their cause is fixed.
+
 ## Listing shipping recovery
 
 [Shipping](shipping.md#effective-shipping-discovery-projection) owns the conservative

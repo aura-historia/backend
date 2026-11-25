@@ -14,6 +14,7 @@ files as in [host process startup](../platform-process/README.md).
 | `inspect` | Per job scope: depth, leased count, oldest waiting age and custody; outbox pending count, oldest age and custody |
 | `redrive <scope> --all \| <job-id>...` | Moves custody jobs back with their identity and order; `<scope>` `delivery-outbox` takes outbox IDs |
 | `reproject-all (--live \| --generation <g>) [--page-size <n>] [--start-after <listing-id>]` | Enqueues one projector job per listing; the target is never implicit. Pass the report's `last` as `--start-after` to resume |
+| `renormalize-raw (--dry-run \| --apply) [--listing-source <ls-id>] [--page-size <n>] [--limit <n>] [--after <prs-id>] [--max-backlog <n>]` | Normalizes the latest raw revision of caught-up streams again with this build's normalizer ([reapplication](../../docs/normalization-replay.md#production-reapplication)); writing needs `--apply`. Pass the report's `last` as `--after` to resume |
 | `backend-cleanup` | Expired-data cleanup and recovery maintenance (`EXPIRY_CLEANUP_BATCH_SIZE`); every step runs and the command fails if any did |
 | `fx-refresh` | Captures the FX rate snapshot (`FXRATES_API_TOKEN`); a rerun in the same hour is a duplicate |
 | `periodic-match` | Periodic saved-search matching; stops cleanly on SIGTERM |
