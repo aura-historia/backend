@@ -164,9 +164,15 @@ review agents working the reviews as in production:
    comments quote (selectors and fallbacks) as live schemas, approved through the console as a
    human or written to `listing_source_product_schemas`, and set the timers, counters and
    outcomes its numbers describe. Lower a limit through a dev-only override (never committed)
-   when the real one would take hours to reach. Run `origin/develop` on that state and record
-   the faulty behaviour, then the change on the same state. Report a situation that cannot be
-   reproduced, with what was tried.
+   when the real one would take hours to reach. In `agent` mode a registered shop is not
+   crawled until it is qualified: start `dev` once to migrate and register, stop it, then set
+   `qualification` `QUALIFIED` (with `qualification_note`, `qualified_at` and `qualified_by`
+   `HUMAN`), a `MATCHED` URL pattern and a later `next_crawl_at`, and insert the sample product
+   URLs into `listing_source_urls` (`url_class` `product`, `raw_source_record_key` the URL), so
+   the next start captures them under the installed schemas. Clone that database
+   (`CREATE DATABASE … TEMPLATE …`) so `origin/develop` and the change start from the same
+   state. Run `origin/develop` on that state and record the faulty behaviour, then the change
+   on the same state. Report a situation that cannot be reproduced, with what was tried.
 3. **Start with the real agents.** Run `dev` with `CRAWLER_AUTHORING_MODE=agent` and
    `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER` unset, so `dev` starts the review agent runner with
    the session's `claude` CLI; `claude auth status --json` must report a subscription login
