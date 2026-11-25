@@ -460,6 +460,7 @@ macro_rules! log_truncated_run {
             frontier_deferred = frontier.deferred,
             frontier_left = frontier.left,
             frontier_dropped = frontier.dropped,
+            found_links_unrecorded = frontier.unrecorded,
             ran_out_of_time = log.result.ran_out_of_time,
             db_wait_ms = u64::try_from(log.result.db_wait.as_millis()).unwrap_or(u64::MAX),
             truncation_count = log.truncation_count,
@@ -1712,6 +1713,7 @@ mod tests {
                     deferred: 5_000,
                     left: Some(24_000),
                     dropped: 7,
+                    unrecorded: 3,
                 },
                 db_wait: Duration::from_millis(42_000),
                 ran_out_of_time: true,
@@ -1733,6 +1735,7 @@ mod tests {
             assert_eq!(truncated[0].field("frontier_deferred"), Some("5000"));
             assert_eq!(truncated[0].field("frontier_left"), Some("24000"));
             assert_eq!(truncated[0].field("frontier_dropped"), Some("7"));
+            assert_eq!(truncated[0].field("found_links_unrecorded"), Some("3"));
             assert_eq!(truncated[0].field("truncation_count"), Some("1"));
             assert_eq!(truncated[0].field("truncated_repeatedly"), Some("false"));
             assert_eq!(truncated[0].field("db_wait_ms"), Some("42000"));

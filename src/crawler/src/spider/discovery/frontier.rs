@@ -11,6 +11,7 @@ use regex::{Regex, RegexSet};
 use serde::{Deserialize, Serialize};
 use spider::CaseInsensitiveString;
 use std::collections::HashSet;
+use std::hash::{BuildHasher, RandomState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
@@ -31,7 +32,7 @@ pub const MAX_SEED_URLS: usize = 20_000;
 pub const MAX_FRONTIER_URLS: usize = 100_000;
 
 /// Most distinct links one crawl remembers having found, which bounds the frontier it can
-/// compute.
+/// compute, and most distinct links beyond them it counts as unrecorded.
 const MAX_FOUND_LINKS: usize = 200_000;
 
 /// Which crawl of its schedule a ListingSource runs.
@@ -109,6 +110,9 @@ pub struct CrawlDiscovery {
     pub frontier: Vec<Url>,
     /// Unvisited URLs beyond [`MAX_FRONTIER_URLS`] that the crawl found and could not keep.
     pub dropped: usize,
+    /// Distinct links the crawl found beyond the most it remembers, which its frontier lacks
+    /// unless Spider visited them, counted up to that bound again.
+    pub unrecorded: usize,
 }
 
 /// The frontier figures of one spider run, which its logs carry so an operator can tell from one
@@ -126,6 +130,8 @@ pub struct FrontierProgress {
     pub left: Option<usize>,
     /// Unvisited URLs beyond [`MAX_FRONTIER_URLS`] the crawl could not keep.
     pub dropped: usize,
+    /// Distinct links the crawl found beyond the most it remembers, which the frontier may lack.
+    pub unrecorded: usize,
 }
 
 impl FrontierProgress {
@@ -137,6 +143,7 @@ impl FrontierProgress {
             deferred,
             left: discovery.map(|discovery| discovery.frontier.len()),
             dropped: discovery.map_or(0, |discovery| discovery.dropped),
+            unrecorded: discovery.map_or(0, |discovery| discovery.unrecorded),
         }
     }
 
@@ -247,7 +254,7 @@ impl SeedAdmission<'_> {
 #[derive(Clone)]
 pub(super) struct FoundLinks {
     rules: Arc<FollowRules>,
-    links: Arc<Mutex<HashSet<String>>>,
+    links: Arc<Mutex<RecordedLinks>>,
     /// The pages Spider delivered. Spider counts a link visited once it starts
     /// the fetch, also when its crawl ended before the page arrived.
     delivered: Arc<Mutex<HashSet<CaseInsensitiveString>>>,
@@ -258,9 +265,14 @@ pub(super) struct FoundLinks {
 impl FoundLinks {
     /// Records the links Spider follows by `rules`.
     pub(super) fn new(rules: Arc<FollowRules>) -> Self {
+        Self::bounded(rules, MAX_FOUND_LINKS)
+    }
+
+    /// Records at most `max_links` distinct links, and counts at most as many beyond them.
+    fn bounded(rules: Arc<FollowRules>, max_links: usize) -> Self {
         Self {
             rules,
-            links: Arc::default(),
+            links: Arc::new(Mutex::new(RecordedLinks::new(max_links))),
             delivered: Arc::default(),
             recording_stopped: Arc::default(),
         }
@@ -341,6 +353,7 @@ impl FoundLinks {
         CrawlDiscovery {
             frontier: left.iter().filter_map(|url| Url::parse(url).ok()).collect(),
             dropped,
+            unrecorded: self.unrecorded(),
         }
     }
 
@@ -402,10 +415,7 @@ impl FoundLinks {
         }
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
         for link in stored {
-            if links.len() >= MAX_FOUND_LINKS {
-                break;
-            }
-            links.insert(link);
+            links.record(link);
         }
     }
 
@@ -413,7 +423,17 @@ impl FoundLinks {
         self.links
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .kept
             .clone()
+    }
+
+    /// Distinct links found beyond the most the crawl remembers.
+    fn unrecorded(&self) -> usize {
+        self.links
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unrecorded
+            .len()
     }
 
     /// The link, resolved against `base`, as Spider would request it (`FoundLinkDecoder`), when
@@ -423,6 +443,35 @@ impl FoundLinks {
         let resolved = base.join(decoded.trim()).ok()?;
         let stored = self.rules.followed(resolved)?;
         Some(stored.as_url().as_str().to_string())
+    }
+}
+
+/// The distinct links a crawl found, at most `max_links`, and those beyond them, which are not
+/// kept but counted by their hash, so a crawl whose links exceed the bound says so in bounded
+/// memory.
+struct RecordedLinks {
+    max_links: usize,
+    kept: HashSet<String>,
+    unrecorded: HashSet<u64>,
+    hasher: RandomState,
+}
+
+impl RecordedLinks {
+    fn new(max_links: usize) -> Self {
+        Self {
+            max_links,
+            kept: HashSet::new(),
+            unrecorded: HashSet::new(),
+            hasher: RandomState::new(),
+        }
+    }
+
+    fn record(&mut self, link: String) {
+        if self.kept.len() < self.max_links || self.kept.contains(&link) {
+            self.kept.insert(link);
+        } else if self.unrecorded.len() < self.max_links {
+            self.unrecorded.insert(self.hasher.hash_one(&link));
+        }
     }
 }
 
@@ -556,6 +605,39 @@ mod tests {
         let whole = found.frontier_within(&carried, &known, 10);
         assert_eq!(whole.frontier.len(), 5, "{whole:?}");
         assert_eq!(whole.dropped, 0);
+    }
+
+    /// Links beyond the most a crawl remembers are not kept but counted, each once, so the
+    /// frontier they are missing from does not shrink silently.
+    #[test]
+    fn should_count_the_distinct_links_found_beyond_the_most_a_crawl_remembers() {
+        let found = FoundLinks::bounded(Arc::new(follow_rules(r"/denied")), 2);
+        let links: Vec<CaseInsensitiveString> = [
+            "/found/1",
+            "/found/2",
+            "/found/3",
+            "/found/1",
+            "/found/4",
+            "/found/3",
+            "/denied/1",
+        ]
+        .into_iter()
+        .map(CaseInsensitiveString::from)
+        .collect();
+        found.record("https://shop.example/", b"", &links);
+        let known = KnownPages::new(&url("/"), &CrawlSeeds::default());
+
+        let discovery = found.frontier(&FrontierSeeds::default(), &known);
+
+        let mut frontier = discovery.frontier.clone();
+        frontier.sort();
+        assert_eq!(
+            frontier,
+            [url("/found/1"), url("/found/2")],
+            "{discovery:?}"
+        );
+        assert_eq!(discovery.unrecorded, 2, "{discovery:?}");
+        assert_eq!(discovery.dropped, 0, "{discovery:?}");
     }
 
     #[test]

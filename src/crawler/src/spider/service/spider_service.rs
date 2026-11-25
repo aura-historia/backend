@@ -400,11 +400,12 @@ impl SpiderServiceImpl {
             warn_in_source!("Spider crawl reported no frontier; keeping the previous one");
             return;
         };
-        if discovery.dropped > 0 {
+        if discovery.dropped > 0 || discovery.unrecorded > 0 {
             warn_in_source!(
                 frontier_urls = discovery.frontier.len(),
                 frontier_dropped = discovery.dropped,
-                "The crawl frontier exceeds its cap; the newest unvisited links are not kept"
+                found_links_unrecorded = discovery.unrecorded,
+                "The crawl found more links than its frontier keeps; the newest are not kept"
             );
         }
         match self
@@ -1361,6 +1362,7 @@ fn log_crawl_outcome(
         frontier_carried = frontier.carried,
         frontier_deferred = frontier.deferred,
         frontier_dropped = frontier.dropped,
+        found_links_unrecorded = frontier.unrecorded,
         db_wait_ms = u64::try_from(db_wait.as_millis()).unwrap_or(u64::MAX),
         diagnostic_reason = diagnostics.diagnostic_reason,
         stopped_early = diagnostics.stopped_early.map(CrawlStopReason::as_str),
@@ -1432,6 +1434,7 @@ fn log_failed_run_frontier(
         frontier_deferred = diagnostics.frontier_deferred,
         frontier_left = discovery.map(|discovery| discovery.frontier.len()),
         frontier_dropped = discovery.map(|discovery| discovery.dropped),
+        found_links_unrecorded = discovery.map(|discovery| discovery.unrecorded),
         root_reroot = ?diagnostics.root_reroot,
         pages_received = diagnostics.pages_received,
         bot_challenge_pages = diagnostics.bot_challenge_pages,
