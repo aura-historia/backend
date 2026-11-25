@@ -1200,6 +1200,156 @@ async fn should_record_unsolved_revisions_as_replayable_diagnostic_cases() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reapply_processed_latest_revision_once_without_moving_the_head() {
+    use product_listing_postgres::SqlxNormalizationDiagnosticCaseWriterFactory;
+    use product_service::use_cases::{
+        RawRevisionReapplication, RawRevisionReapplicationMode,
+        ReapplyProductListingRawRevisionsCommand, ReapplyProductListingRawRevisionsUseCase,
+        normalize_product_listing_raw_revision::NORMALIZER_VERSION,
+    };
+
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let capture_writer = SqlxProductListingRawCaptureWriterFactory::new();
+    let handler = NormalizeProductListingRawRevisionHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRawNormalizationWriterFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPendingProductListingRawStreamReader::new(pool.clone()),
+    )
+    .with_diagnostic_cases(SqlxNormalizationDiagnosticCaseWriterFactory::new());
+    // A processed stream whose only normalization is by an older normalizer version.
+    let processed_source = seed_listing_source(&pool, "raw-reapply-processed").await;
+    let (processed_stream, processed_revision_id, revision) = changed_parts(
+        capture(
+            &unit_of_work,
+            &capture_writer,
+            raw_write(
+                processed_source,
+                RawProductListingOperation::Upsert,
+                upsert_values("EUR 1.000 - 1.500"),
+                normalization_context(),
+                "reapply-processed",
+            ),
+        )
+        .await,
+    );
+    handler
+        .execute(NormalizeProductListingRawRevisionCommand {
+            mode: NormalizeProductListingRawRevisionMode::RawRevision {
+                product_listing_raw_stream_id: processed_stream,
+                product_listing_raw_revision_id: processed_revision_id,
+                revision,
+            },
+            max_revisions_per_stream: 1,
+            pending_stream_limit: 1,
+        })
+        .await
+        .unwrap_or_else(|error| panic!("normalize stream: {error}"));
+    sqlx::query(
+        "UPDATE product_listing_raw_normalizations SET normalizer_version = $1, outcome = 'REJECTED', product_listing_id = NULL, product_listing_event_id = NULL WHERE product_listing_raw_revision_id = $2",
+    )
+    .bind(i16::try_from(NORMALIZER_VERSION - 1).unwrap())
+    .bind(processed_revision_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("age the normalization: {error}"));
+    // A stream whose revision still waits for the drain is never reapplied.
+    let pending_source = seed_listing_source(&pool, "raw-reapply-pending").await;
+    capture(
+        &unit_of_work,
+        &capture_writer,
+        raw_write(
+            pending_source,
+            RawProductListingOperation::Upsert,
+            upsert_values("EUR 250"),
+            normalization_context(),
+            "reapply-pending",
+        ),
+    )
+    .await;
+    let head = |stream: product_listing_service::ports::ProductListingRawStreamId| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (i64, Option<uuid::Uuid>)>(
+                "SELECT last_processed_revision, product_listing_id FROM product_listing_raw_normalization_heads WHERE product_listing_raw_stream_id = $1",
+            )
+            .bind(stream.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read head: {error}"))
+        }
+    };
+    let normalizations = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (i16, String)>(
+                "SELECT normalizer_version, outcome FROM product_listing_raw_normalizations WHERE product_listing_raw_revision_id = $1 ORDER BY normalizer_version",
+            )
+            .bind(processed_revision_id.as_uuid())
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read normalizations: {error}"))
+        }
+    };
+    let head_before = head(processed_stream).await;
+    let command = |mode| ReapplyProductListingRawRevisionsCommand {
+        mode,
+        after: None,
+        page_size: 10,
+        listing_source_id: None,
+    };
+
+    let dry_run = handler
+        .reapply_page(command(RawRevisionReapplicationMode::DryRun))
+        .await
+        .unwrap_or_else(|error| panic!("dry run: {error}"));
+    let dry_run_rows = normalizations().await;
+    let applied = handler
+        .reapply_page(command(RawRevisionReapplicationMode::Apply))
+        .await
+        .unwrap_or_else(|error| panic!("apply: {error}"));
+    let rerun = handler
+        .reapply_page(command(RawRevisionReapplicationMode::Apply))
+        .await
+        .unwrap_or_else(|error| panic!("rerun: {error}"));
+
+    for page in [&dry_run, &applied] {
+        let [stream] = page.streams.as_slice() else {
+            panic!("only the processed stream qualifies");
+        };
+        assert_eq!(processed_stream, stream.product_listing_raw_stream_id);
+        let Ok(RawRevisionReapplication::Completed(reapplication)) = &stream.result else {
+            panic!("the processed revision is reapplied");
+        };
+        assert_eq!(
+            ProductListingRawNormalizationOutcome::Rejected,
+            reapplication.recorded_outcome
+        );
+        assert_eq!(
+            ProductListingRawNormalizationOutcome::NoChange,
+            reapplication.outcome
+        );
+    }
+    let older = i16::try_from(NORMALIZER_VERSION - 1).unwrap();
+    assert_eq!(vec![(older, "REJECTED".to_owned())], dry_run_rows);
+    assert_eq!(
+        vec![
+            (older, "REJECTED".to_owned()),
+            (
+                i16::try_from(NORMALIZER_VERSION).unwrap(),
+                "NO_CHANGE".to_owned()
+            ),
+        ],
+        normalizations().await
+    );
+    assert_eq!(head_before, head(processed_stream).await);
+    assert!(rerun.streams.is_empty(), "a reapplied revision is done");
+    assert!(rerun.last.is_some(), "the rerun still scans both streams");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_normalize_valid_long_incompressible_url() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source(&pool, "raw-normalization-long-url-source").await;

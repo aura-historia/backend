@@ -8,10 +8,12 @@ mod database;
 mod fx_refresh;
 mod periodic_match;
 mod queue;
+mod renormalization;
 mod reprojection;
 
 pub use command::{Command, OUTBOX, Selection};
 pub use fx_refresh::{FxRefreshRun, capture_fx_rate_snapshot};
+pub use renormalization::RenormalizationOptions;
 
 use application::error::BoxError;
 use platform_process::postgres::pool_config_from_env;
@@ -65,6 +67,9 @@ pub async fn run(command: Command) -> Result<serde_json::Value, OpsError> {
             page_size,
             start_after,
         } => reprojection::reproject_all(&pool().await?, &target, page_size, start_after).await,
+        Command::RenormalizeRaw(options) => {
+            renormalization::renormalize_raw(&pool().await?, &options).await
+        }
         Command::BackendCleanup => cleanup::run().await,
         Command::FxRefresh => fx_refresh::run().await,
         Command::PeriodicMatch => periodic_match::run().await,

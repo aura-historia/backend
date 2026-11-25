@@ -21,5 +21,7 @@ pub use product_listing_raw_normalization::{
     ProductListingRawNormalizationHead, ProductListingRawNormalizationOutcome,
     ProductListingRawNormalizationPortError, ProductListingRawNormalizationWork,
     ProductListingRawNormalizationWriter, ProductListingRawNormalizationWriterFactory,
-    ProductListingRawRevision, ProductListingRawRevisionReader,
+    ProductListingRawReapplicationWork, ProductListingRawRevision, ProductListingRawRevisionReader,
+    ReapplicableProductListingRawStreamPage, ReapplicableProductListingRawStreamPageRequest,
+    ReapplicableProductListingRawStreamReader,
 };

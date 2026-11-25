@@ -11,6 +11,7 @@ fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }
 geo-postgres = { workspace = true }
 geo-service = { workspace = true }
+listing-source-core = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 oauth-postgres = { workspace = true }
@@ -23,6 +24,7 @@ platform-worker-queue-contract = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
+product-service = { workspace = true }
 reqwest = { workspace = true }
 search-filter-periodic-match = { workspace = true }
 search-filter-postgres = { workspace = true }

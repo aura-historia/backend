@@ -43,6 +43,15 @@ use product_listing_service::ports::{
 use std::time::Instant;
 use time::OffsetDateTime;
 
+mod reapply;
+
+pub use reapply::{
+    CompletedRawRevisionReapplication, ProductListingChanges, RawRevisionReapplication,
+    RawRevisionReapplicationMode, RawRevisionReapplicationSkip, ReappliedProductListingRawStream,
+    ReapplyProductListingRawRevisionsCommand, ReapplyProductListingRawRevisionsPage,
+    ReapplyProductListingRawRevisionsUseCase,
+};
+
 pub const NORMALIZER_VERSION: u16 =
     product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION;
 
@@ -154,6 +163,11 @@ pub enum NormalizeProductListingRawRevisionError {
     DiagnosticCaseRecordFailed {
         #[source]
         source: NormalizationDiagnosticCasePortError,
+    },
+    #[error("failed to read the canonical product listing")]
+    ListingReadFailed {
+        #[source]
+        source: product_listing_service::ports::ProductListingRepositoryError,
     },
 }
 
@@ -319,14 +333,16 @@ where
     W: ProductListingRawNormalizationWriterFactory<U::Tx>,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventAppenderFactory<U::Tx>,
-    P: PendingProductListingRawStreamReader + ProductListingRawRevisionReader,
     D: NormalizationDiagnosticCaseWriterFactory<U::Tx>,
 {
     async fn drain_stream(
         &self,
         product_listing_raw_stream_id: ProductListingRawStreamId,
         max_revisions: u32,
-    ) -> StreamDrainResult {
+    ) -> StreamDrainResult
+    where
+        P: ProductListingRawRevisionReader,
+    {
         let mut results = Vec::new();
         for _ in 0..max_revisions {
             let candidate = match self
@@ -376,7 +392,7 @@ where
                 continue;
             }
             let completed = match self
-                .complete_revision(&mut tx, work.head, &candidate, revision, evaluated)
+                .complete_revision(&mut tx, work.head, &candidate, evaluated)
                 .await
             {
                 Ok(completed) => completed,
@@ -449,13 +465,13 @@ where
     }
 
     /// Applies an evaluated revision to the canonical listing and records its diagnostic case
-    /// inside the transaction that holds the stream head. The caller persists the completion.
+    /// inside the transaction that holds the stream head, which must stand at `revision`. The
+    /// caller persists the completion.
     async fn complete_revision(
         &self,
         tx: &mut U::Tx,
         head: ProductListingRawNormalizationHead,
-        candidate: &crate::ports::ProductListingRawRevision,
-        revision: crate::ports::ProductListingRawRevision,
+        revision: &crate::ports::ProductListingRawRevision,
         evaluated: EvaluatedRevision,
     ) -> Result<CompletedRevision, NormalizeProductListingRawRevisionError> {
         let head_listing_source_id = head.listing_source_id;
@@ -476,7 +492,7 @@ where
         };
         let issues = with_completion_issues(evaluated.issues, completion.error_code);
         let diagnostic = self
-            .record_terminal_case(tx, candidate, &head_listing_source_id, &result, &issues)
+            .record_terminal_case(tx, revision, &head_listing_source_id, &result, &issues)
             .await?;
         Ok(CompletedRevision {
             completion,
@@ -521,7 +537,7 @@ where
         &self,
         tx: &mut U::Tx,
         head: ProductListingRawNormalizationHead,
-        revision: crate::ports::ProductListingRawRevision,
+        revision: &crate::ports::ProductListingRawRevision,
         normalized: &ProductListingRawValuesNormalizationOutcome,
         shipping_observation: &mut Option<CrawlerShippingObservation>,
     ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
@@ -540,7 +556,7 @@ where
         {
             return Ok(completion(
                 &head,
-                &revision,
+                revision,
                 ProductListingRawNormalizationOutcome::Rejected,
                 None,
                 None,
@@ -550,18 +566,18 @@ where
         match normalized {
             ProductListingRawValuesNormalizationOutcome::Invalid(error) => Ok(completion(
                 &head,
-                &revision,
+                revision,
                 ProductListingRawNormalizationOutcome::Rejected,
                 None,
                 None,
                 Some(normalization_error_code(error)),
             )),
             ProductListingRawValuesNormalizationOutcome::Delete { source_listing_id } => {
-                self.complete_delete(tx, &head, &revision, source_listing_id.as_ref())
+                self.complete_delete(tx, &head, revision, source_listing_id.as_ref())
                     .await
             }
             ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
-                self.complete_upsert(tx, &head, &revision, resolved, shipping_observation)
+                self.complete_upsert(tx, &head, revision, resolved, shipping_observation)
                     .await
             }
         }
@@ -1095,6 +1111,7 @@ impl NormalizeProductListingRawRevisionError {
             Self::CanonicalWriteFailed { .. } => "CANONICAL_WRITE_FAILED",
             Self::CommitTransactionFailed { .. } => "COMMIT_TRANSACTION_FAILED",
             Self::DiagnosticCaseRecordFailed { .. } => "DIAGNOSTIC_CASE_RECORD_FAILED",
+            Self::ListingReadFailed { .. } => "LISTING_READ_FAILED",
         }
     }
 }
@@ -1246,7 +1263,9 @@ mod tests {
     use super::*;
     use crate::ports::{
         PendingProductListingRawStream, PendingProductListingRawStreamPage,
-        ProductListingRawNormalizationWork,
+        ProductListingRawNormalizationWork, ProductListingRawReapplicationWork,
+        ReapplicableProductListingRawStreamPage, ReapplicableProductListingRawStreamPageRequest,
+        ReapplicableProductListingRawStreamReader,
     };
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use domain_primitives::versioned::Versioned;
@@ -1279,8 +1298,8 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use url::Url;
 
-    type SharedState = Arc<Mutex<TestState>>;
-    type TestHandler = NormalizeProductListingRawRevisionHandler<
+    pub(super) type SharedState = Arc<Mutex<TestState>>;
+    pub(super) type TestHandler = NormalizeProductListingRawRevisionHandler<
         TestUnitOfWork,
         RawPortsFake,
         ProductsFake,
@@ -1294,27 +1313,33 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct TestState {
+    pub(super) struct TestState {
         streams: Vec<TestStream>,
         revision_failures: HashSet<ProductListingRawStreamId>,
         pending_page: PendingProductListingRawStreamPage,
         pending_requests: Vec<PendingProductListingRawStreamPageRequest>,
-        completions: Vec<ProductListingRawNormalizationCompletion>,
+        pub(super) completions: Vec<ProductListingRawNormalizationCompletion>,
         completion_results: VecDeque<Result<(), ProductListingRawNormalizationPortError>>,
         begins: usize,
-        commits: usize,
-        rollbacks: usize,
-        existing_product: Option<VersionedProductListing>,
+        pub(super) commits: usize,
+        pub(super) rollbacks: usize,
+        pub(super) existing_product: Option<VersionedProductListing>,
         key_lookups: Vec<ProductListingKey>,
         id_lookups: Vec<ProductListingId>,
         key_lookup_error: Option<ProductListingRepositoryError>,
-        updated_products: Vec<ProductListing>,
+        pub(super) updated_products: Vec<ProductListing>,
         update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
-        diagnostic_cases: Vec<NormalizationDiagnosticCase>,
+        pub(super) diagnostic_cases: Vec<NormalizationDiagnosticCase>,
+        /// Streams whose latest revision a reapplication may lock.
+        pub(super) reapplications: Vec<ProductListingRawReapplicationWork>,
+        pub(super) reapplicable_page: ReapplicableProductListingRawStreamPage,
+        pub(super) reapplicable_requests: Vec<ReapplicableProductListingRawStreamPageRequest>,
+        /// Completions recorded without moving a head.
+        pub(super) reapplied: Vec<ProductListingRawNormalizationCompletion>,
     }
 
     #[derive(Clone)]
-    struct DiagnosticCasesFake(SharedState);
+    pub(super) struct DiagnosticCasesFake(pub(super) SharedState);
 
     struct DiagnosticCaseWriterFake(SharedState);
 
@@ -1340,29 +1365,29 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct TestUnitOfWork(SharedState);
+    pub(super) struct TestUnitOfWork(SharedState);
 
-    struct TestTransaction {
+    pub(super) struct TestTransaction {
         state: SharedState,
         committed: bool,
     }
 
     #[derive(Clone)]
-    struct RawPortsFake(SharedState);
+    pub(super) struct RawPortsFake(SharedState);
 
     struct RawWriterFake(SharedState);
 
     #[derive(Clone)]
-    struct ProductsFake(SharedState);
+    pub(super) struct ProductsFake(SharedState);
 
     struct ProductRepositoryFake(SharedState);
 
     #[derive(Clone, Copy)]
-    struct EventsFake;
+    pub(super) struct EventsFake;
 
     struct EventAppenderFake;
 
-    fn lock(state: &SharedState) -> MutexGuard<'_, TestState> {
+    pub(super) fn lock(state: &SharedState) -> MutexGuard<'_, TestState> {
         match state.lock() {
             Ok(state) => state,
             Err(poisoned) => poisoned.into_inner(),
@@ -1381,7 +1406,7 @@ mod tests {
         }
     }
 
-    fn raw_head(
+    pub(super) fn raw_head(
         stream_id: ProductListingRawStreamId,
         listing_source_id: ListingSourceId,
         product_listing_id: Option<ProductListingId>,
@@ -1396,7 +1421,7 @@ mod tests {
         }
     }
 
-    fn revision(
+    pub(super) fn revision(
         stream_id: ProductListingRawStreamId,
         revision: u64,
         input: ProductListingNormalizationInput,
@@ -1428,7 +1453,7 @@ mod tests {
         )
     }
 
-    fn upsert_input(
+    pub(super) fn upsert_input(
         price: &str,
     ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
         ProductListingNormalizationInput::new(
@@ -1460,7 +1485,7 @@ mod tests {
         )
     }
 
-    fn existing_listing(
+    pub(super) fn existing_listing(
         product_listing_id: ProductListingId,
         listing_source_id: ListingSourceId,
         source_listing_id: SourceListingId,
@@ -1499,7 +1524,7 @@ mod tests {
         Ok((listing, auction))
     }
 
-    fn handler(state: &SharedState) -> TestHandler {
+    pub(super) fn handler(state: &SharedState) -> TestHandler {
         NormalizeProductListingRawRevisionHandler::new(
             TestUnitOfWork(Arc::clone(state)),
             RawPortsFake(Arc::clone(state)),
@@ -1596,6 +1621,45 @@ mod tests {
             state.completions.push(completion);
             Ok(())
         }
+
+        async fn lock_reapplication(
+            &mut self,
+            product_listing_raw_stream_id: ProductListingRawStreamId,
+            normalizer_version: u16,
+        ) -> Result<
+            Option<ProductListingRawReapplicationWork>,
+            ProductListingRawNormalizationPortError,
+        > {
+            assert_eq!(NORMALIZER_VERSION, normalizer_version);
+            Ok(lock(&self.0)
+                .reapplications
+                .iter()
+                .find(|work| {
+                    work.head.product_listing_raw_stream_id == product_listing_raw_stream_id
+                })
+                .cloned())
+        }
+
+        async fn complete_reapplication(
+            &mut self,
+            completion: ProductListingRawNormalizationCompletion,
+        ) -> Result<(), ProductListingRawNormalizationPortError> {
+            lock(&self.0).reapplied.push(completion);
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ReapplicableProductListingRawStreamReader for RawPortsFake {
+        async fn list_reapplicable_streams(
+            &self,
+            request: ReapplicableProductListingRawStreamPageRequest,
+        ) -> Result<ReapplicableProductListingRawStreamPage, ProductListingRawNormalizationPortError>
+        {
+            let mut state = lock(&self.0);
+            state.reapplicable_requests.push(request);
+            Ok(state.reapplicable_page.clone())
+        }
     }
 
     #[async_trait::async_trait]
@@ -1654,6 +1718,17 @@ mod tests {
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             let mut state = lock(&self.0);
             state.id_lookups.push(product_listing_id);
+            if let Some(updated) = state
+                .updated_products
+                .iter()
+                .rev()
+                .find(|product| product.id() == product_listing_id)
+            {
+                return Ok(Some(Versioned::new(
+                    updated.clone(),
+                    ProductListingStorageVersion::INITIAL.next(),
+                )));
+            }
             Ok(state
                 .existing_product
                 .as_ref()
