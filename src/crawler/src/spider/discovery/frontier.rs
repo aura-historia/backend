@@ -3,11 +3,15 @@
 //!
 //! Link discovery from the root stays the authority on what a shop lists. Seeds, the URLs an
 //! earlier cut-short crawl left unvisited, only extend it: they are fetched, filtered and stored
-//! like found links, within the same crawl budget.
+//! like found links, within the same crawl budget. A frontier larger than one batch of seeds is
+//! kept, not dropped: the oldest URLs are seeded first, the rest in later batches while the crawl
+//! has budget, and what it does not reach is carried over to a later crawl.
 
 use regex::{Regex, RegexSet};
+use serde::{Deserialize, Serialize};
 use spider::CaseInsensitiveString;
 use std::collections::HashSet;
+use std::hash::{BuildHasher, RandomState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
@@ -19,12 +23,16 @@ use super::website_spider::{CrawlBudgetScale, CrawlPace};
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 
-/// Most URLs one crawl hands Spider as seeds, and most it leaves for the next crawl. Spider keeps
-/// at most 25,000 seed links in memory.
-pub const MAX_FRONTIER_URLS: usize = 20_000;
+/// Most URLs one batch of a crawl hands Spider as seeds. Spider keeps at most 25,000 seed links
+/// in memory.
+pub const MAX_SEED_URLS: usize = 20_000;
+
+/// Most URLs a crawl leaves for the next ones, which bounds a ListingSource's stored frontier: a
+/// crawl seeds the oldest [`MAX_SEED_URLS`] of them first and the rest in later batches.
+pub const MAX_FRONTIER_URLS: usize = 100_000;
 
 /// Most distinct links one crawl remembers having found, which bounds the frontier it can
-/// compute.
+/// compute, and most distinct links beyond them it counts as unrecorded.
 const MAX_FOUND_LINKS: usize = 200_000;
 
 /// Which crawl of its schedule a ListingSource runs.
@@ -58,7 +66,8 @@ impl std::fmt::Display for CrawlKind {
 /// What a crawl starts from besides its root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CrawlSeeds {
-    /// URLs the ListingSource's previous crawl found or was seeded with but did not visit.
+    /// URLs the ListingSource's previous crawls found or were seeded with but did not visit, the
+    /// longest-waiting first.
     pub frontier: Vec<Url>,
     /// URLs the crawl does not fetch: the product URLs an incremental crawl already knows.
     pub known: Vec<Url>,
@@ -96,8 +105,52 @@ impl CrawlRequest {
 /// What an ended crawl left for the next one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CrawlDiscovery {
-    /// URLs the crawl found or was seeded with but did not visit, at most [`MAX_FRONTIER_URLS`].
+    /// URLs the crawl carried over, found or was seeded with but did not visit, at most
+    /// [`MAX_FRONTIER_URLS`]: the frontier it was given first, then what it found.
     pub frontier: Vec<Url>,
+    /// Unvisited URLs beyond [`MAX_FRONTIER_URLS`] that the crawl found and could not keep.
+    pub dropped: usize,
+    /// Distinct links the crawl found beyond the most it remembers, which its frontier lacks
+    /// unless Spider visited them, counted up to that bound again.
+    pub unrecorded: usize,
+}
+
+/// The frontier figures of one spider run, which its logs carry so an operator can tell from one
+/// continuation to the next whether a large shop's frontier shrinks, and which the scheduler reads
+/// to tell a shop too large for one crawl.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrontierProgress {
+    /// The stored frontier the crawl continued.
+    pub carried: usize,
+    /// Of `carried`, the URLs beyond the crawl's first batch of seeds, which it seeds in later
+    /// batches only while it has time and pages left.
+    pub deferred: usize,
+    /// The URLs the crawl left unvisited for the next one; `None` when the crawl could not tell,
+    /// in which case the previously stored frontier is kept.
+    pub left: Option<usize>,
+    /// Unvisited URLs beyond [`MAX_FRONTIER_URLS`] the crawl could not keep.
+    pub dropped: usize,
+    /// Distinct links the crawl found beyond the most it remembers, which the frontier may lack.
+    pub unrecorded: usize,
+}
+
+impl FrontierProgress {
+    /// The figures of a crawl that continued `seeded` URLs in its first batch of seeds and
+    /// `deferred` beyond it, and left `discovery`, or could not tell its frontier.
+    pub fn after(seeded: usize, deferred: usize, discovery: Option<&CrawlDiscovery>) -> Self {
+        Self {
+            carried: seeded + deferred,
+            deferred,
+            left: discovery.map(|discovery| discovery.frontier.len()),
+            dropped: discovery.map_or(0, |discovery| discovery.dropped),
+            unrecorded: discovery.map_or(0, |discovery| discovery.unrecorded),
+        }
+    }
+
+    /// Whether the crawl left URLs unvisited.
+    pub fn has_urls_left(&self) -> bool {
+        self.left.is_some_and(|left| left > 0)
+    }
 }
 
 /// The links Spider follows, in the spelling it requests them: on the crawl root's host alone
@@ -134,6 +187,32 @@ impl FollowRules {
     }
 }
 
+/// The stored frontier a crawl continues, in the spelling Spider requests it, the longest-waiting
+/// first.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct FrontierSeeds {
+    /// The oldest URLs, the crawl's first batch of seeds.
+    pub(super) seeded: Vec<String>,
+    /// The URLs beyond the first batch, seeded in later batches while the crawl has budget and
+    /// carried over to the next crawl when it does not reach them.
+    pub(super) deferred: Vec<String>,
+}
+
+impl FrontierSeeds {
+    /// `frontier`, longest-waiting first, seeding at most `seed_limit` of it.
+    fn split(mut frontier: Vec<String>, seed_limit: usize) -> Self {
+        let deferred = frontier.split_off(frontier.len().min(seed_limit));
+        Self {
+            seeded: frontier,
+            deferred,
+        }
+    }
+
+    fn carried(&self) -> impl Iterator<Item = &String> {
+        self.seeded.iter().chain(&self.deferred)
+    }
+}
+
 /// Seeds a crawl may hand Spider: links Spider [follows](FollowRules) that robots.txt allows.
 pub(super) struct SeedAdmission<'a> {
     pub(super) rules: &'a FollowRules,
@@ -147,16 +226,25 @@ impl SeedAdmission<'_> {
             .filter(|stored| self.robots.allows(stored.as_url()))
     }
 
-    /// The admitted seeds, each once and never the root itself, at most [`MAX_FRONTIER_URLS`].
-    pub(super) fn admit_all<'u>(&self, urls: impl IntoIterator<Item = &'u Url>) -> Vec<String> {
+    /// The admitted seeds, each once and never the root itself, at most `limit`.
+    pub(super) fn admit_up_to<'u>(
+        &self,
+        urls: impl IntoIterator<Item = &'u Url>,
+        limit: usize,
+    ) -> Vec<String> {
         let mut seen = HashSet::new();
         seen.insert(self.rules.root.as_str().to_string());
         urls.into_iter()
             .filter_map(|url| self.admit(url))
             .map(|stored| stored.as_url().as_str().to_string())
             .filter(|stored| seen.insert(stored.clone()))
-            .take(MAX_FRONTIER_URLS)
+            .take(limit)
             .collect()
+    }
+
+    /// The admitted part of the stored `frontier`, in its order, split at `seed_limit`.
+    pub(super) fn frontier_seeds(&self, frontier: &[Url], seed_limit: usize) -> FrontierSeeds {
+        FrontierSeeds::split(self.admit_up_to(frontier, MAX_FRONTIER_URLS), seed_limit)
     }
 }
 
@@ -166,7 +254,7 @@ impl SeedAdmission<'_> {
 #[derive(Clone)]
 pub(super) struct FoundLinks {
     rules: Arc<FollowRules>,
-    links: Arc<Mutex<HashSet<String>>>,
+    links: Arc<Mutex<RecordedLinks>>,
     /// The pages Spider delivered. Spider counts a link visited once it starts
     /// the fetch, also when its crawl ended before the page arrived.
     delivered: Arc<Mutex<HashSet<CaseInsensitiveString>>>,
@@ -177,9 +265,14 @@ pub(super) struct FoundLinks {
 impl FoundLinks {
     /// Records the links Spider follows by `rules`.
     pub(super) fn new(rules: Arc<FollowRules>) -> Self {
+        Self::bounded(rules, MAX_FOUND_LINKS)
+    }
+
+    /// Records at most `max_links` distinct links, and counts at most as many beyond them.
+    fn bounded(rules: Arc<FollowRules>, max_links: usize) -> Self {
         Self {
             rules,
-            links: Arc::default(),
+            links: Arc::new(Mutex::new(RecordedLinks::new(max_links))),
             delivered: Arc::default(),
             recording_stopped: Arc::default(),
         }
@@ -195,25 +288,27 @@ impl FoundLinks {
         }
     }
 
-    /// The seeds and found links whose page the crawl neither delivered nor `visited` counts,
-    /// each once, at most [`MAX_FRONTIER_URLS`]. A page arrives in the spelling the crawler
-    /// stores, which differs from the link Spider counts visited when the link carried
-    /// parameters that do not identify the page.
+    /// The carried frontier and the found links whose page the crawl neither delivered nor
+    /// `visited` counts, each once, at most `limit`: the next batch of seeds. A page arrives in
+    /// the spelling the crawler stores, which differs from the link Spider counts visited when
+    /// the link carried parameters that do not identify the page.
     pub(super) fn unvisited(
         &self,
-        seeds: &[String],
+        carried: &FrontierSeeds,
         visited: impl Fn(&CaseInsensitiveString) -> bool,
+        limit: usize,
     ) -> Vec<String> {
         let found = self.snapshot();
-        self.unvisited_among(seeds.iter().chain(found.iter()), visited)
+        self.unvisited_among(carried.carried().chain(found.iter()), visited, limit)
     }
 
     /// The `candidates` whose page the crawl neither delivered nor `visited` counts, each once,
-    /// at most [`MAX_FRONTIER_URLS`].
+    /// at most `limit`.
     pub(super) fn unvisited_among<'a>(
         &self,
         candidates: impl IntoIterator<Item = &'a String>,
         visited: impl Fn(&CaseInsensitiveString) -> bool,
+        limit: usize,
     ) -> Vec<String> {
         let delivered = self
             .delivered
@@ -223,7 +318,7 @@ impl FoundLinks {
         unvisited(
             candidates,
             |link| delivered.contains(link) || visited(link),
-            MAX_FRONTIER_URLS,
+            limit,
         )
     }
 
@@ -233,15 +328,33 @@ impl FoundLinks {
         self.recording_stopped.store(true, Ordering::Relaxed);
     }
 
-    /// The seeds and found links whose page the crawl neither delivered nor already knew, at
-    /// most [`MAX_FRONTIER_URLS`].
-    pub(super) fn frontier(&self, seeds: &[String], known: &KnownPages) -> Vec<Url> {
-        self.unvisited(seeds, |link| {
-            Url::parse(link.inner()).is_ok_and(|url| known.page_of(&url).is_some())
-        })
-        .iter()
-        .filter_map(|url| Url::parse(url).ok())
-        .collect()
+    /// The carried frontier and the found links whose page the crawl neither delivered nor
+    /// already knew, at most [`MAX_FRONTIER_URLS`].
+    pub(super) fn frontier(&self, carried: &FrontierSeeds, known: &KnownPages) -> CrawlDiscovery {
+        self.frontier_within(carried, known, MAX_FRONTIER_URLS)
+    }
+
+    /// The frontier, at most `limit` URLs: what the crawl was given keeps its place ahead of what
+    /// it found, so the URLs that waited longest are kept and the newest found links dropped.
+    fn frontier_within(
+        &self,
+        carried: &FrontierSeeds,
+        known: &KnownPages,
+        limit: usize,
+    ) -> CrawlDiscovery {
+        let found = self.snapshot();
+        let mut left = self.unvisited_among(
+            carried.carried().chain(found.iter()),
+            |link| Url::parse(link.inner()).is_ok_and(|url| known.page_of(&url).is_some()),
+            usize::MAX,
+        );
+        let dropped = left.len().saturating_sub(limit);
+        left.truncate(limit);
+        CrawlDiscovery {
+            frontier: left.iter().filter_map(|url| Url::parse(url).ok()).collect(),
+            dropped,
+            unrecorded: self.unrecorded(),
+        }
     }
 
     /// How many known product pages the delivered pages link that the crawl did not deliver,
@@ -302,10 +415,7 @@ impl FoundLinks {
         }
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
         for link in stored {
-            if links.len() >= MAX_FOUND_LINKS {
-                break;
-            }
-            links.insert(link);
+            links.record(link);
         }
     }
 
@@ -313,7 +423,17 @@ impl FoundLinks {
         self.links
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .kept
             .clone()
+    }
+
+    /// Distinct links found beyond the most the crawl remembers.
+    fn unrecorded(&self) -> usize {
+        self.links
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unrecorded
+            .len()
     }
 
     /// The link, resolved against `base`, as Spider would request it (`FoundLinkDecoder`), when
@@ -323,6 +443,35 @@ impl FoundLinks {
         let resolved = base.join(decoded.trim()).ok()?;
         let stored = self.rules.followed(resolved)?;
         Some(stored.as_url().as_str().to_string())
+    }
+}
+
+/// The distinct links a crawl found, at most `max_links`, and those beyond them, which are not
+/// kept but counted by their hash, so a crawl whose links exceed the bound says so in bounded
+/// memory.
+struct RecordedLinks {
+    max_links: usize,
+    kept: HashSet<String>,
+    unrecorded: HashSet<u64>,
+    hasher: RandomState,
+}
+
+impl RecordedLinks {
+    fn new(max_links: usize) -> Self {
+        Self {
+            max_links,
+            kept: HashSet::new(),
+            unrecorded: HashSet::new(),
+            hasher: RandomState::new(),
+        }
+    }
+
+    fn record(&mut self, link: String) {
+        if self.kept.len() < self.max_links || self.kept.contains(&link) {
+            self.kept.insert(link);
+        } else if self.unrecorded.len() < self.max_links {
+            self.unrecorded.insert(self.hasher.hash_one(&link));
+        }
     }
 }
 
@@ -395,12 +544,100 @@ mod tests {
         ];
 
         assert_eq!(
-            admission.admit_all(&seeds),
+            admission.frontier_seeds(&seeds, MAX_SEED_URLS).seeded,
             [
                 "https://shop.example/product/1",
                 "https://shop.example/product/6"
             ]
         );
+    }
+
+    fn spellings(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|path| url(path).to_string()).collect()
+    }
+
+    #[test]
+    fn should_seed_the_longest_waiting_frontier_urls_and_defer_the_rest() {
+        let frontier = spellings(&["/old/1", "/old/2", "/new/1"]);
+
+        assert_eq!(
+            FrontierSeeds::split(frontier.clone(), 2),
+            FrontierSeeds {
+                seeded: spellings(&["/old/1", "/old/2"]),
+                deferred: spellings(&["/new/1"]),
+            }
+        );
+        assert_eq!(
+            FrontierSeeds::split(frontier.clone(), 5),
+            FrontierSeeds {
+                seeded: frontier,
+                deferred: Vec::new(),
+            }
+        );
+    }
+
+    /// A frontier larger than one crawl's seeds is carried over whole, ahead of the links the
+    /// crawl found; only what exceeds the cap is dropped, and counted.
+    #[test]
+    fn should_carry_deferred_urls_over_ahead_of_found_links_and_count_what_exceeds_the_cap() {
+        let found = FoundLinks::new(Arc::new(follow_rules(r"/denied")));
+        let links: Vec<CaseInsensitiveString> = ["/found/1", "/found/2", "/found/3", "/seed/2"]
+            .into_iter()
+            .map(CaseInsensitiveString::from)
+            .collect();
+        found.record("https://shop.example/", b"", &links);
+        found.record_delivered("https://shop.example/seed/1");
+        let carried = FrontierSeeds {
+            seeded: spellings(&["/seed/1", "/seed/2"]),
+            deferred: spellings(&["/deferred/1"]),
+        };
+        let known = KnownPages::new(&url("/"), &CrawlSeeds::default());
+
+        let discovery = found.frontier_within(&carried, &known, 3);
+
+        assert_eq!(
+            discovery.frontier[..2],
+            [url("/seed/2"), url("/deferred/1")],
+            "{discovery:?}"
+        );
+        assert!(discovery.frontier[2].path().starts_with("/found/"));
+        assert_eq!(discovery.dropped, 2, "{discovery:?}");
+        let whole = found.frontier_within(&carried, &known, 10);
+        assert_eq!(whole.frontier.len(), 5, "{whole:?}");
+        assert_eq!(whole.dropped, 0);
+    }
+
+    /// Links beyond the most a crawl remembers are not kept but counted, each once, so the
+    /// frontier they are missing from does not shrink silently.
+    #[test]
+    fn should_count_the_distinct_links_found_beyond_the_most_a_crawl_remembers() {
+        let found = FoundLinks::bounded(Arc::new(follow_rules(r"/denied")), 2);
+        let links: Vec<CaseInsensitiveString> = [
+            "/found/1",
+            "/found/2",
+            "/found/3",
+            "/found/1",
+            "/found/4",
+            "/found/3",
+            "/denied/1",
+        ]
+        .into_iter()
+        .map(CaseInsensitiveString::from)
+        .collect();
+        found.record("https://shop.example/", b"", &links);
+        let known = KnownPages::new(&url("/"), &CrawlSeeds::default());
+
+        let discovery = found.frontier(&FrontierSeeds::default(), &known);
+
+        let mut frontier = discovery.frontier.clone();
+        frontier.sort();
+        assert_eq!(
+            frontier,
+            [url("/found/1"), url("/found/2")],
+            "{discovery:?}"
+        );
+        assert_eq!(discovery.unrecorded, 2, "{discovery:?}");
+        assert_eq!(discovery.dropped, 0, "{discovery:?}");
     }
 
     #[test]
@@ -515,7 +752,7 @@ mod tests {
 
         assert_eq!(found.skipped_known(&known), 1);
         assert_eq!(
-            found.frontier(&[], &known),
+            found.frontier(&FrontierSeeds::default(), &known).frontier,
             [url("/en-GB/glass/bowl/prod_13037")]
         );
     }

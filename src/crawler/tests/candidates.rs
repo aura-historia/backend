@@ -478,6 +478,38 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
     );
 }
 
+/// A crawl seeds the longest-waiting URLs of a frontier larger than its seed limit, so a URL that
+/// stays unvisited keeps the time it was first left and is loaded ahead of what later crawls add,
+/// whatever its spelling sorts as.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_crawl_frontier_should_be_loaded_longest_waiting_first() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlFrontierRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "spider-waiting.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-waiting.example.com");
+    let url =
+        |path: &str| url::Url::parse(&format!("https://spider-waiting.example.com{path}")).unwrap();
+
+    repository
+        .replace_frontier(&root, &[url("/z/first"), url("/y/first")])
+        .await
+        .unwrap();
+    repository
+        .replace_frontier(&root, &[url("/a/second"), url("/z/first")])
+        .await
+        .unwrap();
+    repository
+        .replace_frontier(&root, &[url("/b/third"), url("/a/second"), url("/z/first")])
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repository.load_frontier(&listing_source_id).await.unwrap(),
+        [url("/z/first"), url("/a/second"), url("/b/third")]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // get_candidates — limit is respected
 // ---------------------------------------------------------------------------

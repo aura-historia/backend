@@ -34,7 +34,8 @@ use crate::network::robots::RobotsPolicy;
 use crate::network::robots_directives::PageDirectives;
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
-    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, MAX_FRONTIER_URLS, SeedAdmission,
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, FrontierSeeds, MAX_SEED_URLS,
+    SeedAdmission,
 };
 use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
@@ -423,6 +424,9 @@ pub struct CrawlDiagnostics {
     /// Seed URLs carried over from the previous crawl, which the crawl visits
     /// after link discovery from the root.
     pub seeds: usize,
+    /// URLs of the stored frontier beyond the crawl's first batch of seeds, seeded in later
+    /// batches while it has budget (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    pub frontier_deferred: usize,
     /// Known product pages the delivered pages link that the crawl did not
     /// fetch, each page once: the stored ones an incremental crawl skips and
     /// those the crawl's sitemaps registered.
@@ -630,6 +634,8 @@ pub struct CrawlerConfig {
     pub preflight_deadline: Duration,
     /// Bounds of the sitemap reading every crawl starts with.
     pub sitemaps: SitemapLimits,
+    /// Most URLs one batch of a crawl hands Spider as seeds; [`MAX_SEED_URLS`] outside tests.
+    pub max_seed_urls: usize,
 }
 
 impl Default for CrawlerConfig {
@@ -652,6 +658,7 @@ impl Default for CrawlerConfig {
             },
             preflight_deadline: DEFAULT_PREFLIGHT_DEADLINE,
             sitemaps: SitemapLimits::default(),
+            max_seed_urls: MAX_SEED_URLS,
         }
     }
 }
@@ -1505,6 +1512,8 @@ struct CrawlBounds {
     link_discovery_duration: Duration,
     /// Links marked visited before the crawl, which Spider counts as pages.
     known_links: usize,
+    /// Most URLs one batch of seeds hands Spider.
+    max_seed_urls: usize,
 }
 
 /// The seeds a crawl visits after its link discovery from the root, in the spelling Spider
@@ -1512,7 +1521,7 @@ struct CrawlBounds {
 struct CrawlSeedUrls {
     /// What the previous crawl left unvisited; visited first, and carried over again when
     /// not reached.
-    frontier: Vec<String>,
+    frontier: Arc<FrontierSeeds>,
     /// The URLs the shop's sitemaps list that are no registered product URL: visited only with
     /// the time and pages a crawl that completed its own discovery leaves, without recording
     /// what they link, and never carried over, so they never keep a crawl from completing
@@ -1522,18 +1531,19 @@ struct CrawlSeedUrls {
 
 /// The sitemap seeds a crawl may hand Spider besides its `frontier` seeds: admitted like any
 /// seed, without those already among the frontier seeds, so that both together stay within
-/// [`MAX_FRONTIER_URLS`].
+/// `max_seed_urls`.
 fn sitemap_seeds(
     admission: &SeedAdmission<'_>,
     listed: &[Url],
     frontier: &[String],
+    max_seed_urls: usize,
 ) -> Vec<String> {
     let carried: HashSet<&str> = frontier.iter().map(String::as_str).collect();
     admission
-        .admit_all(listed)
+        .admit_up_to(listed, max_seed_urls)
         .into_iter()
         .filter(|seed| !carried.contains(seed.as_str()))
-        .take(MAX_FRONTIER_URLS.saturating_sub(frontier.len()))
+        .take(max_seed_urls.saturating_sub(frontier.len()))
         .collect()
 }
 
@@ -1545,7 +1555,7 @@ fn sitemap_seeds(
 /// link an earlier one visited. Link discovery from the root runs first, for its
 /// share of the budget when there are frontier seeds. The frontier seeds, with the
 /// links the first phase found but did not reach, follow for the rest of the
-/// budget, unless the first phase failed at the root or was stopped. The crawl's
+/// budget ([`crawl_frontier`]), unless the first phase failed at the root or was stopped. The crawl's
 /// completion is judged then; only a crawl that completed turns to the sitemap
 /// seeds with the time and pages it has left, without recording what they link,
 /// so they never make a crawl truncated. The filter task tells, once it has
@@ -1588,12 +1598,15 @@ async fn run_library_crawl(
             Some(RootVerdict::Refused) => {}
             Some(RootVerdict::Accepted) => {
                 root_accepted = true;
-                // Pages the filter task has not relayed yet miss here; what their
-                // links lead to carries over in the frontier instead.
-                let visited = website.get_links();
-                let pending = found.unvisited(&seeds.frontier, |link| visited.contains(link));
-                stopped =
-                    crawl_extra_links(&mut website, pending, &bounds, remaining(), &stop).await;
+                stopped = crawl_frontier(
+                    &mut website,
+                    &seeds.frontier,
+                    &found,
+                    &bounds,
+                    &stop,
+                    remaining,
+                )
+                .await;
             }
         }
     }
@@ -1612,7 +1625,11 @@ async fn run_library_crawl(
     if root_accepted && completion == CrawlCompletion::Completed && !seeds.sitemaps.is_empty() {
         found.stop_recording();
         let visited = website.get_links();
-        let pending = found.unvisited_among(&seeds.sitemaps, |link| visited.contains(link));
+        let pending = found.unvisited_among(
+            &seeds.sitemaps,
+            |link| visited.contains(link),
+            bounds.max_seed_urls,
+        );
         stopped = crawl_extra_links(&mut website, pending, &bounds, remaining(), &stop).await;
     }
     let completion = match stopped {
@@ -1624,6 +1641,38 @@ async fn run_library_crawl(
         completion,
         stopped,
         ..root_outcome
+    }
+}
+
+/// Crawls the frontier the crawl continues, with the links it found but did not reach, one batch of
+/// at most `max_seed_urls` after another while it has time and pages left: the seeds first, then
+/// the frontier beyond them and what the batches led to, so a frontier larger than one batch is
+/// not left unvisited by a crawl that still has budget. It ends once a batch fetched nothing,
+/// since what is left then cannot be visited, or when the filter task stopped it, returning true.
+async fn crawl_frontier(
+    website: &mut Website,
+    frontier: &FrontierSeeds,
+    found: &FoundLinks,
+    bounds: &CrawlBounds,
+    stop: &Notify,
+    remaining: impl Fn() -> Duration,
+) -> bool {
+    loop {
+        // Pages the filter task has not relayed yet miss here; what their
+        // links lead to carries over in the frontier instead.
+        let visited = website.get_links();
+        let batch = found.unvisited(
+            frontier,
+            |link| visited.contains(link),
+            bounds.max_seed_urls,
+        );
+        let visited_before = website.size();
+        if crawl_extra_links(website, batch, bounds, remaining(), stop).await {
+            return true;
+        }
+        if website.size() == visited_before {
+            return false;
+        }
     }
 }
 
@@ -2078,10 +2127,16 @@ impl SpiderImpl {
                 .iter()
                 .map(|page| page.as_url().clone()),
         );
-        let seed_urls = admission.admit_all(&seeds.frontier);
-        let sitemap_seed_urls = sitemap_seeds(&admission, &registration.seeds, &seed_urls);
+        let max_seed_urls = self.config.max_seed_urls;
+        let frontier_seeds = admission.frontier_seeds(&seeds.frontier, max_seed_urls);
+        let sitemap_seed_urls = sitemap_seeds(
+            &admission,
+            &registration.seeds,
+            &frontier_seeds.seeded,
+            max_seed_urls,
+        );
         sitemap_listing.diagnostics.seeds = sitemap_seed_urls.len();
-        let link_discovery_duration = match seed_urls.is_empty() {
+        let link_discovery_duration = match frontier_seeds.seeded.is_empty() {
             true => crawl_duration,
             false => crawl_duration / LINK_DISCOVERY_BUDGET_DIVISOR,
         };
@@ -2131,14 +2186,17 @@ impl SpiderImpl {
             max_pages_per_crawl,
             link_discovery_duration,
             known_links: known_link_count,
+            max_seed_urls,
         };
         let shutdown = self.shutdown.clone();
         let stop_crawl = Arc::new(Notify::new());
         let crawl_stop = Arc::clone(&stop_crawl);
         let (root_verdict, root_judgement) = watch::channel(None);
-        let seed_count = seed_urls.len();
+        let seed_count = frontier_seeds.seeded.len();
+        let frontier_deferred = frontier_seeds.deferred.len();
         let crawl_found_links = found_links.clone();
-        let frontier_seeds = seed_urls.clone();
+        let frontier_seeds = Arc::new(frontier_seeds);
+        let crawl_frontier_seeds = Arc::clone(&frontier_seeds);
         let sitemap_rate_limit = sitemap_listing.rate_limit;
         // A rate-limit answer to a sitemap request, or the crawler's shutdown while the crawl read
         // the sitemaps, stops the crawl before Spider starts.
@@ -2156,7 +2214,7 @@ impl SpiderImpl {
                         link_decoder,
                         bounds,
                         CrawlSeedUrls {
-                            frontier: seed_urls,
+                            frontier: crawl_frontier_seeds,
                             sitemaps: sitemap_seed_urls,
                         },
                         crawl_found_links,
@@ -2193,6 +2251,7 @@ impl SpiderImpl {
             request_delay_ms: delay_millis,
             crawl_budget_ms: u64::try_from(full_crawl_duration.as_millis()).unwrap_or(u64::MAX),
             seeds: seed_count,
+            frontier_deferred,
             root_reroot,
             sitemaps: sitemap_listing.diagnostics,
             ..CrawlDiagnostics::default()
@@ -2231,9 +2290,7 @@ impl SpiderImpl {
                         diagnostics.stopped_early = stop_requested;
                     }
                     // Every page is relayed by now, so its links are known.
-                    let discovery = CrawlDiscovery {
-                        frontier: found_links.frontier(&frontier_seeds, known_pages.known()),
-                    };
+                    let discovery = found_links.frontier(&frontier_seeds, known_pages.known());
                     diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
                     diagnostics.known_fetches_saved = known_pages.answered_links();
                     diagnostics.ran_out_of_time = !outcome.stopped
@@ -4919,6 +4976,80 @@ mod tests {
         assert_eq!(seeds_fetched, 2, "{requests:?}");
         assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
         assert_eq!(discovery.frontier.len(), 9, "{discovery:?}");
+    }
+
+    /// A crawl seeded with `frontier` paths of a shop whose pages link nowhere, handing Spider at
+    /// most two seeds per batch.
+    async fn crawl_frontier_in_batches_of_two(
+        frontier: &[String],
+        max_pages_per_crawl: u32,
+    ) -> (HashSet<String>, CrawlDiagnostics, CrawlDiscovery) {
+        let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+            SiteResponse::Html("200 OK", "<p>p</p>".to_string())
+        }))
+        .await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl,
+            max_seed_urls: 2,
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: frontier.iter().map(|path| example(path)).collect(),
+            ..CrawlSeeds::default()
+        };
+        let crawl = run_seeded_crawl(&spider, seeds).await;
+        site.finish().await;
+        crawl
+    }
+
+    fn seed_paths(count: usize) -> Vec<String> {
+        (1..=count).map(|i| format!("/seed/{i}")).collect()
+    }
+
+    /// A frontier larger than one batch of seeds is not cut at the seed limit: a crawl whose
+    /// pages run out seeds the longest-waiting URLs and carries the rest over for a later crawl.
+    #[tokio::test]
+    async fn should_carry_the_frontier_beyond_the_seed_limit_over_when_the_pages_run_out() {
+        let frontier = seed_paths(5);
+
+        let (delivered, diagnostics, discovery) =
+            crawl_frontier_in_batches_of_two(&frontier, 3).await;
+
+        assert_eq!(diagnostics.seeds, 2);
+        assert_eq!(diagnostics.frontier_deferred, 3);
+        assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
+        assert!(
+            delivered.contains("http://example.com/seed/1"),
+            "{delivered:?}"
+        );
+        assert_eq!(
+            discovery.frontier,
+            ["/seed/3", "/seed/4", "/seed/5"].map(example),
+            "the URLs beyond the seed limit are carried over, in their order"
+        );
+        assert_eq!(discovery.dropped, 0);
+    }
+
+    /// A crawl that visited its seeds with budget left goes on with the frontier beyond them, one
+    /// batch at a time, so it does not end early with URLs it never tried.
+    #[tokio::test]
+    async fn should_visit_the_frontier_beyond_the_seed_limit_while_the_crawl_has_budget() {
+        let frontier = seed_paths(5);
+
+        let (delivered, diagnostics, discovery) =
+            crawl_frontier_in_batches_of_two(&frontier, 100).await;
+
+        for path in &frontier {
+            assert!(
+                delivered.contains(example(path).as_str()),
+                "{path} not visited: {delivered:?}"
+            );
+        }
+        assert_eq!(diagnostics.seeds, 2);
+        assert_eq!(diagnostics.frontier_deferred, 3);
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
     }
 
     /// Spider counts the link as written visited, while the page arrives under the spelling the
