@@ -3280,6 +3280,34 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     );
 }
 
+/// A ListingSource waiting on its first product schema before it has any product URL has nothing
+/// blocked, so it has neither a blocked time nor a blocking review.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_block_nothing_of_a_source_waiting_on_its_first_schema_without_product_urls() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    set_crawl_root(&pool, listing_source_id, "empty.example.com").await;
+    pending_schema_review(&repository, &listing_source_id).await;
+    insert_scraped_url(
+        &pool,
+        listing_source_id,
+        "https://empty.example.com/category",
+        "category",
+        "ACTIVE",
+        None,
+    )
+    .await;
+
+    let source = overview_of(&pool, listing_source_id).await;
+
+    assert_eq!(source.blocked_urls, 0);
+    assert_eq!(source.blocked_since, None);
+    assert_eq!(source.blocking_review_id, None);
+    assert_eq!(source.pending_reviews, 1);
+}
+
 /// A ListingSource without a product schema scrapes none of its URLs while its first
 /// product-schema review is pending, although only the page that opened the review recorded the
 /// wait: every product URL of it is blocked, since that review was created.
