@@ -92,7 +92,7 @@ it to the user as a ticket or a separate decision.
    - Live schemas (`listing_source_product_schemas`) when the change concerns extraction: keep
      only the schema that exposes the behaviour, e.g. drop a "no-description" variant to force
      the optional-field path.
-   - URL eligibility (`candidate_service.rs`, `eligible_urls`): a product URL is scraped when
+   - URL eligibility (`candidate_service.rs`, `due_url_conditions!` and `scrapable_sources_cte!`): a product URL is scraped when
      `last_scraped` is null or older than one day, `next_retry_at` is null or past, the source
      has no `PENDING_REVIEW` product-schema review, and its scrape circuit is not open. To
      rescrape a sample set `last_scraped`, `last_scraped_hash`,
