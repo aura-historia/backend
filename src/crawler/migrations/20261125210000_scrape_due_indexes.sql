@@ -2,15 +2,16 @@
 -- pass (`src/crawler/src/scraper/candidate_service.rs`). A product URL is due once its last
 -- scrape, `-infinity` when it was never scraped, is a day old.
 --
--- The due URLs of one ListingSource are one range of this index, in the order the scraper takes
--- them, so choosing candidates reads a few sources' first URLs instead of every due URL.
+-- Choosing candidates looks up whether each source has a due URL and reads the first due URLs
+-- of a few sources. Keyed by source and last scrape, each source's due URLs are one range of
+-- this index, so neither grows with how many URLs are due over all sources.
 CREATE INDEX idx_listing_source_urls_scrape_due
     ON listing_source_urls (listing_source_id, COALESCE(last_scraped, '-infinity'::timestamptz), url)
     WHERE url_class = 'product' AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD');
 
--- Counting every due URL reads them in table order from this one. It replaces the index on
--- (url_class, last_scraped), which only the due-URL query used and which cannot serve the
--- `COALESCE` spelling of the due condition.
+-- The count of every due URL across sources needs the due URLs without a source key. This
+-- index serves the `COALESCE` spelling of the due condition; the index on
+-- (url_class, last_scraped) it replaces served only the earlier spelling and no other query.
 CREATE INDEX idx_listing_source_urls_scrape_due_since
     ON listing_source_urls (COALESCE(last_scraped, '-infinity'::timestamptz))
     WHERE url_class = 'product' AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD');

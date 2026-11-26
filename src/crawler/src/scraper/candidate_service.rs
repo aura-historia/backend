@@ -1147,11 +1147,36 @@ macro_rules! due_url_conditions {
     };
 }
 
+/// The first due URLs, in scrape order, of the selected source `s` among those `partition`
+/// admits, at most as many as the source sends: one probe URL for a source whose scrape circuit
+/// cooldown has ended, `$4` otherwise. The scraper takes a source's pages waiting on a schema
+/// review after its other due pages, an order no single index key provides, so
+/// [`SCRAPER_CANDIDATE_QUERY`] reads the two partitions separately: each is one range of
+/// `idx_listing_source_urls_scrape_due` (the waiting pages are also found through
+/// `idx_listing_source_urls_pending_schema_review`), read in key order up to the limit instead
+/// of reading and sorting every due URL of the source.
+macro_rules! first_due_urls_of_source {
+    ($partition:literal) => {
+        concat!(
+            r#"SELECT su.*
+             FROM listing_source_urls su
+             WHERE su.listing_source_id = s.listing_source_id
+               AND "#,
+            due_url_conditions!(),
+            r#"
+               AND "#,
+            $partition,
+            r#"
+             ORDER BY COALESCE(su.last_scraped, '-infinity'::timestamptz), su.url
+             LIMIT CASE WHEN s.is_circuit_probe THEN 1 ELSE $4 END"#
+        )
+    };
+}
+
 /// Binds `$3`, the number of ListingSources, and `$4`, the URLs per ListingSource, after the
 /// [`scrapable_sources_cte`] parameters. It picks the sources at random among those with a due
-/// URL first and then reads only the first due URLs of each, in the order the scraper takes
-/// them, so a call reads a few sources' URLs however many are due over all sources. A source
-/// whose scrape circuit cooldown has ended sends one probe URL.
+/// URL first and then reads the first due URLs of each, so the work of a call grows with the
+/// sources and URLs it returns, not with how many URLs are due over all sources or in one source.
 const SCRAPER_CANDIDATE_QUERY: &str = concat!(
     scrapable_sources_cte!(),
     r#",
@@ -1224,11 +1249,15 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
                 ORDER BY (su.last_error_kind = 'PendingSchemaReview') IS TRUE,
                          COALESCE(su.last_scraped, '-infinity'::timestamptz), su.url
             ) AS source_url_rank
-        FROM listing_source_urls su
-        WHERE su.listing_source_id = s.listing_source_id
-          AND "#,
-    due_url_conditions!(),
-    r#"
+        FROM (
+            ("#,
+    first_due_urls_of_source!("su.last_error_kind IS DISTINCT FROM 'PendingSchemaReview'"),
+    r#")
+            UNION ALL
+            ("#,
+    first_due_urls_of_source!("su.last_error_kind = 'PendingSchemaReview'"),
+    r#")
+        ) su
         ORDER BY (su.last_error_kind = 'PendingSchemaReview') IS TRUE,
                  COALESCE(su.last_scraped, '-infinity'::timestamptz), su.url
         LIMIT CASE WHEN s.is_circuit_probe THEN 1 ELSE $4 END
@@ -1334,11 +1363,21 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     }
 
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error> {
+        // The count visits every due URL. Walking `idx_listing_source_urls_scrape_due_since` in
+        // key order fetches them in random table order, which the production planner settings
+        // (`random_page_cost = 1.1`) prefer and which takes about twice as long on a backlog of
+        // millions as a bitmap scan of the same index, which fetches them in table order. The
+        // setting ends with this transaction.
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET LOCAL enable_indexscan = off")
+            .execute(&mut *transaction)
+            .await?;
         let count: i64 = sqlx::query_scalar(DUE_SCRAPER_URL_COUNT_QUERY)
             .bind(self.max_llm_calls_per_listing_source)
             .bind(Vec::<uuid::Uuid>::new())
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
     }
 
