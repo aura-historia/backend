@@ -1,7 +1,7 @@
 //! Repository for ListingSource URL patterns and crawl scheduling state.
 
 use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
-use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot, FullCrawlCoverage};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::{FromRow, PgPool, Row};
@@ -87,8 +87,13 @@ pub trait ListingSourceUrlPatternRepository: Send + Sync {
     async fn save_no_pattern(&self, listing_source_id: &ListingSourceId)
     -> Result<(), sqlx::Error>;
 
-    /// Records a full crawl of `root` now, while its ListingSource still has that crawl root.
-    async fn mark_as_crawled(&self, root: &CrawledRoot) -> Result<CrawlOutcomeWrite, sqlx::Error>;
+    /// Records a full crawl of `root` now, while its ListingSource still has that crawl root,
+    /// and, when `coverage` is complete, a complete crawl.
+    async fn mark_as_crawled(
+        &self,
+        root: &CrawledRoot,
+        coverage: FullCrawlCoverage,
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
 
     async fn increment_listing_source_llm_calls(
         &self,
@@ -168,14 +173,21 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
         Ok(())
     }
 
-    async fn mark_as_crawled(&self, root: &CrawledRoot) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+    async fn mark_as_crawled(
+        &self,
+        root: &CrawledRoot,
+        coverage: FullCrawlCoverage,
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE listing_sources \
-             SET last_crawled = NOW() \
+             SET last_crawled = NOW(), \
+                 last_complete_crawl_at = CASE WHEN $3 THEN NOW() \
+                                               ELSE last_complete_crawl_at END \
              WHERE listing_source_id = $1 AND crawl_root_url = $2",
         )
         .bind(root.listing_source_id.as_uuid())
         .bind(&root.crawl_root_url)
+        .bind(coverage.is_complete())
         .execute(&self.pool)
         .await?;
         if result.rows_affected() > 0 {

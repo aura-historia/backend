@@ -64,6 +64,9 @@ pub enum SourceStatus {
     RateLimited,
     /// Crawl-enabled, and its scraper circuit pauses its scrapes right now.
     ScrapePaused,
+    /// Crawl-enabled, and its latest spider run was cut short by its time budget or bounded by
+    /// its page budget, so it did not crawl the shop completely.
+    Truncated,
 }
 
 /// How many days a crawl-enabled ListingSource may go without a scraped page or a spider run
@@ -90,6 +93,7 @@ impl QueryValue for SourceStatus {
         ("stale", Self::Stale),
         ("rate_limited", Self::RateLimited),
         ("scrape_paused", Self::ScrapePaused),
+        ("truncated", Self::Truncated),
     ];
 }
 

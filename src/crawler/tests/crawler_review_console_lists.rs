@@ -1085,8 +1085,8 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "crawls_finished_1h": 1, "crawls_finished_24h": 1, "crawl_runs_by_hour": null
             },
             "crawls": {
-                "total": 3, "crawled_within_a_day": 1, "due": 0, "overdue": 0,
-                "never_crawled": 2
+                "total": 3, "full_crawl_interval_days": 7, "complete": 0,
+                "complete_before": 0, "never_complete": 3, "last_run_truncated": 0
             },
             "pages": {
                 "total": 0, "scraped_within_a_day": 0, "due": 0, "overdue": 0,
@@ -1337,6 +1337,27 @@ async fn should_report_freshness_throughput_page_freshness_and_the_stale_sources
         .unwrap();
     }
 
+    for (id, set) in [
+        (
+            fresh,
+            "last_complete_crawl_at = NOW() - INTERVAL '2 days', \
+             last_crawl_outcome = 'HARD_TIMEOUT_TRUNCATED'",
+        ),
+        (idle, "last_complete_crawl_at = NOW() - INTERVAL '10 days'"),
+        (new, "last_crawl_outcome = 'PAGE_BUDGET_REACHED'"),
+        (
+            disabled,
+            "last_complete_crawl_at = NOW(), last_crawl_outcome = 'HARD_TIMEOUT_TRUNCATED'",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
     let overview = overview_reader(&pool, &repository)
         .overview()
         .await
@@ -1463,9 +1484,26 @@ async fn should_report_freshness_throughput_page_freshness_and_the_stale_sources
     assert_eq!(
         serde_json::to_value(overview.crawls).unwrap(),
         json!({
-            "total": 4, "crawled_within_a_day": 2, "due": 0, "overdue": 1, "never_crawled": 1
+            "total": 4, "full_crawl_interval_days": 7, "complete": 1, "complete_before": 1,
+            "never_complete": 2, "last_run_truncated": 2
         }),
-        "the crawl-enabled sources by their last spider run"
+        "the crawl-enabled sources by their last complete crawl"
+    );
+    let truncated = list_sources(
+        &pool,
+        ListingSourceQuery {
+            status: Some(SourceStatus::Truncated),
+            sort: SourceSort::Name,
+            direction: SortDirection::Ascending,
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
+    assert_eq!(truncated.total, overview.crawls.last_run_truncated);
+    assert_eq!(
+        source_ids(&truncated),
+        vec![fresh, new],
+        "cut short by time or bounded by the page budget; not the disabled source"
     );
     assert_eq!(overview.sources.crawl_failing, 1);
     assert_eq!(

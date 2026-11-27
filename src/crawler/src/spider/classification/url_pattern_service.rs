@@ -15,7 +15,7 @@ use crate::spider::classification::url_classification_service::{
 use crate::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, UrlPatternState,
 };
-use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot, FullCrawlCoverage};
 
 use crate::review::model::{ReviewActor, UrlPatternDecision};
 use thiserror::Error;
@@ -108,10 +108,12 @@ pub trait UrlPatternService: Send + Sync {
         urls: &[String],
     ) -> Result<Option<ProductUrlPattern>, UrlPatternServiceError>;
 
-    /// Records a full crawl of `root` now, while its ListingSource still has that crawl root.
+    /// Records a full crawl of `root` now, while its ListingSource still has that crawl root,
+    /// and, when `coverage` is complete, a complete crawl.
     async fn mark_as_crawled(
         &self,
         root: &CrawledRoot,
+        coverage: FullCrawlCoverage,
     ) -> Result<CrawlOutcomeWrite, UrlPatternServiceError>;
 }
 
@@ -400,8 +402,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn mark_as_crawled(
         &self,
         root: &CrawledRoot,
+        coverage: FullCrawlCoverage,
     ) -> Result<CrawlOutcomeWrite, UrlPatternServiceError> {
-        Ok(self.repository.mark_as_crawled(root).await?)
+        Ok(self.repository.mark_as_crawled(root, coverage).await?)
     }
 }
 

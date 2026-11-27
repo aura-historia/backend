@@ -684,7 +684,7 @@ function overviewCardsHtml() {
     if (overviewCounts === null) return '';
     const o = overviewCounts;
     return `<div class="overview-cols">
-        <div class="overview-col">${crawlFreshnessCardHtml(o.crawls, o.freshness)}${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
+        <div class="overview-col">${crawlFreshnessCardHtml(o.crawls)}${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
         <div class="overview-col">${pageFreshnessCardHtml(o.pages, o.freshness)}${activityCardHtml(o)}${idleSourcesCardHtml(o.freshness, o.sources)}</div>
       </div>`;
 }
@@ -742,12 +742,14 @@ function pageFreshnessParts(pages, staleAfterDays) {
     ];
 }
 
-function crawlFreshnessParts(crawls, staleAfterDays) {
+// The crawl-enabled sources by their last complete crawl: a full crawl that ran out of links,
+// neither cut short by its time budget nor bounded by its page budget.
+function crawlFreshnessParts(crawls) {
+    const days = crawls.full_crawl_interval_days;
     return [
-        {key: 'fresh', name: 'Crawled within a day', value: crawls.crawled_within_a_day},
-        {key: 'due', name: `Due · last crawled 1 to ${staleAfterDays} days ago`, value: crawls.due},
-        {key: 'overdue', name: `Overdue · over ${staleAfterDays} days ago`, value: crawls.overdue},
-        {key: 'never', name: 'Never crawled', value: crawls.never_crawled}
+        {key: 'fresh', name: `Crawled completely in the last ${days} days`, value: crawls.complete},
+        {key: 'overdue', name: `Last complete crawl over ${days} days ago`, value: crawls.complete_before},
+        {key: 'never', name: 'Never crawled completely', value: crawls.never_complete}
     ];
 }
 
@@ -760,12 +762,15 @@ function freshnessBodyHtml(chart, headline, title, parts, total) {
         <ul class="count-list legend-list">${rows}</ul>`;
 }
 
-function crawlFreshnessCardHtml(crawls, freshness) {
+function crawlFreshnessCardHtml(crawls) {
     const aside = headNote(`${pluralize(crawls.total, 'crawl-enabled source', 'crawl-enabled sources')}`);
     if (!crawls.total) return overviewCard('Crawl freshness', aside, '<p class="small muted">No crawl-enabled source yet.</p>');
-    return overviewCard('Crawl freshness', aside, freshnessBodyHtml('crawl-freshness', 'crawled within a day',
-        "A source is due for its next crawl a day after its last spider run, whatever that run's outcome",
-        crawlFreshnessParts(crawls, freshness.stale_after_days), crawls.total));
+    const truncated = crawls.last_run_truncated
+        ? `<p class="small muted"><a href="#sources&status=truncated">${escapeHtml(pluralize(crawls.last_run_truncated, 'source', 'sources'))}</a> whose latest run was cut short by its time budget or stopped at its page budget.</p>`
+        : '';
+    return overviewCard('Crawl freshness', aside, freshnessBodyHtml('crawl-freshness', `crawled completely in the last ${crawls.full_crawl_interval_days} days`,
+        `A complete crawl is a full crawl that followed every link: not cut short by its time budget and not stopped at its page budget. A full crawl is due every ${crawls.full_crawl_interval_days} days.`,
+        crawlFreshnessParts(crawls), crawls.total) + truncated);
 }
 
 function pageFreshnessCardHtml(pages, freshness) {
@@ -893,7 +898,7 @@ const CHARTS = {
         };
     })),
     pages: (o, width) => segmentBarSvg(width, pageFreshnessParts(o.pages, o.freshness.stale_after_days), o.pages.total),
-    'crawl-freshness': (o, width) => segmentBarSvg(width, crawlFreshnessParts(o.crawls, o.freshness.stale_after_days), o.crawls.total)
+    'crawl-freshness': (o, width) => segmentBarSvg(width, crawlFreshnessParts(o.crawls), o.crawls.total)
 };
 
 // Columns of the clock hours `hours`, the running one last and drawn as partial: `bars` gives an
@@ -1200,7 +1205,7 @@ const lists = {
 };
 
 const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled'],
-    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked'], ['stale', 'Stale'], ['rate_limited', 'Rate-limited'], ['scrape_paused', 'Scrapes paused']];
+    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked'], ['stale', 'Stale'], ['rate_limited', 'Rate-limited'], ['scrape_paused', 'Scrapes paused'], ['truncated', 'Crawl truncated']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -2004,7 +2009,8 @@ function sourcePageHtml() {
     const host = sourceHost(detail);
     const root = isHttpUrl(detail.crawl_root_url) ? `<a href="${escapeHtmlAttr(detail.crawl_root_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host)}</a>` : escapeHtml(host);
     const meta = [root, pluralize(Number(detail.product_urls) || 0, 'product URL', 'product URLs'),
-        detail.last_successful_crawl ? `last crawl ${timeBadge(detail.last_successful_crawl, 'Last successful crawl')}` : 'never crawled',
+        detail.last_successful_crawl ? `last crawl ${timeBadge(detail.last_successful_crawl, 'Last full crawl that reached its bounds')}` : 'never crawled',
+        detail.last_complete_crawl ? `last complete crawl ${timeBadge(detail.last_complete_crawl, 'Last full crawl that followed every link, not cut short and not stopped at its page budget')}` : 'never crawled completely',
         detail.last_successful_scrape ? `last scrape ${timeBadge(detail.last_successful_scrape, 'Last successful scrape')}` : 'never scraped'];
     return `<nav class="crumbs" aria-label="Breadcrumb"><a href="#sources">Sources</a><span class="sep">/</span><span>${escapeHtml(listingSourceName(detail))}</span></nav>
       <div class="page-head"><div>

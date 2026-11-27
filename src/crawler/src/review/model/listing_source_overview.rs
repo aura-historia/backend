@@ -22,6 +22,11 @@ pub struct ListingSourceOverview {
     pub crawl_root_url: Option<String>,
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_successful_crawl: Option<time::OffsetDateTime>,
+    /// When a full crawl last covered the source completely: it ran out of links to follow,
+    /// neither cut short by its time budget nor bounded by its page budget, which
+    /// `last_successful_crawl` also records. `None` before the first.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_complete_crawl: Option<time::OffsetDateTime>,
     /// When a product page of the ListingSource was last scraped, the latest `last_scraped` of its
     /// product URLs: a page the scraper evaluated, also one that left a required value empty,
     /// which a failed fetch, a wait on a pending review or a removal the mass-removal guard held
@@ -156,6 +161,7 @@ mod tests {
             qualification: None,
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,
+            last_complete_crawl: last_successful,
             last_successful_scrape: last_successful,
             idle_since: last_successful,
             pending_reviews: 0,

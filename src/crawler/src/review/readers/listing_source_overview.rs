@@ -115,6 +115,9 @@ pub(super) const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALI
         s.updated,
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
+        s.last_complete_crawl_at AS last_complete_crawl,
+        s.last_crawl_outcome IN ('HARD_TIMEOUT_TRUNCATED', 'PAGE_BUDGET_REACHED')
+            AS last_run_truncated,
         s.last_crawl_outcome,
         s.last_crawl_outcome IS NOT DISTINCT FROM 'FAILED' AS crawl_failed,
         s.last_crawl_error_kind,
@@ -425,6 +428,7 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Stale => "stale",
         SourceStatus::RateLimited => "rate_limited",
         SourceStatus::ScrapePaused => "scrape_paused",
+        SourceStatus::Truncated => "truncated",
     }
 }
 
@@ -487,7 +491,8 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'stale' AND stale)
                     OR ($8 = 'rate_limited' AND crawl_enabled
                         AND crawl_rate_limited_until > NOW())
-                    OR ($8 = 'scrape_paused' AND crawl_enabled AND scrape_paused_until > NOW()))
+                    OR ($8 = 'scrape_paused' AND crawl_enabled AND scrape_paused_until > NOW())
+                    OR ($8 = 'truncated' AND crawl_enabled AND last_run_truncated))
                AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
@@ -558,6 +563,7 @@ fn overview_of_row(
         qualification: applied_qualification(row)?,
         crawl_root_url: row.try_get("crawl_root_url")?,
         last_successful_crawl: row.try_get("last_successful_crawl")?,
+        last_complete_crawl: row.try_get("last_complete_crawl")?,
         last_successful_scrape: row.try_get("last_successful_scrape")?,
         idle_since: row.try_get("idle_since")?,
         pending_reviews: row.try_get("pending_reviews")?,
@@ -672,6 +678,20 @@ mod tests {
     use super::*;
     use crate::review::model::STALE_AFTER_DAYS;
     use crate::spider::candidate_service::FAILED_CRAWL_OUTCOME;
+
+    #[test]
+    fn should_count_a_time_truncated_or_page_bounded_run_as_truncated() {
+        use crate::spider::discovery::website_spider::CrawlCompletion;
+        for completion in [
+            CrawlCompletion::HardTimeoutTruncated,
+            CrawlCompletion::PageBudgetReached,
+        ] {
+            assert!(
+                OVERVIEW_CTES.contains(&format!("'{completion}'")),
+                "{completion} is named as a truncated outcome"
+            );
+        }
+    }
 
     #[test]
     fn should_select_failed_crawls_by_the_persisted_failed_outcome() {

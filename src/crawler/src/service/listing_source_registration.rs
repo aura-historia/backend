@@ -345,6 +345,7 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
              SET crawl_root_url = NULL, \
                  crawl_host = NULL, \
                  last_crawled = NULL, \
+                 last_complete_crawl_at = NULL, \
                  next_crawl_at = NULL, \
                  crawl_failure_count = 0, \
                  last_crawl_error_kind = NULL, \

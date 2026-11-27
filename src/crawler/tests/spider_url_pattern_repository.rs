@@ -2,7 +2,7 @@ use crawler::spider::classification::product_url_pattern::{ProductUrlPattern, Ur
 use crawler::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl, UrlPatternState,
 };
-use crawler::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
+use crawler::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot, FullCrawlCoverage};
 use listing_source_core::ListingSourceId;
 use test_api::*;
 
@@ -43,6 +43,57 @@ async fn last_crawled(
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+/// The source's `last_crawled` and `last_complete_crawl_at`.
+async fn crawl_marks(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+) -> (Option<time::OffsetDateTime>, Option<time::OffsetDateTime>) {
+    sqlx::query_as(
+        "SELECT last_crawled, last_complete_crawl_at FROM listing_sources
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// A full crawl bounded by its page budget schedules like a complete one but is no complete
+/// crawl: it moves `last_crawled` and keeps the source's last complete crawl.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_record_a_complete_crawl_only_when_the_spider_ran_out_of_links() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let source = ListingSourceId::new();
+    insert_source(&pool, source, "budget.example.com").await;
+    let root = CrawledRoot::new(source, "https://budget.example.com/");
+
+    repository
+        .mark_as_crawled(&root, FullCrawlCoverage::PageBudgetReached)
+        .await
+        .unwrap();
+    let (bounded, never_complete) = crawl_marks(&pool, source).await;
+    repository
+        .mark_as_crawled(&root, FullCrawlCoverage::Complete)
+        .await
+        .unwrap();
+    let (_, complete) = crawl_marks(&pool, source).await;
+    repository
+        .mark_as_crawled(&root, FullCrawlCoverage::PageBudgetReached)
+        .await
+        .unwrap();
+    let (bounded_again, kept) = crawl_marks(&pool, source).await;
+
+    assert!(bounded.is_some());
+    assert_eq!(never_complete, None);
+    assert!(complete.is_some());
+    assert_eq!(
+        kept, complete,
+        "a bounded crawl keeps the last complete one"
+    );
+    assert!(bounded_again >= bounded);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -153,7 +204,10 @@ async fn should_store_patterns_and_crawl_marks_independently_per_listing_source(
 
     assert_eq!(
         repository
-            .mark_as_crawled(&CrawledRoot::new(source_a, "https://a.example.com/"))
+            .mark_as_crawled(
+                &CrawledRoot::new(source_a, "https://a.example.com/"),
+                FullCrawlCoverage::Complete,
+            )
             .await
             .unwrap(),
         CrawlOutcomeWrite::Recorded
@@ -198,7 +252,10 @@ async fn should_reject_crawl_mark_for_missing_listing_source() {
     insert_source(&pool, owner, "marked.example.com").await;
 
     let result = repository
-        .mark_as_crawled(&CrawledRoot::new(missing, "https://marked.example.com/"))
+        .mark_as_crawled(
+            &CrawledRoot::new(missing, "https://marked.example.com/"),
+            FullCrawlCoverage::Complete,
+        )
         .await;
     assert!(
         matches!(result, Err(sqlx::Error::RowNotFound)),

@@ -16,7 +16,7 @@ use crawler::spider::classification::url_pattern_repository::{
 use crawler::spider::crawl_frontier_repository::{
     CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
 };
-use crawler::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
+use crawler::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot, FullCrawlCoverage};
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlCompletion;
 use crawler::{CrawlRoot, CrawlerReviewId};
@@ -224,7 +224,7 @@ async fn should_record_only_the_outcomes_of_crawls_of_the_source_s_current_crawl
         (
             "full crawl",
             ListingSourceUrlPatternRepositoryImpl::new(pool.clone())
-                .mark_as_crawled(&old_root)
+                .mark_as_crawled(&old_root, FullCrawlCoverage::Complete)
                 .await,
         ),
     ];
@@ -275,7 +275,7 @@ async fn should_record_only_the_outcomes_of_crawls_of_the_source_s_current_crawl
     );
     assert_eq!(
         ListingSourceUrlPatternRepositoryImpl::new(pool.clone())
-            .mark_as_crawled(&new_root)
+            .mark_as_crawled(&new_root, FullCrawlCoverage::Complete)
             .await
             .unwrap(),
         CrawlOutcomeWrite::Recorded

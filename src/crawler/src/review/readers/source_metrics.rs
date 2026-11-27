@@ -11,6 +11,8 @@ use crate::review::model::{
 };
 use crate::review::repository::listing_source_id_from_uuid;
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
+#[cfg(doc)]
+use crate::spider::candidate_service::SPIDER_RECRAWL_INTERVAL;
 use crate::spider::candidate_service::{FAILED_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
@@ -65,9 +67,8 @@ impl ListingSourceOverviewReader {
         let pages_not_scraped_for_a_day: i64 = row.try_get("pages_not_scraped_for_a_day")?;
         let pages_overdue: i64 = row.try_get("pages_overdue")?;
         let crawl_sources: i64 = row.try_get("crawl_sources")?;
-        let never_crawled: i64 = row.try_get("never_crawled")?;
-        let not_crawled_for_a_day: i64 = row.try_get("not_crawled_for_a_day")?;
-        let crawls_overdue: i64 = row.try_get("crawls_overdue")?;
+        let never_complete: i64 = row.try_get("never_complete")?;
+        let complete_before: i64 = row.try_get("complete_before")?;
         Ok(SourceMetrics {
             health: HealthCounts {
                 needs_attention: row.try_get("needs_attention")?,
@@ -99,10 +100,11 @@ impl ListingSourceOverviewReader {
             },
             crawls: CrawlFreshness {
                 total: crawl_sources,
-                crawled_within_a_day: crawl_sources - never_crawled - not_crawled_for_a_day,
-                due: not_crawled_for_a_day - crawls_overdue,
-                overdue: crawls_overdue,
-                never_crawled,
+                full_crawl_interval_days: FULL_CRAWL_INTERVAL_DAYS,
+                complete: crawl_sources - never_complete - complete_before,
+                complete_before,
+                never_complete,
+                last_run_truncated: row.try_get("last_run_truncated")?,
             },
             pages: PageFreshness {
                 total: pages_total,
@@ -198,14 +200,14 @@ fn source_metrics_sql() -> String {
                 COALESCE(SUM(overdue_pages) FILTER (WHERE crawl_enabled), 0)::BIGINT
                     AS pages_overdue,
                 COUNT(*) FILTER (WHERE crawl_enabled) AS crawl_sources,
-                COUNT(*) FILTER (WHERE crawl_enabled AND last_crawl_run_at IS NULL)
-                    AS never_crawled,
+                COUNT(*) FILTER (WHERE crawl_enabled AND last_complete_crawl IS NULL)
+                    AS never_complete,
                 COUNT(*) FILTER (WHERE crawl_enabled
-                                   AND last_crawl_run_at <= NOW() - INTERVAL '1 day')
-                    AS not_crawled_for_a_day,
-                COUNT(*) FILTER (WHERE crawl_enabled
-                                   AND last_crawl_run_at <= NOW() - INTERVAL '{STALE_AFTER_DAYS} days')
-                    AS crawls_overdue
+                                   AND last_complete_crawl
+                                       <= NOW() - INTERVAL '{FULL_CRAWL_INTERVAL_DAYS} days')
+                    AS complete_before,
+                COUNT(*) FILTER (WHERE crawl_enabled AND last_run_truncated)
+                    AS last_run_truncated
          FROM ranked",
         scrape_ages = age_aggregates("last_successful_scrape", "scrape_age"),
         crawl_ages = age_aggregates("last_crawl_run_at", "crawl_age"),
@@ -213,6 +215,9 @@ fn source_metrics_sql() -> String {
         crawl_runs = crawl_run_aggregates(),
     )
 }
+
+/// How many days apart the spider's full crawls are due ([`SPIDER_RECRAWL_INTERVAL`]).
+const FULL_CRAWL_INTERVAL_DAYS: i64 = 7;
 
 /// The start of the running clock hour. Hours are cut in UTC whatever the session's time zone.
 const THIS_HOUR: &str = "date_trunc('hour', NOW(), 'UTC')";
@@ -325,6 +330,15 @@ fn age_distribution(row: &PgRow, alias: &str) -> Result<Option<AgeDistribution>,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spider::candidate_service::SPIDER_RECRAWL_INTERVAL;
+
+    #[test]
+    fn should_count_complete_crawls_over_the_spiders_full_recrawl_interval() {
+        assert_eq!(
+            u64::try_from(FULL_CRAWL_INTERVAL_DAYS).unwrap_or_default() * 24 * 60 * 60,
+            SPIDER_RECRAWL_INTERVAL.as_secs()
+        );
+    }
 
     #[test]
     fn should_count_the_crawl_runs_of_every_hour_up_to_the_running_one() {

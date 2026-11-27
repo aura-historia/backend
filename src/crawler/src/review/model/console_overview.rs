@@ -124,18 +124,23 @@ pub struct HourlyCrawlRuns {
     pub sources: i64,
 }
 
-/// The crawl-enabled ListingSources by the end of their last spider run of any outcome. A source
-/// is due for its next crawl a day after its last, so the four parts say how well the spider
-/// keeps up; they sum to `total`.
+/// The crawl-enabled ListingSources by their last complete crawl: a full crawl that ran out of
+/// links to follow, neither cut short by its time budget nor bounded by its page budget. A full
+/// crawl is due every `full_crawl_interval_days`, so the three parts, which sum to `total`, say
+/// how many shops the spider covers completely.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CrawlFreshness {
     pub total: i64,
-    pub crawled_within_a_day: i64,
-    /// Last crawled over a day ago, up to [`Freshness::stale_after_days`] days.
-    pub due: i64,
-    /// Last crawled over [`Freshness::stale_after_days`] days ago.
-    pub overdue: i64,
-    pub never_crawled: i64,
+    pub full_crawl_interval_days: i64,
+    /// Crawled completely within the interval.
+    pub complete: i64,
+    /// Last crawled completely before the interval.
+    pub complete_before: i64,
+    /// Never crawled completely.
+    pub never_complete: i64,
+    /// Of `total`, those whose latest spider run was cut short by its time budget or bounded by
+    /// its page budget, as the `truncated` list counts them.
+    pub last_run_truncated: i64,
 }
 
 /// The product pages of crawl-enabled ListingSources by their last scrape. A page is due for
@@ -347,10 +352,11 @@ mod tests {
             },
             crawls: CrawlFreshness {
                 total: 40,
-                crawled_within_a_day: 30,
-                due: 6,
-                overdue: 3,
-                never_crawled: 1,
+                full_crawl_interval_days: 7,
+                complete: 30,
+                complete_before: 6,
+                never_complete: 4,
+                last_run_truncated: 5,
             },
             pages: PageFreshness {
                 total: 3_000,
@@ -428,8 +434,8 @@ mod tests {
                     "crawls_finished_24h": 30, "crawl_runs_by_hour": null
                 },
                 "crawls": {
-                    "total": 40, "crawled_within_a_day": 30, "due": 6, "overdue": 3,
-                    "never_crawled": 1
+                    "total": 40, "full_crawl_interval_days": 7, "complete": 30,
+                    "complete_before": 6, "never_complete": 4, "last_run_truncated": 5
                 },
                 "pages": {
                     "total": 3000, "scraped_within_a_day": 2400, "due": 440, "overdue": 100,

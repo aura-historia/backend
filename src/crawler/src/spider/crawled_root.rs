@@ -25,6 +25,22 @@ impl CrawledRoot {
     }
 }
 
+/// How completely a full crawl that reached its bounds covered its ListingSource.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullCrawlCoverage {
+    /// The spider ran out of links to follow: the source is crawled completely.
+    Complete,
+    /// The configured page budget bounded discovery on purpose: the crawl schedules like a full
+    /// one, but the shop may hold pages it did not reach, so it is no complete crawl.
+    PageBudgetReached,
+}
+
+impl FullCrawlCoverage {
+    pub const fn is_complete(self) -> bool {
+        matches!(self, Self::Complete)
+    }
+}
+
 /// Whether a write of a spider run's outcome reached the run's ListingSource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlOutcomeWrite {

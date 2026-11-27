@@ -18,7 +18,7 @@ use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
 use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrls};
-use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot, FullCrawlCoverage};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds, FrontierProgress,
 };
@@ -918,8 +918,8 @@ impl SpiderServiceImpl {
         skip(self),
         fields(listing_source_id = %root.listing_source_id, crawl_root_url = %root.crawl_root_url)
     )]
-    async fn mark_as_crawled_best_effort(&self, root: &CrawledRoot) {
-        match self.pattern_service.mark_as_crawled(root).await {
+    async fn mark_as_crawled_best_effort(&self, root: &CrawledRoot, coverage: FullCrawlCoverage) {
+        match self.pattern_service.mark_as_crawled(root, coverage).await {
             Ok(CrawlOutcomeWrite::Recorded) => {}
             Ok(CrawlOutcomeWrite::RootMoved) => debug!(
                 "The ListingSource moved to another crawl root during the crawl; its full crawl is not recorded"
@@ -1173,9 +1173,12 @@ impl SpiderServiceImpl {
         // ListingSource due so the scheduler can retry it sooner. A full crawl that
         // waits for a pattern review has discovered everything too: approval
         // classifies its stored URLs, so no second crawl from the root is due.
-        // An incremental crawl skipped known product pages, so it is never one.
-        if completion.is_full() && kind == CrawlKind::Full {
-            self.mark_as_crawled_best_effort(root).await;
+        // An incremental crawl skipped known product pages, so it is never one. Only a crawl
+        // that ran out of links is a complete one; a page budget bounds it.
+        if kind == CrawlKind::Full
+            && let Some(coverage) = completion.full_coverage()
+        {
+            self.mark_as_crawled_best_effort(root, coverage).await;
         }
 
         let db_wait = *seed_load_wait + state.url_store_wait;
@@ -1652,9 +1655,9 @@ mod service_tests {
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, _crawl_root_url: &'static str) {
         mock.expect_mark_as_crawled()
-            .with(mockall::predicate::always())
+            .with(mockall::predicate::always(), mockall::predicate::always())
             .times(1)
-            .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
     }
 
     /// The page a mock crawl delivers for `path`; a path under `/challenge` is a bot challenge
@@ -3159,7 +3162,7 @@ mod service_tests {
             });
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
         mock_url_repo
@@ -3368,7 +3371,7 @@ mod service_tests {
     }
 
     #[tokio::test]
-    async fn should_report_page_budget_and_mark_crawled_when_crawl_is_bounded() {
+    async fn should_report_page_budget_and_mark_crawled_but_not_complete_when_crawl_is_bounded() {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
@@ -3393,7 +3396,14 @@ mod service_tests {
             .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
-        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        mock_pattern_service
+            .expect_mark_as_crawled()
+            .with(
+                mockall::predicate::always(),
+                mockall::predicate::eq(FullCrawlCoverage::PageBudgetReached),
+            )
+            .times(1)
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
@@ -4356,7 +4366,7 @@ mod service_tests {
                 mock_pattern_service
                     .expect_mark_as_crawled()
                     .times(usize::from(completion.is_full()))
-                    .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+                    .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
                 stores_pages(&mut mock_url_repo);
             }
             SmallCrawlOutcome::Fails => {
@@ -5002,7 +5012,7 @@ mod service_tests {
         setup_mock_review_still_pending(&mut mock_pattern_service);
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
         mock_url_repo

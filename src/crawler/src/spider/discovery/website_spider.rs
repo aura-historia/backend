@@ -1,3 +1,4 @@
+use crate::spider::crawled_root::FullCrawlCoverage;
 use application::error::BoxError;
 use bloomfilter::Bloom;
 use hyper::body::Bytes;
@@ -266,6 +267,18 @@ impl CrawlCompletion {
             self,
             CrawlCompletion::Completed | CrawlCompletion::PageBudgetReached
         )
+    }
+
+    /// How completely the crawl covered the shop, when it reached its bounds
+    /// ([`Self::is_full`]); `None` for a crawl cut short.
+    pub const fn full_coverage(self) -> Option<FullCrawlCoverage> {
+        match self {
+            CrawlCompletion::Completed => Some(FullCrawlCoverage::Complete),
+            CrawlCompletion::PageBudgetReached => Some(FullCrawlCoverage::PageBudgetReached),
+            CrawlCompletion::HardTimeoutTruncated
+            | CrawlCompletion::Stopped
+            | CrawlCompletion::RateLimited(_) => None,
+        }
     }
 
     /// The rate-limit answer that ended the crawl, when one did.
