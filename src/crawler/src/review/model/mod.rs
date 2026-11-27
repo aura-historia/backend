@@ -37,8 +37,9 @@ pub mod url_pattern_candidate;
 
 pub use artifact::*;
 pub use console_overview::{
-    AgeDistribution, Backlog, ConsoleOverview, FailureKindCount, FailureKinds, Freshness,
-    PendingByArtifact, ReviewCounts, ReviewFlow, SourceCounts, Throughput,
+    AgeDistribution, CRAWL_RUN_HOURS, ConsoleOverview, DailyReviewFlow, FailureKindCount,
+    FailureKinds, Freshness, HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES, PageFreshness,
+    PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts, Throughput,
 };
 pub use list_window::{ListPage, ListWindow};
 pub use listing_source_detail::{

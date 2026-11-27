@@ -480,7 +480,7 @@ async function loadOverview() {
         noteRefresh('overview', overviewFailure);
     }
     updateNav();
-    if (route.name === 'overview') renderOverviewTiles();
+    if (route.name === 'overview') renderOverviewCounts();
 }
 
 function pendingReviewCount() {
@@ -511,22 +511,31 @@ function updateNav() {
     }
 }
 
-// ───────────────────────────── Overview tiles ─────────────────────────────
-function renderOverviewTiles() {
-    const tiles = document.getElementById('overviewTiles');
-    if (tiles) tiles.innerHTML = overviewTilesHtml();
-    const metrics = document.getElementById('overviewMetrics');
-    if (metrics) metrics.innerHTML = overviewMetricsHtml();
-}
-
-// The Overview: what the crawler does now and what needs a human, how well it keeps up, and the
-// last day's activity. Every number that links opens a list of exactly what it counts.
+// ───────────────────────────── Overview ─────────────────────────────
+// The Overview answers four questions from `GET /api/overview`: is the crawler working (the tiles
+// and the last day's work), does it keep up (page freshness and the review queue), what is stuck
+// (the longest idle sources) and what needs a human (the attention list). A number links only
+// where a list shows exactly what it counts.
 function renderOverviewPage() {
     showPage(`<div id="overviewTiles">${overviewTilesHtml()}</div>
       <div class="overview-grid">
-        <div id="overviewMetrics">${overviewMetricsHtml()}</div>
+        <div id="overviewCards">${overviewCardsHtml()}</div>
         <div class="card" id="activityFeed">${activityHtml()}</div>
       </div>`);
+    drawCharts();
+}
+
+// Brings the tiles and cards up to date, keeping the keyboard on the link or chart it was on.
+function renderOverviewCounts() {
+    const tiles = document.getElementById('overviewTiles');
+    if (tiles) replaceKeepingFocus(tiles, overviewTilesHtml());
+    const cards = document.getElementById('overviewCards');
+    if (!cards) return;
+    const focusedChart = cards.contains(document.activeElement) ? document.activeElement.dataset.chart : '';
+    replaceKeepingFocus(cards, overviewCardsHtml());
+    drawCharts();
+    if (focusedChart) cards.querySelector(`[data-chart="${focusedChart}"]`)?.focus({preventScroll: true});
+    else showChartTipUnderPointer();
 }
 
 // The counts at the reviewer's previous visit, kept in this browser, so a tile can say how it
@@ -550,8 +559,7 @@ function countsSnapshot() {
     return {
         at: Date.now(),
         needs_attention: overviewCounts.sources.needs_attention,
-        pending: pendingReviewCount(),
-        waiting_for_human: overviewCounts.reviews.waiting_for_human,
+        pending_total: overviewCounts.reviews.pending_total,
         stale: overviewCounts.sources.stale
     };
 }
@@ -586,59 +594,40 @@ function tileDelta(count, key) {
     return `<span class="tile-delta${delta < 0 ? ' down' : ''}" title="${escapeHtmlAttr(title)}">${delta > 0 ? '+' : '−'}${formatCount(Math.abs(delta))}</span>`;
 }
 
+// One number, its worded label and at most one short line; a link when `href` names the list that
+// shows exactly what the number counts.
+function overviewTile(tone, count, text, {href = '', sub = '', live = false, delta = '', title = ''} = {}) {
+    const value = count === undefined
+        ? '<span class="tile-value">—</span>'
+        : `<span class="tile-value${count === 0 ? ' zero' : ''}">${formatCount(count)}${delta ? tileDelta(count, delta) : ''}</span>`;
+    const body = `${value}<span class="tile-label"><span class="dot dot-${tone}${live ? ' dot-live' : ''}"></span>${escapeHtml(text)}</span>${sub ? `<span class="tile-sub">${escapeHtml(sub)}</span>` : ''}`;
+    const titleAttr = title ? ` title="${escapeHtmlAttr(title)}"` : '';
+    return href
+        ? `<a class="tile tile-${tone}" href="${escapeHtmlAttr(href)}"${titleAttr}>${body}</a>`
+        : `<div class="tile tile-static tile-${tone}"${titleAttr}>${body}</div>`;
+}
+
+const STALE_SOURCES_HASH = '#sources&status=stale&sort=idle_since&dir=asc';
+
 function overviewTilesHtml() {
     const failure = overviewCounts === null
         ? `<div class="banner banner-bad" role="alert"><span class="banner-kind">Counts unavailable</span><div class="banner-body">${escapeHtml(overviewFailure)} · retried every 15 s</div></div>`
         : '';
     const sources = overviewCounts?.sources;
     const reviews = overviewCounts?.reviews;
-    const value = (count, deltaKey) => {
-        if (!sources) return '<span class="tile-value">—</span>';
-        return `<span class="tile-value${count === 0 ? ' zero' : ''}">${formatCount(count)}${deltaKey ? tileDelta(count, deltaKey) : ''}</span>`;
-    };
-    const label = (tone, text, live) => `<span class="tile-label"><span class="dot dot-${tone}${live ? ' dot-live' : ''}"></span>${escapeHtml(text)}</span>`;
-    const tile = (tone, href, count, text, {sub = '', live = false, delta = ''} = {}) =>
-        `<a class="tile tile-${tone}" href="${escapeHtmlAttr(href)}">${value(count, delta)}${label(tone, text, live)}${sub ? `<span class="tile-sub">${escapeHtml(sub)}</span>` : ''}</a>`;
-    // The breakdown of the sources that need a human is a link per condition, which a tile that is
-    // itself a link cannot hold, so this tile's number and label link and its breakdown does apart.
-    const breakdown = sources ? [
-        ['crawl_failing', `${sources.crawl_failing} crawl failing`], ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl stuck`], ['blocked', `${sources.blocked_by_review} blocked`],
-        ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`],
-        ['identity_conflict', `${sources.identity_conflicts} identity conflict`]
-    ].map(([status, text]) => `<a href="#sources&status=${status}">${escapeHtml(text)}</a>`).join(' · ') : '';
-    const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need attention')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
-    const byType = reviews?.pending_by_artifact;
-    const pending = pendingReviewCount();
+    const throughput = overviewCounts?.throughput;
+    const hourly = throughput ? Math.round(throughput.pages_scraped_24h / 24) : 0;
+    const slow = throughput && throughput.pages_scraped_24h > 0 && throughput.pages_scraped_1h < hourly / 2;
     const disabled = reviews?.pending_disabled_sources || 0;
-    const pendingSub = !byType ? '' : disabled
-        ? `${formatCount(reviews.pending_total)} in all · ${formatCount(disabled)} of disabled sources`
-        : `${formatCount(byType.PRODUCT_SCHEMA)} product schemas · ${formatCount(byType.URL_PATTERN)} URL patterns`;
-    return `${failure}<div class="tiles" role="group" aria-label="Right now">
-      ${tile('info', '#sources&activity=crawling', sources?.crawling_now, 'Crawling now', {live: true})}
-      ${tile('info', '#sources&activity=scraping', sources?.scraping_now, 'Scraping now', {live: true})}
-      ${needing}
-      ${tile('warn', '#sources&status=stale&sort=idle_since&dir=asc', sources?.stale, 'Stale sources', {sub: `crawl-enabled, no scrape or crawl for ${overviewCounts?.freshness?.stale_after_days ?? 3} days`, delta: 'stale'})}
-      ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews ? pending : undefined, 'Pending reviews', {sub: pendingSub, delta: 'pending'})}
-      ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'none expected: the agents park what they cannot finish', delta: 'waiting_for_human'}) : ''}
-      ${overviewCounts?.agent_mode ? tile('neutral', '#reviews&waiting=parked', reviews.parked, 'Parked', {sub: `${formatCount(sources?.parked || 0)} sources · the agents retry them later`}) : ''}
-      ${reviews?.held_for_non_product_loop ? tile('bad', '#reviews&waiting=non_product_loop', reviews.held_for_non_product_loop, 'URL pattern loops', {sub: 'held for a human: non-product pages keep opening reviews'}) : ''}
+    return `${failure}<div class="tiles tiles-six" role="group" aria-label="Right now">
+      ${overviewTile('info', sources?.crawling_now, 'Crawling now', {href: '#sources&activity=crawling', live: true})}
+      ${overviewTile('info', sources?.scraping_now, 'Scraping now', {href: '#sources&activity=scraping', live: true})}
+      ${overviewTile(slow ? 'warn' : 'neutral', throughput?.pages_scraped_1h, 'Pages scraped, last hour', {sub: throughput ? `⌀ ${formatCount(hourly)}/h over 24 h` : '',
+          title: 'Product pages last scraped in the last 60 minutes, beside the hourly average of those last scraped in the last 24 hours. A page counts once, at its latest scrape.'})}
+      ${overviewTile('bad', sources?.needs_attention, 'Sources need attention', {href: '#sources&status=needs_attention', delta: 'needs_attention'})}
+      ${overviewTile('warn', sources?.stale, 'Stale sources', {href: STALE_SOURCES_HASH, delta: 'stale', sub: `no scrape or crawl for ${overviewCounts?.freshness.stale_after_days ?? 3} days`})}
+      ${overviewTile('warn', reviews?.pending_total, 'Pending reviews', {href: '#reviews&status=PENDING_REVIEW', delta: 'pending_total', sub: disabled ? `${formatCount(disabled)} of disabled sources` : ''})}
     </div>`;
-}
-
-// ───────────────────────────── Overview metrics ─────────────────────────────
-// How well the crawler keeps up, from `GET /api/overview`, and the longest idle stale sources,
-// from the `stale` list. A number links only where a list shows exactly what it counts.
-const LONGEST_IDLE_SHOWN = 5;
-let staleSources = {items: undefined, total: 0, failure: ''};
-
-async function loadStaleSources() {
-    try {
-        const answer = await api(`/api/listing_sources?status=stale&sort=idle_since&dir=asc&limit=${LONGEST_IDLE_SHOWN}`);
-        staleSources = {items: answer.items, total: answer.total, failure: ''};
-    } catch (error) {
-        staleSources = {...staleSources, failure: apiErrorMessage(error)};
-    }
-    if (route.name === 'overview') renderOverviewTiles();
 }
 
 // A span of seconds in the two largest units that say it: 45s, 12m, 5h 20m, 3d 4h.
@@ -654,106 +643,397 @@ function durationText(seconds) {
     return hours % 24 && days < 10 ? `${days}d ${hours % 24}h` : `${days}d`;
 }
 
-// One number with its label and, optionally, a line under it; a link when `href` names the list
-// that shows exactly what it counts.
-function metric(value, label, {sub = '', href = '', title = '', tone = ''} = {}) {
-    const zero = value === 0 || value === '0';
-    const body = `<span class="metric-value${zero ? ' zero' : ''}${tone ? ` tone-${tone}` : ''}">${escapeHtml(value)}</span><span class="metric-label">${escapeHtml(label)}</span>${sub ? `<span class="metric-sub">${sub}</span>` : ''}`;
-    const titleAttr = title ? ` title="${escapeHtmlAttr(title)}"` : '';
-    return href
-        ? `<a class="metric metric-link" href="${escapeHtmlAttr(href)}"${titleAttr}>${body}</a>`
-        : `<div class="metric"${titleAttr}>${body}</div>`;
+// One number with its label and, optionally, a line under it. `value` is HTML.
+function metric(value, label, {sub = '', title = ''} = {}) {
+    return `<div class="metric"${title ? ` title="${escapeHtmlAttr(title)}"` : ''}><span class="metric-value">${value}</span><span class="metric-label">${escapeHtml(label)}</span>${sub ? `<span class="metric-sub">${escapeHtml(sub)}</span>` : ''}</div>`;
 }
 
-function metricCard(title, note, body, link = '') {
-    return `<section class="card metric-card"><div class="card-head"><h2>${escapeHtml(title)}</h2>${link || `<span class="small muted">${escapeHtml(note)}</span>`}</div><div class="card-body">${body}</div></section>`;
+// A card of the Overview; `aside` is HTML for the right of its head.
+function overviewCard(title, aside, body) {
+    return `<section class="card overview-card"><div class="card-head"><h2>${escapeHtml(title)}</h2>${aside}</div><div class="card-body stack">${body}</div></section>`;
 }
 
-function overviewMetricsHtml() {
+function headNote(text) {
+    return `<span class="small muted">${escapeHtml(text)}</span>`;
+}
+
+function overviewCardsHtml() {
     if (overviewCounts === undefined) return `<div class="card">${stateBlock('loading', 'Loading')}</div>`;
     if (overviewCounts === null) return '';
     const o = overviewCounts;
-    return `<div class="metric-cards">${throughputCardHtml(o.throughput)}${freshnessCardHtml(o.freshness, o.sources)}${backlogCardHtml(o.backlog)}${failuresCardHtml(o.failures, o.sources)}${reviewFlowCardHtml(o.reviews, o.review_flow)}</div>`;
+    return `<div class="overview-cols">
+        <div class="overview-col">${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
+        <div class="overview-col">${pageFreshnessCardHtml(o.pages, o.freshness)}${crawlingCardHtml(o.throughput)}${idleSourcesCardHtml(o.freshness, o.sources)}</div>
+      </div>`;
 }
 
-function throughputCardHtml(t) {
-    const hourly = Math.round(t.pages_scraped_24h / 24);
-    const pace = t.pages_scraped_1h < hourly * 0.5 && t.pages_scraped_24h > 0 ? 'warn' : '';
-    return metricCard('Throughput', 'last hour · last 24 h', `<div class="metric-grid">
-        ${metric(formatCount(t.pages_scraped_1h), 'Pages scraped / h', {sub: `${formatCount(t.pages_scraped_24h)} in 24 h · ⌀ ${formatCount(hourly)}/h`, tone: pace,
-            title: 'Product pages whose last scrape evaluated them in the window; a page scraped twice counts once'})}
-        ${metric(formatCount(t.crawls_finished_1h), 'Crawls finished / h', {sub: `${formatCount(t.crawls_finished_24h)} in 24 h`,
-            title: 'Sources whose last spider run, of any outcome, ended in the window'})}
-        ${metric(formatCount(t.product_urls_found_24h), 'New product URLs, 24 h', {title: 'Product URLs the spider found in the last day'})}
-      </div>`);
+// One condition with how many it holds, a link to their list unless none is in it, and
+// optionally a line of detail.
+function countRow(tone, label, count, href, detail = '') {
+    const body = `<span class="dot dot-${count ? tone : 'neutral'}"></span><span class="count-label">${escapeHtml(label)}</span><span class="count-value">${formatCount(count)}</span>`;
+    const row = count
+        ? `<a class="count-row" href="${escapeHtmlAttr(href)}">${body}</a>`
+        : `<div class="count-row zero">${body}</div>`;
+    return `<li>${row}${count && detail ? `<div class="count-detail">${escapeHtml(detail)}</div>` : ''}</li>`;
 }
 
-function freshnessRow(label, d) {
-    if (!d) return `<tr><th scope="row">${escapeHtml(label)}</th><td colspan="4" class="muted">no source yet</td></tr>`;
-    return `<tr><th scope="row">${escapeHtml(label)}<span class="metric-sub">${pluralize(d.sources, 'source', 'sources')}</span></th>
-        <td>${durationText(d.median_secs)}</td><td>${durationText(d.mean_secs)}</td><td>${durationText(d.p90_secs)}</td><td>${durationText(d.max_secs)}</td></tr>`;
+// The most frequent failure kinds, worded: "Timeouts 4 · Rejected by the shop 3 · 2 more kinds".
+function failureKindsText(kinds) {
+    const shown = kinds.slice(0, 3).map(kind => `${kind.error_kind ? describeFailure(kind.error_kind).label : 'No kind recorded'} ${formatCount(kind.sources)}`);
+    if (kinds.length > 3) shown.push(pluralize(kinds.length - 3, 'more kind', 'more kinds'));
+    return shown.join(' · ');
 }
 
-function longestIdleHtml(days) {
-    if (staleSources.failure) return `<div class="banner banner-bad" role="alert"><span class="banner-kind">Not read</span><div class="banner-body">${escapeHtml(staleSources.failure)}</div></div>`;
-    if (staleSources.items === undefined) return '';
-    if (!staleSources.items.length) return `<p class="small muted">No crawl-enabled source has been idle for ${days} days.</p>`;
-    const rows = staleSources.items.map(source => {
-        const idle = source.idle_since ? elapsedTime(source.idle_since).replace(' ago', '') : 'never worked';
-        const title = source.idle_since ? `Last scrape or crawl ${formatDate(source.idle_since)}` : 'Never scraped or crawled';
-        return `<li><a href="${escapeHtmlAttr(sourceHash(source.listing_source_id))}">${escapeHtml(listingSourceName(source))}</a><span class="idle-age" title="${escapeHtmlAttr(title)}">${escapeHtml(idle)}</span></li>`;
+function attentionCardHtml(o) {
+    const s = o.sources;
+    const sourceRows = [
+        countRow('bad', 'Crawl waits for an operator', s.crawl_needs_operator, '#sources&status=crawl_needs_operator'),
+        countRow('bad', 'Last crawl failed', s.crawl_failing, '#sources&status=crawl_failing', failureKindsText(o.failures.crawl)),
+        countRow('bad', 'Failing to scrape', s.failing_to_scrape, '#sources&status=failing', failureKindsText(o.failures.scrape)),
+        countRow('warn', 'Blocked by a review', s.blocked_by_review, '#sources&status=blocked'),
+        countRow('bad', 'Identity conflicts', s.identity_conflicts, '#sources&status=identity_conflict'),
+        countRow('warn', 'Removals held', s.held_removals, '#sources&status=held')
+    ].join('');
+    const reviewRows = [
+        o.agent_mode ? countRow('bad', 'Waiting for a human', o.reviews.waiting_for_human, '#reviews&waiting=human') : '',
+        countRow('bad', 'Held for a URL pattern loop', o.reviews.held_for_non_product_loop, '#reviews&waiting=non_product_loop')
+    ].join('');
+    return overviewCard('Needs attention', headNote('a source can be in several'), `
+        <div><div class="failing-urls-title">Sources</div><ul class="count-list">${sourceRows}</ul></div>
+        <div><div class="failing-urls-title">Reviews</div><ul class="count-list">${reviewRows}</ul></div>`);
+}
+
+// The share of `part` in `total` as a whole percentage; a part too small for one says so.
+function shareText(part, total) {
+    if (!total || !part) return '0%';
+    const share = part / total * 100;
+    if (share < 1) return '<1%';
+    return `${share > 99 && part < total ? 99 : Math.round(share)}%`;
+}
+
+function pageFreshnessParts(pages, staleAfterDays) {
+    return [
+        {key: 'fresh', name: 'Scraped within a day', value: pages.scraped_within_a_day},
+        {key: 'due', name: `Due · last scraped 1 to ${staleAfterDays} days ago`, value: pages.due},
+        {key: 'overdue', name: `Overdue · over ${staleAfterDays} days ago`, value: pages.overdue},
+        {key: 'never', name: 'Never scraped', value: pages.never_scraped}
+    ];
+}
+
+function pageFreshnessCardHtml(pages, freshness) {
+    const aside = headNote(`${pluralize(pages.total, 'product page', 'product pages')} of crawl-enabled sources`);
+    if (!pages.total) return overviewCard('Page freshness', aside, '<p class="small muted">No product page found yet.</p>');
+    const rows = pageFreshnessParts(pages, freshness.stale_after_days).map(part =>
+        `<li><span class="swatch seg-${part.key}"></span><span class="count-label">${escapeHtml(part.name)}</span><span class="count-value">${formatCount(part.value)}</span><span class="count-share">${shareText(part.value, pages.total)}</span></li>`).join('');
+    return overviewCard('Page freshness', aside, `
+        <div class="share" title="A page is due for its next scrape a day after its last"><span class="share-value">${shareText(pages.scraped_within_a_day, pages.total)}</span><span class="share-label">scraped within a day</span></div>
+        <div class="chart" data-chart="pages"></div>
+        <ul class="count-list legend-list">${rows}</ul>`);
+}
+
+function crawlingCardHtml(t) {
+    const hours = t.crawl_runs_by_hour;
+    return overviewCard('Crawling, last 24 hours', headNote('each source at its latest run'), `
+        <div class="metric-grid two">
+          ${metric(formatCount(t.crawls_finished_24h), 'Crawl runs', {sub: `${formatCount(t.crawls_finished_1h)} in the last hour`, title: 'Sources whose last spider run, of any outcome, ended in the last 24 hours'})}
+          ${metric(formatCount(t.product_urls_found_24h), 'New product URLs', {title: 'Product URLs the spider found in the last 24 hours'})}
+        </div>
+        <div>
+          <div class="chart-title">Crawl runs per hour</div>
+          <div class="chart" data-chart="crawls" tabindex="0" role="group" aria-label="Crawl runs per hour over the last 24 hours. Use the arrow keys to read an hour."></div>
+          ${chartTableHtml('crawls', ['Hour', 'Crawl runs'], hours.map((entry, index) => [hourSpanText(entry.hour, index === hours.length - 1), formatCount(entry.sources)]))}
+        </div>`);
+}
+
+function ageRow(label, ages) {
+    if (!ages) return `<tr><th scope="row">${escapeHtml(label)}</th><td colspan="3" class="muted">no source yet</td></tr>`;
+    return `<tr><th scope="row">${escapeHtml(label)}<span class="metric-sub">${pluralize(ages.sources, 'source', 'sources')}</span></th>
+        <td>${durationText(ages.median_secs)}</td><td>${durationText(ages.mean_secs)}</td><td title="Nine in ten sources are fresher; the longest is ${escapeHtmlAttr(durationText(ages.max_secs))}">${durationText(ages.p90_secs)}</td></tr>`;
+}
+
+function longestIdleHtml(freshness, staleTotal) {
+    if (!freshness.longest_idle.length) return `<p class="small muted">No crawl-enabled source has been idle for ${freshness.stale_after_days} days.</p>`;
+    const rows = freshness.longest_idle.map(source => {
+        const age = source.idle_since
+            ? timeSpan(source.idle_since, 'bare', `Last scrape or crawl ${formatDate(source.idle_since)}`)
+            : '<span class="time">never worked</span>';
+        return `<li><a href="${escapeHtmlAttr(sourceHash(source.listing_source_id))}">${escapeHtml(listingSourceName(source))}</a>${age}</li>`;
     }).join('');
-    return `<div class="idle-list"><div class="failing-urls-title">Longest idle</div><ul>${rows}</ul></div>`;
+    const more = staleTotal > freshness.longest_idle.length ? `<a class="small" href="${STALE_SOURCES_HASH}">All ${formatCount(staleTotal)} stale sources →</a>` : '';
+    return `<div class="idle-list"><div class="failing-urls-title">Longest idle</div><ul>${rows}</ul>${more}</div>`;
 }
 
-function freshnessCardHtml(f, sources) {
-    const link = `<a class="small" href="#sources&status=stale&sort=idle_since&dir=asc">${escapeHtml(pluralize(sources.stale, 'stale source', 'stale sources'))} →</a>`;
-    return metricCard('Freshness', '', `<table class="metric-table"><thead><tr><th scope="col">Time since…</th><th scope="col">Median</th><th scope="col">Mean</th><th scope="col">p90</th><th scope="col">Max</th></tr></thead>
-        <tbody>${freshnessRow('Last scraped page', f.since_last_scrape)}${freshnessRow('Last crawl', f.since_last_crawl)}</tbody></table>
-        ${longestIdleHtml(f.stale_after_days)}`, link);
+function idleSourcesCardHtml(freshness, sources) {
+    const held = [
+        sources.rate_limited ? `${pluralize(sources.rate_limited, 'source', 'sources')} rate-limited by the shop` : '',
+        sources.scrape_paused ? `${pluralize(sources.scrape_paused, 'source', 'sources')} with scrapes paused by the circuit` : ''
+    ].filter(Boolean).join(' · ');
+    return overviewCard('Source idle time', headNote('crawl-enabled sources'), `
+        <table class="metric-table"><thead><tr><th scope="col">Time since the last…</th><th scope="col">Median</th><th scope="col">Mean</th><th scope="col">p90</th></tr></thead>
+          <tbody>${ageRow('Scraped page', freshness.since_last_scrape)}${ageRow('Crawl run', freshness.since_last_crawl)}</tbody></table>
+        ${longestIdleHtml(freshness, sources.stale)}
+        ${held ? `<p class="small muted">Held back right now: ${escapeHtml(held)}.</p>` : ''}`);
 }
 
-function backlogCardHtml(b) {
-    return metricCard('Backlog', 'crawl-enabled sources', `<div class="metric-grid two">
-        ${metric(formatCount(b.pages_not_scraped_for_a_day), 'Pages not scraped for over a day', {tone: b.pages_not_scraped_for_a_day ? 'warn' : '', title: 'The daily scrape is behind on these product pages'})}
-        ${metric(formatCount(b.pages_never_scraped), 'Pages never scraped', {title: 'Includes the pages of sources that wait for their first product schema'})}
-        ${metric(formatCount(b.rate_limited_sources), 'Rate-limited sources', {title: "A shop's rate limit holds their next crawl back right now"})}
-        ${metric(formatCount(b.scrape_paused_sources), 'Scrapes paused', {title: 'The scraper circuit pauses these sources after repeated failures'})}
-      </div>`);
+function signedCount(value) {
+    return `${value > 0 ? '+' : value < 0 ? '−' : '±'}${formatCount(Math.abs(value))}`;
 }
 
-// The error kinds of one kind of failure as bars of one hue, longest first, each worded.
-function failureBarsHtml(title, href, total, kinds) {
-    const head = `<div class="failure-head"><span class="failing-urls-title">${escapeHtml(title)}</span><a class="small" href="${escapeHtmlAttr(href)}">${escapeHtml(pluralize(total, 'source', 'sources'))} →</a></div>`;
-    if (!kinds.length) return `${head}<p class="small muted">None failing.</p>`;
-    const most = Math.max(...kinds.map(kind => kind.sources));
-    const rows = kinds.slice(0, 6).map(kind => {
-        const label = kind.error_kind ? describeFailure(kind.error_kind).label : 'No kind recorded';
-        const width = Math.max(4, Math.round(kind.sources / most * 100));
-        return `<li title="${escapeHtmlAttr(`${label}: ${pluralize(kind.sources, 'source', 'sources')}`)}"><span class="bar-label">${escapeHtml(label)}</span><span class="bar-track"><span class="bar" style="width:${width}%"></span></span><span class="bar-value">${formatCount(kind.sources)}</span></li>`;
+function reviewQueueCardHtml(o) {
+    const reviews = o.reviews;
+    const days = o.review_flow.daily;
+    const today = days[days.length - 1];
+    const decided = today.approved + today.rejected;
+    const oldest = reviews.oldest_pending
+        ? timeSpan(reviews.oldest_pending, 'bare', `Opened ${formatDate(reviews.oldest_pending)}`)
+        : '—';
+    const parked = o.agent_mode && reviews.parked
+        ? `<p class="small muted"><a href="#reviews&waiting=parked">${escapeHtml(pluralize(reviews.parked, 'pending review', 'pending reviews'))}</a> of parked sources wait for the agents' retry.</p>`
+        : '';
+    return overviewCard('Review queue', headNote(`${formatCount(reviews.pending_by_artifact.PRODUCT_SCHEMA)} product schemas · ${formatCount(reviews.pending_by_artifact.URL_PATTERN)} URL patterns pending`), `
+        <div class="metric-grid two">
+          ${metric(oldest, 'Oldest pending', {sub: reviews.median_pending_age_secs === null ? '' : `median age ${durationText(reviews.median_pending_age_secs)}`, title: 'Of the pending reviews of crawl-enabled sources'})}
+          ${metric(durationText(o.review_flow.median_decision_secs_7d), 'Median time to decide', {sub: 'last 7 days', title: 'From opening to approval or rejection'})}
+          ${metric(formatCount(today.opened), 'Opened, last 24 h', {sub: `${signedCount(today.opened - decided)} net`, title: 'Reviews opened, and those opened minus those approved or rejected'})}
+          ${metric(formatCount(decided), 'Decided, last 24 h', {sub: `${formatCount(today.approved)} approved · ${formatCount(today.rejected)} rejected`})}
+        </div>
+        <div>
+          <div class="chart-title">Opened and decided per 24 hours<span class="chart-legend"><span><i class="swatch series-1"></i>Opened</span><span><i class="swatch series-2"></i>Decided</span></span></div>
+          <div class="chart" data-chart="reviews" tabindex="0" role="group" aria-label="Reviews opened and decided in each of the last seven 24-hour windows. Use the arrow keys to read a window."></div>
+          ${chartTableHtml('reviews', ['24 hours ending', 'Opened', 'Approved', 'Rejected'], days.map((day, index) => [dayWindowText(days.length - 1 - index), formatCount(day.opened), formatCount(day.approved), formatCount(day.rejected)]))}
+        </div>
+        ${parked}`);
+}
+
+// ───────────────────────────── Overview charts ─────────────────────────────
+// Inline SVG drawn to the pixel width of its `.chart[data-chart]` element, so marks keep their
+// thickness and labels never collide; redrawn on resize. One hue per series, thin columns on one
+// axis, the numbers in ink. Every chart has its figures beside it or in a table under it, and its
+// tooltip follows the pointer or the arrow keys.
+const CHART_PLOT_HEIGHT = 96;
+const CHART_AXIS_BAND = 20;
+const CHART_TOP = 6;
+const CHARTS = {
+    crawls: (o, width) => columnChartSvg(width, o.throughput.crawl_runs_by_hour.map((entry, index, all) => {
+        const running = index === all.length - 1;
+        const startHour = new Date(entry.hour).getHours();
+        return {
+            tick: startHour % 6 === 0 ? clockText(entry.hour) : '',
+            title: hourSpanText(entry.hour, running),
+            bars: [{value: entry.sources, series: 1, partial: running, name: entry.sources === 1 ? 'crawl run' : 'crawl runs'}]
+        };
+    })),
+    reviews: (o, width) => columnChartSvg(width, o.review_flow.daily.map((day, index, all) => {
+        const daysAgo = all.length - 1 - index;
+        return {
+            tick: daysAgo ? `−${daysAgo} d` : 'now',
+            title: dayWindowText(daysAgo),
+            bars: [
+                {value: day.opened, series: 1, name: 'opened'},
+                {value: day.approved + day.rejected, series: 2, name: `decided · ${formatCount(day.approved)} approved, ${formatCount(day.rejected)} rejected`}
+            ]
+        };
+    })),
+    pages: (o, width) => segmentBarSvg(width, pageFreshnessParts(o.pages, o.freshness.stale_after_days), o.pages.total)
+};
+
+function drawCharts() {
+    if (!overviewCounts) return;
+    for (const element of document.querySelectorAll('.chart[data-chart]')) {
+        const width = Math.floor(element.clientWidth);
+        const draw = CHARTS[element.dataset.chart];
+        if (draw && width >= 120) element.innerHTML = draw(overviewCounts, width);
+    }
+}
+
+let chartResize = 0;
+window.addEventListener('resize', () => {
+    cancelAnimationFrame(chartResize);
+    chartResize = requestAnimationFrame(drawCharts);
+});
+
+// "14:00–15:00" in the reader's time zone; the running hour says since when.
+function hourSpanText(hour, running) {
+    const start = new Date(hour);
+    if (running) return `since ${clockText(start)}`;
+    return `${clockText(start)}–${clockText(start.getTime() + 60 * 60 * 1000)}`;
+}
+
+// The 24 hours that ended `daysAgo` days ago, by the moment they ended.
+function dayWindowText(daysAgo) {
+    if (!daysAgo) return 'the last 24 hours';
+    const end = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    return `24 h to ${end.toLocaleDateString([], {weekday: 'short'})} ${clockText(end)}`;
+}
+
+// The figures of a chart as a table the reader can open under it; it stays open across refreshes.
+const openChartTables = new Set();
+document.addEventListener('toggle', event => {
+    const name = event.target.dataset?.chartTable;
+    if (!name) return;
+    if (event.target.open) openChartTables.add(name);
+    else openChartTables.delete(name);
+}, true);
+
+function chartTableHtml(name, heads, rows) {
+    const cells = row => row.map((cell, index) => index ? `<td>${escapeHtml(cell)}</td>` : `<th scope="row">${escapeHtml(cell)}</th>`).join('');
+    return `<details class="chart-table" data-chart-table="${name}"${openChartTables.has(name) ? ' open' : ''}><summary>Show as table</summary>
+        <table class="metric-table"><thead><tr>${heads.map(head => `<th scope="col">${escapeHtml(head)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${cells(row)}</tr>`).join('')}</tbody></table></details>`;
+}
+
+// The ticks of a count axis from 0 to at least `max`: two or three steps of 1, 2 or 5 times a
+// power of ten.
+function countAxisTicks(max) {
+    const top = Math.max(2, max);
+    const power = 10 ** Math.floor(Math.log10(top / 2));
+    const step = [1, 2, 5, 10].map(factor => factor * power).find(candidate => top / candidate <= 3);
+    const ticks = [];
+    for (let value = 0; value < top + step; value += step) ticks.push(value);
+    return ticks;
+}
+
+// Columns on one count axis: `groups` of one or two bars ({value, series, name, partial}), each
+// group with its `title` for the tooltip and its `tick` label under the axis, empty for none.
+function columnChartSvg(width, groups) {
+    const ticks = countAxisTicks(Math.max(...groups.flatMap(group => group.bars.map(bar => bar.value))));
+    const top = ticks[ticks.length - 1];
+    const gutter = Math.max(22, formatCount(top).length * 7 + 10);
+    const plotWidth = width - gutter - 2;
+    const bottom = CHART_TOP + CHART_PLOT_HEIGHT;
+    const slot = plotWidth / groups.length;
+    const perGroup = groups[0].bars.length;
+    const barWidth = Math.max(2, Math.min(perGroup > 1 ? 16 : 24, Math.floor((slot - (perGroup > 1 ? 10 : 2)) / perGroup) - (perGroup > 1 ? 1 : 0)));
+    const groupWidth = perGroup * barWidth + (perGroup - 1) * 2;
+    const y = value => bottom - value / top * CHART_PLOT_HEIGHT;
+    const grid = ticks.map(value => `${value ? `<line class="chart-grid" x1="${gutter}" x2="${width}" y1="${y(value)}" y2="${y(value)}"/>` : ''}<text class="chart-tick" x="${gutter - 6}" y="${y(value) + 4}" text-anchor="end">${formatCount(value)}</text>`).join('');
+    const marks = groups.map((group, index) => {
+        const left = gutter + index * slot;
+        const start = left + (slot - groupWidth) / 2;
+        const bars = group.bars.map((bar, position) => {
+            if (!bar.value) return '';
+            const height = Math.max(2, bar.value / top * CHART_PLOT_HEIGHT);
+            const x = start + position * (barWidth + 2);
+            const radius = Math.min(4, barWidth / 2, height);
+            return `<path class="chart-bar series-${bar.series}${bar.partial ? ' partial' : ''}" d="M${x},${bottom}V${bottom - height + radius}Q${x},${bottom - height} ${x + radius},${bottom - height}H${x + barWidth - radius}Q${x + barWidth},${bottom - height} ${x + barWidth},${bottom - height + radius}V${bottom}Z"/>`;
+        }).join('');
+        const tip = {title: group.title, rows: group.bars.map(bar => [formatCount(bar.value), bar.name, bar.series])};
+        const center = left + slot / 2;
+        const anchor = center < 24 ? 'start' : center > width - 24 ? 'end' : 'middle';
+        const tick = group.tick ? `<text class="chart-tick" x="${anchor === 'middle' ? center : anchor === 'start' ? left : left + slot}" y="${bottom + 15}" text-anchor="${anchor}">${escapeHtml(group.tick)}</text>` : '';
+        return `<g class="chart-mark" data-tip="${escapeHtmlAttr(JSON.stringify(tip))}"><rect class="chart-hit" x="${left}" y="${CHART_TOP}" width="${slot}" height="${CHART_PLOT_HEIGHT}"/>${bars}</g>${tick}`;
     }).join('');
-    const rest = kinds.length > 6 ? `<p class="small muted">and ${pluralize(kinds.length - 6, 'other kind', 'other kinds')}</p>` : '';
-    return `${head}<ul class="bar-list">${rows}</ul>${rest}`;
+    return `<svg width="${width}" height="${bottom + CHART_AXIS_BAND}" viewBox="0 0 ${width} ${bottom + CHART_AXIS_BAND}" aria-hidden="true" focusable="false">${grid}${marks}<line class="chart-axis" x1="${gutter}" x2="${width}" y1="${bottom}" y2="${bottom}"/></svg>`;
 }
 
-function failuresCardHtml(failures, sources) {
-    return metricCard('Failures', 'by error kind', `<div class="stack">
-        ${failureBarsHtml('Failing to scrape', '#sources&status=failing', sources.failing_to_scrape, failures.scrape)}
-        ${failureBarsHtml('Last crawl failed', '#sources&status=crawl_failing', sources.crawl_failing, failures.crawl)}
-      </div>`);
+// One whole split into `parts` ({key, name, value}): a thin bar with rounded ends and a gap
+// between its segments; the list under it names each part with its figure.
+function segmentBarSvg(width, parts, total) {
+    const height = 8;
+    const shown = parts.filter(part => part.value > 0);
+    const room = width - (shown.length - 1) * 2;
+    const widths = shown.map(part => Math.max(3, part.value / total * room));
+    const widest = widths.indexOf(Math.max(...widths));
+    widths[widest] -= widths.reduce((sum, value) => sum + value, 0) - room;
+    let x = 0;
+    const segments = shown.map((part, index) => {
+        const tip = {title: part.name, rows: [[formatCount(part.value), `pages · ${shareText(part.value, total)}`, part.key]]};
+        const segment = `<rect class="chart-mark seg-${part.key}" x="${x}" y="0" width="${widths[index]}" height="${height}" data-tip="${escapeHtmlAttr(JSON.stringify(tip))}"/>`;
+        x += widths[index] + 2;
+        return segment;
+    }).join('');
+    return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true" focusable="false"><defs><clipPath id="segmentBarEnds"><rect width="${width}" height="${height}" rx="${height / 2}"/></clipPath></defs><g clip-path="url(#segmentBarEnds)">${segments}</g></svg>`;
 }
 
-function reviewFlowCardHtml(reviews, flow) {
-    const oldest = reviews.oldest_pending ? elapsedTime(reviews.oldest_pending).replace(' ago', '') : '—';
-    const net = flow.opened_24h - flow.approved_24h - flow.rejected_24h;
-    return metricCard('Review queue', 'crawl-enabled sources', `<div class="metric-grid two">
-        ${metric(oldest, 'Oldest pending', {href: '#reviews&status=PENDING_REVIEW', sub: reviews.median_pending_age_secs === null ? '' : `median ${durationText(reviews.median_pending_age_secs)}`,
-            title: reviews.oldest_pending ? `Opened ${formatDate(reviews.oldest_pending)}` : 'Nothing pending', tone: reviews.oldest_pending ? 'warn' : ''})}
-        ${metric(formatCount(flow.opened_24h), 'Opened, 24 h', {sub: `${net > 0 ? '+' : net < 0 ? '−' : '±'}${formatCount(Math.abs(net))} net`, title: 'Reviews opened minus those approved or rejected in the last day'})}
-        ${metric(formatCount(flow.approved_24h + flow.rejected_24h), 'Decided, 24 h', {sub: `${formatCount(flow.approved_24h)} approved · ${formatCount(flow.rejected_24h)} rejected`})}
-        ${metric(durationText(flow.median_decision_secs_7d), 'Median time to decide', {sub: 'last 7 days', title: 'From opening to approval or rejection'})}
-      </div>`);
+// The one tooltip of the charts: the figures of the mark under the pointer, or of the mark the
+// arrow keys chose in a focused chart. Its text is set as text, never as HTML.
+let chartTip = null;
+let chartPointer = null;
+const chartKeys = {name: '', index: -1};
+
+function showChartTip(mark, x, y) {
+    if (!chartTip) {
+        chartTip = document.createElement('div');
+        chartTip.className = 'chart-tip';
+        chartTip.setAttribute('role', 'tooltip');
+        document.body.append(chartTip);
+    }
+    const tip = JSON.parse(mark.dataset.tip);
+    const title = document.createElement('div');
+    title.className = 'chart-tip-title';
+    title.textContent = tip.title;
+    const rows = tip.rows.map(([value, name, key]) => {
+        const row = document.createElement('div');
+        const swatch = document.createElement('i');
+        swatch.className = `tip-key ${typeof key === 'number' ? `series-${key}` : `seg-${key}`}`;
+        const strong = document.createElement('strong');
+        strong.textContent = value;
+        row.append(swatch, strong, ` ${name}`);
+        return row;
+    });
+    chartTip.replaceChildren(title, ...rows);
+    chartTip.hidden = false;
+    const box = chartTip.getBoundingClientRect();
+    const left = Math.min(Math.max(8, x - box.width / 2), window.innerWidth - box.width - 8);
+    const above = y - box.height - 12;
+    chartTip.style.left = `${left}px`;
+    chartTip.style.top = `${above < 8 ? y + 16 : above}px`;
 }
+
+function hideChartTip() {
+    if (chartTip) chartTip.hidden = true;
+}
+
+function showChartTipUnderPointer() {
+    const mark = chartPointer && document.elementFromPoint(chartPointer.x, chartPointer.y)?.closest('[data-tip]');
+    if (mark) showChartTip(mark, chartPointer.x, chartPointer.y);
+    else if (!chartKeys.name) hideChartTip();
+}
+
+function trackChartPointer(event) {
+    chartPointer = {x: event.clientX, y: event.clientY};
+    showChartTipUnderPointer();
+}
+document.addEventListener('pointermove', trackChartPointer);
+document.addEventListener('pointerdown', trackChartPointer);
+document.addEventListener('scroll', () => {
+    if (!chartKeys.name) hideChartTip();
+}, {passive: true});
+
+// The mark of a focused chart the arrow keys are on, marked and described by the tooltip.
+function showChartKeyMark(chart) {
+    const marks = Array.from(chart.querySelectorAll('[data-tip]'));
+    if (!marks.length) return;
+    chartKeys.index = Math.min(Math.max(0, chartKeys.index), marks.length - 1);
+    marks.forEach((mark, index) => mark.classList.toggle('active', index === chartKeys.index));
+    const box = marks[chartKeys.index].getBoundingClientRect();
+    showChartTip(marks[chartKeys.index], box.left + box.width / 2, box.top);
+}
+
+document.addEventListener('focusin', event => {
+    const chart = event.target.closest?.('.chart[data-chart]');
+    if (!chart) return;
+    if (chartKeys.name !== chart.dataset.chart) {
+        chartKeys.name = chart.dataset.chart;
+        chartKeys.index = Number.MAX_SAFE_INTEGER;
+    }
+    showChartKeyMark(chart);
+});
+document.addEventListener('focusout', event => {
+    // A refresh replaces a focused chart and gives its successor the focus; only a chart the
+    // reader left gives up its mark.
+    if (!event.target.closest?.('.chart[data-chart]') || !event.target.isConnected) return;
+    chartKeys.name = '';
+    event.target.querySelectorAll('.active').forEach(mark => mark.classList.remove('active'));
+    hideChartTip();
+});
+document.addEventListener('keydown', event => {
+    const chart = event.target.closest?.('.chart[data-chart]');
+    const step = {ArrowLeft: -1, ArrowRight: 1}[event.key];
+    if (!chart || !step) return;
+    event.preventDefault();
+    chartKeys.index += step;
+    showChartKeyMark(chart);
+});
 
 // ───────────────────────────── Recent activity ─────────────────────────────
 // The Overview's feed of what happened in the last day: the decisions and hand-overs of the review
@@ -5883,7 +6163,7 @@ function openRoute(next) {
     }
     if (next.name === 'overview') {
         renderOverviewPage();
-        return Promise.all([loadOverview(), loadActivity(), loadStaleSources()]);
+        return Promise.all([loadOverview(), loadActivity()]);
     }
     renderListPage();
     return Promise.all([loadOverview(), loadList()]);
@@ -5939,7 +6219,7 @@ async function refreshView() {
     refreshTimer = null;
     try {
         const work = [loadOverview()];
-        if (route.name === 'overview') work.push(loadActivity(), loadStaleSources());
+        if (route.name === 'overview') work.push(loadActivity());
         if (listRouteKind()) work.push(loadList());
         else if (route.name === 'source') work.push(loadSourcePage());
         else if (route.name === 'review') work.push(loadRail(), loadQueue());

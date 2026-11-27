@@ -13,7 +13,8 @@
  *
  * Sections: 1 tokens · 2 base · 3 controls · 4 badges · 5 buttons · 6 banners/states · 7 cards
  * · 8 tiles · 9 filters · 10 tables · 11 pager · 12 shell/nav · 13 page · 14 source page
- * · 15 review detail (workbench, inspector, URL pattern) · 16 responsive
+ * · 15 review detail (workbench, inspector, URL pattern) · 16 responsive · 17 proposals
+ * · 18 console additions · 19 overview (cards, count lists, charts)
  */
 
 /* ───────────────────────────── 1. Tokens ───────────────────────────── */
@@ -41,6 +42,8 @@
     --bad: #b3261e;       --bad-soft: #fcebea;     --bad-line: #f2b3ae;
     --info: #2456c8;      --info-soft: #e8eefc;    --info-line: #b7c8f3;
     --neutral: #475063;   --neutral-soft: #eceef2; --neutral-line: #c9cfda;
+    /* chart marks: two series, and the due and overdue parts of a whole; text never wears them */
+    --chart-1: #2456c8; --chart-2: #e76624; --chart-due: #d28e05; --chart-overdue: #dc3c3d;
     /* elevation */
     --shadow-1: 0 1px 2px rgba(20, 26, 40, 0.06);
     --shadow-2: 0 4px 16px rgba(20, 26, 40, 0.10);
@@ -76,6 +79,7 @@
         --bad: #ff948c;     --bad-soft: #351c1b;     --bad-line: #66302d;
         --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
         --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
+        --chart-1: #5b8ff0;
         --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
         color-scheme: dark;
     }
@@ -90,6 +94,7 @@
     --bad: #ff948c;     --bad-soft: #351c1b;     --bad-line: #66302d;
     --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
     --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
+    --chart-1: #5b8ff0;
     --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
 }
@@ -549,7 +554,7 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
     .chev svg, .skeleton { transition: none; animation: none; }
 }
 /* ───────────────────────────── 17. Proposals from the UX review (UX-REVIEW.md) ───────────────────────────── */
-/* Overview: sources table beside a recent-activity feed on wide screens; the feed drops below the table under 1320px. */
+/* Overview: its cards beside a recent-activity feed on wide screens; the feed drops below them under 1320px. */
 .overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: var(--s-4); align-items: start; }
 .feed { display: grid; }
 .feed-day { padding: var(--s-2) var(--s-4) 2px; color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
@@ -612,21 +617,20 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
     .banner:has(.banner-actions + .banner-dismiss) .banner-dismiss { grid-column: 4; grid-row: 1; }
 }
 
-/* ───────────────────────────── 19. Overview metrics ───────────────────────────── */
-/* Cards of plain numbers beside the activity feed: a number links only to the list that shows
-   exactly what it counts. */
-.metric-cards { columns: 2 340px; column-gap: var(--s-4); }
-.metric-cards > .metric-card { break-inside: avoid; margin-bottom: var(--s-4); }
-.metric-card .card-head h2 { font-size: var(--fs-md); }
+/* ───────────────────────────── 19. Overview ───────────────────────────── */
+/* Six tiles, then two columns of cards: what needs a human, and how the crawler keeps up. */
+.tiles.tiles-six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.tile-static { cursor: default; }
+.tile-static:hover { border-color: var(--line); }
+.overview-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); align-items: start; }
+.overview-col { display: grid; gap: var(--s-4); min-width: 0; }
+.overview-card .card-head h2 { font-size: var(--fs-md); }
+/* Plain numbers: a value, its label and at most one line under it. */
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--s-3) var(--s-4); }
 .metric-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.metric { display: grid; gap: 2px; align-content: start; min-width: 0; color: inherit; }
-a.metric-link { margin: calc(-1 * var(--s-2)); padding: var(--s-2); border-radius: var(--r-md); text-decoration: none; }
-a.metric-link:hover { background: var(--surface-2); text-decoration: none; }
-a.metric-link .metric-label { color: var(--accent); }
-.metric-value { color: var(--ink); font-size: var(--fs-xl); font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.metric-value.zero { color: var(--muted); }
-.metric-value.tone-warn { color: var(--warn); }
+.metric { display: grid; gap: 2px; align-content: start; min-width: 0; }
+.metric-value { color: var(--ink); font-size: var(--fs-xl); font-weight: 600; line-height: 1.15; }
+.metric-value .time { color: inherit; }
 .metric-label { color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.3; }
 .metric-sub { display: block; color: var(--muted); font-size: var(--fs-xs); font-weight: 400; }
 .metric-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
@@ -636,21 +640,64 @@ a.metric-link .metric-label { color: var(--accent); }
 .metric-table thead th { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; }
 .metric-table tbody th { color: var(--ink-2); font-weight: 500; }
 .metric-table tbody tr:last-child > * { border-bottom: 0; }
-.idle-list { display: grid; gap: var(--s-2); margin-top: var(--s-4); }
+/* A list of counts: a dot or swatch, a worded label and the number; a row that links opens the
+   list of exactly what it counts. */
+.count-list { display: grid; margin: 2px 0 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
+.count-list li { border-top: 1px solid var(--line); }
+.count-list li:first-child { border-top: 0; }
+.count-row, .legend-list li { display: flex; align-items: center; gap: var(--s-2); padding: 6px 0; color: var(--ink); }
+.count-row::after { content: ""; flex: none; width: 8px; color: var(--muted); text-align: right; }
+a.count-row::after { content: "›"; }
+a.count-row:hover { text-decoration: none; }
+a.count-row:hover .count-label { color: var(--accent); text-decoration: underline; }
+.count-row.zero { color: var(--muted); }
+.count-label { flex: 1; min-width: 0; }
+.count-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.count-row.zero .count-value { font-weight: 400; }
+.count-share { flex: none; width: 3.2em; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.count-detail { margin-top: -3px; padding: 0 16px 6px; color: var(--muted); font-size: var(--fs-xs); }
+.share { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s-2); }
+.share-value { font-size: var(--fs-stat); font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
+.share-label { color: var(--ink-2); font-size: var(--fs-sm); }
+.idle-list { display: grid; gap: var(--s-2); }
 .idle-list ul { display: grid; margin: 0; padding: 0; list-style: none; }
 .idle-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: 5px 0; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
 .idle-list li:first-child { border-top: 0; }
 .idle-list li a { min-width: 0; overflow: hidden; color: var(--ink); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.idle-age { flex: none; color: var(--warn); font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
-.failure-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-2); }
-/* One series of magnitudes: one hue, thin bars with rounded data-ends, the number in ink beside. */
-.bar-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.bar-list li { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 3.5em; gap: var(--s-2); align-items: center; font-size: var(--fs-sm); }
-.bar-label { overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
-.bar-track { height: 8px; border-radius: 0 4px 4px 0; background: var(--surface-2); }
-.bar { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--accent); }
-.bar-value { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+/* Charts: inline SVG drawn by app.js. One hue per series, thin columns with a rounded data end
+   on one axis, hairline grid, the figures in ink; the palette is checked for colour-vision
+   deficiency against both surfaces. */
+.chart { min-width: 0; border-radius: var(--r-sm); }
+.chart svg { display: block; }
+.chart-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1) var(--s-3); margin-bottom: var(--s-2); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.chart-legend { display: inline-flex; gap: var(--s-3); color: var(--ink-2); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.series-1, .seg-fresh { background: var(--chart-1); fill: var(--chart-1); }
+.series-2 { background: var(--chart-2); fill: var(--chart-2); }
+.seg-due { background: var(--chart-due); fill: var(--chart-due); }
+.seg-overdue { background: var(--chart-overdue); fill: var(--chart-overdue); }
+.seg-never { background: var(--line-strong); fill: var(--line-strong); }
+.chart-grid { stroke: var(--line); }
+.chart-axis { stroke: var(--line-strong); }
+.chart-grid, .chart-axis { stroke-width: 1; shape-rendering: crispEdges; }
+.chart-tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-bar.partial { opacity: 0.45; }
+.chart-hit { fill: transparent; }
+.chart-mark:hover .chart-hit, .chart-mark.active .chart-hit { fill: var(--surface-3); }
+rect.chart-mark:hover { opacity: 0.8; }
+.chart-table { margin-top: var(--s-1); font-size: var(--fs-xs); }
+.chart-table summary { width: fit-content; color: var(--muted); cursor: pointer; }
+.chart-table summary:hover { color: var(--ink-2); }
+.chart-table .metric-table { margin-top: var(--s-1); font-size: var(--fs-xs); }
+.chart-table .metric-table th, .chart-table .metric-table td { padding: 3px var(--s-2); }
+.chart-tip { position: fixed; z-index: 30; max-width: 260px; padding: 6px var(--s-2); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-2); color: var(--ink-2); font-size: var(--fs-xs); line-height: 1.5; pointer-events: none; }
+.chart-tip-title { color: var(--muted); }
+.chart-tip strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.tip-key { display: inline-block; width: 10px; height: 3px; margin-right: 6px; border-radius: 1px; vertical-align: middle; }
+@media (max-width: 1099px) { .tiles.tiles-six { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 899px) { .overview-cols { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 719px) {
+    .tiles.tiles-six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .bar-list li { grid-template-columns: minmax(0, 8em) minmax(0, 1fr) 3em; }
 }

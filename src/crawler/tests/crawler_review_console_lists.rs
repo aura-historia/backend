@@ -1060,6 +1060,8 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
 
     let mut counts = serde_json::to_value(counts).unwrap();
     let freshness = counts["freshness"].take();
+    let crawl_runs_by_hour = counts["throughput"]["crawl_runs_by_hour"].take();
+    let daily_review_flow = counts["review_flow"]["daily"].take();
     let oldest_pending = counts["reviews"]["oldest_pending"].take();
     let median_pending_age = counts["reviews"]["median_pending_age_secs"].take();
     assert_eq!(
@@ -1069,16 +1071,16 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
                 "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
                 "failing_to_scrape": 1, "held_removals": 0, "identity_conflicts": 0,
-                "labelled": 0, "parked": 0, "stale": 0
+                "labelled": 0, "parked": 0, "stale": 0, "rate_limited": 0, "scrape_paused": 0
             },
             "freshness": null,
             "throughput": {
                 "pages_scraped_1h": 0, "pages_scraped_24h": 0, "product_urls_found_24h": 0,
-                "crawls_finished_1h": 1, "crawls_finished_24h": 1
+                "crawls_finished_1h": 1, "crawls_finished_24h": 1, "crawl_runs_by_hour": null
             },
-            "backlog": {
-                "pages_not_scraped_for_a_day": 0, "pages_never_scraped": 0,
-                "rate_limited_sources": 0, "scrape_paused_sources": 0
+            "pages": {
+                "total": 0, "scraped_within_a_day": 0, "due": 0, "overdue": 0,
+                "never_scraped": 0
             },
             "failures": {
                 "scrape": [{ "error_kind": "TIMEOUT", "sources": 1 }],
@@ -1094,29 +1096,42 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "oldest_pending": null,
                 "median_pending_age_secs": null
             },
-            "review_flow": {
-                "opened_24h": 4, "approved_24h": 1, "rejected_24h": 0,
-                "median_decision_secs_7d": 0
-            },
+            "review_flow": { "daily": null, "median_decision_secs_7d": 0 },
             "agent_mode": true
         })
     );
     assert_eq!(freshness["since_last_scrape"], json!(null));
     assert_eq!(freshness["since_last_crawl"]["sources"], 1);
+    assert_eq!(freshness["longest_idle"], json!([]));
+    assert_eq!(
+        crawl_runs_by_hour
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hour| hour["sources"].as_i64().unwrap())
+            .sum::<i64>(),
+        1,
+        "the stopped crawl: {crawl_runs_by_hour}"
+    );
+    assert_eq!(
+        daily_review_flow[6],
+        json!({ "opened": 4, "approved": 1, "rejected": 0 }),
+        "the last 24 hours: {daily_review_flow}"
+    );
     assert!(oldest_pending.is_string(), "{oldest_pending}");
     assert!(median_pending_age.is_i64(), "{median_pending_age}");
 }
 
-/// The Overview's freshness, throughput and backlog over the crawl-enabled sources, and its
-/// stale count, which the `stale` list shows longest idle first.
+/// The Overview's freshness, throughput and page freshness over the crawl-enabled sources, and
+/// its stale count, which the `stale` list shows longest idle first as `longest_idle` names them.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_report_freshness_throughput_backlog_and_the_stale_sources() {
+async fn should_report_freshness_throughput_page_freshness_and_the_stale_sources() {
     let pool = get_postgres_client().await;
     let repository = agent_repository(&pool, 1);
     let fresh = source(&pool, "Fresh", "fresh.example.com", true).await;
     let idle = source(&pool, "Idle", "idle.example.com", true).await;
     let never = source(&pool, "Never", "never.example.com", true).await;
-    source(&pool, "New", "new.example.com", true).await;
+    let new = source(&pool, "New", "new.example.com", true).await;
     let disabled = source(&pool, "Disabled", "disabled.example.com", false).await;
     for (id, set) in [
         (
@@ -1127,10 +1142,20 @@ async fn should_report_freshness_throughput_backlog_and_the_stale_sources() {
         (
             idle,
             "last_crawl_run_at = NOW() - INTERVAL '5 days', created = NOW() - INTERVAL '30 days', \
-             last_crawl_outcome = 'FAILED', last_crawl_error_kind = 'Timeout'",
+             last_crawl_outcome = 'FAILED', last_crawl_error_kind = 'Timeout', \
+             next_scrape_at = NOW() + INTERVAL '1 hour'",
         ),
         (never, "created = NOW() - INTERVAL '10 days'"),
-        (disabled, "created = NOW() - INTERVAL '10 days'"),
+        (
+            new,
+            "last_crawl_run_at = date_trunc('hour', NOW(), 'UTC') - INTERVAL '290 minutes'",
+        ),
+        (
+            disabled,
+            "created = NOW() - INTERVAL '10 days', \
+             crawl_rate_limited_until = NOW() + INTERVAL '1 hour', \
+             next_scrape_at = NOW() + INTERVAL '1 hour'",
+        ),
     ] {
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
@@ -1140,22 +1165,30 @@ async fn should_report_freshness_throughput_backlog_and_the_stale_sources() {
         .await
         .unwrap();
     }
-    for (id, path, scraped, created) in [
-        (fresh, "/fresh-1", Some("10 minutes"), "2 hours"),
-        (fresh, "/fresh-2", Some("3 hours"), "2 days"),
-        (fresh, "/fresh-3", None, "1 hour"),
-        (idle, "/idle-1", Some("4 days"), "20 days"),
-        (disabled, "/disabled-1", Some("6 days"), "20 days"),
+    for (id, path, scraped, error_kind, created) in [
+        (fresh, "/fresh-1", Some("10 minutes"), None, "2 hours"),
+        (
+            fresh,
+            "/fresh-2",
+            Some("3 hours"),
+            Some("MassRemovalHeld"),
+            "2 days",
+        ),
+        (fresh, "/fresh-3", None, None, "1 hour"),
+        (fresh, "/fresh-4", Some("2 days"), None, "5 days"),
+        (idle, "/idle-1", Some("4 days"), None, "20 days"),
+        (disabled, "/disabled-1", Some("6 days"), None, "20 days"),
     ] {
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO listing_source_urls
-             (listing_source_id, url, url_class, raw_source_record_key, last_scraped, created)
-             VALUES ($1, $2, 'product', $2,
-                     {scraped}, NOW() - INTERVAL '{created}')",
+             (listing_source_id, url, url_class, raw_source_record_key, last_scraped,
+              last_error_kind, created)
+             VALUES ($1, $2, 'product', $2, {scraped}, $3, NOW() - INTERVAL '{created}')",
             scraped = scraped.map_or("NULL".to_owned(), |age| format!("NOW() - INTERVAL '{age}'")),
         )))
         .bind(id.as_uuid())
         .bind(format!("https://shop.example.com{path}"))
+        .bind(error_kind)
         .execute(&pool)
         .await
         .unwrap();
@@ -1182,14 +1215,28 @@ async fn should_report_freshness_throughput_backlog_and_the_stale_sources() {
     );
     assert_eq!(stale.total, overview.sources.stale);
     assert_eq!(
-        stale
-            .items
-            .iter()
-            .map(|source| source.listing_source_id)
-            .collect::<Vec<_>>(),
+        source_ids(&stale),
         vec![never, idle],
         "longest idle first: never worked since its creation 10 days ago, then 4 days"
     );
+    assert_eq!(
+        overview
+            .freshness
+            .longest_idle
+            .iter()
+            .map(|source| (
+                source.listing_source_id,
+                source.listing_source_name.as_deref(),
+                source.idle_since
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (never, Some("Never"), None),
+            (idle, Some("Idle"), stale.items[1].idle_since)
+        ],
+        "the stale list's first sources in its order"
+    );
+    assert!(stale.items[1].idle_since.is_some());
     let scrape_ages = overview
         .freshness
         .since_last_scrape
@@ -1201,20 +1248,113 @@ async fn should_report_freshness_throughput_backlog_and_the_stale_sources() {
     );
     assert_eq!(
         overview.freshness.since_last_crawl.map(|ages| ages.sources),
-        Some(2)
+        Some(3)
     );
     assert_eq!(overview.throughput.pages_scraped_1h, 1);
-    assert_eq!(overview.throughput.pages_scraped_24h, 2);
+    assert_eq!(
+        overview.throughput.pages_scraped_24h, 2,
+        "the page whose removal was held 3 hours ago too"
+    );
     assert_eq!(overview.throughput.product_urls_found_24h, 2);
     assert_eq!(overview.throughput.crawls_finished_1h, 1);
-    assert_eq!(overview.throughput.crawls_finished_24h, 1);
-    assert_eq!(overview.backlog.pages_not_scraped_for_a_day, 1);
-    assert_eq!(overview.backlog.pages_never_scraped, 1);
-    assert_eq!(overview.backlog.rate_limited_sources, 1);
+    assert_eq!(overview.throughput.crawls_finished_24h, 2);
+    let hours = overview.throughput.crawl_runs_by_hour;
+    let now = OffsetDateTime::now_utc();
+    assert!(
+        hours[23].hour <= now && now - hours[23].hour < time::Duration::hours(1),
+        "the running hour last: {hours:?}"
+    );
+    assert!(
+        hours
+            .windows(2)
+            .all(|pair| pair[1].hour - pair[0].hour == time::Duration::hours(1)),
+        "one entry per clock hour: {hours:?}"
+    );
+    assert_eq!(
+        hours[18].sources, 1,
+        "the run 4 hours 50 minutes before the running hour began: {hours:?}"
+    );
+    assert_eq!(
+        hours.iter().map(|hour| hour.sources).sum::<i64>(),
+        2,
+        "the run of 30 minutes ago too, not the one of 5 days ago: {hours:?}"
+    );
+    assert_eq!(
+        serde_json::to_value(overview.pages).unwrap(),
+        json!({
+            "total": 5, "scraped_within_a_day": 2, "due": 1, "overdue": 1, "never_scraped": 1
+        }),
+        "the pages of the crawl-enabled sources by their last scrape"
+    );
+    assert_eq!(
+        (
+            overview.sources.rate_limited,
+            overview.sources.scrape_paused
+        ),
+        (1, 1),
+        "the disabled source is left out"
+    );
     assert_eq!(overview.sources.crawl_failing, 1);
     assert_eq!(
         serde_json::to_value(&overview.failures.crawl).unwrap(),
         json!([{ "error_kind": "Timeout", "sources": 1 }])
+    );
+}
+
+/// The reviews opened, approved and rejected in each of the last seven 24-hour windows.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_report_the_review_flow_of_each_of_the_last_days() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 1);
+    let shop = source(&pool, "Shop", "shop.example.com", true).await;
+    let pending = pending_schema_review(&repository, shop).await;
+    let approved = closed_schema_review(&repository, shop, "APPROVED").await;
+    let rejected = closed_schema_review(&repository, shop, "REJECTED").await;
+    let superseded = closed_schema_review(&repository, shop, "SUPERSEDED").await;
+    let long_ago = closed_schema_review(&repository, shop, "APPROVED").await;
+    for (review_id, created, reviewed) in [
+        (pending, "30 hours", None),
+        (approved, "50 hours", Some("26 hours")),
+        (rejected, "2 hours", Some("1 hour")),
+        (superseded, "3 hours", Some("2 hours")),
+        (long_ago, "9 days", Some("8 days")),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE crawler_reviews
+             SET created = NOW() - INTERVAL '{created}', reviewed = {reviewed}
+             WHERE review_id = $1",
+            reviewed =
+                reviewed.map_or("NULL".to_owned(), |age| format!("NOW() - INTERVAL '{age}'")),
+        )))
+        .bind(review_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let flow = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap()
+        .review_flow;
+
+    assert_eq!(
+        serde_json::to_value(flow.daily).unwrap(),
+        json!([
+            { "opened": 0, "approved": 0, "rejected": 0 },
+            { "opened": 0, "approved": 0, "rejected": 0 },
+            { "opened": 0, "approved": 0, "rejected": 0 },
+            { "opened": 0, "approved": 0, "rejected": 0 },
+            { "opened": 1, "approved": 0, "rejected": 0 },
+            { "opened": 1, "approved": 1, "rejected": 0 },
+            { "opened": 2, "approved": 0, "rejected": 1 }
+        ]),
+        "oldest window first; the superseded review counts as opened only"
+    );
+    assert_eq!(
+        flow.median_decision_secs_7d,
+        Some(45_000),
+        "between the approval after 24 hours and the rejection after 1 hour"
     );
 }
 

@@ -4,7 +4,8 @@
 use super::ListingSourceOverviewReader;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{
-    ConsoleOverview, PendingByArtifact, ReviewCounts, ReviewFlow, SourceCounts,
+    ConsoleOverview, DailyReviewFlow, PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts,
+    ReviewFlow, SourceCounts,
 };
 use crate::review::repository::{
     CrawlerReviewRepository, agent_round_binds, held_for_non_product_loop, review_waits_for_human,
@@ -55,10 +56,12 @@ impl ConsoleOverviewReader {
                 labelled: health.labelled,
                 parked: health.parked,
                 stale: health.stale,
+                rate_limited: health.rate_limited,
+                scrape_paused: health.scrape_paused,
             },
             freshness: metrics.freshness,
             throughput: metrics.throughput,
-            backlog: metrics.backlog,
+            pages: metrics.pages,
             failures,
             reviews,
             review_flow,
@@ -97,30 +100,60 @@ impl ConsoleOverviewReader {
     }
 
     async fn review_flow(&self) -> Result<ReviewFlow, sqlx::Error> {
-        let row = sqlx::query(REVIEW_FLOW_SQL).fetch_one(&self.pool).await?;
+        let row = sqlx::query(sqlx::AssertSqlSafe(review_flow_sql()))
+            .fetch_one(&self.pool)
+            .await?;
+        let mut daily = [DailyReviewFlow::default(); REVIEW_FLOW_DAYS];
+        for (day, flow) in daily.iter_mut().enumerate() {
+            *flow = DailyReviewFlow {
+                opened: row.try_get(format!("opened_{day}").as_str())?,
+                approved: row.try_get(format!("approved_{day}").as_str())?,
+                rejected: row.try_get(format!("rejected_{day}").as_str())?,
+            };
+        }
         Ok(ReviewFlow {
-            opened_24h: row.try_get("opened_24h")?,
-            approved_24h: row.try_get("approved_24h")?,
-            rejected_24h: row.try_get("rejected_24h")?,
+            daily,
             median_decision_secs_7d: row.try_get("median_decision_secs_7d")?,
         })
     }
 }
 
-/// The reviews opened and decided recently. An approval or rejection records when it decided
-/// (`reviewed`); a superseded review was not decided on its own and is left out.
-const REVIEW_FLOW_SQL: &str = "SELECT
-        COUNT(*) FILTER (WHERE created > NOW() - INTERVAL '24 hours') AS opened_24h,
-        COUNT(*) FILTER (WHERE status = 'APPROVED' AND reviewed > NOW() - INTERVAL '24 hours')
-            AS approved_24h,
-        COUNT(*) FILTER (WHERE status = 'REJECTED' AND reviewed > NOW() - INTERVAL '24 hours')
-            AS rejected_24h,
-        (percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM reviewed - created)::FLOAT8)
-            FILTER (WHERE status IN ('APPROVED', 'REJECTED')
-                      AND reviewed > NOW() - INTERVAL '7 days'))::BIGINT
-            AS median_decision_secs_7d
-     FROM crawler_reviews
-     WHERE created > NOW() - INTERVAL '24 hours' OR reviewed > NOW() - INTERVAL '7 days'";
+/// The reviews opened and decided in each of the last [`REVIEW_FLOW_DAYS`] 24-hour windows,
+/// `_0` the oldest and the last one ending now, in one pass over the reviews of those days. An
+/// approval or rejection records when it decided (`reviewed`); a superseded review was not
+/// decided on its own and is left out. The SQL is assembled from static fragments only.
+fn review_flow_sql() -> String {
+    let days = (0..REVIEW_FLOW_DAYS)
+        .map(|day| {
+            let window = |column: &str| {
+                format!(
+                    "{column} > NOW() - INTERVAL '{from} hours'
+                     AND {column} <= NOW() - INTERVAL '{until} hours'",
+                    from = 24 * (REVIEW_FLOW_DAYS - day),
+                    until = 24 * (REVIEW_FLOW_DAYS - 1 - day),
+                )
+            };
+            format!(
+                "COUNT(*) FILTER (WHERE {opened}) AS opened_{day},
+                 COUNT(*) FILTER (WHERE status = 'APPROVED' AND {decided}) AS approved_{day},
+                 COUNT(*) FILTER (WHERE status = 'REJECTED' AND {decided}) AS rejected_{day}",
+                opened = window("created"),
+                decided = window("reviewed"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    format!(
+        "SELECT {days},
+                (percentile_cont(0.5)
+                     WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM reviewed - created)::FLOAT8)
+                     FILTER (WHERE status IN ('APPROVED', 'REJECTED')
+                               AND reviewed > NOW() - INTERVAL '7 days'))::BIGINT
+                    AS median_decision_secs_7d
+         FROM crawler_reviews
+         WHERE created > NOW() - INTERVAL '7 days' OR reviewed > NOW() - INTERVAL '7 days'"
+    )
+}
 
 /// The pending review counts. Binds `$1` to `$4` of [`agent_rounds_of_review`] and `$5`, the
 /// repair-round cap or null.
@@ -150,3 +183,24 @@ const REVIEW_COUNTS_SQL: &str = concat!(
                 FILTER (WHERE crawl_enabled))::BIGINT AS median_pending_age_secs
      FROM pending"
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_end_the_last_review_flow_window_now() {
+        let sql = review_flow_sql();
+
+        assert_eq!(sql.matches(" AS opened_").count(), REVIEW_FLOW_DAYS);
+        assert!(
+            sql.contains("created > NOW() - INTERVAL '168 hours'")
+                && sql.contains("created <= NOW() - INTERVAL '144 hours') AS opened_0"),
+            "the oldest window first: {sql}"
+        );
+        assert!(
+            sql.contains("created <= NOW() - INTERVAL '0 hours') AS opened_6"),
+            "the last window ends now: {sql}"
+        );
+    }
+}
