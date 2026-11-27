@@ -11,16 +11,17 @@ mod persisted_row;
 mod qualification_queue;
 mod review_queue;
 mod source_events;
+mod source_metrics;
 mod source_product_urls;
 
 pub use console_overview::ConsoleOverviewReader;
 pub use listing_source_detail::ListingSourceDetailReader;
 pub use listing_source_overview::{
-    HealthCounts, IdentityConflictedSource, IdentityConflicts, ListingSourceOverviewReader,
-    ListingSourceQuery, SourceMetrics,
+    IdentityConflictedSource, IdentityConflicts, ListingSourceOverviewReader, ListingSourceQuery,
 };
 pub use persisted_row::{PersistedRowFailure, persisted_row_failure};
 pub use qualification_queue::{MAX_QUEUED_SOURCES, QualificationQueue, QualificationQueueReader};
 pub use review_queue::{ReviewQuery, ReviewQueueReader};
 pub use source_events::SourceEventReader;
+pub use source_metrics::{HealthCounts, SourceMetrics};
 pub use source_product_urls::{MAX_SOURCE_PRODUCT_URLS, SourceProductUrlReader};
