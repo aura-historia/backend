@@ -766,46 +766,15 @@ impl CrawlerReviewRepository {
             "candidate_product_count": candidate_product_count(urls, candidate_pattern),
         });
         let mut transaction = self.pool.begin().await?;
-        let source_exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM listing_sources \
-             WHERE listing_source_id = $1 FOR KEY SHARE)",
+        let placement = place_url_pattern_review(
+            &mut transaction,
+            listing_source_id,
+            reason,
+            candidate_payload,
+            validation_summary,
         )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .fetch_one(&mut *transaction)
         .await?;
-        if !source_exists {
-            return Err(ReviewRepositoryError::Database(sqlx::Error::RowNotFound));
-        }
-        let requested_review_id = CrawlerReviewId::new();
-        let inserted = sqlx::query_scalar::<_, uuid::Uuid>(
-            "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
-             VALUES ($1, $2, 'URL_PATTERN', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL) \
-             ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'URL_PATTERN' \
-             DO NOTHING RETURNING review_id",
-        )
-        .bind(requested_review_id.as_uuid())
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(reason)
-        .bind(candidate_payload)
-        .bind(validation_summary)
-        .fetch_optional(&mut *transaction)
-        .await?;
-        let (review_id, is_new) = match inserted {
-            Some(review_id) => (crawler_review_id_from_uuid(review_id)?, true),
-            None => {
-                let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
-                    "SELECT review_id FROM crawler_reviews \
-                     WHERE listing_source_id = $1 \
-                       AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW' \
-                     ORDER BY created DESC LIMIT 1",
-                )
-                .bind(uuid::Uuid::from(*listing_source_id))
-                .fetch_one(&mut *transaction)
-                .await?;
-                (crawler_review_id_from_uuid(review_id)?, false)
-            }
-        };
-        if is_new {
+        if let ReviewPlacement::Opened(review_id) = placement {
             for raw_url in urls {
                 let current_match = current_pattern.map(|pattern| pattern_takes(pattern, raw_url));
                 let candidate =
@@ -827,10 +796,10 @@ impl CrawlerReviewRepository {
             }
         }
         transaction.commit().await?;
-        if is_new {
+        if let ReviewPlacement::Opened(review_id) = placement {
             log_committed_review(&self.pool, review_id, vec![ReviewLogEntry::opened(reason)]).await;
         }
-        Ok(review_id)
+        Ok(placement.review_id())
     }
 
     pub async fn create_schema_review(
@@ -876,20 +845,10 @@ impl CrawlerReviewRepository {
             status,
             notes,
         } = input;
-        // Schema generation classifies this refusal as an invalid generated schema by its variant.
-        validate_product_schemas(schemas)
-            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
-        // The candidate starts from the stored removed-page templates, so the reviewer edits the
-        // live list; the base records what was read for approval to rebase onto. Reading without
-        // a lock keeps the lock order of approval, which locks the review first.
-        let stored_removed_page_schemas = RemovedPageSchemaRepositoryImpl::new(&self.pool)
-            .find_removed_page_schema(listing_source_id)
-            .await?
-            .map(|stored| stored.removed_page_schemas)
-            .unwrap_or_default();
-        let removed_page_schemas_base = serde_json::to_value(&stored_removed_page_schemas)?;
-        let candidate_payload =
-            ProductSchemaReviewCandidate::new(schemas, stored_removed_page_schemas).to_payload()?;
+        let OpeningCandidate {
+            candidate_payload,
+            removed_page_schemas_base,
+        } = self.opening_candidate(listing_source_id, schemas).await?;
         let mut transaction = self.pool.begin().await?;
         let placement = place_schema_review(
             &mut transaction,
@@ -944,6 +903,34 @@ impl CrawlerReviewRepository {
             log_committed_review(&self.pool, review_id, entries).await;
         }
         Ok(placement)
+    }
+
+    /// The candidate a new product-schema review of `listing_source_id` opens with: `schemas`, which
+    /// must pass validation, and the stored removed-page templates, so the reviewer edits the live
+    /// list, with the base approval rebases onto.
+    async fn opening_candidate(
+        &self,
+        listing_source_id: &ListingSourceId,
+        schemas: &[ProductCssSelectorSchema],
+    ) -> Result<OpeningCandidate, ReviewRepositoryError> {
+        // Schema generation classifies this refusal as an invalid generated schema by its variant.
+        validate_product_schemas(schemas)
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+        // The base records what was read for approval to rebase onto. Reading without a lock keeps
+        // the lock order of approval, which locks the review first.
+        let stored_removed_page_schemas = RemovedPageSchemaRepositoryImpl::new(&self.pool)
+            .find_removed_page_schema(listing_source_id)
+            .await?
+            .map(|stored| stored.removed_page_schemas)
+            .unwrap_or_default();
+        Ok(OpeningCandidate {
+            removed_page_schemas_base: serde_json::to_value(&stored_removed_page_schemas)?,
+            candidate_payload: ProductSchemaReviewCandidate::new(
+                schemas,
+                stored_removed_page_schemas,
+            )
+            .to_payload()?,
+        })
     }
 
     /// Attaches a page that failed every cached schema to the ListingSource's pending
@@ -1639,6 +1626,13 @@ async fn commit_holding_a_non_product_loop(
     .await
 }
 
+/// The candidate a new product-schema review opens with, and the stored removed-page templates it
+/// read, which approval rebases the reviewed templates onto.
+struct OpeningCandidate {
+    candidate_payload: serde_json::Value,
+    removed_page_schemas_base: serde_json::Value,
+}
+
 /// The row of a product-schema review [`place_schema_review`] inserts.
 struct NewSchemaReviewRow<'a> {
     listing_source_id: &'a ListingSourceId,
@@ -1648,6 +1642,60 @@ struct NewSchemaReviewRow<'a> {
     status: &'a str,
     notes: Option<&'a str>,
     removed_page_schemas_base: serde_json::Value,
+}
+
+/// Inserts a pending URL-pattern review of `listing_source_id` with `candidate_payload` and
+/// `validation_summary`, or finds the ListingSource's pending URL-pattern review when one is already
+/// open. A ListingSource that does not exist is refused; the database allows one pending review per
+/// source and artifact type.
+async fn place_url_pattern_review(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    reason: &str,
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+) -> Result<ReviewPlacement, ReviewRepositoryError> {
+    let source_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM listing_sources \
+         WHERE listing_source_id = $1 FOR KEY SHARE)",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .fetch_one(&mut **transaction)
+    .await?;
+    if !source_exists {
+        return Err(ReviewRepositoryError::Database(sqlx::Error::RowNotFound));
+    }
+    let requested_review_id = CrawlerReviewId::new();
+    let inserted = sqlx::query_scalar::<_, uuid::Uuid>(
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
+         VALUES ($1, $2, 'URL_PATTERN', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL) \
+         ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'URL_PATTERN' \
+         DO NOTHING RETURNING review_id",
+    )
+    .bind(requested_review_id.as_uuid())
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(reason)
+    .bind(candidate_payload)
+    .bind(validation_summary)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    if let Some(review_id) = inserted {
+        return Ok(ReviewPlacement::Opened(crawler_review_id_from_uuid(
+            review_id,
+        )?));
+    }
+    let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT review_id FROM crawler_reviews \
+         WHERE listing_source_id = $1 \
+           AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW' \
+         ORDER BY created DESC LIMIT 1",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .fetch_one(&mut **transaction)
+    .await?;
+    Ok(ReviewPlacement::Joined(crawler_review_id_from_uuid(
+        review_id,
+    )?))
 }
 
 /// Inserts `row` as a new review, or joins the ListingSource's pending product-schema review when
