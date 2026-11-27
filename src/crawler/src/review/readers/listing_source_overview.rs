@@ -75,31 +75,40 @@ pub struct IdentityConflictedSource {
 /// the query may list. Binds `$1`, the one ListingSource to read or null for all, `$2`, the crawl
 /// outcome that waits for an operator, and `$3`, the error kind of a held removal. A URL's
 /// identity conflict run is read only while `SourceListingIdConflict` is its last error kind.
-const OVERVIEW_CTES: &str = "WITH blocking AS (
+const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
+    -- The first product-schema review of a ListingSource without a product schema: the
+    -- ListingSource scrapes none of its URLs while it is pending. Not materialized, so the
+    -- read of one ListingSource reads only its reviews.
+    SELECT pr.listing_source_id, pr.review_id, pr.created
+    FROM crawler_reviews pr
+    WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
+      AND pr.status = 'PENDING_REVIEW'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM listing_source_product_schemas ps
+          WHERE ps.listing_source_id = pr.listing_source_id
+            AND (jsonb_typeof(ps.product_schema) <> 'array'
+                 OR jsonb_array_length(ps.product_schema) > 0)
+      )
+), url_waits AS NOT MATERIALIZED (
+    -- The product URLs that recorded a wait on a review that is still pending, read from
+    -- the partial index of waiting URLs instead of from every URL.
+    SELECT su.listing_source_id, cr.review_id, cr.created
+    FROM listing_source_urls su
+    JOIN crawler_reviews cr ON cr.review_id = su.schema_review_waited_on
+                           AND cr.status = 'PENDING_REVIEW'
+    WHERE su.last_error_kind = 'PendingSchemaReview'
+      AND su.url_class = 'product'
+      AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+), blocking AS (
     -- The oldest pending review a ListingSource's blocked URLs wait on: a review a
     -- URL recorded as its wait, or the first product-schema review of a ListingSource
     -- without a product schema.
     SELECT DISTINCT ON (listing_source_id) listing_source_id, review_id
     FROM (
-        SELECT su.listing_source_id, cr.review_id, cr.created
-        FROM listing_source_urls su
-        JOIN crawler_reviews cr ON cr.review_id = su.schema_review_waited_on
-                               AND cr.status = 'PENDING_REVIEW'
-                               AND su.last_error_kind = 'PendingSchemaReview'
-        WHERE su.url_class = 'product'
-          AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+        SELECT listing_source_id, review_id, created FROM url_waits
         UNION ALL
-        SELECT pr.listing_source_id, pr.review_id, pr.created
-        FROM crawler_reviews pr
-        WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
-          AND pr.status = 'PENDING_REVIEW'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM listing_source_product_schemas ps
-              WHERE ps.listing_source_id = pr.listing_source_id
-                AND (jsonb_typeof(ps.product_schema) <> 'array'
-                     OR jsonb_array_length(ps.product_schema) > 0)
-          )
+        SELECT listing_source_id, review_id, created FROM first_schema_waits
     ) waited_on
     ORDER BY listing_source_id, created, review_id
 ), overview AS (
@@ -135,9 +144,9 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         u.last_successful_scrape,
         COALESCE(r.pending_reviews, 0) AS pending_reviews,
         COALESCE(u.product_urls, 0) AS product_urls,
-        COALESCE(b.blocked_urls, 0) AS blocked_urls,
-        b.blocked_since,
-        CASE WHEN b.blocked_urls IS NOT NULL THEN bl.review_id END AS blocking_review_id,
+        b.blocked_urls,
+        CASE WHEN b.blocked_urls > 0 THEN LEAST(w.since, fs.created) END AS blocked_since,
+        CASE WHEN b.blocked_urls > 0 THEN bl.review_id END AS blocking_review_id,
         COALESCE(u.held_removal_urls, 0) AS held_removal_urls,
         u.held_since,
         COALESCE(u.identity_conflict_urls, 0) AS identity_conflict_urls,
@@ -156,56 +165,42 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         GROUP BY listing_source_id
     ) r ON r.listing_source_id = s.listing_source_id
     LEFT JOIN (
+        -- The only pass over every URL: the overview reads each other count of URLs from an
+        -- index or from these totals.
         SELECT listing_source_id,
-               COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
-               COUNT(*) FILTER (WHERE url_class = 'product'
-                                  AND last_error_kind = $3) AS held_removal_urls,
-               MAX(last_scraped) FILTER (WHERE url_class = 'product'
-                                           AND last_error_kind IS DISTINCT FROM $3) AS last_successful_scrape,
-               MIN(last_scraped) FILTER (WHERE url_class = 'product'
-                                           AND last_error_kind = $3) AS held_since,
-               COUNT(*) FILTER (WHERE url_class = 'product'
-                                  AND last_error_kind = 'SourceListingIdConflict')
+               COUNT(*) AS product_urls,
+               COUNT(*) FILTER (WHERE last_error_kind = $3) AS held_removal_urls,
+               MAX(last_scraped) FILTER (WHERE last_error_kind IS DISTINCT FROM $3)
+                   AS last_successful_scrape,
+               MIN(last_scraped) FILTER (WHERE last_error_kind = $3) AS held_since,
+               COUNT(*) FILTER (WHERE last_error_kind = 'SourceListingIdConflict')
                    AS identity_conflict_urls,
                MIN(identity_conflict_since) FILTER (
-                   WHERE url_class = 'product'
-                     AND last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since,
-               COUNT(*) FILTER (
-                   WHERE url_class = 'product'
-                     AND page_identity_changed_at > NOW() - INTERVAL '7 days')
+                   WHERE last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since,
+               COUNT(*) FILTER (WHERE page_identity_changed_at > NOW() - INTERVAL '7 days')
                    AS page_identity_changed_urls
         FROM listing_source_urls
-        WHERE crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+        WHERE url_class = 'product'
+          AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
         GROUP BY listing_source_id
     ) u ON u.listing_source_id = s.listing_source_id
     LEFT JOIN (
-        SELECT su.listing_source_id, COUNT(*) AS blocked_urls,
-               LEAST(MIN(cr.created), MIN(fs.created)) AS blocked_since
-        FROM listing_source_urls su
-        LEFT JOIN crawler_reviews cr ON cr.review_id = su.schema_review_waited_on
-                                    AND cr.status = 'PENDING_REVIEW'
-                                    AND su.last_error_kind = 'PendingSchemaReview'
-        LEFT JOIN (
-            -- A ListingSource without a product schema scrapes none of its URLs while
-            -- its first product-schema review is pending.
-            SELECT pr.listing_source_id, MIN(pr.created) AS created
-            FROM crawler_reviews pr
-            WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
-              AND pr.status = 'PENDING_REVIEW'
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM listing_source_product_schemas ps
-                  WHERE ps.listing_source_id = pr.listing_source_id
-                    AND (jsonb_typeof(ps.product_schema) <> 'array'
-                         OR jsonb_array_length(ps.product_schema) > 0)
-              )
-            GROUP BY pr.listing_source_id
-        ) fs ON fs.listing_source_id = su.listing_source_id
-        WHERE su.url_class = 'product'
-          AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-          AND (cr.review_id IS NOT NULL OR fs.listing_source_id IS NOT NULL)
-        GROUP BY su.listing_source_id
-    ) b ON b.listing_source_id = s.listing_source_id
+        SELECT listing_source_id, COUNT(*) AS urls, MIN(created) AS since
+        FROM url_waits
+        GROUP BY listing_source_id
+    ) w ON w.listing_source_id = s.listing_source_id
+    LEFT JOIN (
+        SELECT listing_source_id, MIN(created) AS created
+        FROM first_schema_waits
+        GROUP BY listing_source_id
+    ) fs ON fs.listing_source_id = s.listing_source_id
+    CROSS JOIN LATERAL (
+        -- Every product URL of a ListingSource waiting on its first product schema is
+        -- blocked, otherwise the product URLs that recorded a wait.
+        SELECT CASE WHEN fs.listing_source_id IS NULL THEN COALESCE(w.urls, 0)
+                    ELSE COALESCE(u.product_urls, 0)
+               END AS blocked_urls
+    ) b
     LEFT JOIN blocking bl ON bl.listing_source_id = s.listing_source_id
     WHERE $1::uuid IS NULL OR s.listing_source_id = $1
 ";

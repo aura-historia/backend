@@ -1084,81 +1084,33 @@ macro_rules! identity_conflict_released {
     };
 }
 
-/// The URLs due for scraping, shared by every query that selects or counts them so their
-/// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
-/// ListingSource IDs to leave out. A URL whose redirect target no cached schema could judge
-/// (`RedirectTargetUnverified`) waits out its recheck delay only while its ListingSource stores
-/// no product schema: once one is stored, however it got there, the target can be judged, so the
-/// URL is due at its scrape interval.
-macro_rules! eligible_scraper_urls_cte {
+/// The ListingSources the scraper may scrape now, with what each candidate carries of its
+/// source. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the ListingSource IDs to
+/// leave out. A source waiting on its first product schema, or held back by a page waiting on a
+/// schema review, is left out as a whole.
+macro_rules! scrapable_sources_cte {
     () => {
         concat!(
             r#"
-    WITH eligible_urls AS (
+    WITH scrapable_sources AS (
         SELECT
-            su.listing_source_id, s.crawl_host,
+            s.listing_source_id, s.crawl_host,
             s.listing_source_name, s.url_pattern, s.url_pattern_exclude, s.url_pattern_matching,
-            su.url,
-            su.raw_source_record_key AS source_record_key,
-            su.last_scraped,
-            su.last_scraped_hash,
-            su.last_scraped_schema_fingerprint,
-            su.last_captured_raw_input_sha256,
             s.scrape_failure_streak,
             s.last_scrape_error_kind,
             s.next_scrape_at,
             (s.scrape_failure_streak > 0
                 AND s.next_scrape_at IS NOT NULL
                 AND s.next_scrape_at <= NOW()) AS is_circuit_probe
-            , su.last_source_listing_id
-            , su.last_extracted_source_listing_id
-            , su.last_captured_title
-            , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
-            , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
-                   THEN su.schema_review_waited_on END AS schema_review_waited_on
-            , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
-                   THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak
-            , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
-                                                'RedirectDestinationUnsettled',
-                                                'MassRemovalHeld')
-                   THEN su.unsettled_redirect_target END AS unsettled_redirect_target
-            , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
-                                                'RedirectDestinationUnsettled',
-                                                'MassRemovalHeld')
-                   THEN su.unsettled_redirect_streak ELSE 0 END AS unsettled_redirect_streak
-            , su.removed_by_redirect_target
-            , su.page_error_streak
-            , su.last_error_kind
-            , CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
-                   THEN su.page_directive_refusal_streak ELSE 0 END
-                   AS page_directive_refusal_streak
-            , CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
-                   THEN su.page_directive_refused_since END AS page_directive_refused_since
-            , CASE WHEN su.last_error_kind = 'SourceListingIdConflict'
-                   THEN su.identity_conflict_streak ELSE 0 END AS identity_conflict_streak
-        FROM listing_source_urls su
-        JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
+        FROM listing_sources s
         WHERE "#,
             scrapable_source_conditions!(),
             r#"
-          AND su.url_class = 'product'
-          AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-          AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW()
-               OR (su.last_error_kind = 'RedirectTargetUnverified' AND "#,
-            has_product_schema!(),
-            r#")
-               OR "#,
-            identity_conflict_released!(),
-            r#")
-          AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
           AND NOT "#,
             awaits_first_product_schema!(),
             r#"
           AND NOT "#,
             holds_on_schema_review_wait!(),
-            r#"
-          AND NOT "#,
-            holds_new_listing_for_schema_audit!(),
             r#"
           AND NOT (s.listing_source_id = ANY($2))
     )"#
@@ -1166,53 +1118,162 @@ macro_rules! eligible_scraper_urls_cte {
     };
 }
 
+/// Whether the URL `listing_source_urls su` of the scrapable source `s` is due for scraping,
+/// shared by every query that selects or counts due URLs so their definitions cannot drift. A
+/// URL whose redirect target no cached schema could judge (`RedirectTargetUnverified`) waits out
+/// its recheck delay only while its ListingSource stores no product schema: once one is stored,
+/// however it got there, the target can be judged, so the URL is due at its scrape interval.
+///
+/// The class, disposition and last-scrape conditions are spelled exactly as the predicates and
+/// keys of `idx_listing_source_urls_scrape_due`, where each source's due URLs are one range, and
+/// `idx_listing_source_urls_scrape_due_since`, which the count of every due URL reads: a URL
+/// never scraped sorts as scraped at `-infinity`, before every scraped one.
+macro_rules! due_url_conditions {
+    () => {
+        concat!(
+            r#"su.url_class = 'product'
+          AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+          AND COALESCE(su.last_scraped, '-infinity'::timestamptz) < NOW() - INTERVAL '1 day'
+          AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW()
+               OR (su.last_error_kind = 'RedirectTargetUnverified' AND "#,
+            has_product_schema!(),
+            r#")
+               OR "#,
+            identity_conflict_released!(),
+            r#")
+          AND NOT "#,
+            holds_new_listing_for_schema_audit!()
+        )
+    };
+}
+
+/// The first due URLs, in scrape order, of the selected source `s` among those `partition`
+/// admits, at most as many as the source sends: one probe URL for a source whose scrape circuit
+/// cooldown has ended, `$4` otherwise. The scraper takes a source's pages waiting on a schema
+/// review after its other due pages, an order no single index key provides, so
+/// [`SCRAPER_CANDIDATE_QUERY`] reads the two partitions separately: each is one range of
+/// `idx_listing_source_urls_scrape_due` (the waiting pages are also found through
+/// `idx_listing_source_urls_pending_schema_review`), read in key order up to the limit instead
+/// of reading and sorting every due URL of the source.
+macro_rules! first_due_urls_of_source {
+    ($partition:literal) => {
+        concat!(
+            r#"SELECT su.*
+             FROM listing_source_urls su
+             WHERE su.listing_source_id = s.listing_source_id
+               AND "#,
+            due_url_conditions!(),
+            r#"
+               AND "#,
+            $partition,
+            r#"
+             ORDER BY COALESCE(su.last_scraped, '-infinity'::timestamptz), su.url
+             LIMIT CASE WHEN s.is_circuit_probe THEN 1 ELSE $4 END"#
+        )
+    };
+}
+
 /// Binds `$3`, the number of ListingSources, and `$4`, the URLs per ListingSource, after the
-/// [`eligible_scraper_urls_cte`] parameters.
+/// [`scrapable_sources_cte`] parameters. It picks the sources at random among those with a due
+/// URL first and then reads the first due URLs of each, so the work of a call grows with the
+/// sources and URLs it returns, not with how many URLs are due over all sources or in one source.
 const SCRAPER_CANDIDATE_QUERY: &str = concat!(
-    eligible_scraper_urls_cte!(),
+    scrapable_sources_cte!(),
     r#",
     selected_sources AS (
-        SELECT listing_source_id
-        FROM eligible_urls
-        GROUP BY listing_source_id
+        SELECT s.*
+        FROM scrapable_sources s
+        -- One due URL per source, looked up source by source: an `EXISTS` here is planned
+        -- as a join over every due URL of every source.
+        CROSS JOIN LATERAL (
+            SELECT 1
+            FROM listing_source_urls su
+            WHERE su.listing_source_id = s.listing_source_id
+              AND "#,
+    due_url_conditions!(),
+    r#"
+            LIMIT 1
+        ) due
         ORDER BY random()
         LIMIT $3
-    ),
-    ranked_urls AS (
-        SELECT
-            eu.*,
-            row_number() OVER (
-                PARTITION BY eu.listing_source_id
-                ORDER BY eu.waits_on_schema_review IS TRUE, eu.last_scraped NULLS FIRST, eu.url
-            ) AS source_url_rank
-        FROM eligible_urls eu
-        JOIN selected_sources ss ON ss.listing_source_id = eu.listing_source_id
     )
     SELECT
-        listing_source_id, crawl_host, listing_source_name,
-        url_pattern, url_pattern_exclude, url_pattern_matching, url,
-        source_record_key,
-        last_scraped_hash,
-        last_scraped_schema_fingerprint,
-        last_captured_raw_input_sha256,
-        scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
-        last_source_listing_id, last_extracted_source_listing_id, last_captured_title,
-        schema_review_waited_on,
-        schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
-        removed_by_redirect_target,
-        page_error_streak, last_error_kind,
-        page_directive_refusal_streak, page_directive_refused_since,
-        identity_conflict_streak
-    FROM ranked_urls
-    WHERE (is_circuit_probe AND source_url_rank = 1)
-       OR (NOT is_circuit_probe AND source_url_rank <= $4)
-    ORDER BY listing_source_id, source_url_rank, url
+        s.listing_source_id, s.crawl_host, s.listing_source_name,
+        s.url_pattern, s.url_pattern_exclude, s.url_pattern_matching, u.url,
+        u.source_record_key,
+        u.last_scraped_hash,
+        u.last_scraped_schema_fingerprint,
+        u.last_captured_raw_input_sha256,
+        s.scrape_failure_streak, s.last_scrape_error_kind, s.next_scrape_at, s.is_circuit_probe,
+        u.last_source_listing_id, u.last_extracted_source_listing_id, u.last_captured_title,
+        u.schema_review_waited_on,
+        u.schema_review_wait_streak, u.unsettled_redirect_target, u.unsettled_redirect_streak,
+        u.removed_by_redirect_target,
+        u.page_error_streak, u.last_error_kind,
+        u.page_directive_refusal_streak, u.page_directive_refused_since,
+        u.identity_conflict_streak
+    FROM selected_sources s
+    CROSS JOIN LATERAL (
+        SELECT
+            su.url,
+            su.raw_source_record_key AS source_record_key,
+            su.last_scraped_hash,
+            su.last_scraped_schema_fingerprint,
+            su.last_captured_raw_input_sha256,
+            su.last_source_listing_id,
+            su.last_extracted_source_listing_id,
+            su.last_captured_title,
+            CASE WHEN su.last_error_kind = 'PendingSchemaReview'
+                 THEN su.schema_review_waited_on END AS schema_review_waited_on,
+            CASE WHEN su.last_error_kind = 'PendingSchemaReview'
+                 THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak,
+            CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
+                                              'RedirectDestinationUnsettled',
+                                              'MassRemovalHeld')
+                 THEN su.unsettled_redirect_target END AS unsettled_redirect_target,
+            CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
+                                              'RedirectDestinationUnsettled',
+                                              'MassRemovalHeld')
+                 THEN su.unsettled_redirect_streak ELSE 0 END AS unsettled_redirect_streak,
+            su.removed_by_redirect_target,
+            su.page_error_streak,
+            su.last_error_kind,
+            CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
+                 THEN su.page_directive_refusal_streak ELSE 0 END
+                 AS page_directive_refusal_streak,
+            CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
+                 THEN su.page_directive_refused_since END AS page_directive_refused_since,
+            CASE WHEN su.last_error_kind = 'SourceListingIdConflict'
+                 THEN su.identity_conflict_streak ELSE 0 END AS identity_conflict_streak,
+            row_number() OVER (
+                ORDER BY (su.last_error_kind = 'PendingSchemaReview') IS TRUE,
+                         COALESCE(su.last_scraped, '-infinity'::timestamptz), su.url
+            ) AS source_url_rank
+        FROM (
+            ("#,
+    first_due_urls_of_source!("su.last_error_kind IS DISTINCT FROM 'PendingSchemaReview'"),
+    r#")
+            UNION ALL
+            ("#,
+    first_due_urls_of_source!("su.last_error_kind = 'PendingSchemaReview'"),
+    r#")
+        ) su
+        ORDER BY (su.last_error_kind = 'PendingSchemaReview') IS TRUE,
+                 COALESCE(su.last_scraped, '-infinity'::timestamptz), su.url
+        LIMIT CASE WHEN s.is_circuit_probe THEN 1 ELSE $4 END
+    ) u
+    ORDER BY s.listing_source_id, u.source_url_rank, u.url
     "#
 );
 
 const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
-    eligible_scraper_urls_cte!(),
-    "\n    SELECT COUNT(*) FROM eligible_urls"
+    scrapable_sources_cte!(),
+    r#"
+    SELECT COUNT(*)
+    FROM scrapable_sources s
+    JOIN listing_source_urls su ON su.listing_source_id = s.listing_source_id
+    WHERE "#,
+    due_url_conditions!()
 );
 
 #[async_trait]
@@ -1302,11 +1363,21 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     }
 
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error> {
+        // The count visits every due URL. Walking `idx_listing_source_urls_scrape_due_since` in
+        // key order fetches them in random table order, which the production planner settings
+        // (`random_page_cost = 1.1`) prefer and which takes about twice as long on a backlog of
+        // millions as a bitmap scan of the same index, which fetches them in table order. The
+        // setting ends with this transaction.
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET LOCAL enable_indexscan = off")
+            .execute(&mut *transaction)
+            .await?;
         let count: i64 = sqlx::query_scalar(DUE_SCRAPER_URL_COUNT_QUERY)
             .bind(self.max_llm_calls_per_listing_source)
             .bind(Vec::<uuid::Uuid>::new())
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
     }
 
@@ -2292,7 +2363,8 @@ mod candidate_query_tests {
         assert!(SCRAPER_CANDIDATE_QUERY.contains("s.listing_source_id = ANY($2)"));
         assert!(SCRAPER_CANDIDATE_QUERY.contains("s.scrape_failure_streak = 0"));
         assert!(
-            SCRAPER_CANDIDATE_QUERY.contains("WHERE (is_circuit_probe AND source_url_rank = 1)")
+            SCRAPER_CANDIDATE_QUERY
+                .contains("LIMIT CASE WHEN s.is_circuit_probe THEN 1 ELSE $4 END")
         );
     }
 
