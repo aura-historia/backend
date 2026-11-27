@@ -37,9 +37,10 @@ pub mod url_pattern_candidate;
 
 pub use artifact::*;
 pub use console_overview::{
-    AgeDistribution, CRAWL_RUN_HOURS, ConsoleOverview, DailyReviewFlow, FailureKindCount,
-    FailureKinds, Freshness, HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES, PageFreshness,
-    PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts, Throughput,
+    AgeDistribution, CRAWL_RUN_HOURS, ConsoleOverview, CrawlFreshness, DailyReviewFlow,
+    FailureKindCount, FailureKinds, Freshness, HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES,
+    PageFreshness, PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts,
+    Throughput,
 };
 pub use list_window::{ListPage, ListWindow};
 pub use listing_source_detail::{
@@ -69,7 +70,7 @@ pub use review_event::{
     CrawlerReviewEvent, FinalRoundCause, HandoverCategory, HandoverCause, HandoverReason,
     ReviewActor, ReviewEventAction, ReviewEventSummary, SystemHandoverReason,
 };
-pub use review_filter::{ReviewSort, ReviewWaiting};
+pub use review_filter::{ReviewSort, ReviewWaiting, SourceCrawl};
 pub use review_page::CrawlerReviewPage;
 pub use review_queue_entry::{
     AutoSchemaEvaluationOutcome, ReviewQueueEntry, SourcePark, SourceReviewEntry,

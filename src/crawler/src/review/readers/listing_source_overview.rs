@@ -423,6 +423,8 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Held => "held",
         SourceStatus::IdentityConflict => "identity_conflict",
         SourceStatus::Stale => "stale",
+        SourceStatus::RateLimited => "rate_limited",
+        SourceStatus::ScrapePaused => "scrape_paused",
     }
 }
 
@@ -482,7 +484,10 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'held' AND crawl_enabled AND held_removal_urls > 0)
                     OR ($8 = 'identity_conflict' AND crawl_enabled
                         AND identity_conflict_urls > 0)
-                    OR ($8 = 'stale' AND stale))
+                    OR ($8 = 'stale' AND stale)
+                    OR ($8 = 'rate_limited' AND crawl_enabled
+                        AND crawl_rate_limited_until > NOW())
+                    OR ($8 = 'scrape_paused' AND crawl_enabled AND scrape_paused_until > NOW()))
                AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching

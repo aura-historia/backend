@@ -7,8 +7,8 @@ use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{
     ArtifactType, AutoSchemaEvaluationOutcome, ListPage, ListWindow, ReviewActor, ReviewQueueEntry,
-    ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceLabel, SourcePark,
-    SourceReviewEntry,
+    ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceCrawl, SourceLabel,
+    SourcePark, SourceReviewEntry,
 };
 use crate::review::repository::{
     CrawlerReviewRepository, agent_round_binds, agent_rounds_of_review,
@@ -33,6 +33,8 @@ pub struct ReviewQuery {
     pub waiting: Option<ReviewWaiting>,
     /// Only the reviews of ListingSources with this label.
     pub label: Option<SourceLabel>,
+    /// Only the reviews of crawl-enabled, or of crawl-disabled, ListingSources.
+    pub source_crawl: Option<SourceCrawl>,
     pub sort: ReviewSort,
     pub direction: SortDirection,
     pub window: ListWindow,
@@ -85,6 +87,7 @@ impl ReviewQueueReader {
         .bind(i64::try_from(query.window.offset()).unwrap_or(i64::MAX))
         .bind(i64::try_from(query.window.limit()).unwrap_or(i64::MAX))
         .bind(query.label.map(SourceLabel::as_str))
+        .bind(query.source_crawl.map(SourceCrawl::is_enabled))
         .fetch_all(&self.pool)
         .await?;
 
@@ -268,7 +271,8 @@ fn source_park(row: &PgRow) -> Result<Option<SourcePark>, sqlx::Error> {
 /// [`agent_rounds_of_review`], `$5`, the repair-round cap or null, `$6`, the ListingSource or null,
 /// `$7`, the status or null, `$8`, the artifact type or null, `$9`, the `ILIKE` pattern of the
 /// ListingSource name or null, `$10`, what the review waits for or null, `$11`, the rows to skip,
-/// `$12`, the most rows to answer, and `$13`, the ListingSource's label or null. A review waits for
+/// `$12`, the most rows to answer, `$13`, the ListingSource's label or null, and `$14`, whether
+/// the ListingSource is crawl-enabled or null. A review waits for
 /// a human only while its source is crawled; one of a parked source waits for the agents' retry. Every row carries the total; an empty window is one row
 /// with the total and no review. Only a pending review's agent rounds are counted.
 ///
@@ -296,6 +300,7 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                AND ($8::text IS NULL OR r.artifact_type = $8)
                AND ($9::text IS NULL OR s.listing_source_name ILIKE $9)
                AND ($13::text IS NULL OR s.source_label = $13)
+               AND ($14::boolean IS NULL OR COALESCE(s.crawl_enabled, FALSE) = $14)
          ), matching AS (
              SELECT r.* FROM candidates r
              WHERE $10::text IS NULL

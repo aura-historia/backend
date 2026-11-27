@@ -10,7 +10,8 @@ use crawler::review::model::{
     ArtifactType, HandoverCategory, HandoverCause, HandoverReason, ListPage, ListWindow,
     ListingSourceOverview, PAGE_ROLE_PRIMARY, ReviewActor, ReviewQueueEntry, ReviewSort,
     ReviewStatus, ReviewWaiting, SchemaReviewPageInput, SearchTerm, SortDirection, SourceActivity,
-    SourceEventKind, SourceLabel, SourceLabelRequest, SourceSort, SourceStatus, UrlPatternDecision,
+    SourceCrawl, SourceEventKind, SourceLabel, SourceLabelRequest, SourceSort, SourceStatus,
+    UrlPatternDecision,
 };
 use crawler::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
@@ -1078,6 +1079,10 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "pages_scraped_1h": 0, "pages_scraped_24h": 0, "product_urls_found_24h": 0,
                 "crawls_finished_1h": 1, "crawls_finished_24h": 1, "crawl_runs_by_hour": null
             },
+            "crawls": {
+                "total": 3, "crawled_within_a_day": 1, "due": 0, "overdue": 0,
+                "never_crawled": 2
+            },
             "pages": {
                 "total": 0, "scraped_within_a_day": 0, "due": 0, "overdue": 0,
                 "never_scraped": 0
@@ -1120,6 +1125,20 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
     );
     assert!(oldest_pending.is_string(), "{oldest_pending}");
     assert!(median_pending_age.is_i64(), "{median_pending_age}");
+    let crawled_pending = list_reviews(
+        &repository,
+        ReviewQuery {
+            status: Some(ReviewStatus::PendingReview),
+            source_crawl: Some(SourceCrawl::Enabled),
+            ..ReviewQuery::default()
+        },
+    )
+    .await;
+    assert_eq!(
+        review_ids(&crawled_pending),
+        vec![waiting],
+        "the pending reviews the header and the Overview count: of crawl-enabled sources"
+    );
 }
 
 /// The Overview's freshness, throughput and page freshness over the crawl-enabled sources, and
@@ -1293,6 +1312,36 @@ async fn should_report_freshness_throughput_page_freshness_and_the_stale_sources
         ),
         (1, 1),
         "the disabled source is left out"
+    );
+    for (status, counted, listed) in [
+        (
+            SourceStatus::RateLimited,
+            overview.sources.rate_limited,
+            fresh,
+        ),
+        (
+            SourceStatus::ScrapePaused,
+            overview.sources.scrape_paused,
+            idle,
+        ),
+    ] {
+        let list = list_sources(
+            &pool,
+            ListingSourceQuery {
+                status: Some(status),
+                ..ListingSourceQuery::default()
+            },
+        )
+        .await;
+        assert_eq!(list.total, counted, "{status:?}");
+        assert_eq!(source_ids(&list), vec![listed], "{status:?}");
+    }
+    assert_eq!(
+        serde_json::to_value(overview.crawls).unwrap(),
+        json!({
+            "total": 4, "crawled_within_a_day": 2, "due": 0, "overdue": 1, "never_crawled": 1
+        }),
+        "the crawl-enabled sources by their last spider run"
     );
     assert_eq!(overview.sources.crawl_failing, 1);
     assert_eq!(

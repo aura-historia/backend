@@ -60,6 +60,10 @@ pub enum SourceStatus {
     /// [`STALE_AFTER_DAYS`]: its `idle_since`, or its creation when it was never worked, is older.
     /// Informational, not one of the conditions that need attention.
     Stale,
+    /// Crawl-enabled, and its shop's rate limit holds its next crawl back right now.
+    RateLimited,
+    /// Crawl-enabled, and its scraper circuit pauses its scrapes right now.
+    ScrapePaused,
 }
 
 /// How many days a crawl-enabled ListingSource may go without a scraped page or a spider run
@@ -84,6 +88,8 @@ impl QueryValue for SourceStatus {
         ("held", Self::Held),
         ("identity_conflict", Self::IdentityConflict),
         ("stale", Self::Stale),
+        ("rate_limited", Self::RateLimited),
+        ("scrape_paused", Self::ScrapePaused),
     ];
 }
 

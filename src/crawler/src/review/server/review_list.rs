@@ -7,14 +7,17 @@ use super::query_params::{
 };
 use super::{ReviewServer, read_error};
 use crate::review::http::{HttpResponse, ParsedRequest};
-use crate::review::model::{ArtifactType, ReviewSort, ReviewStatus, ReviewWaiting, SourceLabel};
+use crate::review::model::{
+    ArtifactType, ReviewSort, ReviewStatus, ReviewWaiting, SourceCrawl, SourceLabel,
+};
 use crate::review::readers::ReviewQuery;
 use listing_source_core::ListingSourceId;
 use serde_json::json;
 use std::collections::HashMap;
 
-const PARAMETERS: [&str; 10] = [
+const PARAMETERS: [&str; 11] = [
     "q",
+    "source_crawl",
     "status",
     "artifact",
     "waiting",
@@ -73,7 +76,8 @@ impl ReviewServer {
 
 /// The window `query` asks for. `q` searches the ListingSource's name, `waiting` lists the
 /// pending reviews that wait for a human, for a repair or for the retry of their parked source,
-/// `label` the reviews of sources with that label, and `sort` names the order, `queue` by
+/// `label` the reviews of sources with that label, `source_crawl` those of crawl-enabled or
+/// -disabled sources, and `sort` names the order, `queue` by
 /// default, in the direction `dir` names or the order's own. A value that is given but not
 /// accepted is refused with what is accepted.
 fn review_query(query: &HashMap<String, String>) -> Result<ReviewQuery, String> {
@@ -86,6 +90,7 @@ fn review_query(query: &HashMap<String, String>) -> Result<ReviewQuery, String> 
         artifact_type: named::<ArtifactType>(query, "artifact")?,
         waiting: named::<ReviewWaiting>(query, "waiting")?,
         label: named::<SourceLabel>(query, "label")?,
+        source_crawl: named::<SourceCrawl>(query, "source_crawl")?,
         sort,
         direction: sort_direction(query, sort.default_direction())?,
         window: list_window(query)?,
@@ -135,6 +140,7 @@ mod tests {
             ("artifact", "URL_PATTERN"),
             ("waiting", "repair"),
             ("label", "AGENTS_UNRESOLVED"),
+            ("source_crawl", "enabled"),
             ("listing_source", &listing_source_id.to_string()),
             ("sort", "updated"),
             ("dir", "asc"),
@@ -151,6 +157,7 @@ mod tests {
                 artifact_type: Some(ArtifactType::UrlPattern),
                 waiting: Some(ReviewWaiting::Repair),
                 label: Some(SourceLabel::AgentsUnresolved),
+                source_crawl: Some(SourceCrawl::Enabled),
                 sort: ReviewSort::Updated,
                 direction: SortDirection::Ascending,
                 window: ListWindow::new(50, 100).unwrap_or_default(),

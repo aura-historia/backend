@@ -28,6 +28,25 @@ impl QueryValue for ReviewWaiting {
     ];
 }
 
+/// Whether a review's ListingSource is crawled: the header and the Overview count only the
+/// pending reviews of crawl-enabled ListingSources, which hold back crawls and scrapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceCrawl {
+    Enabled,
+    Disabled,
+}
+
+impl SourceCrawl {
+    pub const fn is_enabled(self) -> bool {
+        matches!(self, Self::Enabled)
+    }
+}
+
+impl QueryValue for SourceCrawl {
+    const VALUES: &'static [(&'static str, Self)] =
+        &[("enabled", Self::Enabled), ("disabled", Self::Disabled)];
+}
+
 /// The order of the review queue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReviewSort {

@@ -559,7 +559,7 @@ function countsSnapshot() {
     return {
         at: Date.now(),
         needs_attention: overviewCounts.sources.needs_attention,
-        pending_total: overviewCounts.reviews.pending_total,
+        pending: pendingReviewCount(),
         stale: overviewCounts.sources.stale
     };
 }
@@ -609,6 +609,9 @@ function overviewTile(tone, count, text, {href = '', sub = '', live = false, del
 
 const STALE_SOURCES_HASH = '#sources&status=stale&sort=idle_since&dir=asc';
 
+// The pending reviews the header and the Overview count: those of crawl-enabled sources.
+const CRAWLED_PENDING_REVIEWS_HASH = '#reviews&status=PENDING_REVIEW&source_crawl=enabled';
+
 function overviewTilesHtml() {
     const failure = overviewCounts === null
         ? `<div class="banner banner-bad" role="alert"><span class="banner-kind">Counts unavailable</span><div class="banner-body">${escapeHtml(overviewFailure)} · retried every 15 s</div></div>`
@@ -618,7 +621,6 @@ function overviewTilesHtml() {
     const throughput = overviewCounts?.throughput;
     const hourly = throughput ? Math.round(throughput.pages_scraped_24h / 24) : 0;
     const slow = throughput && throughput.pages_scraped_24h > 0 && throughput.pages_scraped_1h < hourly / 2;
-    const disabled = reviews?.pending_disabled_sources || 0;
     return `${failure}<div class="tiles tiles-six" role="group" aria-label="Right now">
       ${overviewTile('info', sources?.crawling_now, 'Crawling now', {href: '#sources&activity=crawling', live: true})}
       ${overviewTile('info', sources?.scraping_now, 'Scraping now', {href: '#sources&activity=scraping', live: true})}
@@ -626,7 +628,7 @@ function overviewTilesHtml() {
           title: 'Product pages last scraped in the last 60 minutes, beside the hourly average of those last scraped in the last 24 hours. A page counts once, at its latest scrape.'})}
       ${overviewTile('bad', sources?.needs_attention, 'Sources need attention', {href: '#sources&status=needs_attention', delta: 'needs_attention'})}
       ${overviewTile('warn', sources?.stale, 'Stale sources', {href: STALE_SOURCES_HASH, delta: 'stale', sub: `no scrape or crawl for ${overviewCounts?.freshness.stale_after_days ?? 3} days`})}
-      ${overviewTile('warn', reviews?.pending_total, 'Pending reviews', {href: '#reviews&status=PENDING_REVIEW', delta: 'pending_total', sub: disabled ? `${formatCount(disabled)} of disabled sources` : ''})}
+      ${overviewTile('warn', reviews ? pendingReviewCount() : undefined, 'Pending reviews', {href: CRAWLED_PENDING_REVIEWS_HASH, delta: 'pending', sub: 'of crawl-enabled sources'})}
     </div>`;
 }
 
@@ -662,7 +664,7 @@ function overviewCardsHtml() {
     if (overviewCounts === null) return '';
     const o = overviewCounts;
     return `<div class="overview-cols">
-        <div class="overview-col">${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
+        <div class="overview-col">${crawlFreshnessCardHtml(o.crawls, o.freshness)}${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
         <div class="overview-col">${pageFreshnessCardHtml(o.pages, o.freshness)}${crawlingCardHtml(o.throughput)}${idleSourcesCardHtml(o.freshness, o.sources)}</div>
       </div>`;
 }
@@ -720,15 +722,37 @@ function pageFreshnessParts(pages, staleAfterDays) {
     ];
 }
 
+function crawlFreshnessParts(crawls, staleAfterDays) {
+    return [
+        {key: 'fresh', name: 'Crawled within a day', value: crawls.crawled_within_a_day},
+        {key: 'due', name: `Due · last crawled 1 to ${staleAfterDays} days ago`, value: crawls.due},
+        {key: 'overdue', name: `Overdue · over ${staleAfterDays} days ago`, value: crawls.overdue},
+        {key: 'never', name: 'Never crawled', value: crawls.never_crawled}
+    ];
+}
+
+// The share of a whole as one headline, a segmented bar and its parts listed with their shares.
+function freshnessBodyHtml(chart, headline, title, parts, total) {
+    const rows = parts.map(part =>
+        `<li><span class="swatch seg-${part.key}"></span><span class="count-label">${escapeHtml(part.name)}</span><span class="count-value">${formatCount(part.value)}</span><span class="count-share">${shareText(part.value, total)}</span></li>`).join('');
+    return `<div class="share" title="${escapeHtmlAttr(title)}"><span class="share-value">${shareText(parts[0].value, total)}</span><span class="share-label">${escapeHtml(headline)}</span></div>
+        <div class="chart" data-chart="${chart}"></div>
+        <ul class="count-list legend-list">${rows}</ul>`;
+}
+
+function crawlFreshnessCardHtml(crawls, freshness) {
+    const aside = headNote(`${pluralize(crawls.total, 'crawl-enabled source', 'crawl-enabled sources')}`);
+    if (!crawls.total) return overviewCard('Crawl freshness', aside, '<p class="small muted">No crawl-enabled source yet.</p>');
+    return overviewCard('Crawl freshness', aside, freshnessBodyHtml('crawl-freshness', 'crawled within a day',
+        "A source is due for its next crawl a day after its last spider run, whatever that run's outcome",
+        crawlFreshnessParts(crawls, freshness.stale_after_days), crawls.total));
+}
+
 function pageFreshnessCardHtml(pages, freshness) {
     const aside = headNote(`${pluralize(pages.total, 'product page', 'product pages')} of crawl-enabled sources`);
     if (!pages.total) return overviewCard('Page freshness', aside, '<p class="small muted">No product page found yet.</p>');
-    const rows = pageFreshnessParts(pages, freshness.stale_after_days).map(part =>
-        `<li><span class="swatch seg-${part.key}"></span><span class="count-label">${escapeHtml(part.name)}</span><span class="count-value">${formatCount(part.value)}</span><span class="count-share">${shareText(part.value, pages.total)}</span></li>`).join('');
-    return overviewCard('Page freshness', aside, `
-        <div class="share" title="A page is due for its next scrape a day after its last"><span class="share-value">${shareText(pages.scraped_within_a_day, pages.total)}</span><span class="share-label">scraped within a day</span></div>
-        <div class="chart" data-chart="pages"></div>
-        <ul class="count-list legend-list">${rows}</ul>`);
+    return overviewCard('Page freshness', aside, freshnessBodyHtml('pages', 'scraped within a day',
+        'A page is due for its next scrape a day after its last', pageFreshnessParts(pages, freshness.stale_after_days), pages.total));
 }
 
 function crawlingCardHtml(t) {
@@ -765,14 +789,14 @@ function longestIdleHtml(freshness, staleTotal) {
 
 function idleSourcesCardHtml(freshness, sources) {
     const held = [
-        sources.rate_limited ? `${pluralize(sources.rate_limited, 'source', 'sources')} rate-limited by the shop` : '',
-        sources.scrape_paused ? `${pluralize(sources.scrape_paused, 'source', 'sources')} with scrapes paused by the circuit` : ''
+        sources.rate_limited ? `<a href="#sources&status=rate_limited">${escapeHtml(pluralize(sources.rate_limited, 'source', 'sources'))}</a> rate-limited by the shop` : '',
+        sources.scrape_paused ? `<a href="#sources&status=scrape_paused">${escapeHtml(pluralize(sources.scrape_paused, 'source', 'sources'))}</a> with scrapes paused by the circuit` : ''
     ].filter(Boolean).join(' · ');
     return overviewCard('Source idle time', headNote('crawl-enabled sources'), `
         <table class="metric-table"><thead><tr><th scope="col">Time since the last…</th><th scope="col">Median</th><th scope="col">Mean</th><th scope="col">p90</th></tr></thead>
           <tbody>${ageRow('Scraped page', freshness.since_last_scrape)}${ageRow('Crawl run', freshness.since_last_crawl)}</tbody></table>
         ${longestIdleHtml(freshness, sources.stale)}
-        ${held ? `<p class="small muted">Held back right now: ${escapeHtml(held)}.</p>` : ''}`);
+        ${held ? `<p class="small muted">Held back right now: ${held}.</p>` : ''}`);
 }
 
 function signedCount(value) {
@@ -834,7 +858,8 @@ const CHARTS = {
             ]
         };
     })),
-    pages: (o, width) => segmentBarSvg(width, pageFreshnessParts(o.pages, o.freshness.stale_after_days), o.pages.total)
+    pages: (o, width) => segmentBarSvg(width, pageFreshnessParts(o.pages, o.freshness.stale_after_days), o.pages.total),
+    'crawl-freshness': (o, width) => segmentBarSvg(width, crawlFreshnessParts(o.crawls, o.freshness.stale_after_days), o.crawls.total)
 };
 
 function drawCharts() {
@@ -1126,7 +1151,7 @@ const lists = {
 };
 
 const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled'],
-    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked'], ['stale', 'Stale']];
+    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked'], ['stale', 'Stale'], ['rate_limited', 'Rate-limited'], ['scrape_paused', 'Scrapes paused']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -1151,6 +1176,7 @@ function listApiQuery(kind, params) {
         copy('artifact');
         copy('waiting');
         copy('label');
+        copy('source_crawl');
         const source = params.get('listing_source') || '';
         if (REVIEW_ID_PATTERN.test(source)) query.set('listing_source', source);
     }
@@ -1167,7 +1193,7 @@ function listApiPath(kind) {
 }
 
 function listFiltersActive(kind) {
-    const names = kind === 'sources' ? ['q', 'status', 'label', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'label', 'listing_source'];
+    const names = kind === 'sources' ? ['q', 'status', 'label', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'label', 'source_crawl', 'listing_source'];
     return names.some(name => listParameter(name));
 }
 
@@ -1310,6 +1336,7 @@ function renderListFilters(kind) {
       ${renderChips('Type', REVIEW_TYPE_CHIPS, listParameter('artifact'), 'artifact')}
       ${renderSelect('Waiting', 'waiting', [['', 'Any'], ['human', 'Waiting for a human'], ['repair', 'Waiting for repair'], ['parked', 'Parked: the agents retry later'], ['non_product_loop', 'Held: URL pattern loop']], listParameter('waiting'))}
       ${renderSelect('Label', 'label', [['', 'Any label'], ...Object.entries({...SOURCE_LABELS, ...RETIRED_SOURCE_LABELS})], listParameter('label'))}
+      ${renderSelect('Source crawling', 'source_crawl', [['', 'Any source'], ['enabled', 'Crawl-enabled sources'], ['disabled', 'Crawl-disabled sources']], listParameter('source_crawl'))}
       ${reset}`;
 }
 

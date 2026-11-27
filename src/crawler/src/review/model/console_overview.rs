@@ -13,6 +13,7 @@ pub struct ConsoleOverview {
     pub sources: SourceCounts,
     pub freshness: Freshness,
     pub throughput: Throughput,
+    pub crawls: CrawlFreshness,
     pub pages: PageFreshness,
     pub failures: FailureKinds,
     pub reviews: ReviewCounts,
@@ -120,6 +121,20 @@ pub struct HourlyCrawlRuns {
     pub hour: OffsetDateTime,
     /// Sources whose last spider run ended in the hour.
     pub sources: i64,
+}
+
+/// The crawl-enabled ListingSources by the end of their last spider run of any outcome. A source
+/// is due for its next crawl a day after its last, so the four parts say how well the spider
+/// keeps up; they sum to `total`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct CrawlFreshness {
+    pub total: i64,
+    pub crawled_within_a_day: i64,
+    /// Last crawled over a day ago, up to [`Freshness::stale_after_days`] days.
+    pub due: i64,
+    /// Last crawled over [`Freshness::stale_after_days`] days ago.
+    pub overdue: i64,
+    pub never_crawled: i64,
 }
 
 /// The product pages of crawl-enabled ListingSources by their last scrape. A page is due for
@@ -275,6 +290,13 @@ mod tests {
                 crawls_finished_24h: 30,
                 crawl_runs_by_hour,
             },
+            crawls: CrawlFreshness {
+                total: 40,
+                crawled_within_a_day: 30,
+                due: 6,
+                overdue: 3,
+                never_crawled: 1,
+            },
             pages: PageFreshness {
                 total: 3_000,
                 scraped_within_a_day: 2_400,
@@ -344,6 +366,10 @@ mod tests {
                     "pages_scraped_1h": 120, "pages_scraped_24h": 2400,
                     "product_urls_found_24h": 35, "crawls_finished_1h": 2,
                     "crawls_finished_24h": 30, "crawl_runs_by_hour": null
+                },
+                "crawls": {
+                    "total": 40, "crawled_within_a_day": 30, "due": 6, "overdue": 3,
+                    "never_crawled": 1
                 },
                 "pages": {
                     "total": 3000, "scraped_within_a_day": 2400, "due": 440, "overdue": 100,

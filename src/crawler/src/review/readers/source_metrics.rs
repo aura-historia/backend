@@ -5,9 +5,9 @@
 use super::ListingSourceOverviewReader;
 use super::listing_source_overview::{OVERVIEW_CTES, RANKED_SELECT, order_by};
 use crate::review::model::{
-    AgeDistribution, CRAWL_RUN_HOURS, FailureKindCount, FailureKinds, Freshness, HourlyCrawlRuns,
-    IdleSource, LONGEST_IDLE_SOURCES, PageFreshness, STALE_AFTER_DAYS, SortDirection, SourceSort,
-    Throughput,
+    AgeDistribution, CRAWL_RUN_HOURS, CrawlFreshness, FailureKindCount, FailureKinds, Freshness,
+    HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES, PageFreshness, STALE_AFTER_DAYS,
+    SortDirection, SourceSort, Throughput,
 };
 use crate::review::repository::listing_source_id_from_uuid;
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
@@ -45,6 +45,7 @@ pub struct SourceMetrics {
     pub health: HealthCounts,
     pub freshness: Freshness,
     pub throughput: Throughput,
+    pub crawls: CrawlFreshness,
     pub pages: PageFreshness,
 }
 
@@ -63,6 +64,10 @@ impl ListingSourceOverviewReader {
         let pages_never_scraped: i64 = row.try_get("pages_never_scraped")?;
         let pages_not_scraped_for_a_day: i64 = row.try_get("pages_not_scraped_for_a_day")?;
         let pages_overdue: i64 = row.try_get("pages_overdue")?;
+        let crawl_sources: i64 = row.try_get("crawl_sources")?;
+        let never_crawled: i64 = row.try_get("never_crawled")?;
+        let not_crawled_for_a_day: i64 = row.try_get("not_crawled_for_a_day")?;
+        let crawls_overdue: i64 = row.try_get("crawls_overdue")?;
         Ok(SourceMetrics {
             health: HealthCounts {
                 needs_attention: row.try_get("needs_attention")?,
@@ -91,6 +96,13 @@ impl ListingSourceOverviewReader {
                 crawls_finished_1h: row.try_get("crawls_finished_1h")?,
                 crawls_finished_24h: row.try_get("crawls_finished_24h")?,
                 crawl_runs_by_hour: crawl_runs_by_hour(&row)?,
+            },
+            crawls: CrawlFreshness {
+                total: crawl_sources,
+                crawled_within_a_day: crawl_sources - never_crawled - not_crawled_for_a_day,
+                due: not_crawled_for_a_day - crawls_overdue,
+                overdue: crawls_overdue,
+                never_crawled,
             },
             pages: PageFreshness {
                 total: pages_total,
@@ -184,7 +196,16 @@ fn source_metrics_sql() -> String {
                 COALESCE(SUM(not_scraped_for_a_day) FILTER (WHERE crawl_enabled), 0)::BIGINT
                     AS pages_not_scraped_for_a_day,
                 COALESCE(SUM(overdue_pages) FILTER (WHERE crawl_enabled), 0)::BIGINT
-                    AS pages_overdue
+                    AS pages_overdue,
+                COUNT(*) FILTER (WHERE crawl_enabled) AS crawl_sources,
+                COUNT(*) FILTER (WHERE crawl_enabled AND last_crawl_run_at IS NULL)
+                    AS never_crawled,
+                COUNT(*) FILTER (WHERE crawl_enabled
+                                   AND last_crawl_run_at <= NOW() - INTERVAL '1 day')
+                    AS not_crawled_for_a_day,
+                COUNT(*) FILTER (WHERE crawl_enabled
+                                   AND last_crawl_run_at <= NOW() - INTERVAL '{STALE_AFTER_DAYS} days')
+                    AS crawls_overdue
          FROM ranked",
         scrape_ages = age_aggregates("last_successful_scrape", "scrape_age"),
         crawl_ages = age_aggregates("last_crawl_run_at", "crawl_age"),
