@@ -56,7 +56,15 @@ pub enum SourceStatus {
     /// Product URLs are in an identity conflict: their schemas derive another identity than
     /// the one their listings were captured under, so they are not captured.
     IdentityConflict,
+    /// Crawl-enabled, and neither its scraper nor its spider has worked it for
+    /// [`STALE_AFTER_DAYS`]: its `idle_since`, or its creation when it was never worked, is older.
+    /// Informational, not one of the conditions that need attention.
+    Stale,
 }
+
+/// How many days a crawl-enabled ListingSource may go without a scraped page or a spider run
+/// before it counts as stale: three missed daily crawl and scrape cycles.
+pub const STALE_AFTER_DAYS: i64 = 3;
 
 impl QueryValue for SourceStatus {
     const VALUES: &'static [(&'static str, Self)] = &[
@@ -75,6 +83,7 @@ impl QueryValue for SourceStatus {
         ("failing", Self::Failing),
         ("held", Self::Held),
         ("identity_conflict", Self::IdentityConflict),
+        ("stale", Self::Stale),
     ];
 }
 
@@ -88,6 +97,8 @@ pub enum SourceSort {
     PendingReviews,
     LastSuccessfulScrape,
     NextCrawlAt,
+    /// When the source was last worked (`idle_since`), its creation when it never was.
+    IdleSince,
 }
 
 impl SourceSort {
@@ -108,5 +119,6 @@ impl QueryValue for SourceSort {
         ("pending_reviews", Self::PendingReviews),
         ("last_successful_scrape", Self::LastSuccessfulScrape),
         ("next_crawl_at", Self::NextCrawlAt),
+        ("idle_since", Self::IdleSince),
     ];
 }

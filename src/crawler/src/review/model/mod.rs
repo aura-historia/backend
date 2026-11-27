@@ -36,13 +36,16 @@ pub mod status;
 pub mod url_pattern_candidate;
 
 pub use artifact::*;
-pub use console_overview::{ConsoleOverview, PendingByArtifact, ReviewCounts, SourceCounts};
+pub use console_overview::{
+    AgeDistribution, Backlog, ConsoleOverview, FailureKindCount, FailureKinds, Freshness,
+    PendingByArtifact, ReviewCounts, ReviewFlow, SourceCounts, Throughput,
+};
 pub use list_window::{ListPage, ListWindow};
 pub use listing_source_detail::{
     FAILING_URL_EXAMPLES, FAILING_URL_MESSAGE_CHARS, FailingUrl, ListingSourceDetail,
     NonProductLoopHold, UrlPatternOverview,
 };
-pub use listing_source_filter::{SourceActivity, SourceSort, SourceStatus};
+pub use listing_source_filter::{STALE_AFTER_DAYS, SourceActivity, SourceSort, SourceStatus};
 pub use listing_source_overview::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
 pub use page_classification::{
     ClassifiedPage, MAX_PAGE_VERDICT_REASON_CHARS, PageClassification, PageClassificationError,

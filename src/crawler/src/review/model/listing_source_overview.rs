@@ -28,6 +28,10 @@ pub struct ListingSourceOverview {
     /// does not move. `None` before its first scraped page.
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_successful_scrape: Option<time::OffsetDateTime>,
+    /// When the crawler last worked the ListingSource: the later of `last_successful_scrape` and
+    /// the end of its last spider run of any outcome. `None` before either.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub idle_since: Option<time::OffsetDateTime>,
     pub pending_reviews: i64,
     pub product_urls: i64,
     /// Product URLs waiting on a product-schema review that is still pending, and so not
@@ -136,6 +140,7 @@ mod tests {
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,
             last_successful_scrape: last_successful,
+            idle_since: last_successful,
             pending_reviews: 0,
             product_urls: 0,
             blocked_urls: 0,

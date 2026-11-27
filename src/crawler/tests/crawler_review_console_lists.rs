@@ -1058,14 +1058,31 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         .await
         .unwrap();
 
+    let mut counts = serde_json::to_value(counts).unwrap();
+    let freshness = counts["freshness"].take();
+    let oldest_pending = counts["reviews"]["oldest_pending"].take();
+    let median_pending_age = counts["reviews"]["median_pending_age_secs"].take();
     assert_eq!(
-        serde_json::to_value(counts).unwrap(),
+        counts,
         json!({
             "sources": {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
                 "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
                 "failing_to_scrape": 1, "held_removals": 0, "identity_conflicts": 0,
-                "labelled": 0, "parked": 0
+                "labelled": 0, "parked": 0, "stale": 0
+            },
+            "freshness": null,
+            "throughput": {
+                "pages_scraped_1h": 0, "pages_scraped_24h": 0, "product_urls_found_24h": 0,
+                "crawls_finished_1h": 1, "crawls_finished_24h": 1
+            },
+            "backlog": {
+                "pages_not_scraped_for_a_day": 0, "pages_never_scraped": 0,
+                "rate_limited_sources": 0, "scrape_paused_sources": 0
+            },
+            "failures": {
+                "scrape": [{ "error_kind": "TIMEOUT", "sources": 1 }],
+                "crawl": []
             },
             "reviews": {
                 "pending_total": 3,
@@ -1073,10 +1090,131 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "pending_disabled_sources": 2,
                 "waiting_for_human": 1,
                 "parked": 0,
-                "held_for_non_product_loop": 0
+                "held_for_non_product_loop": 0,
+                "oldest_pending": null,
+                "median_pending_age_secs": null
+            },
+            "review_flow": {
+                "opened_24h": 4, "approved_24h": 1, "rejected_24h": 0,
+                "median_decision_secs_7d": 0
             },
             "agent_mode": true
         })
+    );
+    assert_eq!(freshness["since_last_scrape"], json!(null));
+    assert_eq!(freshness["since_last_crawl"]["sources"], 1);
+    assert!(oldest_pending.is_string(), "{oldest_pending}");
+    assert!(median_pending_age.is_i64(), "{median_pending_age}");
+}
+
+/// The Overview's freshness, throughput and backlog over the crawl-enabled sources, and its
+/// stale count, which the `stale` list shows longest idle first.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_report_freshness_throughput_backlog_and_the_stale_sources() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 1);
+    let fresh = source(&pool, "Fresh", "fresh.example.com", true).await;
+    let idle = source(&pool, "Idle", "idle.example.com", true).await;
+    let never = source(&pool, "Never", "never.example.com", true).await;
+    source(&pool, "New", "new.example.com", true).await;
+    let disabled = source(&pool, "Disabled", "disabled.example.com", false).await;
+    for (id, set) in [
+        (
+            fresh,
+            "last_crawl_run_at = NOW() - INTERVAL '30 minutes', \
+             crawl_rate_limited_until = NOW() + INTERVAL '1 hour'",
+        ),
+        (
+            idle,
+            "last_crawl_run_at = NOW() - INTERVAL '5 days', created = NOW() - INTERVAL '30 days', \
+             last_crawl_outcome = 'FAILED', last_crawl_error_kind = 'Timeout'",
+        ),
+        (never, "created = NOW() - INTERVAL '10 days'"),
+        (disabled, "created = NOW() - INTERVAL '10 days'"),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for (id, path, scraped, created) in [
+        (fresh, "/fresh-1", Some("10 minutes"), "2 hours"),
+        (fresh, "/fresh-2", Some("3 hours"), "2 days"),
+        (fresh, "/fresh-3", None, "1 hour"),
+        (idle, "/idle-1", Some("4 days"), "20 days"),
+        (disabled, "/disabled-1", Some("6 days"), "20 days"),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO listing_source_urls
+             (listing_source_id, url, url_class, raw_source_record_key, last_scraped, created)
+             VALUES ($1, $2, 'product', $2,
+                     {scraped}, NOW() - INTERVAL '{created}')",
+            scraped = scraped.map_or("NULL".to_owned(), |age| format!("NOW() - INTERVAL '{age}'")),
+        )))
+        .bind(id.as_uuid())
+        .bind(format!("https://shop.example.com{path}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let overview = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap();
+    let stale = list_sources(
+        &pool,
+        ListingSourceQuery {
+            status: Some(SourceStatus::Stale),
+            sort: SourceSort::IdleSince,
+            direction: SortDirection::Ascending,
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        overview.sources.stale, 2,
+        "idle and never; not new or disabled"
+    );
+    assert_eq!(stale.total, overview.sources.stale);
+    assert_eq!(
+        stale
+            .items
+            .iter()
+            .map(|source| source.listing_source_id)
+            .collect::<Vec<_>>(),
+        vec![never, idle],
+        "longest idle first: never worked since its creation 10 days ago, then 4 days"
+    );
+    let scrape_ages = overview
+        .freshness
+        .since_last_scrape
+        .expect("two scraped sources");
+    assert_eq!(scrape_ages.sources, 2, "the disabled source is left out");
+    assert!(
+        (4 * 86_400 - 60..=4 * 86_400 + 60).contains(&scrape_ages.max_secs),
+        "the idle source's 4 days: {scrape_ages:?}"
+    );
+    assert_eq!(
+        overview.freshness.since_last_crawl.map(|ages| ages.sources),
+        Some(2)
+    );
+    assert_eq!(overview.throughput.pages_scraped_1h, 1);
+    assert_eq!(overview.throughput.pages_scraped_24h, 2);
+    assert_eq!(overview.throughput.product_urls_found_24h, 2);
+    assert_eq!(overview.throughput.crawls_finished_1h, 1);
+    assert_eq!(overview.throughput.crawls_finished_24h, 1);
+    assert_eq!(overview.backlog.pages_not_scraped_for_a_day, 1);
+    assert_eq!(overview.backlog.pages_never_scraped, 1);
+    assert_eq!(overview.backlog.rate_limited_sources, 1);
+    assert_eq!(overview.sources.crawl_failing, 1);
+    assert_eq!(
+        serde_json::to_value(&overview.failures.crawl).unwrap(),
+        json!([{ "error_kind": "Timeout", "sources": 1 }])
     );
 }
 

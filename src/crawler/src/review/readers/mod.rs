@@ -17,7 +17,7 @@ pub use console_overview::ConsoleOverviewReader;
 pub use listing_source_detail::ListingSourceDetailReader;
 pub use listing_source_overview::{
     HealthCounts, IdentityConflictedSource, IdentityConflicts, ListingSourceOverviewReader,
-    ListingSourceQuery,
+    ListingSourceQuery, SourceMetrics,
 };
 pub use persisted_row::{PersistedRowFailure, persisted_row_failure};
 pub use qualification_queue::{MAX_QUEUED_SOURCES, QualificationQueue, QualificationQueueReader};

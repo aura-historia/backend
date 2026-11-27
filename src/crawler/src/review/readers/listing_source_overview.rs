@@ -4,13 +4,14 @@
 //! ListingSources.
 
 use crate::review::model::{
-    AppliedQualification, AppliedSourceLabel, CrawlStateOverview, ListPage, ListWindow,
-    ListingSourceOverview, Qualification, ReviewActor, SearchTerm, SortDirection, SourceActivity,
-    SourceLabel, SourceSort, SourceStatus, UrlErrorKindCount,
+    AgeDistribution, AppliedQualification, AppliedSourceLabel, Backlog, CrawlStateOverview,
+    FailureKindCount, FailureKinds, Freshness, ListPage, ListWindow, ListingSourceOverview,
+    Qualification, ReviewActor, STALE_AFTER_DAYS, SearchTerm, SortDirection, SourceActivity,
+    SourceLabel, SourceSort, SourceStatus, Throughput, UrlErrorKindCount,
 };
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
-use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
+use crate::spider::candidate_service::{FAILED_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME};
 use crate::spider::local_lock::{LocalLockManager, RunningWork, WorkLockScope};
 use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
@@ -48,6 +49,17 @@ pub struct HealthCounts {
     pub labelled: i64,
     /// Sources the review agents parked until they try them again.
     pub parked: i64,
+    /// Crawl-enabled sources the crawler has not worked for [`STALE_AFTER_DAYS`]; informational.
+    pub stale: i64,
+}
+
+/// The first page's numbers over all ListingSources, read in one pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMetrics {
+    pub health: HealthCounts,
+    pub freshness: Freshness,
+    pub throughput: Throughput,
+    pub backlog: Backlog,
 }
 
 /// The crawl-enabled ListingSources whose product URLs are in an identity conflict
@@ -128,6 +140,7 @@ const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
         s.qualification_note,
         s.qualified_at,
         s.qualified_by,
+        s.created AS source_created,
         s.updated,
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
@@ -141,7 +154,15 @@ const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
         s.last_scrape_error_kind,
         s.scrape_failing_since,
         s.next_scrape_at AS scrape_paused_until,
+        s.crawl_rate_limited_until,
+        s.last_crawl_run_at,
         u.last_successful_scrape,
+        GREATEST(u.last_successful_scrape, s.last_crawl_run_at) AS idle_since,
+        COALESCE(u.scraped_1h, 0) AS scraped_1h,
+        COALESCE(u.scraped_24h, 0) AS scraped_24h,
+        COALESCE(u.found_24h, 0) AS found_24h,
+        COALESCE(u.never_scraped, 0) AS never_scraped,
+        COALESCE(u.not_scraped_for_a_day, 0) AS not_scraped_for_a_day,
         COALESCE(r.pending_reviews, 0) AS pending_reviews,
         COALESCE(u.product_urls, 0) AS product_urls,
         b.blocked_urls,
@@ -178,7 +199,15 @@ const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
                MIN(identity_conflict_since) FILTER (
                    WHERE last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since,
                COUNT(*) FILTER (WHERE page_identity_changed_at > NOW() - INTERVAL '7 days')
-                   AS page_identity_changed_urls
+                   AS page_identity_changed_urls,
+               COUNT(*) FILTER (WHERE last_error_kind IS DISTINCT FROM $3
+                                  AND last_scraped > NOW() - INTERVAL '1 hour') AS scraped_1h,
+               COUNT(*) FILTER (WHERE last_error_kind IS DISTINCT FROM $3
+                                  AND last_scraped > NOW() - INTERVAL '24 hours') AS scraped_24h,
+               COUNT(*) FILTER (WHERE created > NOW() - INTERVAL '24 hours') AS found_24h,
+               COUNT(*) FILTER (WHERE last_scraped IS NULL) AS never_scraped,
+               COUNT(*) FILTER (WHERE last_scraped <= NOW() - INTERVAL '1 day')
+                   AS not_scraped_for_a_day
         FROM listing_source_urls
         WHERE url_class = 'product'
           AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
@@ -272,8 +301,10 @@ impl ListingSourceOverviewReader {
         Ok(Some(overview))
     }
 
-    /// How many ListingSources are in each condition that needs an operator.
-    pub async fn health_counts(&self) -> Result<HealthCounts, sqlx::Error> {
+    /// The first page's numbers over all ListingSources, in one pass over their product URLs:
+    /// how many are in each condition that needs an operator, how fresh the crawl-enabled ones
+    /// are, the recent work and the waiting work.
+    pub async fn source_metrics(&self) -> Result<SourceMetrics, sqlx::Error> {
         let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             "{OVERVIEW_CTES}
              ), ranked AS ({RANKED_SELECT})
@@ -288,25 +319,101 @@ impl ListingSourceOverviewReader {
                         AS identity_conflicts,
                     COUNT(*) FILTER (WHERE source_label IS NOT NULL) AS labelled,
                     COUNT(*) FILTER (WHERE source_label_retry_at IS NOT NULL
-                                        OR qualification_retry_at IS NOT NULL) AS parked
-             FROM ranked"
+                                        OR qualification_retry_at IS NOT NULL) AS parked,
+                    COUNT(*) FILTER (WHERE stale) AS stale,
+                    {scrape_ages},
+                    {crawl_ages},
+                    COALESCE(SUM(scraped_1h), 0)::BIGINT AS pages_scraped_1h,
+                    COALESCE(SUM(scraped_24h), 0)::BIGINT AS pages_scraped_24h,
+                    COALESCE(SUM(found_24h), 0)::BIGINT AS product_urls_found_24h,
+                    COUNT(*) FILTER (WHERE last_crawl_run_at > NOW() - INTERVAL '1 hour')
+                        AS crawls_finished_1h,
+                    COUNT(*) FILTER (WHERE last_crawl_run_at > NOW() - INTERVAL '24 hours')
+                        AS crawls_finished_24h,
+                    COALESCE(SUM(not_scraped_for_a_day) FILTER (WHERE crawl_enabled), 0)::BIGINT
+                        AS pages_not_scraped_for_a_day,
+                    COALESCE(SUM(never_scraped) FILTER (WHERE crawl_enabled), 0)::BIGINT
+                        AS pages_never_scraped,
+                    COUNT(*) FILTER (WHERE crawl_enabled AND crawl_rate_limited_until > NOW())
+                        AS rate_limited_sources,
+                    COUNT(*) FILTER (WHERE crawl_enabled AND scrape_paused_until > NOW())
+                        AS scrape_paused_sources
+             FROM ranked",
+            scrape_ages = age_aggregates("last_successful_scrape", "scrape_age"),
+            crawl_ages = age_aggregates("last_crawl_run_at", "crawl_age"),
         )))
         .bind(None::<uuid::Uuid>)
         .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
         .bind(MASS_REMOVAL_HELD_ERROR_KIND)
         .fetch_one(&self.pool)
         .await?;
-        Ok(HealthCounts {
-            needs_attention: row.try_get("needs_attention")?,
-            crawl_failing: row.try_get("crawl_failing")?,
-            crawl_needs_operator: row.try_get("crawl_needs_operator")?,
-            blocked_by_review: row.try_get("blocked_by_review")?,
-            failing_to_scrape: row.try_get("failing_to_scrape")?,
-            held_removals: row.try_get("held_removals")?,
-            identity_conflicts: row.try_get("identity_conflicts")?,
-            labelled: row.try_get("labelled")?,
-            parked: row.try_get("parked")?,
+        Ok(SourceMetrics {
+            health: HealthCounts {
+                needs_attention: row.try_get("needs_attention")?,
+                crawl_failing: row.try_get("crawl_failing")?,
+                crawl_needs_operator: row.try_get("crawl_needs_operator")?,
+                blocked_by_review: row.try_get("blocked_by_review")?,
+                failing_to_scrape: row.try_get("failing_to_scrape")?,
+                held_removals: row.try_get("held_removals")?,
+                identity_conflicts: row.try_get("identity_conflicts")?,
+                labelled: row.try_get("labelled")?,
+                parked: row.try_get("parked")?,
+                stale: row.try_get("stale")?,
+            },
+            freshness: Freshness {
+                stale_after_days: STALE_AFTER_DAYS,
+                since_last_scrape: age_distribution(&row, "scrape_age")?,
+                since_last_crawl: age_distribution(&row, "crawl_age")?,
+            },
+            throughput: Throughput {
+                pages_scraped_1h: row.try_get("pages_scraped_1h")?,
+                pages_scraped_24h: row.try_get("pages_scraped_24h")?,
+                product_urls_found_24h: row.try_get("product_urls_found_24h")?,
+                crawls_finished_1h: row.try_get("crawls_finished_1h")?,
+                crawls_finished_24h: row.try_get("crawls_finished_24h")?,
+            },
+            backlog: Backlog {
+                pages_not_scraped_for_a_day: row.try_get("pages_not_scraped_for_a_day")?,
+                pages_never_scraped: row.try_get("pages_never_scraped")?,
+                rate_limited_sources: row.try_get("rate_limited_sources")?,
+                scrape_paused_sources: row.try_get("scrape_paused_sources")?,
+            },
         })
+    }
+
+    /// What the crawl-enabled ListingSources that fail to scrape, and those whose last crawl
+    /// failed, fail with, as the `failing` and `crawl_failing` lists count them.
+    pub async fn failure_kinds(&self) -> Result<FailureKinds, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT 'scrape' AS work, last_scrape_error_kind AS error_kind, COUNT(*) AS sources
+             FROM listing_sources
+             WHERE crawl_enabled AND scrape_failure_streak > 0
+             GROUP BY last_scrape_error_kind
+             UNION ALL
+             SELECT 'crawl', last_crawl_error_kind, COUNT(*)
+             FROM listing_sources
+             WHERE crawl_enabled AND last_crawl_outcome IS NOT DISTINCT FROM $1
+             GROUP BY last_crawl_error_kind
+             ORDER BY sources DESC, error_kind NULLS LAST",
+        )
+        .bind(FAILED_CRAWL_OUTCOME)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut kinds = FailureKinds {
+            scrape: Vec::new(),
+            crawl: Vec::new(),
+        };
+        for row in &rows {
+            let count = FailureKindCount {
+                error_kind: row.try_get("error_kind")?,
+                sources: row.try_get("sources")?,
+            };
+            match row.try_get::<&str, _>("work")? {
+                "scrape" => kinds.scrape.push(count),
+                _ => kinds.crawl.push(count),
+            }
+        }
+        Ok(kinds)
     }
 
     /// The crawl-enabled ListingSources with product URLs in an identity conflict, at most
@@ -432,6 +539,40 @@ impl ListingSourceOverviewReader {
     }
 }
 
+/// The aggregates of the ages of `column`, in whole seconds, over the crawl-enabled rows that
+/// have one: `{alias}_sources`, `{alias}_median`, `{alias}_mean`, `{alias}_p90` and `{alias}_max`.
+/// Both arguments are static SQL fragments.
+fn age_aggregates(column: &str, alias: &str) -> String {
+    let age = format!("EXTRACT(EPOCH FROM NOW() - {column})::FLOAT8");
+    let only = format!("FILTER (WHERE crawl_enabled AND {column} IS NOT NULL)");
+    format!(
+        "COUNT(*) {only} AS {alias}_sources,
+         (percentile_cont(0.5) WITHIN GROUP (ORDER BY {age}) {only})::BIGINT AS {alias}_median,
+         (AVG({age}) {only})::BIGINT AS {alias}_mean,
+         (percentile_cont(0.9) WITHIN GROUP (ORDER BY {age}) {only})::BIGINT AS {alias}_p90,
+         (MAX({age}) {only})::BIGINT AS {alias}_max"
+    )
+}
+
+/// The distribution [`age_aggregates`] read under `alias`; `None` while no row had an age.
+fn age_distribution(row: &PgRow, alias: &str) -> Result<Option<AgeDistribution>, sqlx::Error> {
+    let sources: i64 = row.try_get(format!("{alias}_sources").as_str())?;
+    if sources == 0 {
+        return Ok(None);
+    }
+    let seconds = |name: &str| -> Result<i64, sqlx::Error> {
+        row.try_get::<Option<i64>, _>(format!("{alias}_{name}").as_str())?
+            .ok_or_else(|| sqlx::Error::Decode(format!("{alias}_{name} without a value").into()))
+    };
+    Ok(Some(AgeDistribution {
+        sources,
+        median_secs: seconds("median")?,
+        mean_secs: seconds("mean")?,
+        p90_secs: seconds("p90")?,
+        max_secs: seconds("max")?,
+    }))
+}
+
 fn activity_name(activity: SourceActivity) -> &'static str {
     match activity {
         SourceActivity::Crawling => "crawling",
@@ -457,17 +598,22 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Failing => "failing",
         SourceStatus::Held => "held",
         SourceStatus::IdentityConflict => "identity_conflict",
+        SourceStatus::Stale => "stale",
     }
 }
 
 /// The overview rows with whether each needs attention: a crawl-enabled ListingSource whose last
 /// crawl failed or waits for an operator, with blocked URLs, a scrape failure streak, held
-/// removals or URLs in an identity conflict.
+/// removals or URLs in an identity conflict; and whether it is stale ([`SourceStatus::Stale`],
+/// after [`STALE_AFTER_DAYS`]).
 const RANKED_SELECT: &str = "SELECT overview.*,
                     crawl_enabled AND (crawl_failed OR needs_operator OR blocked_urls > 0
                                        OR scrape_failure_streak > 0
                                        OR held_removal_urls > 0
-                                       OR identity_conflict_urls > 0) AS needs_attention
+                                       OR identity_conflict_urls > 0) AS needs_attention,
+                    crawl_enabled
+                        AND COALESCE(idle_since, source_created) < NOW() - INTERVAL '3 days'
+                        AS stale
              FROM overview";
 
 /// The ListingSources of `OVERVIEW_CTES` filtered, ranked by `sort` in `direction`, and one window
@@ -511,7 +657,8 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'failing' AND crawl_enabled AND scrape_failure_streak > 0)
                     OR ($8 = 'held' AND crawl_enabled AND held_removal_urls > 0)
                     OR ($8 = 'identity_conflict' AND crawl_enabled
-                        AND identity_conflict_urls > 0))
+                        AND identity_conflict_urls > 0)
+                    OR ($8 = 'stale' AND stale))
                AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
@@ -555,6 +702,7 @@ fn order_by(sort: SourceSort, direction: SortDirection) -> String {
         SourceSort::PendingReviews => &["pending_reviews"],
         SourceSort::LastSuccessfulScrape => &["last_successful_scrape"],
         SourceSort::NextCrawlAt => &["next_crawl_at"],
+        SourceSort::IdleSince => &["COALESCE(idle_since, source_created)"],
     };
     let direction = direction.sql();
     keys.iter()
@@ -582,6 +730,7 @@ fn overview_of_row(
         crawl_root_url: row.try_get("crawl_root_url")?,
         last_successful_crawl: row.try_get("last_successful_crawl")?,
         last_successful_scrape: row.try_get("last_successful_scrape")?,
+        idle_since: row.try_get("idle_since")?,
         pending_reviews: row.try_get("pending_reviews")?,
         product_urls: row.try_get("product_urls")?,
         blocked_urls: row.try_get("blocked_urls")?,
@@ -692,13 +841,20 @@ fn applied_qualification(row: &PgRow) -> Result<Option<AppliedQualification>, sq
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spider::candidate_service::FAILED_CRAWL_OUTCOME;
 
     #[test]
     fn should_select_failed_crawls_by_the_persisted_failed_outcome() {
         assert!(
             OVERVIEW_CTES.contains(&format!("IS NOT DISTINCT FROM '{FAILED_CRAWL_OUTCOME}'")),
             "the overview SQL names the failed outcome as a literal"
+        );
+    }
+
+    #[test]
+    fn should_rank_sources_stale_after_the_stale_days() {
+        assert!(
+            RANKED_SELECT.contains(&format!("INTERVAL '{STALE_AFTER_DAYS} days'")),
+            "the stale condition names STALE_AFTER_DAYS as a literal"
         );
     }
 }
