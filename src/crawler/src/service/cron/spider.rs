@@ -20,7 +20,7 @@ use crate::spider::discovery::website_spider::{
     RobotsUnreachable, SpiderDiscoveryError,
 };
 use crate::spider::local_lock::{WorkLock, WorkLockScope};
-use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
+use crate::spider::service::{SpiderRunResult, SpiderServiceError};
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -1080,69 +1080,75 @@ async fn record_run_outcome(
     }
 }
 
-fn spawn_spider_candidate(
-    join_set: &mut JoinSet<SpiderSlotOutcome>,
-    candidate: SpiderCandidate,
-    spider_candidates: Arc<dyn SpiderCandidateService>,
-    spider_service: Arc<dyn SpiderService>,
-    lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
-    threshold: usize,
-    budget: CrawlBudgetScale,
-) -> tokio::task::Id {
-    let crawl_root_url = candidate.crawl_root.url().to_string();
-    let listing_source_id = candidate.listing_source_id;
-    let pace = crawl_pace(&candidate);
-    let span = tracing::info_span!(
-        "spider_candidate",
-        listing_source_id = %candidate.listing_source_id,
-        crawl_root_url = %crawl_root_url,
-        kind = %candidate.kind,
-        budget_factor = budget.factor()
-    );
+impl CrawlerCronJob {
+    /// Runs `candidate`'s crawl in a slot of `join_set` with the job's spider, and records its
+    /// outcome with the job's candidate service.
+    fn spawn_spider_candidate(
+        &self,
+        join_set: &mut JoinSet<SpiderSlotOutcome>,
+        candidate: SpiderCandidate,
+        budget: CrawlBudgetScale,
+    ) -> tokio::task::Id {
+        let spider_candidates = Arc::clone(&self.spider_candidates);
+        let spider_service = Arc::clone(&self.spider_service);
+        let lock_manager = Arc::clone(&self.lock_manager);
+        let threshold = self.config.spider_classify_threshold;
+        let crawl_root_url = candidate.crawl_root.url().to_string();
+        let listing_source_id = candidate.listing_source_id;
+        let pace = crawl_pace(&candidate);
+        let span = tracing::info_span!(
+            "spider_candidate",
+            listing_source_id = %candidate.listing_source_id,
+            crawl_root_url = %crawl_root_url,
+            kind = %candidate.kind,
+            budget_factor = budget.factor()
+        );
 
-    let task = join_set.spawn(
-        async move {
-            let Some(_lock) =
-                WorkLock::try_acquire(&lock_manager, WorkLockScope::Spider, listing_source_id)
-            else {
-                debug!(
-                    listing_source_id = %listing_source_id,
-                    "Deferring ListingSource - lock held by another spider worker"
-                );
-                return SpiderSlotOutcome {
-                    listing_source_id,
-                    status: SpiderSlotStatus::Deferred,
-                };
-            };
-
-            // The whole slot runs scoped, so every record of the run and of its outcome's
-            // persistence names the source, which the span list no longer does.
-            candidate
-                .source_log_context()
-                .scope(async {
-                    let run = spider_service
-                        .run(
-                            &listing_source_id,
-                            &crawl_root_url,
-                            threshold,
-                            pace,
-                            budget,
-                            candidate.kind,
-                        )
-                        .await;
-                    let status =
-                        record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
-                    SpiderSlotOutcome {
+        let task = join_set.spawn(
+            async move {
+                let Some(_lock) =
+                    WorkLock::try_acquire(&lock_manager, WorkLockScope::Spider, listing_source_id)
+                else {
+                    debug!(
+                        listing_source_id = %listing_source_id,
+                        "Deferring ListingSource - lock held by another spider worker"
+                    );
+                    return SpiderSlotOutcome {
                         listing_source_id,
-                        status,
-                    }
-                })
-                .await
-        }
-        .instrument(span),
-    );
-    task.id()
+                        status: SpiderSlotStatus::Deferred,
+                    };
+                };
+
+                // The whole slot runs scoped, so every record of the run and of its outcome's
+                // persistence names the source, which the span list no longer does.
+                candidate
+                    .source_log_context()
+                    .scope(async {
+                        let run = spider_service
+                            .run(
+                                &listing_source_id,
+                                &crawl_root_url,
+                                threshold,
+                                pace,
+                                budget,
+                                candidate.kind,
+                            )
+                            .await;
+                        let status =
+                            record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
+                        SpiderSlotOutcome {
+                            listing_source_id,
+                            status,
+                        }
+                    })
+                    .await
+            }
+            .instrument(span),
+        );
+        task.id()
+    }
 }
+
 /// What one spider pass publishes: its failed runs, aggregated in process. No per-source figure
 /// leaves the pass as a metric; the run's own outcome events name the source.
 fn spider_pass_metrics(crawl_runs_failed: u64) -> MetricRecord {
@@ -1243,15 +1249,7 @@ impl CrawlerCronJob {
                     total += 1;
                     let budget =
                         crawl_budget_scale(&candidate, extended_in_flight.len() < extended_slots);
-                    let task = spawn_spider_candidate(
-                        &mut join_set,
-                        candidate,
-                        Arc::clone(&self.spider_candidates),
-                        Arc::clone(&self.spider_service),
-                        Arc::clone(&self.lock_manager),
-                        self.config.spider_classify_threshold,
-                        budget,
-                    );
+                    let task = self.spawn_spider_candidate(&mut join_set, candidate, budget);
                     if budget.is_extended() {
                         extended_in_flight.insert(task);
                     }

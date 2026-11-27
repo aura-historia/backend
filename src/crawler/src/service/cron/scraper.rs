@@ -2694,56 +2694,14 @@ impl CrawlerCronJob {
                     let (listing_source_id, candidates) = pending_sources
                         .remove(pending_index)
                         .expect("pending ListingSource index must remain valid");
-                    let crawl_host = candidates
-                        .first()
-                        .map(|candidate| candidate.crawl_host.clone())
-                        .unwrap_or_default();
-                    let listing_source_name = candidates
-                        .first()
-                        .map(|candidate| candidate.listing_source_name.clone())
-                        .unwrap_or_default();
-                    let scheduled_name = listing_source_name.clone();
-                    let scheduled_domain = crawl_host.clone();
-                    let scraper = Arc::clone(&self.scraper_service);
-                    let scraper_candidates = Arc::clone(&self.scraper_candidates);
-                    let lock_manager = Arc::clone(&self.lock_manager);
-                    let source_tx = command_tx.clone();
-                    let budget_exhausted_listing_sources =
-                        Arc::clone(&budget_exhausted_listing_sources);
-                    let batch_time_budget = self.config.scraper_batch_time_budget;
-                    let stop = self.stop.clone();
-                    let span =
-                        tracing::info_span!("scrape_batch", listing_source_id = %listing_source_id);
                     active_sources.insert(listing_source_id);
                     total += candidates.len();
-
-                    join_set.spawn(
-                        async move {
-                            let ctx = ScrapeBatchContext {
-                                scraper,
-                                scraper_candidates,
-                                lock_manager,
-                                command_tx: source_tx,
-                                budget_exhausted_listing_sources,
-                                listing_source_id,
-                                crawl_host,
-                                listing_source_name,
-                                batch_time_budget,
-                                stop,
-                                claimed_identities: Arc::default(),
-                            };
-
-                            ScheduledScrapeBatchOutcome {
-                                listing_source_id,
-                                listing_source_name: scheduled_name,
-                                domain: scheduled_domain,
-                                outcome: ctx
-                                    .source_log_context()
-                                    .scope(scrape_batch_candidates(candidates, ctx))
-                                    .await,
-                            }
-                        }
-                        .instrument(span),
+                    self.spawn_scrape_batch(
+                        &mut join_set,
+                        listing_source_id,
+                        candidates,
+                        &command_tx,
+                        &budget_exhausted_listing_sources,
                     );
                     continue;
                 }
@@ -2937,6 +2895,54 @@ impl CrawlerCronJob {
         }
 
         self.scraper_perf.record(succeeded as u64, duration_ms);
+    }
+
+    /// Scrapes `candidates`, one ListingSource's batch, in a task of `join_set` that queues its
+    /// captures on `command_tx`.
+    fn spawn_scrape_batch(
+        &self,
+        join_set: &mut JoinSet<ScheduledScrapeBatchOutcome>,
+        listing_source_id: ListingSourceId,
+        candidates: Vec<ScraperCandidate>,
+        command_tx: &mpsc::Sender<QueuedRawCapture>,
+        budget_exhausted_listing_sources: &Arc<Mutex<HashSet<ListingSourceId>>>,
+    ) {
+        let crawl_host = candidates
+            .first()
+            .map(|candidate| candidate.crawl_host.clone())
+            .unwrap_or_default();
+        let listing_source_name = candidates
+            .first()
+            .map(|candidate| candidate.listing_source_name.clone())
+            .unwrap_or_default();
+        let ctx = ScrapeBatchContext {
+            scraper: Arc::clone(&self.scraper_service),
+            scraper_candidates: Arc::clone(&self.scraper_candidates),
+            lock_manager: Arc::clone(&self.lock_manager),
+            command_tx: command_tx.clone(),
+            budget_exhausted_listing_sources: Arc::clone(budget_exhausted_listing_sources),
+            listing_source_id,
+            crawl_host: crawl_host.clone(),
+            listing_source_name: listing_source_name.clone(),
+            batch_time_budget: self.config.scraper_batch_time_budget,
+            stop: self.stop.clone(),
+            claimed_identities: Arc::default(),
+        };
+        let span = tracing::info_span!("scrape_batch", listing_source_id = %listing_source_id);
+        join_set.spawn(
+            async move {
+                ScheduledScrapeBatchOutcome {
+                    listing_source_id,
+                    listing_source_name,
+                    domain: crawl_host,
+                    outcome: ctx
+                        .source_log_context()
+                        .scope(scrape_batch_candidates(candidates, ctx))
+                        .await,
+                }
+            }
+            .instrument(span),
+        );
     }
 
     /// How many URLs are due when the pass starts; a failed count is warned about and left out of
