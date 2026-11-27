@@ -13,6 +13,10 @@ pub enum ReviewWaiting {
     Repair,
     /// The agents' retry of its ListingSource, which they parked (`parked`).
     Parked,
+    /// A human the crawler handed the product-schema review to because its ListingSource's URL
+    /// pattern likely takes non-product pages, in any authoring mode
+    /// (`held_for_non_product_loop`).
+    NonProductLoop,
 }
 
 impl QueryValue for ReviewWaiting {
@@ -20,6 +24,7 @@ impl QueryValue for ReviewWaiting {
         ("human", Self::Human),
         ("repair", Self::Repair),
         ("parked", Self::Parked),
+        ("non_product_loop", Self::NonProductLoop),
     ];
 }
 

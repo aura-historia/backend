@@ -607,7 +607,7 @@ function overviewTilesHtml() {
       ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews ? pending : undefined, 'Pending reviews', {sub: pendingSub, delta: 'pending'})}
       ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'none expected: the agents park what they cannot finish', delta: 'waiting_for_human'}) : ''}
       ${overviewCounts?.agent_mode ? tile('neutral', '#reviews&waiting=parked', reviews.parked, 'Parked', {sub: `${formatCount(sources?.parked || 0)} sources · the agents retry them later`}) : ''}
-      ${reviews?.held_for_non_product_loop ? tile('bad', '#reviews&status=PENDING_REVIEW&artifact=PRODUCT_SCHEMA', reviews.held_for_non_product_loop, 'URL pattern loops', {sub: 'held for a human: non-product pages keep opening reviews'}) : ''}
+      ${reviews?.held_for_non_product_loop ? tile('bad', '#reviews&waiting=non_product_loop', reviews.held_for_non_product_loop, 'URL pattern loops', {sub: 'held for a human: non-product pages keep opening reviews'}) : ''}
     </div>`;
 }
 
@@ -886,7 +886,7 @@ function renderListFilters(kind) {
     return `${sourceChip}${search}
       ${renderChips('Status', REVIEW_STATUS_CHIPS, listParameter('status'), 'status')}
       ${renderChips('Type', REVIEW_TYPE_CHIPS, listParameter('artifact'), 'artifact')}
-      ${renderSelect('Waiting', 'waiting', [['', 'Any'], ['human', 'Waiting for a human'], ['repair', 'Waiting for repair'], ['parked', 'Parked: the agents retry later']], listParameter('waiting'))}
+      ${renderSelect('Waiting', 'waiting', [['', 'Any'], ['human', 'Waiting for a human'], ['repair', 'Waiting for repair'], ['parked', 'Parked: the agents retry later'], ['non_product_loop', 'Held: URL pattern loop']], listParameter('waiting'))}
       ${renderSelect('Label', 'label', [['', 'Any label'], ...Object.entries({...SOURCE_LABELS, ...RETIRED_SOURCE_LABELS})], listParameter('label'))}
       ${reset}`;
 }
@@ -2206,6 +2206,7 @@ function queueLabel(params) {
     if (params.get('waiting') === 'human') return 'waiting for a human';
     if (params.get('waiting') === 'repair') return 'waiting for repair';
     if (params.get('waiting') === 'parked') return 'parked';
+    if (params.get('waiting') === 'non_product_loop') return 'held for a URL pattern loop';
     if (params.get('status') === 'PENDING_REVIEW') return 'pending';
     return 'in this list';
 }

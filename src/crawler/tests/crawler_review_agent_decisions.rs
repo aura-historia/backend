@@ -13,9 +13,9 @@ use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::captured_identity_sample::SampledCapturedPage;
 use crawler::review::model::{
     HandoverCategory, HandoverCause, HandoverReason, PAGE_ROLE_PRIMARY, PageSize,
-    PendingReviewSummary, PendingReviewTotals, ReviewActor, ReviewEventAction, STATUS_APPROVED,
-    STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel, SchemaReviewPageInput,
-    UrlPatternDecision,
+    PendingReviewSummary, PendingReviewTotals, ReviewActor, ReviewEventAction, ReviewWaiting,
+    STATUS_APPROVED, STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel,
+    SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
 use crawler::review::readers::{
@@ -3349,6 +3349,21 @@ async fn should_hold_the_next_manual_review_for_a_human_after_two_no_product_clo
         .await
         .unwrap();
     assert_eq!(overview.reviews.held_for_non_product_loop, 1);
+    let loop_list = ReviewQueueReader::of(&repository)
+        .list_reviews(&ReviewQuery {
+            waiting: Some(ReviewWaiting::NonProductLoop),
+            ..ReviewQuery::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        loop_list
+            .items
+            .iter()
+            .map(|review| review.review_id)
+            .collect::<Vec<_>>(),
+        vec![held]
+    );
     let hold = ListingSourceDetailReader::new(sources)
         .find_listing_source(listing_source_id)
         .await

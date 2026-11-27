@@ -12,8 +12,8 @@ use crate::review::model::{
 };
 use crate::review::repository::{
     CrawlerReviewRepository, agent_round_binds, agent_rounds_of_review,
-    crawler_review_id_from_uuid, listing_source_id_from_uuid, review_waits_for_human,
-    row_to_repair_request,
+    crawler_review_id_from_uuid, held_for_non_product_loop, listing_source_id_from_uuid,
+    review_waits_for_human, row_to_repair_request,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
@@ -208,6 +208,7 @@ fn waiting_name(waiting: ReviewWaiting) -> &'static str {
         ReviewWaiting::Human => "human",
         ReviewWaiting::Repair => "repair",
         ReviewWaiting::Parked => "parked",
+        ReviewWaiting::NonProductLoop => "non_product_loop",
     }
 }
 
@@ -296,12 +297,13 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                AND ($9::text IS NULL OR s.listing_source_name ILIKE $9)
                AND ($13::text IS NULL OR s.source_label = $13)
          ), matching AS (
-             SELECT * FROM candidates
+             SELECT r.* FROM candidates r
              WHERE $10::text IS NULL
                 OR ($10 = 'human' AND human_required AND listing_source_crawl_enabled)
                 OR ($10 = 'parked' AND status = 'PENDING_REVIEW' AND next_retry_at IS NOT NULL)
                 OR ($10 = 'repair' AND status = 'PENDING_REVIEW'
                     AND repair_requested IS NOT NULL AND NOT human_required)
+                OR ($10 = 'non_product_loop' AND status = 'PENDING_REVIEW' AND {held})
          ), ranked AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
          )
@@ -311,6 +313,7 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
          ORDER BY p.position",
         rounds = agent_rounds_of_review!(),
         waits = review_waits_for_human!(),
+        held = held_for_non_product_loop!(),
     )
 }
 
