@@ -11,6 +11,7 @@
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::access::{ReviewServerConfigError, positive_number};
 use crate::review::model::{MAX_PARK_INTERVAL_DAYS, ParkSchedule, STATUS_PENDING_REVIEW};
+use crate::review::repository::HUMAN_EDIT_REASON;
 use crate::review::schema_audit::SCHEMA_AUDIT_REASON;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -265,9 +266,11 @@ impl AgentDecisionPolicy {
     /// round started on it within the round window since a human last acted on it. A final round
     /// ends with the source labelled and its crawl switched off, so a live schema audit review is
     /// never given one: its source is crawled with working schemas, and the review waits for a
-    /// human instead.
+    /// human instead. Nor is a review a human opened to edit the live configuration, which is the
+    /// humans' own work.
     pub fn final_round_due(&self, status: &str, reason: &str, rounds: AgentRounds) -> bool {
         reason != SCHEMA_AUDIT_REASON
+            && reason != HUMAN_EDIT_REASON
             && rounds.final_round == FinalRound::NotStarted
             && self.waits_for_human(status, rounds)
     }
@@ -614,6 +617,12 @@ mod tests {
             STATUS_PENDING_REVIEW,
             SCHEMA_AUDIT_REASON,
             at_cap(FinalRound::NotStarted)
+        ));
+        // A review a human opened to edit the live configuration is the humans' own work.
+        assert!(!policy.final_round_due(
+            STATUS_PENDING_REVIEW,
+            HUMAN_EDIT_REASON,
+            handed(FinalRound::NotStarted)
         ));
         assert!(
             !capped_at_three(CrawlerAuthoringMode::Manual).final_round_due(

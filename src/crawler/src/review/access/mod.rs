@@ -269,6 +269,21 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
+    #[case::review_token_opens_an_edit_review(
+        "POST /api/listing-sources/ls_1/edit-review",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::author_token_opens_no_edit_review(
+        "POST /api/listing-sources/ls_1/edit-review",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_opens_no_edit_review(
+        "POST /api/listing-sources/ls_1/edit-review",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
     #[case::review_token_resumes_a_crawl(
         "POST /api/listing-sources/ls_1/crawl-resumption",
         Some(REVIEW_TOKEN),

@@ -1,4 +1,5 @@
-//! The review agents' queue: the pending reviews of crawl-enabled ListingSources, oldest first, read
+//! The review agents' queue: the pending reviews of crawl-enabled ListingSources, but those a human
+//! opened to edit the live configuration, oldest first, read
 //! page by page, all of them or only those that do or do not wait for a human, with the totals of
 //! the whole queue counted in SQL. Oldest first, newer reviews never keep the longest-waiting one
 //! from the agents, and a review opened while a reader pages through joins the end. A page starts
@@ -49,7 +50,9 @@ impl Default for PendingReviewQuery {
 /// The totals of the agents' queue and one page of it. A pending review waits for a human once its
 /// agent rounds reach the policy's [repair-round cap](AgentDecisionPolicy::repair_rounds_cap), as
 /// [`AgentDecisionPolicy::waits_for_human`] decides, so with no cap, outside `agent` mode, none
-/// does. Each review also carries the time of its latest `HUMAN` event, which handed it back to the
+/// does. A review a human opened to edit the live configuration is the humans' work, not the
+/// agents', so the queue leaves it out ([`held_for_human_edit`](super::held_for_human_edit)). Each
+/// review also carries the time of its latest `HUMAN` event, which handed it back to the
 /// agents. Binds `$1` to `$4` of [`agent_rounds_of_review`], `$3` also as the human actor of that
 /// event, `$5`, the repair-round cap or null, `$6`, the `human_required` filter or null, `$7` and
 /// `$8`, the creation time and id of the review the page starts after or null, and `$9`, the most
@@ -74,8 +77,9 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     " AS classification_due \
          FROM crawler_reviews r \
          JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
-         WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
-     ), \
+         WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled AND NOT ",
+    crate::review::repository::held_for_human_edit!(),
+    "), \
      totals AS ( \
          SELECT COUNT(*) FILTER (WHERE NOT waits_for_human) AS workable, \
                 COUNT(*) FILTER (WHERE waits_for_human) AS waiting_for_human \

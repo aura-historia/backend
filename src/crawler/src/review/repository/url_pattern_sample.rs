@@ -186,7 +186,7 @@ pub(super) async fn refresh_sample(
     .fetch_all(&mut *transaction)
     .await?;
     if !new_urls.is_empty() {
-        insert_refreshed_urls(
+        insert_sample_urls(
             &mut transaction,
             review_id,
             &new_urls,
@@ -210,7 +210,9 @@ pub(super) async fn refresh_sample(
     transaction.commit().await
 }
 
-async fn insert_refreshed_urls(
+/// Adds `urls`, each a URL with the class the ListingSource stores it under, to the sample of the
+/// review `review_id`, classified under the review's `current_pattern` and `candidate_pattern`.
+pub(super) async fn insert_sample_urls(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     urls: &[(String, String)],

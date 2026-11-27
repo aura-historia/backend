@@ -12,8 +12,8 @@ use crate::review::model::{
 };
 use crate::review::repository::{
     CrawlerReviewRepository, agent_round_binds, agent_rounds_of_review,
-    crawler_review_id_from_uuid, held_for_non_product_loop, listing_source_id_from_uuid,
-    review_waits_for_human, row_to_repair_request,
+    crawler_review_id_from_uuid, held_for_human_edit, held_for_non_product_loop,
+    listing_source_id_from_uuid, review_waits_for_human, row_to_repair_request,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
@@ -273,7 +273,9 @@ fn source_park(row: &PgRow) -> Result<Option<SourcePark>, sqlx::Error> {
 /// ListingSource name or null, `$10`, what the review waits for or null, `$11`, the rows to skip,
 /// `$12`, the most rows to answer, `$13`, the ListingSource's label or null, and `$14`, whether
 /// the ListingSource is crawl-enabled or null. A review waits for
-/// a human only while its source is crawled; one of a parked source waits for the agents' retry. Every row carries the total; an empty window is one row
+/// a human only while its source is crawled; one of a parked source waits for the agents' retry,
+/// and one a human opened to edit the live configuration is the humans' own work, not one the
+/// agents left. Every row carries the total; an empty window is one row
 /// with the total and no review. Only a pending review's agent rounds are counted.
 ///
 /// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
@@ -292,7 +294,8 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                         AS park_label,
                     COALESCE(s.source_label_retry_at, s.qualification_retry_at) AS next_retry_at,
                     CASE WHEN r.status = 'PENDING_REVIEW' THEN {rounds} ELSE 0 END AS agent_rounds,
-                    r.status = 'PENDING_REVIEW' AND {waits} AS human_required
+                    r.status = 'PENDING_REVIEW' AND {waits} AS human_required,
+                    {held_edit} AS held_for_human_edit
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE ($6::uuid IS NULL OR r.listing_source_id = $6)
@@ -304,7 +307,8 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
          ), matching AS (
              SELECT r.* FROM candidates r
              WHERE $10::text IS NULL
-                OR ($10 = 'human' AND human_required AND listing_source_crawl_enabled)
+                OR ($10 = 'human' AND human_required AND listing_source_crawl_enabled
+                    AND NOT held_for_human_edit)
                 OR ($10 = 'parked' AND status = 'PENDING_REVIEW' AND next_retry_at IS NOT NULL)
                 OR ($10 = 'repair' AND status = 'PENDING_REVIEW'
                     AND repair_requested IS NOT NULL AND NOT human_required)
@@ -319,6 +323,7 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
         rounds = agent_rounds_of_review!(),
         waits = review_waits_for_human!(),
         held = held_for_non_product_loop!(),
+        held_edit = held_for_human_edit!(),
     )
 }
 

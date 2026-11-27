@@ -664,15 +664,32 @@ pub(super) async fn lock_live_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<LiveUrlPattern, ReviewRepositoryError> {
-    let (url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state) =
-        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, String)>(
-            "SELECT url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state \
-             FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .fetch_one(&mut **transaction)
-        .await?;
-    Ok(LiveUrlPattern {
+    read_live_url_pattern(
+        &mut **transaction,
+        listing_source_id,
+        "SELECT url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state \
+         FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
+    )
+    .await?
+    .ok_or(ReviewRepositoryError::Database(sqlx::Error::RowNotFound))
+}
+
+/// Reads the ListingSource's live URL-pattern decision with `query`, which selects its columns of
+/// the ListingSource bound as `$1`; `None` when no such ListingSource exists.
+pub(super) async fn read_live_url_pattern<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    listing_source_id: &ListingSourceId,
+    query: &'static str,
+) -> Result<Option<LiveUrlPattern>, ReviewRepositoryError> {
+    let Some((url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state)) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, String)>(query)
+            .bind(uuid::Uuid::from(*listing_source_id))
+            .fetch_optional(executor)
+            .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(LiveUrlPattern {
         url_pattern,
         url_pattern_exclude,
         url_pattern_matching: UrlPatternMatching::from_persisted_column(
@@ -680,7 +697,7 @@ pub(super) async fn lock_live_url_pattern(
         )
         .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
         url_pattern_state,
-    })
+    }))
 }
 
 /// Stores `decision` as the ListingSource's live URL-pattern decision and classifies the source's

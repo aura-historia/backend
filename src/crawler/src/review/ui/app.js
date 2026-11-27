@@ -2163,16 +2163,50 @@ function renderSourceReviewRow(review) {
     </tr>`;
 }
 
+// A human edits the live URL pattern or product schemas through a review whose candidate is the
+// live configuration (docs/crawler/extraction-and-review.md, human edits of the live
+// configuration); the server answers the pending review of that artifact instead when one is open.
+const EDIT_REVIEW_ARTIFACTS = {
+    URL_PATTERN: {action: 'Edit URL pattern', title: 'Open a review whose candidate is the live URL pattern, to edit and approve; an open URL-pattern review of this source opens instead'},
+    PRODUCT_SCHEMA: {action: 'Edit product schemas', title: 'Open a review whose candidate is the live product schemas and removed-page templates, to edit and approve; an open product-schema review of this source opens instead'}
+};
+
+function editReviewButton(source, artifactType) {
+    const artifact = EDIT_REVIEW_ARTIFACTS[artifactType];
+    return `<button class="btn btn-sm" onclick="openEditReview('${escapeHtmlAttr(source.listing_source_id)}', '${artifactType}', this)" title="${escapeHtmlAttr(artifact.title)}" type="button">${escapeHtml(artifact.action)}</button>`;
+}
+
+async function openEditReview(listingSourceId, artifactType, button) {
+    if (button) button.disabled = true;
+    try {
+        const answer = await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/edit-review`,
+            {method: 'POST', body: JSON.stringify({artifact_type: artifactType})});
+        if (!REVIEW_ID_PATTERN.test(answer.review_id || '')) throw new Error('The console answered no review.');
+        location.hash = reviewHash(answer.review_id);
+    } catch (error) {
+        if (button) button.disabled = false;
+        alert(apiErrorMessage(error));
+    }
+}
+
+// Without a crawl root no URL of the source can be classified, so no URL-pattern review of it can
+// be approved; the card says so instead of offering the edit.
+function urlPatternEditAction(source) {
+    return source.crawl_root_url
+        ? editReviewButton(source, 'URL_PATTERN')
+        : '<span class="small muted" title="A URL-pattern review classifies the URLs on the source\'s crawl host, which a source without a crawl root has none of">No crawl root: the pattern cannot be reviewed</span>';
+}
+
 function renderSourceUrlPattern(source) {
     const pattern = source.url_pattern;
     if (!pattern) {
-        return `<div class="card"><div class="card-head"><h2>URL pattern</h2><span class="badge badge-neutral">None</span></div></div>`;
+        return `<div class="card"><div class="card-head"><h2>URL pattern <span class="badge badge-neutral">None</span></h2>${urlPatternEditAction(source)}</div></div>`;
     }
     const approved = pattern.approved_at
         ? `Approved ${timeBadge(pattern.approved_at, 'Approved')}${pattern.approved_by ? ` by ${escapeHtml(actorWord(pattern.approved_by))}` : ''}${REVIEW_ID_PATTERN.test(pattern.approved_review_id || '') ? ` · <a href="${reviewHash(pattern.approved_review_id)}">open its review</a>` : ''}`
         : '';
     return `<div class="card">
-      <div class="card-head"><h2>URL pattern</h2><span class="badge badge-ok">Live</span></div>
+      <div class="card-head"><h2>URL pattern <span class="badge badge-ok">Live</span></h2>${urlPatternEditAction(source)}</div>
       <div class="card-body stack">
         <div class="decision"><code>${escapeHtml(pattern.value)}</code>${pattern.exclude ? `<span class="small muted">excluding</span><code>${escapeHtml(pattern.exclude)}</code>` : ''}${matchingNote(pattern.matching)}</div>
         ${approved ? `<div class="small muted">${approved}</div>` : ''}
@@ -2183,14 +2217,14 @@ function renderSourceUrlPattern(source) {
 function renderSourceSchemas(source) {
     const schemas = source.product_schemas || [];
     if (!schemas.length) {
-        return `<div class="card"><div class="card-head"><h2>Product schemas</h2><span class="badge badge-neutral">None</span></div></div>`;
+        return `<div class="card"><div class="card-head"><h2>Product schemas <span class="badge badge-neutral">None</span></h2><span class="small muted" title="A review edits live schemas; a source without any gets its first product-schema review when the scraper meets one of its product pages">Nothing live to edit yet</span></div></div>`;
     }
     const index = Math.min(Math.max(0, Number(route.params.get('schema')) || 0), schemas.length - 1);
     const schema = schemas[index];
     const edit = REVIEW_ID_PATTERN.test(source.live_schema_review_id || '')
         ? ` · <a href="${reviewHash(source.live_schema_review_id)}">edit in its review</a>` : '';
     return `<div class="card">
-      <div class="card-head"><h2>Product schemas</h2><span class="badge badge-ok">Live</span><span class="small muted">applied in this order</span></div>
+      <div class="card-head"><h2>Product schemas <span class="badge badge-ok">Live</span><span class="small muted">applied in this order</span></h2>${editReviewButton(source, 'PRODUCT_SCHEMA')}</div>
       <div class="card-body stack">
         ${schemas.length > 1 ? `<div class="schema-tabs">${schemas.map((_, i) =>
             `<button class="chip" aria-pressed="${i === index}" onclick="setSourceSchema(${i})" type="button">${schemaLabel(i)}</button>`).join('')}</div>` : ''}
@@ -3316,8 +3350,15 @@ function handOverSinceHuman(detail) {
     return events.slice(lastHuman + 1).reverse().find(event => event.action === 'HANDED_TO_HUMAN');
 }
 
+// A review a human opened from the source page to edit the live configuration stays with humans
+// until it is decided: no human change hands it to the agents.
+const HUMAN_EDIT_REASON = 'human_edit_requested';
+
 function renderHumanRequired(detail) {
     const review = detail?.review;
+    if (review?.reason === HUMAN_EDIT_REASON && review.status === 'PENDING_REVIEW') {
+        return notice('info', 'Human edit', 'A human opened this review from the source page to edit the live configuration. Edit the candidate, then approve it to make it live or reject it to keep the live one; the review agents leave it to humans.', {role: 'status'});
+    }
     if (!review?.human_required) return '';
     const rounds = Number(review.agent_rounds) || 0;
     const handOver = handOverSinceHuman(detail);

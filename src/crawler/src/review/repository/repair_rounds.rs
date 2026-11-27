@@ -61,7 +61,9 @@ pub(crate) use agent_rounds_of_review;
 /// Whether the review aliased `r` was handed to a human since a human last acted on it: by an
 /// agent, until the hand-over leaves the round window, or by the crawler's non-product loop guard
 /// ([`held_for_non_product_loop`](super::held_for_non_product_loop)), which does
-/// not lapse. It then waits for a human whatever its rounds. Binds `$1`, `$3` and `$4` as
+/// not lapse, or, held for the humans who edit it, since a human opened it to edit the live
+/// configuration ([`held_for_human_edit`](super::held_for_human_edit)), which no human change
+/// lifts. It then waits for a human whatever its rounds. Binds `$1`, `$3` and `$4` as
 /// [`agent_rounds_of_review`].
 macro_rules! handed_review_to_human {
     () => {
@@ -72,6 +74,8 @@ macro_rules! handed_review_to_human {
             $crate::review::repository::after_last_human_event!(),
             ") OR ",
             $crate::review::repository::held_for_non_product_loop!(),
+            " OR ",
+            $crate::review::repository::held_for_human_edit!(),
             ")"
         )
     };
