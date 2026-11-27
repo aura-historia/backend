@@ -265,6 +265,10 @@ pub enum SystemHandoverReason {
     /// product pages, so its URL pattern likely takes non-product pages
     /// (`docs/crawler/extraction-and-review.md`, non-product page loop).
     NonProductPageLoop,
+    /// A human opened the review from the ListingSource's page to edit its live configuration, so
+    /// it stays with humans until it is decided (`docs/crawler/extraction-and-review.md`, human
+    /// edits of the live configuration).
+    HumanEdit,
 }
 
 impl SystemHandoverReason {
@@ -272,6 +276,7 @@ impl SystemHandoverReason {
     pub const fn log_name(self) -> &'static str {
         match self {
             Self::NonProductPageLoop => "non_product_page_loop",
+            Self::HumanEdit => "human_edit",
         }
     }
 }
@@ -456,11 +461,19 @@ mod tests {
     /// An agent's hand-over payload names a [`HandoverReason`], so it cannot claim the crawler's.
     #[test]
     fn should_persist_the_crawler_s_hand_over_reason_apart_from_the_agents_reasons() {
-        assert_eq!(
-            serde_json::to_value(SystemHandoverReason::NonProductPageLoop).ok(),
-            Some(serde_json::Value::from("NON_PRODUCT_PAGE_LOOP"))
-        );
-        assert!(serde_json::from_value::<HandoverReason>("NON_PRODUCT_PAGE_LOOP".into()).is_err());
+        for (reason, persisted) in [
+            (
+                SystemHandoverReason::NonProductPageLoop,
+                "NON_PRODUCT_PAGE_LOOP",
+            ),
+            (SystemHandoverReason::HumanEdit, "HUMAN_EDIT"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(reason).ok(),
+                Some(serde_json::Value::from(persisted))
+            );
+            assert!(serde_json::from_value::<HandoverReason>(persisted.into()).is_err());
+        }
     }
 
     #[test]

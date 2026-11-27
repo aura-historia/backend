@@ -54,6 +54,7 @@ const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 
 mod activity;
 mod crawl_resumption;
+mod human_edit_review;
 mod listing_source_list;
 mod mass_removal_confirmation;
 mod pending_reviews;
@@ -286,6 +287,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_schema_audit_request(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_human_edit_review(&request, actor).await {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
@@ -1340,6 +1344,10 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         ReviewRepositoryError::SchemaAuditNotPossible(_, _) => {
             conflict(&error, "SCHEMA_AUDIT_NOT_POSSIBLE")
         }
+        ReviewRepositoryError::HumanEditNotPossible(_, _) => {
+            conflict(&error, "HUMAN_EDIT_NOT_POSSIBLE")
+        }
+        ReviewRepositoryError::HumanEditNeedsHuman => forbidden(&error, "HUMAN_EDIT_NEEDS_HUMAN"),
         ReviewRepositoryError::FinalRoundOnlyLabel(_) => conflict(&error, "FINAL_ROUND_ONLY_LABEL"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
@@ -6167,6 +6175,102 @@ Origin: http://127.0.0.1:7878/x
                 ListingSourceId::new()
             );
             let (status, missing) = send(&server, &format!("POST {unknown}"), body).await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod human_edit_review {
+        use super::mass_removal_confirmation::console;
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send, send_as};
+        use listing_source_core::ListingSourceId;
+        use test_api::IntegrationTestService as _;
+
+        /// A human opens the review that edits a source's live URL pattern and is answered the same
+        /// pending review on the next request. Refused are: an agent token, 401; a body that names
+        /// no artifact type, 400; product schemas of a source without live ones and a URL pattern
+        /// of a source without a crawl root, 409; and an unknown source, 404.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_open_an_edit_review_for_a_human_only_and_answer_the_pending_one_again() {
+            let (server, listing_source_id) = console().await;
+            let pool = test_api::get_postgres_client().await;
+            let route = format!("POST /api/listing-sources/{listing_source_id}/edit-review");
+            let url_pattern = r#"{"artifact_type":"URL_PATTERN"}"#;
+
+            for token in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                let (status, _) = send_as(&server, token, &route, url_pattern).await;
+                assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+            }
+            for body in [r#"{"artifact_type":"REMOVED_PAGE"}"#, "{}", ""] {
+                let (status, refused) = send(&server, &route, body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{body}: {status} {refused}"
+                );
+            }
+            let (status, without_schemas) =
+                send(&server, &route, r#"{"artifact_type":"PRODUCT_SCHEMA"}"#).await;
+            assert!(
+                status.starts_with("HTTP/1.1 409"),
+                "{status} {without_schemas}"
+            );
+            assert_eq!(without_schemas["reason"], "HUMAN_EDIT_NOT_POSSIBLE");
+            let set_crawl_root = |root: Option<&'static str>| {
+                let pool = pool.clone();
+                async move {
+                    sqlx::query(
+                        "UPDATE listing_sources SET crawl_root_url = $2, \
+                         crawl_host = CASE WHEN $2::text IS NULL THEN NULL ELSE 'shop.example' END \
+                         WHERE listing_source_id = $1",
+                    )
+                    .bind(listing_source_id.as_uuid())
+                    .bind(root)
+                    .execute(&pool)
+                    .await
+                    .unwrap_or_else(|error| panic!("set crawl root: {error}"));
+                }
+            };
+            set_crawl_root(None).await;
+            let (status, without_root) = send(&server, &route, url_pattern).await;
+            assert!(
+                status.starts_with("HTTP/1.1 409"),
+                "{status} {without_root}"
+            );
+            assert_eq!(without_root["reason"], "HUMAN_EDIT_NOT_POSSIBLE");
+            set_crawl_root(Some("https://shop.example/")).await;
+
+            let (status, opened) = send(&server, &route, url_pattern).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {opened}");
+            assert_eq!(opened["opened"], true);
+            let review_id = opened["review_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no review id: {opened}"))
+                .to_owned();
+            let (_, review) = send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(
+                (
+                    &review["review"]["artifact_type"],
+                    &review["review"]["reason"],
+                    &review["review"]["candidate_payload"]["decision"]["type"]
+                ),
+                (
+                    &serde_json::json!("URL_PATTERN"),
+                    &serde_json::json!("human_edit_requested"),
+                    &serde_json::json!("UNDECIDED")
+                ),
+                "{review}"
+            );
+
+            let (status, again) = send(&server, &route, url_pattern).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {again}");
+            assert_eq!(
+                again,
+                serde_json::json!({ "review_id": review_id, "opened": false })
+            );
+
+            let unknown = format!(
+                "POST /api/listing-sources/{}/edit-review",
+                ListingSourceId::new()
+            );
+            let (status, missing) = send(&server, &unknown, url_pattern).await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
         }
     }

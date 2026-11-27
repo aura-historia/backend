@@ -201,7 +201,8 @@ pub struct ReviewCounts {
     pub pending_disabled_sources: i64,
     /// Of `pending_total`, those of crawl-enabled ListingSources that wait for a human; none
     /// outside `agent` authoring mode, and normally none in it, since the agents park what they
-    /// cannot finish.
+    /// cannot finish. A review a human opened to edit the live configuration is the humans' own
+    /// work and does not count.
     pub waiting_for_human: i64,
     /// Of `pending_total`, those of ListingSources the agents parked, which wait for their retry.
     pub parked: i64,

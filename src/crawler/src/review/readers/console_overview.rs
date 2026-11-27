@@ -8,7 +8,8 @@ use crate::review::model::{
     ReviewFlow, SourceCounts,
 };
 use crate::review::repository::{
-    CrawlerReviewRepository, agent_round_binds, held_for_non_product_loop, review_waits_for_human,
+    CrawlerReviewRepository, agent_round_binds, held_for_human_edit, held_for_non_product_loop,
+    review_waits_for_human,
 };
 use crate::spider::local_lock::WorkLockScope;
 use sqlx::{PgPool, Row};
@@ -163,6 +164,8 @@ const REVIEW_COUNTS_SQL: &str = concat!(
          SELECT r.artifact_type, r.created, COALESCE(s.crawl_enabled, FALSE) AS crawl_enabled,
                 ",
     review_waits_for_human!(),
+    " AND NOT ",
+    held_for_human_edit!(),
     " AS waits_for_human, ",
     held_for_non_product_loop!(),
     " AS held_for_non_product_loop,

@@ -34,6 +34,7 @@ use url::Url;
 mod classifier_rejection;
 mod crawl_resumption;
 mod final_round;
+mod human_edit;
 mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
@@ -63,6 +64,8 @@ mod verdicts;
 pub use classifier_rejection::ClassifierRejectionRefusal;
 pub(crate) use classifier_rejection::{classifiable_review, classifier_rejection_event};
 pub use crawl_resumption::CrawlResumption;
+pub use human_edit::{HUMAN_EDIT_PAGES, HUMAN_EDIT_REASON};
+pub(crate) use human_edit::{held_for_human_edit, human_edit_hold_event};
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use mass_removal_confirmation::MassRemovalConfirmation;
 pub(crate) use non_product_loop::{held_for_non_product_loop, non_product_loop_hold_event};
@@ -124,6 +127,12 @@ pub enum ReviewRepositoryError {
     /// A schema audit was requested for a ListingSource the audit cannot take, as the text says.
     #[error("ListingSource {0} cannot be audited: {1}")]
     SchemaAuditNotPossible(ListingSourceId, &'static str),
+    #[error("only a human opens a review to edit a ListingSource's live configuration")]
+    HumanEditNeedsHuman,
+    /// A human asked to edit live configuration the ListingSource cannot have reviewed, as the
+    /// text says.
+    #[error("ListingSource {0} has nothing to edit there: {1}")]
+    HumanEditNotPossible(ListingSourceId, &'static str),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
     #[error(
@@ -385,7 +394,7 @@ fn human_required_cause(
     max_repair_rounds: u32,
 ) -> String {
     if handed_to_human {
-        "a review agent or the crawler handed it to a human since a human last changed or judged it"
+        "a review agent or the crawler handed it to a human since a human last changed or judged it, or a human opened it to edit the live configuration"
             .to_owned()
     } else {
         format!(
@@ -2206,7 +2215,7 @@ mod tests {
 
         let handed = refusal(1, true);
         assert!(
-            handed.contains("waits for a human: a review agent or the crawler handed it to a human since a human last changed or judged it; leave it"),
+            handed.contains("waits for a human: a review agent or the crawler handed it to a human since a human last changed or judged it, or a human opened it to edit the live configuration; leave it"),
             "{handed}"
         );
         assert!(!handed.contains("needs-repair"), "{handed}");

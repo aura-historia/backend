@@ -64,6 +64,15 @@ impl UrlPatternDecision {
         }
     }
 
+    /// The `PATTERN` decision that holds `pattern` as it is: its regex, exclusion and matching.
+    pub fn of_pattern(pattern: &ProductUrlPattern) -> Self {
+        Self::Pattern {
+            value: pattern.include_source().to_owned(),
+            exclude: pattern.exclude_source().map(str::to_owned),
+            matching: pattern.matching(),
+        }
+    }
+
     /// The decision for an inferred pattern, matched anywhere in the URL as the inference writes
     /// it, where `None` means no product pattern exists.
     pub fn inferred(pattern: Option<&Regex>) -> Self {
@@ -235,6 +244,35 @@ mod tests {
         assert_eq!(
             payload["decision"],
             serde_json::json!({ "type": "UNDECIDED" })
+        );
+    }
+
+    /// A live pattern opened for a human edit is its own decision, exclusion and matching kept.
+    #[test]
+    fn should_hold_a_live_pattern_as_it_is_in_its_decision() {
+        let live = ProductUrlPattern::parse_matching(
+            "/item/[0-9]+",
+            UrlPatternMatching::PathAndQueryFullMatch,
+        )
+        .and_then(|pattern| pattern.with_exclude(Some("gift-card")))
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        let decision = UrlPatternDecision::of_pattern(&live);
+
+        assert_eq!(
+            decision,
+            UrlPatternDecision::Pattern {
+                value: "/item/[0-9]+".to_owned(),
+                exclude: Some("gift-card".to_owned()),
+                matching: UrlPatternMatching::PathAndQueryFullMatch,
+            }
+        );
+        assert!(
+            decision
+                .candidate_pattern()
+                .ok()
+                .flatten()
+                .is_some_and(|pattern| pattern.same_regexes(&live))
         );
     }
 
