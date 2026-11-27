@@ -37,10 +37,10 @@ pub mod url_pattern_candidate;
 
 pub use artifact::*;
 pub use console_overview::{
-    AgeDistribution, CRAWL_RUN_HOURS, ConsoleOverview, CrawlFreshness, DailyReviewFlow,
-    FailureKindCount, FailureKinds, Freshness, HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES,
-    PageFreshness, PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts,
-    Throughput,
+    ACTIVITY_HOURS, ActivityHistory, AgeDistribution, CRAWL_RUN_HOURS, ConsoleOverview,
+    CrawlFreshness, DailyReviewFlow, FailureKindCount, FailureKinds, Freshness, HourlyActivity,
+    HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES, PageFreshness, PendingByArtifact,
+    REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts, Throughput,
 };
 pub use list_window::{ListPage, ListWindow};
 pub use listing_source_detail::{

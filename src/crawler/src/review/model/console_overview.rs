@@ -6,8 +6,8 @@ use serde::Serialize;
 use time::OffsetDateTime;
 
 /// What the operator sees first: what the crawler does right now, how well it keeps up and what
-/// needs a human. The crawler keeps each source's and URL's current state, not a history, so the
-/// rates count the sources and URLs whose latest work falls in the window.
+/// needs a human. `throughput` is read from each source's and URL's current state, so its rates
+/// count the sources and URLs whose latest work falls in the window; `activity` counts all work.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConsoleOverview {
     pub sources: SourceCounts,
@@ -18,6 +18,7 @@ pub struct ConsoleOverview {
     pub failures: FailureKinds,
     pub reviews: ReviewCounts,
     pub review_flow: ReviewFlow,
+    pub activity: ActivityHistory,
     /// Whether review agents work the reviews, so a review can wait for a human.
     pub agent_mode: bool,
 }
@@ -169,6 +170,38 @@ pub struct FailureKindCount {
     pub sources: i64,
 }
 
+/// What the crawler did in each of the last [`ACTIVITY_HOURS`] clock hours (UTC), counted as each
+/// scraper batch and spider run ended (`docs/crawler/operations.md#activity-history`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivityHistory {
+    /// The earliest clock hour the history holds; `None` while it holds none. Hours before it
+    /// have no counts, which is not the same as no work.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub recording_since: Option<OffsetDateTime>,
+    /// The oldest hour first and the running hour last; an hour without counts is all zeros.
+    pub by_hour: [HourlyActivity; ACTIVITY_HOURS],
+}
+
+/// How many clock hours [`ActivityHistory::by_hour`] covers, the running one included.
+pub const ACTIVITY_HOURS: usize = 24;
+
+/// One clock hour of [`ActivityHistory::by_hour`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct HourlyActivity {
+    /// When the hour began.
+    #[serde(with = "time::serde::rfc3339")]
+    pub hour: OffsetDateTime,
+    /// Product pages the scraper evaluated: captured, unchanged or removed.
+    pub pages_scraped: i64,
+    pub page_scrapes_failed: i64,
+    pub crawl_runs_completed: i64,
+    pub crawl_runs_failed: i64,
+    /// Spider runs cut short, rate-limited, stopped or waiting on a URL-pattern review.
+    pub crawl_runs_other: i64,
+    /// Product URLs a spider run stored for the first time.
+    pub product_urls_found: i64,
+}
+
 /// How the review queue moved: the reviews opened and decided recently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ReviewFlow {
@@ -249,6 +282,27 @@ mod tests {
         };
         let listing_source_id = ListingSourceId::try_from(uuid::Uuid::now_v7())
             .unwrap_or_else(|error| panic!("{error}"));
+        let mut activity_by_hour = [HourlyActivity {
+            hour: first_hour,
+            pages_scraped: 0,
+            page_scrapes_failed: 0,
+            crawl_runs_completed: 0,
+            crawl_runs_failed: 0,
+            crawl_runs_other: 0,
+            product_urls_found: 0,
+        }; ACTIVITY_HOURS];
+        for (hours, activity) in (0_i64..).zip(activity_by_hour.iter_mut()) {
+            activity.hour = first_hour + time::Duration::hours(hours);
+        }
+        activity_by_hour[23] = HourlyActivity {
+            pages_scraped: 140,
+            page_scrapes_failed: 6,
+            crawl_runs_completed: 2,
+            crawl_runs_failed: 1,
+            crawl_runs_other: 3,
+            product_urls_found: 17,
+            ..activity_by_hour[23]
+        };
         let overview = ConsoleOverview {
             sources: SourceCounts {
                 crawling_now: 4,
@@ -331,6 +385,10 @@ mod tests {
                 daily,
                 median_decision_secs_7d: Some(5_400),
             },
+            activity: ActivityHistory {
+                recording_since: Some(first_hour),
+                by_hour: activity_by_hour,
+            },
             agent_mode: true,
         };
 
@@ -338,6 +396,7 @@ mod tests {
             serde_json::to_value(overview).unwrap_or_else(|error| panic!("{error}"));
         let hours = serialized["throughput"]["crawl_runs_by_hour"].take();
         let days = serialized["review_flow"]["daily"].take();
+        let activity_hours = serialized["activity"]["by_hour"].take();
 
         assert_eq!(
             serialized,
@@ -390,6 +449,7 @@ mod tests {
                     "median_pending_age_secs": null
                 },
                 "review_flow": { "daily": null, "median_decision_secs_7d": 5400 },
+                "activity": { "recording_since": "2026-11-26T13:00:00Z", "by_hour": null },
                 "agent_mode": true
             })
         );
@@ -400,6 +460,18 @@ mod tests {
                 &json!({ "hour": "2026-11-26T13:00:00Z", "sources": 0 }),
                 &json!({ "hour": "2026-11-27T12:00:00Z", "sources": 2 })
             )
+        );
+        assert_eq!(
+            activity_hours.as_array().map(Vec::len),
+            Some(ACTIVITY_HOURS)
+        );
+        assert_eq!(
+            activity_hours[23],
+            json!({
+                "hour": "2026-11-27T12:00:00Z", "pages_scraped": 140, "page_scrapes_failed": 6,
+                "crawl_runs_completed": 2, "crawl_runs_failed": 1, "crawl_runs_other": 3,
+                "product_urls_found": 17
+            })
         );
         assert_eq!(days.as_array().map(Vec::len), Some(REVIEW_FLOW_DAYS));
         assert_eq!(

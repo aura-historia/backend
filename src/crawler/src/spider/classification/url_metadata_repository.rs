@@ -20,6 +20,8 @@ pub struct SpiderUrlRecord {
     pub last_scraped: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+    /// The batch that answered the row inserted it: the crawler had not stored the URL before.
+    pub newly_stored: bool,
 }
 
 impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
@@ -45,6 +47,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             last_scraped: row.try_get("last_scraped")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
+            newly_stored: row.try_get("newly_stored")?,
         })
     }
 }
@@ -668,7 +671,8 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                      ELSE listing_source_urls.updated \
                  END \
              WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
-             RETURNING listing_source_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
+             RETURNING listing_source_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated, \
+                       (listing_source_urls.xmax = 0) AS newly_stored",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(&url_strings)

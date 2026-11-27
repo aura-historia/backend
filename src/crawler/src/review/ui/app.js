@@ -618,18 +618,38 @@ function overviewTilesHtml() {
         : '';
     const sources = overviewCounts?.sources;
     const reviews = overviewCounts?.reviews;
-    const throughput = overviewCounts?.throughput;
-    const hourly = throughput ? Math.round(throughput.pages_scraped_24h / 24) : 0;
-    const slow = throughput && throughput.pages_scraped_24h > 0 && throughput.pages_scraped_1h < hourly / 2;
     return `${failure}<div class="tiles tiles-six" role="group" aria-label="Right now">
       ${overviewTile('info', sources?.crawling_now, 'Crawling now', {href: '#sources&activity=crawling', live: true})}
       ${overviewTile('info', sources?.scraping_now, 'Scraping now', {href: '#sources&activity=scraping', live: true})}
-      ${overviewTile(slow ? 'warn' : 'neutral', throughput?.pages_scraped_1h, 'Pages scraped, last hour', {sub: throughput ? `⌀ ${formatCount(hourly)}/h over 24 h` : '',
-          title: 'Product pages last scraped in the last 60 minutes, beside the hourly average of those last scraped in the last 24 hours. A page counts once, at its latest scrape.'})}
+      ${pagesScrapedTile(overviewCounts?.activity)}
       ${overviewTile('bad', sources?.needs_attention, 'Sources need attention', {href: '#sources&status=needs_attention', delta: 'needs_attention'})}
       ${overviewTile('warn', sources?.stale, 'Stale sources', {href: STALE_SOURCES_HASH, delta: 'stale', sub: `no scrape or crawl for ${overviewCounts?.freshness.stale_after_days ?? 3} days`})}
       ${overviewTile('warn', reviews ? pendingReviewCount() : undefined, 'Pending reviews', {href: CRAWLED_PENDING_REVIEWS_HASH, delta: 'pending', sub: 'of crawl-enabled sources'})}
     </div>`;
+}
+
+// The clock hours of `activity` the crawler recorded, from the hour it began to count in.
+function recordedHours(activity, hours) {
+    const since = activity.recording_since ? Date.parse(activity.recording_since) : Infinity;
+    return hours.filter(hour => Date.parse(hour.hour) >= since);
+}
+
+// The pages the scraper evaluated in the last full clock hour, beside the mean of the full hours
+// recorded in the last day; until a full hour is recorded, those of the running hour.
+function pagesScrapedTile(activity) {
+    if (!activity) return overviewTile('neutral', undefined, 'Pages scraped, last hour');
+    const hours = activity.by_hour;
+    const full = recordedHours(activity, hours.slice(0, -1));
+    if (!full.length) {
+        const running = hours[hours.length - 1];
+        return overviewTile('neutral', running.pages_scraped, 'Pages scraped this hour', {sub: activity.recording_since ? `recording since ${clockText(activity.recording_since)}` : '',
+            title: `Product pages the scraper evaluated ${hourSpanText(running.hour, true)}; ${formatCount(running.page_scrapes_failed)} scrapes failed. Counting began in this hour.`});
+    }
+    const last = hours[hours.length - 2];
+    const mean = Math.round(full.reduce((total, hour) => total + hour.pages_scraped, 0) / full.length);
+    const slow = full.length >= 3 && mean > 0 && last.pages_scraped < mean / 2;
+    return overviewTile(slow ? 'warn' : 'neutral', last.pages_scraped, 'Pages scraped, last hour', {sub: `⌀ ${formatCount(mean)}/h over ${pluralize(full.length, 'hour', 'hours')}`,
+        title: `Product pages the scraper evaluated ${hourSpanText(last.hour, false)}, a page scraped twice counting twice; ${formatCount(last.page_scrapes_failed)} scrapes failed. Beside the mean of the full hours recorded in the last 24.`});
 }
 
 // A span of seconds in the two largest units that say it: 45s, 12m, 5h 20m, 3d 4h.
@@ -665,7 +685,7 @@ function overviewCardsHtml() {
     const o = overviewCounts;
     return `<div class="overview-cols">
         <div class="overview-col">${crawlFreshnessCardHtml(o.crawls, o.freshness)}${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
-        <div class="overview-col">${pageFreshnessCardHtml(o.pages, o.freshness)}${crawlingCardHtml(o.throughput)}${idleSourcesCardHtml(o.freshness, o.sources)}</div>
+        <div class="overview-col">${pageFreshnessCardHtml(o.pages, o.freshness)}${activityCardHtml(o)}${idleSourcesCardHtml(o.freshness, o.sources)}</div>
       </div>`;
 }
 
@@ -755,17 +775,32 @@ function pageFreshnessCardHtml(pages, freshness) {
         'A page is due for its next scrape a day after its last', pageFreshnessParts(pages, freshness.stale_after_days), pages.total));
 }
 
-function crawlingCardHtml(t) {
-    const hours = t.crawl_runs_by_hour;
-    return overviewCard('Crawling, last 24 hours', headNote('each source at its latest run'), `
-        <div class="metric-grid two">
-          ${metric(formatCount(t.crawls_finished_24h), 'Crawl runs', {sub: `${formatCount(t.crawls_finished_1h)} in the last hour`, title: 'Sources whose last spider run, of any outcome, ended in the last 24 hours'})}
-          ${metric(formatCount(t.product_urls_found_24h), 'New product URLs', {title: 'Product URLs the spider found in the last 24 hours'})}
+// What the crawler did in each of the last 24 clock hours, counted as each scraper batch and
+// spider run ended; a deployment that has not recorded the whole day yet says since when it counts.
+function activityCardHtml(o) {
+    const activity = o.activity;
+    const hours = activity.by_hour;
+    const sum = key => hours.reduce((total, hour) => total + hour[key], 0);
+    const runs = sum('crawl_runs_completed') + sum('crawl_runs_failed') + sum('crawl_runs_other');
+    const hourCell = (entry, index) => hourSpanText(entry.hour, index === hours.length - 1);
+    const partial = activity.recording_since && Date.parse(activity.recording_since) > Date.parse(hours[0].hour)
+        ? `<p class="small muted">Recording since ${escapeHtml(formatDate(activity.recording_since))}; the hours before have no counts.</p>`
+        : '';
+    return overviewCard('Crawler activity, last 24 hours', headNote('per clock hour, the running one last'), `${partial}
+        <div class="metric-grid">
+          ${metric(formatCount(sum('pages_scraped')), 'Pages scraped', {sub: `${formatCount(sum('page_scrapes_failed'))} scrapes failed`, title: 'Product pages the scraper evaluated: captured, unchanged or removed. A page scraped twice counts twice.'})}
+          ${metric(formatCount(runs), 'Crawl runs', {sub: `${formatCount(sum('crawl_runs_completed'))} completed · ${formatCount(sum('crawl_runs_failed'))} failed · ${formatCount(sum('crawl_runs_other'))} other`, title: 'Spider runs that ended, of any outcome; other: cut short, rate-limited, stopped or waiting on a review'})}
+          ${metric(formatCount(o.throughput.product_urls_found_24h), 'New product URLs', {title: 'Product URLs first stored in the last 24 hours that are product URLs now'})}
         </div>
         <div>
-          <div class="chart-title">Crawl runs per hour</div>
-          <div class="chart" data-chart="crawls" tabindex="0" role="group" aria-label="Crawl runs per hour over the last 24 hours. Use the arrow keys to read an hour."></div>
-          ${chartTableHtml('crawls', ['Hour', 'Crawl runs'], hours.map((entry, index) => [hourSpanText(entry.hour, index === hours.length - 1), formatCount(entry.sources)]))}
+          <div class="chart-title">Pages scraped per hour, last 24 h<span class="chart-legend"><span><i class="swatch series-1"></i>Scraped</span><span><i class="swatch series-2"></i>Failed</span></span></div>
+          <div class="chart" data-chart="pages-scraped" tabindex="0" role="group" aria-label="Pages scraped and scrapes failed in each of the last 24 clock hours. Use the arrow keys to read an hour."></div>
+          ${chartTableHtml('pages-scraped', ['Hour', 'Pages scraped', 'Scrapes failed'], hours.map((entry, index) => [hourCell(entry, index), formatCount(entry.pages_scraped), formatCount(entry.page_scrapes_failed)]))}
+        </div>
+        <div>
+          <div class="chart-title">Crawl runs per hour<span class="chart-legend"><span><i class="swatch series-1"></i>Completed</span><span><i class="swatch series-2"></i>Failed</span></span></div>
+          <div class="chart" data-chart="crawls" tabindex="0" role="group" aria-label="Crawl runs completed and failed in each of the last 24 clock hours. Use the arrow keys to read an hour."></div>
+          ${chartTableHtml('crawls', ['Hour', 'Completed', 'Failed', 'Other', 'New product URLs'], hours.map((entry, index) => [hourCell(entry, index), formatCount(entry.crawl_runs_completed), formatCount(entry.crawl_runs_failed), formatCount(entry.crawl_runs_other), formatCount(entry.product_urls_found)]))}
         </div>`);
 }
 
@@ -838,15 +873,14 @@ const CHART_PLOT_HEIGHT = 96;
 const CHART_AXIS_BAND = 20;
 const CHART_TOP = 6;
 const CHARTS = {
-    crawls: (o, width) => columnChartSvg(width, o.throughput.crawl_runs_by_hour.map((entry, index, all) => {
-        const running = index === all.length - 1;
-        const startHour = new Date(entry.hour).getHours();
-        return {
-            tick: startHour % 6 === 0 ? clockText(entry.hour) : '',
-            title: hourSpanText(entry.hour, running),
-            bars: [{value: entry.sources, series: 1, partial: running, name: entry.sources === 1 ? 'crawl run' : 'crawl runs'}]
-        };
-    })),
+    'pages-scraped': (o, width) => hourlyChartSvg(width, o.activity.by_hour, entry => [
+        {value: entry.pages_scraped, series: 1, name: entry.pages_scraped === 1 ? 'page scraped' : 'pages scraped'},
+        {value: entry.page_scrapes_failed, series: 2, name: entry.page_scrapes_failed === 1 ? 'scrape failed' : 'scrapes failed'}
+    ]),
+    crawls: (o, width) => hourlyChartSvg(width, o.activity.by_hour, entry => [
+        {value: entry.crawl_runs_completed, series: 1, name: 'completed'},
+        {value: entry.crawl_runs_failed, series: 2, name: 'failed'}
+    ], entry => [[formatCount(entry.crawl_runs_other), 'other: cut short, rate-limited, stopped or waiting on a review']]),
     reviews: (o, width) => columnChartSvg(width, o.review_flow.daily.map((day, index, all) => {
         const daysAgo = all.length - 1 - index;
         return {
@@ -861,6 +895,20 @@ const CHARTS = {
     pages: (o, width) => segmentBarSvg(width, pageFreshnessParts(o.pages, o.freshness.stale_after_days), o.pages.total),
     'crawl-freshness': (o, width) => segmentBarSvg(width, crawlFreshnessParts(o.crawls, o.freshness.stale_after_days), o.crawls.total)
 };
+
+// Columns of the clock hours `hours`, the running one last and drawn as partial: `bars` gives an
+// hour's columns and `notes` its figures that only the tooltip names.
+function hourlyChartSvg(width, hours, bars, notes = () => []) {
+    return columnChartSvg(width, hours.map((entry, index) => {
+        const running = index === hours.length - 1;
+        return {
+            tick: new Date(entry.hour).getHours() % 6 === 0 ? clockText(entry.hour) : '',
+            title: hourSpanText(entry.hour, running),
+            bars: bars(entry).map(bar => ({...bar, partial: running})),
+            notes: notes(entry)
+        };
+    }));
+}
 
 function drawCharts() {
     if (!overviewCounts) return;
@@ -918,7 +966,8 @@ function countAxisTicks(max) {
 }
 
 // Columns on one count axis: `groups` of one or two bars ({value, series, name, partial}), each
-// group with its `title` for the tooltip and its `tick` label under the axis, empty for none.
+// group with its `title` for the tooltip, optional `notes` ([value, name]) the tooltip adds
+// without a column, and its `tick` label under the axis, empty for none.
 function columnChartSvg(width, groups) {
     const ticks = countAxisTicks(Math.max(...groups.flatMap(group => group.bars.map(bar => bar.value))));
     const top = ticks[ticks.length - 1];
@@ -941,7 +990,7 @@ function columnChartSvg(width, groups) {
             const radius = Math.min(4, barWidth / 2, height);
             return `<path class="chart-bar series-${bar.series}${bar.partial ? ' partial' : ''}" d="M${x},${bottom}V${bottom - height + radius}Q${x},${bottom - height} ${x + radius},${bottom - height}H${x + barWidth - radius}Q${x + barWidth},${bottom - height} ${x + barWidth},${bottom - height + radius}V${bottom}Z"/>`;
         }).join('');
-        const tip = {title: group.title, rows: group.bars.map(bar => [formatCount(bar.value), bar.name, bar.series])};
+        const tip = {title: group.title, rows: [...group.bars.map(bar => [formatCount(bar.value), bar.name, bar.series]), ...(group.notes || []).map(([value, name]) => [value, name, null])]};
         const center = left + slot / 2;
         const anchor = center < 24 ? 'start' : center > width - 24 ? 'end' : 'middle';
         const tick = group.tick ? `<text class="chart-tick" x="${anchor === 'middle' ? center : anchor === 'start' ? left : left + slot}" y="${bottom + 15}" text-anchor="${anchor}">${escapeHtml(group.tick)}</text>` : '';
@@ -989,7 +1038,7 @@ function showChartTip(mark, x, y) {
     const rows = tip.rows.map(([value, name, key]) => {
         const row = document.createElement('div');
         const swatch = document.createElement('i');
-        swatch.className = `tip-key ${typeof key === 'number' ? `series-${key}` : `seg-${key}`}`;
+        swatch.className = key === null ? 'tip-key' : `tip-key ${typeof key === 'number' ? `series-${key}` : `seg-${key}`}`;
         const strong = document.createElement('strong');
         strong.textContent = value;
         row.append(swatch, strong, ` ${name}`);

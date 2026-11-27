@@ -1,4 +1,4 @@
-use super::job::CrawlerCronJob;
+use super::job::{CrawlerCronJob, record_activity};
 use super::metrics::emit_pass_record;
 use crate::CrawlerReviewId;
 use crate::metrics::{CrawlerMetric, MetricRecord};
@@ -6,6 +6,7 @@ use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
+use crate::service::activity_history::{ActivityCounts, CrawlRunClass};
 use crate::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, FAILED_CRAWL_OUTCOME,
     NEEDS_OPERATOR_CRAWL_OUTCOME, RATE_LIMITED_CRAWL_OUTCOME, SPIDER_RECRAWL_INTERVAL,
@@ -20,7 +21,7 @@ use crate::spider::discovery::website_spider::{
     RobotsUnreachable, SpiderDiscoveryError,
 };
 use crate::spider::local_lock::{WorkLock, WorkLockScope};
-use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
+use crate::spider::service::{SpiderRunResult, SpiderServiceError};
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -310,6 +311,24 @@ enum SpiderSlotStatus {
     RootMoved,
     /// Another spider worker holds the spider ListingSource lock.
     Deferred,
+}
+
+impl SpiderSlotStatus {
+    /// How the activity history counts the run; `None` for a slot that ran no crawl.
+    const fn crawl_run_class(self) -> Option<CrawlRunClass> {
+        match self {
+            Self::Succeeded => Some(CrawlRunClass::Completed),
+            Self::Failed | Self::StoppedForOperator => Some(CrawlRunClass::Failed),
+            Self::Truncated
+            | Self::TruncatedRepeatedly
+            | Self::Stopped
+            | Self::RateLimited
+            | Self::AwaitingReview
+            | Self::ReviewDecided
+            | Self::RootMoved => Some(CrawlRunClass::Other),
+            Self::Deferred => None,
+        }
+    }
 }
 
 struct SpiderSlotOutcome {
@@ -1080,69 +1099,86 @@ async fn record_run_outcome(
     }
 }
 
-fn spawn_spider_candidate(
-    join_set: &mut JoinSet<SpiderSlotOutcome>,
-    candidate: SpiderCandidate,
-    spider_candidates: Arc<dyn SpiderCandidateService>,
-    spider_service: Arc<dyn SpiderService>,
-    lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
-    threshold: usize,
-    budget: CrawlBudgetScale,
-) -> tokio::task::Id {
-    let crawl_root_url = candidate.crawl_root.url().to_string();
-    let listing_source_id = candidate.listing_source_id;
-    let pace = crawl_pace(&candidate);
-    let span = tracing::info_span!(
-        "spider_candidate",
-        listing_source_id = %candidate.listing_source_id,
-        crawl_root_url = %crawl_root_url,
-        kind = %candidate.kind,
-        budget_factor = budget.factor()
-    );
+impl CrawlerCronJob {
+    /// Runs `candidate`'s crawl in a slot of `join_set` with the job's spider, and records its
+    /// outcome with the job's candidate service.
+    fn spawn_spider_candidate(
+        &self,
+        join_set: &mut JoinSet<SpiderSlotOutcome>,
+        candidate: SpiderCandidate,
+        budget: CrawlBudgetScale,
+    ) -> tokio::task::Id {
+        let spider_candidates = Arc::clone(&self.spider_candidates);
+        let spider_service = Arc::clone(&self.spider_service);
+        let lock_manager = Arc::clone(&self.lock_manager);
+        let activity_history = self.activity_history.clone();
+        let threshold = self.config.spider_classify_threshold;
+        let crawl_root_url = candidate.crawl_root.url().to_string();
+        let listing_source_id = candidate.listing_source_id;
+        let pace = crawl_pace(&candidate);
+        let span = tracing::info_span!(
+            "spider_candidate",
+            listing_source_id = %candidate.listing_source_id,
+            crawl_root_url = %crawl_root_url,
+            kind = %candidate.kind,
+            budget_factor = budget.factor()
+        );
 
-    let task = join_set.spawn(
-        async move {
-            let Some(_lock) =
-                WorkLock::try_acquire(&lock_manager, WorkLockScope::Spider, listing_source_id)
-            else {
-                debug!(
-                    listing_source_id = %listing_source_id,
-                    "Deferring ListingSource - lock held by another spider worker"
-                );
-                return SpiderSlotOutcome {
-                    listing_source_id,
-                    status: SpiderSlotStatus::Deferred,
-                };
-            };
-
-            // The whole slot runs scoped, so every record of the run and of its outcome's
-            // persistence names the source, which the span list no longer does.
-            candidate
-                .source_log_context()
-                .scope(async {
-                    let run = spider_service
-                        .run(
-                            &listing_source_id,
-                            &crawl_root_url,
-                            threshold,
-                            pace,
-                            budget,
-                            candidate.kind,
-                        )
-                        .await;
-                    let status =
-                        record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
-                    SpiderSlotOutcome {
+        let task = join_set.spawn(
+            async move {
+                let Some(_lock) =
+                    WorkLock::try_acquire(&lock_manager, WorkLockScope::Spider, listing_source_id)
+                else {
+                    debug!(
+                        listing_source_id = %listing_source_id,
+                        "Deferring ListingSource - lock held by another spider worker"
+                    );
+                    return SpiderSlotOutcome {
                         listing_source_id,
-                        status,
-                    }
-                })
-                .await
-        }
-        .instrument(span),
-    );
-    task.id()
+                        status: SpiderSlotStatus::Deferred,
+                    };
+                };
+
+                // The whole slot runs scoped, so every record of the run and of its outcome's
+                // persistence names the source, which the span list no longer does.
+                candidate
+                    .source_log_context()
+                    .scope(async {
+                        let run = spider_service
+                            .run(
+                                &listing_source_id,
+                                &crawl_root_url,
+                                threshold,
+                                pace,
+                                budget,
+                                candidate.kind,
+                            )
+                            .await;
+                        let status =
+                            record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
+                        if let Some(class) = status.crawl_run_class() {
+                            let found = run
+                                .as_ref()
+                                .map_or(0, |result| result.new_product_urls_count);
+                            record_activity(
+                                activity_history.as_deref(),
+                                ActivityCounts::crawl_run(class, found),
+                            )
+                            .await;
+                        }
+                        SpiderSlotOutcome {
+                            listing_source_id,
+                            status,
+                        }
+                    })
+                    .await
+            }
+            .instrument(span),
+        );
+        task.id()
+    }
 }
+
 /// What one spider pass publishes: its failed runs, aggregated in process. No per-source figure
 /// leaves the pass as a metric; the run's own outcome events name the source.
 fn spider_pass_metrics(crawl_runs_failed: u64) -> MetricRecord {
@@ -1243,15 +1279,7 @@ impl CrawlerCronJob {
                     total += 1;
                     let budget =
                         crawl_budget_scale(&candidate, extended_in_flight.len() < extended_slots);
-                    let task = spawn_spider_candidate(
-                        &mut join_set,
-                        candidate,
-                        Arc::clone(&self.spider_candidates),
-                        Arc::clone(&self.spider_service),
-                        Arc::clone(&self.lock_manager),
-                        self.config.spider_classify_threshold,
-                        budget,
-                    );
+                    let task = self.spawn_spider_candidate(&mut join_set, candidate, budget);
                     if budget.is_extended() {
                         extended_in_flight.insert(task);
                     }
@@ -1576,6 +1604,19 @@ mod tests {
             .await;
 
         assert_eq!(*next_budget.lock().unwrap(), Some(3));
+    }
+
+    #[test]
+    fn should_count_a_run_stopped_for_an_operator_as_failed_and_a_deferred_slot_as_no_run() {
+        assert_eq!(
+            SpiderSlotStatus::StoppedForOperator.crawl_run_class(),
+            Some(CrawlRunClass::Failed)
+        );
+        assert_eq!(
+            SpiderSlotStatus::Truncated.crawl_run_class(),
+            Some(CrawlRunClass::Other)
+        );
+        assert_eq!(SpiderSlotStatus::Deferred.crawl_run_class(), None);
     }
 
     #[test]
@@ -2216,6 +2257,7 @@ mod tests {
         Ok(SpiderRunResult {
             total_links: 40,
             product_urls_count: 3,
+            new_product_urls_count: 0,
             product_pattern: Some("/product/".to_string()),
             completion,
             pending_url_pattern_review: None,
@@ -2320,6 +2362,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
@@ -2418,6 +2461,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
@@ -2484,6 +2528,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
@@ -3246,6 +3291,7 @@ mod tests {
         SpiderRunResult {
             total_links: 4_000,
             product_urls_count: 1_200,
+            new_product_urls_count: 0,
             product_pattern: Some("/product/".to_string()),
             completion,
             pending_url_pattern_review: None,
@@ -3639,6 +3685,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,

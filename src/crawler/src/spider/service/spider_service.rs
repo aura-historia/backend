@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
+use crate::spider::classification::url_metadata::UrlClass;
 use crate::spider::classification::url_metadata_repository::{
     DiscoveredUrl, SpiderUrlRecord, UrlMetadataRepository,
 };
@@ -44,6 +44,8 @@ use thiserror::Error;
 pub struct SpiderRunResult {
     pub total_links: usize,
     pub product_urls_count: usize,
+    /// Of `product_urls_count`, the product URLs the run stored for the first time.
+    pub new_product_urls_count: usize,
     pub product_pattern: Option<String>,
     pub completion: CrawlCompletion,
     /// The pending URL-pattern review the crawl stopped classifying for. Its
@@ -497,7 +499,7 @@ impl SpiderServiceImpl {
                 &mut state.url_store_wait,
             )
             .await?;
-        record_stored_products(&stored, &mut state.stored_product_pages);
+        state.record_stored_products(&stored);
         match &mut state.url_pattern_review_wait {
             Some(wait) => wait.stored_pages.append(&mut state.page_buffer),
             None => state.page_buffer.clear(),
@@ -547,7 +549,7 @@ impl SpiderServiceImpl {
                     &mut state.url_store_wait,
                 )
                 .await?;
-            record_stored_products(&stored, &mut state.stored_product_pages);
+            state.record_stored_products(&stored);
         }
         Ok(())
     }
@@ -1189,6 +1191,7 @@ impl SpiderServiceImpl {
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
             product_urls_count: state.products_found(),
+            new_product_urls_count: state.new_products_found(),
             product_pattern,
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
@@ -1261,18 +1264,6 @@ fn record_pattern_matches(
 /// the class, so a page the pattern matches but an operator rejected is no product URL.
 /// Records the product pages a batch stored. A row retired as a duplicate keeps its class but is
 /// no product page of its own: its product is stored under its canonical URL.
-fn record_stored_products(stored: &[SpiderUrlRecord], products: &mut HashSet<Url>) {
-    products.extend(
-        stored
-            .iter()
-            .filter(|record| {
-                record.url_class == UrlClass::ProductListing
-                    && record.disposition != CrawlerDisposition::Duplicate
-            })
-            .map(|record| CrawledUrl::new(record.url.clone()).page_spelling()),
-    );
-}
-
 /// Whether the pattern matches a fetched page among `pages`, as [`record_pattern_matches`]
 /// counts them.
 fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
@@ -1631,6 +1622,7 @@ mod service_tests {
                 last_scraped: None,
                 created: now,
                 updated: now,
+                newly_stored: true,
             })
             .collect()
     }

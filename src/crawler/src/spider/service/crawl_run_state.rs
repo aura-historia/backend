@@ -1,4 +1,6 @@
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
+use crate::spider::classification::url_metadata_repository::SpiderUrlRecord;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -23,6 +25,9 @@ pub struct CrawlRunState {
     /// The page spelling of each page the crawl stored as a product URL: a page the pattern
     /// matches unless storage keeps it `other`, such as a page an operator rejected.
     pub stored_product_pages: HashSet<url::Url>,
+    /// The page spelling of each product page of `stored_product_pages` the crawl stored for the
+    /// first time.
+    pub new_product_pages: HashSet<url::Url>,
     /// The page spelling of each product page the shop's sitemaps listed, which the crawl
     /// stores without fetching it (`docs/crawler/networking.md#sitemaps`).
     pub sitemap_product_pages: HashSet<url::Url>,
@@ -106,6 +111,7 @@ impl CrawlRunState {
             challenged_pages: 0,
             pattern_matched_pages: HashSet::new(),
             stored_product_pages: HashSet::new(),
+            new_product_pages: HashSet::new(),
             sitemap_product_pages: HashSet::new(),
             pattern,
             classification_done,
@@ -123,6 +129,26 @@ impl CrawlRunState {
     /// How many product URLs the crawl stored, each page once.
     pub fn products_found(&self) -> usize {
         self.stored_product_pages.len()
+    }
+
+    /// How many of [`products_found`](Self::products_found) the crawl stored for the first time.
+    pub fn new_products_found(&self) -> usize {
+        self.new_product_pages.len()
+    }
+
+    /// Counts the product pages among `stored`, the rows a batch of the crawl's URLs was stored
+    /// as; a page retired as a duplicate of another is none.
+    pub fn record_stored_products(&mut self, stored: &[SpiderUrlRecord]) {
+        for record in stored.iter().filter(|record| {
+            record.url_class == UrlClass::ProductListing
+                && record.disposition != CrawlerDisposition::Duplicate
+        }) {
+            let page = CrawledUrl::new(record.url.clone()).page_spelling();
+            if record.newly_stored {
+                self.new_product_pages.insert(page.clone());
+            }
+            self.stored_product_pages.insert(page);
+        }
     }
 
     /// Counts a page the crawl fetched and adds it to the inference sample while the sample
@@ -255,6 +281,34 @@ mod tests {
             state.inference_sample,
             ["https://antique.example/products/2"]
         );
+    }
+
+    fn stored(path: &str, url_class: UrlClass, newly_stored: bool) -> SpiderUrlRecord {
+        let now = time::OffsetDateTime::now_utc();
+        SpiderUrlRecord {
+            listing_source_id: listing_source_core::ListingSourceId::new(),
+            url: page(path).url.as_url().clone(),
+            url_class,
+            disposition: CrawlerDisposition::Active,
+            last_scraped_hash: None,
+            last_scraped: None,
+            created: now,
+            updated: now,
+            newly_stored,
+        }
+    }
+
+    #[test]
+    fn should_count_as_new_only_the_product_pages_stored_for_the_first_time() {
+        let mut state = state_with_pattern(Some("/products/"));
+        state.record_stored_products(&[
+            stored("/products/1", UrlClass::ProductListing, true),
+            stored("/products/2", UrlClass::ProductListing, false),
+            stored("/about", UrlClass::Other, true),
+        ]);
+        state.record_stored_products(&[stored("/products/1/", UrlClass::ProductListing, false)]);
+
+        assert_eq!((state.products_found(), state.new_products_found()), (2, 1));
     }
 
     #[test]
