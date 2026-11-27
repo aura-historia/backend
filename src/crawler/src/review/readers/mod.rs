@@ -5,6 +5,7 @@
 //! they read the same database under the same review agents' decision policy.
 
 mod console_overview;
+mod held_removals;
 mod listing_source_detail;
 mod listing_source_overview;
 mod persisted_row;
@@ -15,6 +16,7 @@ mod source_metrics;
 mod source_product_urls;
 
 pub use console_overview::ConsoleOverviewReader;
+pub use held_removals::HeldRemovalReader;
 pub use listing_source_detail::ListingSourceDetailReader;
 pub use listing_source_overview::{
     IdentityConflictedSource, IdentityConflicts, ListingSourceOverviewReader, ListingSourceQuery,

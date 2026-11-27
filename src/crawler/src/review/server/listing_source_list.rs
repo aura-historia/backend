@@ -1,6 +1,7 @@
 //! The console's ListingSource reads: `GET /api/listing_sources`, the overview one window at a time
 //! with server-side filters, search and order, `GET /api/listing-sources/{id}`, one ListingSource
-//! with its live configuration, and `GET /api/overview`, the counts of the first page. The contract
+//! with its live configuration, `GET /api/listing-sources/{id}/held-removals`, the URLs whose
+//! removal the mass-removal guard holds, and `GET /api/overview`, the counts of the first page. The contract
 //! is in `docs/crawler/operations.md` (review service).
 
 use super::query_params::{list_window, named, reject_unknown, search_term, sort_direction};
@@ -17,6 +18,15 @@ const LIST_PARAMETERS: [&str; 8] = [
 ];
 const DETAIL_PREFIX: &str = "/api/listing-sources/";
 const REVIEWS_SUFFIX: &str = "/reviews";
+const HELD_REMOVALS_SUFFIX: &str = "/held-removals";
+const HELD_REMOVAL_PARAMETERS: [&str; 2] = ["limit", "offset"];
+
+/// Which list of a ListingSource's page a request reads.
+enum SourcePageRead {
+    Detail,
+    Reviews,
+    HeldRemovals,
+}
 
 impl ReviewServer {
     /// One window of the ListingSource overview, as the query of `request` asks for it.
@@ -31,8 +41,8 @@ impl ReviewServer {
         }
     }
 
-    /// Answers `GET /api/listing-sources/{id}` and `GET /api/listing-sources/{id}/reviews`, or
-    /// `None` for any other request.
+    /// Answers `GET /api/listing-sources/{id}`, `GET /api/listing-sources/{id}/reviews` and
+    /// `GET /api/listing-sources/{id}/held-removals`, or `None` for any other request.
     pub(super) async fn route_listing_source_page(
         &self,
         request: &ParsedRequest<'_>,
@@ -41,9 +51,12 @@ impl ReviewServer {
         if request.method != "GET" {
             return None;
         }
-        let (id, reviews) = match rest.strip_suffix(REVIEWS_SUFFIX) {
-            Some(id) => (id, true),
-            None => (rest, false),
+        let (id, read) = if let Some(id) = rest.strip_suffix(REVIEWS_SUFFIX) {
+            (id, SourcePageRead::Reviews)
+        } else if let Some(id) = rest.strip_suffix(HELD_REMOVALS_SUFFIX) {
+            (id, SourcePageRead::HeldRemovals)
+        } else {
+            (rest, SourcePageRead::Detail)
         };
         if id.contains('/') {
             return None;
@@ -54,11 +67,41 @@ impl ReviewServer {
                 &json!({ "error": "invalid ListingSource id" }),
             ));
         };
-        Some(if reviews {
-            self.source_review_list(listing_source_id, request).await
-        } else {
-            self.listing_source_detail(listing_source_id).await
+        Some(match read {
+            SourcePageRead::Detail => self.listing_source_detail(listing_source_id).await,
+            SourcePageRead::Reviews => self.source_review_list(listing_source_id, request).await,
+            SourcePageRead::HeldRemovals => {
+                self.held_removal_list(listing_source_id, request).await
+            }
         })
+    }
+
+    /// One window of the URLs whose removal the mass-removal guard holds for the ListingSource;
+    /// 404 for an unknown ListingSource.
+    async fn held_removal_list(
+        &self,
+        listing_source_id: ListingSourceId,
+        request: &ParsedRequest<'_>,
+    ) -> HttpResponse {
+        let window = match reject_unknown(&request.query, &HELD_REMOVAL_PARAMETERS)
+            .and_then(|()| list_window(&request.query))
+        {
+            Ok(window) => window,
+            Err(error) => return HttpResponse::json(400, &json!({ "error": error })),
+        };
+        match self
+            .listing_sources
+            .find_listing_source(listing_source_id)
+            .await
+        {
+            Ok(Some(_)) => {}
+            Ok(None) => return source_not_found(listing_source_id),
+            Err(error) => return read_error(error),
+        }
+        match self.held_removals.list(listing_source_id, window).await {
+            Ok(page) => HttpResponse::json(200, &page),
+            Err(error) => read_error(error),
+        }
     }
 
     async fn listing_source_detail(&self, listing_source_id: ListingSourceId) -> HttpResponse {

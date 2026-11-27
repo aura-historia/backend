@@ -48,7 +48,9 @@ pub use listing_source_detail::{
     NonProductLoopHold, UrlPatternOverview,
 };
 pub use listing_source_filter::{STALE_AFTER_DAYS, SourceActivity, SourceSort, SourceStatus};
-pub use listing_source_overview::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
+pub use listing_source_overview::{
+    CrawlStateOverview, HeldRemovalUrl, ListingSourceOverview, UrlErrorKindCount,
+};
 pub use page_classification::{
     ClassifiedPage, MAX_PAGE_VERDICT_REASON_CHARS, PageClassification, PageClassificationError,
     PageVerdict, PageVerdictReason,

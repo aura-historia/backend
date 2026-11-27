@@ -17,9 +17,9 @@ use crate::review::model::{
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
-    ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
-    QualificationQueueReader, ReviewQueueReader, SourceEventReader, SourceProductUrlReader,
-    persisted_row_failure,
+    ConsoleOverviewReader, HeldRemovalReader, ListingSourceDetailReader,
+    ListingSourceOverviewReader, QualificationQueueReader, ReviewQueueReader, SourceEventReader,
+    SourceProductUrlReader, persisted_row_failure,
 };
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -81,6 +81,7 @@ pub struct ReviewServer {
     overview: ConsoleOverviewReader,
     source_events: SourceEventReader,
     source_product_urls: SourceProductUrlReader,
+    held_removals: HeldRemovalReader,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
     /// The console's cap on live matrix refreshes, candidate evaluations and page projections.
@@ -109,6 +110,7 @@ impl ReviewServer {
             review_queue,
             listing_sources,
             source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
+            held_removals: HeldRemovalReader::new(repository.pool().clone()),
             repository,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),

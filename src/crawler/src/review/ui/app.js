@@ -1815,7 +1815,8 @@ function sourcePageId() {
 function renderSourcePage() {
     const id = sourcePageId();
     if (!sourcePage || sourcePage.id !== id) {
-        sourcePage = {id, detail: undefined, detailFailure: '', notFound: false, reviews: undefined, reviewsTotal: 0, reviewsFailure: '', reviewsLoading: false};
+        sourcePage = {id, detail: undefined, detailFailure: '', notFound: false, reviews: undefined, reviewsTotal: 0, reviewsFailure: '', reviewsLoading: false,
+            held: {items: undefined, total: 0, failure: '', loading: false, shown: HELD_REMOVALS_PAGE}};
     }
     showPage(sourcePageHtml());
 }
@@ -1836,8 +1837,60 @@ async function loadSourcePage() {
         if (error.status === 404) page.notFound = true;
         else page.detailFailure = apiErrorMessage(error);
     }).then(updateSourcePage);
-    await Promise.all([detailLoaded, loadSourceReviews()]);
+    await Promise.all([detailLoaded.then(loadHeldRemovals), loadSourceReviews()]);
     noteRefresh('source', page.detailFailure || page.reviewsFailure || null);
+}
+
+// The URLs whose removal the mass-removal guard holds, read while the source holds any; the
+// reader widens the window with "Show more", which a refresh keeps.
+const HELD_REMOVALS_PAGE = 8;
+
+async function loadHeldRemovals() {
+    const page = sourcePage;
+    if (!page?.detail) return;
+    const held = page.held;
+    if (!(Number(page.detail.held_removal_urls) > 0)) {
+        page.held = {...held, items: [], total: 0, failure: ''};
+        return;
+    }
+    held.loading = true;
+    try {
+        const answer = await api(`/api/listing-sources/${encodeURIComponent(page.id)}/held-removals?limit=${Math.min(held.shown, 200)}`);
+        held.items = answer.items;
+        held.total = answer.total;
+        held.failure = '';
+    } catch (error) {
+        held.failure = apiErrorMessage(error);
+    }
+    held.loading = false;
+    updateSourcePage();
+}
+
+function showMoreHeldRemovals() {
+    if (!sourcePage) return;
+    sourcePage.held.shown += 50;
+    loadHeldRemovals();
+}
+
+// The held URLs with what their listing was last captured as, so the reviewer sees what a
+// confirmation would remove before giving it.
+function renderHeldRemovals(source) {
+    const held = sourcePage?.held;
+    if (!held || !(Number(source.held_removal_urls) > 0)) return '';
+    const title = `<div class="failing-urls-title">Held removals · ${formatCount(held.total || source.held_removal_urls)}</div>`;
+    if (held.failure) return `<div class="failing-urls">${title}<p class="small muted">Not read: ${escapeHtml(held.failure)}</p></div>`;
+    if (held.items === undefined) return `<div class="failing-urls">${title}<p class="small muted">Loading…</p></div>`;
+    const items = held.items.map(item => {
+        const path = relativeToOrigin(item.url, urlOrigin(item.url));
+        const target = isHttpUrl(item.url) ? `<a class="mono" href="${escapeHtmlAttr(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(path)}</a>` : `<span class="mono">${escapeHtml(path)}</span>`;
+        const what = [item.title ? `“${item.title}”` : 'no captured title', item.status_code ? `HTTP ${item.status_code}` : ''].filter(Boolean).join(' · ');
+        const when = item.held_since ? ` · held ${timeBadge(item.held_since, 'Last held')}` : '';
+        return `<li>${target}<span class="failing-url-kind">${escapeHtml(what)}${when}</span></li>`;
+    }).join('');
+    const reason = held.items[0]?.message ? `<p class="small muted">${escapeHtml(held.items[0].message)}</p>` : '';
+    const more = held.total > held.items.length
+        ? `<button class="btn-link small" onclick="showMoreHeldRemovals()" type="button"${held.loading ? ' disabled' : ''}>Show more (${formatCount(held.total - held.items.length)} not shown)</button>` : '';
+    return `<div class="failing-urls">${title}${reason}<ul>${items}</ul>${more}</div>`;
 }
 
 async function loadSourceReviews() {
@@ -1998,6 +2051,7 @@ function renderSourceHealth(source) {
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
+        ${renderHeldRemovals(source)}
         ${renderSourceLabelHistory(source)}
         ${renderQualificationHistory(source)}
         <dl class="kv">

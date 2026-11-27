@@ -14,8 +14,9 @@ use crawler::review::model::{
     UrlPatternDecision,
 };
 use crawler::review::readers::{
-    ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
-    ListingSourceQuery, ReviewQuery, ReviewQueueReader, SourceEventReader,
+    ConsoleOverviewReader, HeldRemovalReader, ListingSourceDetailReader,
+    ListingSourceOverviewReader, ListingSourceQuery, ReviewQuery, ReviewQueueReader,
+    SourceEventReader,
 };
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -1695,4 +1696,98 @@ async fn should_filter_listing_sources_by_their_label() {
         vec![retired]
     );
     assert!(source_ids(&list_sources(&pool, with(SourceLabel::Other)).await).is_empty());
+}
+
+/// A source's held removals list the URLs its overview counts as held, the most recently held
+/// first, in windows, and leave out other failures, other sources and inactive URLs.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_the_held_removals_of_a_listing_source() {
+    let pool = get_postgres_client().await;
+    let shop = source(&pool, "Shop", "shop.example.com", true).await;
+    let other = source(&pool, "Other", "other.example.com", true).await;
+    for (id, path, kind, held_ago, disposition, title) in [
+        (
+            shop,
+            "/older",
+            "MassRemovalHeld",
+            "3 hours",
+            "ACTIVE",
+            Some("Oak chair"),
+        ),
+        (
+            shop,
+            "/newer",
+            "MassRemovalHeld",
+            "1 hour",
+            "DORMANT_SOLD",
+            None,
+        ),
+        (shop, "/failing", "Timeout", "1 hour", "ACTIVE", None),
+        (
+            shop,
+            "/duplicate",
+            "MassRemovalHeld",
+            "1 hour",
+            "DUPLICATE",
+            None,
+        ),
+        (
+            other,
+            "/elsewhere",
+            "MassRemovalHeld",
+            "1 hour",
+            "ACTIVE",
+            None,
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO listing_source_urls
+             (listing_source_id, url, url_class, raw_source_record_key, crawler_disposition,
+              last_error_kind, last_error_message, last_status_code, last_scraped,
+              last_captured_title)
+             VALUES ($1, $2, 'product', $2, $3, $4, 'held: 12 of the 12 pages would go', 404,
+                     NOW() - INTERVAL '{held_ago}', $5)"
+        )))
+        .bind(id.as_uuid())
+        .bind(format!("https://shop.example.com{path}"))
+        .bind(disposition)
+        .bind(kind)
+        .bind(title)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let reader = HeldRemovalReader::new(pool.clone());
+
+    let all = reader.list(shop, ListWindow::default()).await.unwrap();
+    let second = reader.list(shop, window(1, 1)).await.unwrap();
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .find_listing_source(shop)
+        .await
+        .unwrap()
+        .expect("the source exists");
+
+    assert_eq!(all.total, overview.held_removal_urls);
+    assert_eq!(
+        all.items
+            .iter()
+            .map(|url| url.url.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "https://shop.example.com/newer",
+            "https://shop.example.com/older"
+        ]
+    );
+    assert_eq!(all.items[1].title.as_deref(), Some("Oak chair"));
+    assert_eq!(all.items[1].status_code, Some(404));
+    assert!(
+        all.items[1]
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("12 of the 12")),
+        "{:?}",
+        all.items[1].message
+    );
+    assert_eq!((second.total, second.items.len()), (2, 1));
+    assert_eq!(second.items[0].url, "https://shop.example.com/older");
 }

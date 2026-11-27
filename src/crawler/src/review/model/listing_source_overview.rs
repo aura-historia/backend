@@ -89,6 +89,23 @@ pub struct ListingSourceOverview {
     pub crawl_state: CrawlStateOverview,
 }
 
+/// A product URL whose removal the mass-removal guard held back, with what its listing was last
+/// captured as, so an operator sees which listings a confirmation would remove.
+#[derive(Debug, Serialize)]
+pub struct HeldRemovalUrl {
+    pub url: String,
+    /// When the guard last held it: it records a held URL as scraped without a capture.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub held_since: Option<time::OffsetDateTime>,
+    /// The title of the URL's last product capture; `None` without one.
+    pub title: Option<String>,
+    pub source_listing_id: Option<String>,
+    /// The HTTP status the held scrape answered, such as the 404 of a page that is gone.
+    pub status_code: Option<i32>,
+    /// The guard's message, cut to 200 characters.
+    pub message: Option<String>,
+}
+
 /// How many product URLs of a ListingSource last ended with one error kind.
 #[derive(Debug, Serialize)]
 pub struct UrlErrorKindCount {
