@@ -289,7 +289,7 @@ function queueKeyOfList() {
 
 function listRouteKind() {
     if (route.name === 'reviews') return 'reviews';
-    return route.name === 'sources' || route.name === 'overview' ? 'sources' : null;
+    return route.name === 'sources' ? 'sources' : null;
 }
 
 // ───────────────────────────── Shared pieces ─────────────────────────────
@@ -515,6 +515,18 @@ function updateNav() {
 function renderOverviewTiles() {
     const tiles = document.getElementById('overviewTiles');
     if (tiles) tiles.innerHTML = overviewTilesHtml();
+    const metrics = document.getElementById('overviewMetrics');
+    if (metrics) metrics.innerHTML = overviewMetricsHtml();
+}
+
+// The Overview: what the crawler does now and what needs a human, how well it keeps up, and the
+// last day's activity. Every number that links opens a list of exactly what it counts.
+function renderOverviewPage() {
+    showPage(`<div id="overviewTiles">${overviewTilesHtml()}</div>
+      <div class="overview-grid">
+        <div id="overviewMetrics">${overviewMetricsHtml()}</div>
+        <div class="card" id="activityFeed">${activityHtml()}</div>
+      </div>`);
 }
 
 // The counts at the reviewer's previous visit, kept in this browser, so a tile can say how it
@@ -539,7 +551,8 @@ function countsSnapshot() {
         at: Date.now(),
         needs_attention: overviewCounts.sources.needs_attention,
         pending: pendingReviewCount(),
-        waiting_for_human: overviewCounts.reviews.waiting_for_human
+        waiting_for_human: overviewCounts.reviews.waiting_for_human,
+        stale: overviewCounts.sources.stale
     };
 }
 
@@ -604,11 +617,142 @@ function overviewTilesHtml() {
       ${tile('info', '#sources&activity=crawling', sources?.crawling_now, 'Crawling now', {live: true})}
       ${tile('info', '#sources&activity=scraping', sources?.scraping_now, 'Scraping now', {live: true})}
       ${needing}
+      ${tile('warn', '#sources&status=stale&sort=idle_since&dir=asc', sources?.stale, 'Stale sources', {sub: `crawl-enabled, no scrape or crawl for ${overviewCounts?.freshness?.stale_after_days ?? 3} days`, delta: 'stale'})}
       ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews ? pending : undefined, 'Pending reviews', {sub: pendingSub, delta: 'pending'})}
       ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'none expected: the agents park what they cannot finish', delta: 'waiting_for_human'}) : ''}
       ${overviewCounts?.agent_mode ? tile('neutral', '#reviews&waiting=parked', reviews.parked, 'Parked', {sub: `${formatCount(sources?.parked || 0)} sources · the agents retry them later`}) : ''}
       ${reviews?.held_for_non_product_loop ? tile('bad', '#reviews&waiting=non_product_loop', reviews.held_for_non_product_loop, 'URL pattern loops', {sub: 'held for a human: non-product pages keep opening reviews'}) : ''}
     </div>`;
+}
+
+// ───────────────────────────── Overview metrics ─────────────────────────────
+// How well the crawler keeps up, from `GET /api/overview`, and the longest idle stale sources,
+// from the `stale` list. A number links only where a list shows exactly what it counts.
+const LONGEST_IDLE_SHOWN = 5;
+let staleSources = {items: undefined, total: 0, failure: ''};
+
+async function loadStaleSources() {
+    try {
+        const answer = await api(`/api/listing_sources?status=stale&sort=idle_since&dir=asc&limit=${LONGEST_IDLE_SHOWN}`);
+        staleSources = {items: answer.items, total: answer.total, failure: ''};
+    } catch (error) {
+        staleSources = {...staleSources, failure: apiErrorMessage(error)};
+    }
+    if (route.name === 'overview') renderOverviewTiles();
+}
+
+// A span of seconds in the two largest units that say it: 45s, 12m, 5h 20m, 3d 4h.
+function durationText(seconds) {
+    if (seconds === null || seconds === undefined) return '—';
+    const total = Math.max(0, Math.round(Number(seconds)));
+    if (total < 60) return `${total}s`;
+    const minutes = Math.floor(total / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return hours % 24 && days < 10 ? `${days}d ${hours % 24}h` : `${days}d`;
+}
+
+// One number with its label and, optionally, a line under it; a link when `href` names the list
+// that shows exactly what it counts.
+function metric(value, label, {sub = '', href = '', title = '', tone = ''} = {}) {
+    const zero = value === 0 || value === '0';
+    const body = `<span class="metric-value${zero ? ' zero' : ''}${tone ? ` tone-${tone}` : ''}">${escapeHtml(value)}</span><span class="metric-label">${escapeHtml(label)}</span>${sub ? `<span class="metric-sub">${sub}</span>` : ''}`;
+    const titleAttr = title ? ` title="${escapeHtmlAttr(title)}"` : '';
+    return href
+        ? `<a class="metric metric-link" href="${escapeHtmlAttr(href)}"${titleAttr}>${body}</a>`
+        : `<div class="metric"${titleAttr}>${body}</div>`;
+}
+
+function metricCard(title, note, body, link = '') {
+    return `<section class="card metric-card"><div class="card-head"><h2>${escapeHtml(title)}</h2>${link || `<span class="small muted">${escapeHtml(note)}</span>`}</div><div class="card-body">${body}</div></section>`;
+}
+
+function overviewMetricsHtml() {
+    if (overviewCounts === undefined) return `<div class="card">${stateBlock('loading', 'Loading')}</div>`;
+    if (overviewCounts === null) return '';
+    const o = overviewCounts;
+    return `<div class="metric-cards">${throughputCardHtml(o.throughput)}${freshnessCardHtml(o.freshness, o.sources)}${backlogCardHtml(o.backlog)}${failuresCardHtml(o.failures, o.sources)}${reviewFlowCardHtml(o.reviews, o.review_flow)}</div>`;
+}
+
+function throughputCardHtml(t) {
+    const hourly = Math.round(t.pages_scraped_24h / 24);
+    const pace = t.pages_scraped_1h < hourly * 0.5 && t.pages_scraped_24h > 0 ? 'warn' : '';
+    return metricCard('Throughput', 'last hour · last 24 h', `<div class="metric-grid">
+        ${metric(formatCount(t.pages_scraped_1h), 'Pages scraped / h', {sub: `${formatCount(t.pages_scraped_24h)} in 24 h · ⌀ ${formatCount(hourly)}/h`, tone: pace,
+            title: 'Product pages whose last scrape evaluated them in the window; a page scraped twice counts once'})}
+        ${metric(formatCount(t.crawls_finished_1h), 'Crawls finished / h', {sub: `${formatCount(t.crawls_finished_24h)} in 24 h`,
+            title: 'Sources whose last spider run, of any outcome, ended in the window'})}
+        ${metric(formatCount(t.product_urls_found_24h), 'New product URLs, 24 h', {title: 'Product URLs the spider found in the last day'})}
+      </div>`);
+}
+
+function freshnessRow(label, d) {
+    if (!d) return `<tr><th scope="row">${escapeHtml(label)}</th><td colspan="4" class="muted">no source yet</td></tr>`;
+    return `<tr><th scope="row">${escapeHtml(label)}<span class="metric-sub">${pluralize(d.sources, 'source', 'sources')}</span></th>
+        <td>${durationText(d.median_secs)}</td><td>${durationText(d.mean_secs)}</td><td>${durationText(d.p90_secs)}</td><td>${durationText(d.max_secs)}</td></tr>`;
+}
+
+function longestIdleHtml(days) {
+    if (staleSources.failure) return `<div class="banner banner-bad" role="alert"><span class="banner-kind">Not read</span><div class="banner-body">${escapeHtml(staleSources.failure)}</div></div>`;
+    if (staleSources.items === undefined) return '';
+    if (!staleSources.items.length) return `<p class="small muted">No crawl-enabled source has been idle for ${days} days.</p>`;
+    const rows = staleSources.items.map(source => {
+        const idle = source.idle_since ? elapsedTime(source.idle_since).replace(' ago', '') : 'never worked';
+        const title = source.idle_since ? `Last scrape or crawl ${formatDate(source.idle_since)}` : 'Never scraped or crawled';
+        return `<li><a href="${escapeHtmlAttr(sourceHash(source.listing_source_id))}">${escapeHtml(listingSourceName(source))}</a><span class="idle-age" title="${escapeHtmlAttr(title)}">${escapeHtml(idle)}</span></li>`;
+    }).join('');
+    return `<div class="idle-list"><div class="failing-urls-title">Longest idle</div><ul>${rows}</ul></div>`;
+}
+
+function freshnessCardHtml(f, sources) {
+    const link = `<a class="small" href="#sources&status=stale&sort=idle_since&dir=asc">${escapeHtml(pluralize(sources.stale, 'stale source', 'stale sources'))} →</a>`;
+    return metricCard('Freshness', '', `<table class="metric-table"><thead><tr><th scope="col">Time since…</th><th scope="col">Median</th><th scope="col">Mean</th><th scope="col">p90</th><th scope="col">Max</th></tr></thead>
+        <tbody>${freshnessRow('Last scraped page', f.since_last_scrape)}${freshnessRow('Last crawl', f.since_last_crawl)}</tbody></table>
+        ${longestIdleHtml(f.stale_after_days)}`, link);
+}
+
+function backlogCardHtml(b) {
+    return metricCard('Backlog', 'crawl-enabled sources', `<div class="metric-grid two">
+        ${metric(formatCount(b.pages_not_scraped_for_a_day), 'Pages not scraped for over a day', {tone: b.pages_not_scraped_for_a_day ? 'warn' : '', title: 'The daily scrape is behind on these product pages'})}
+        ${metric(formatCount(b.pages_never_scraped), 'Pages never scraped', {title: 'Includes the pages of sources that wait for their first product schema'})}
+        ${metric(formatCount(b.rate_limited_sources), 'Rate-limited sources', {title: "A shop's rate limit holds their next crawl back right now"})}
+        ${metric(formatCount(b.scrape_paused_sources), 'Scrapes paused', {title: 'The scraper circuit pauses these sources after repeated failures'})}
+      </div>`);
+}
+
+// The error kinds of one kind of failure as bars of one hue, longest first, each worded.
+function failureBarsHtml(title, href, total, kinds) {
+    const head = `<div class="failure-head"><span class="failing-urls-title">${escapeHtml(title)}</span><a class="small" href="${escapeHtmlAttr(href)}">${escapeHtml(pluralize(total, 'source', 'sources'))} →</a></div>`;
+    if (!kinds.length) return `${head}<p class="small muted">None failing.</p>`;
+    const most = Math.max(...kinds.map(kind => kind.sources));
+    const rows = kinds.slice(0, 6).map(kind => {
+        const label = kind.error_kind ? describeFailure(kind.error_kind).label : 'No kind recorded';
+        const width = Math.max(4, Math.round(kind.sources / most * 100));
+        return `<li title="${escapeHtmlAttr(`${label}: ${pluralize(kind.sources, 'source', 'sources')}`)}"><span class="bar-label">${escapeHtml(label)}</span><span class="bar-track"><span class="bar" style="width:${width}%"></span></span><span class="bar-value">${formatCount(kind.sources)}</span></li>`;
+    }).join('');
+    const rest = kinds.length > 6 ? `<p class="small muted">and ${pluralize(kinds.length - 6, 'other kind', 'other kinds')}</p>` : '';
+    return `${head}<ul class="bar-list">${rows}</ul>${rest}`;
+}
+
+function failuresCardHtml(failures, sources) {
+    return metricCard('Failures', 'by error kind', `<div class="stack">
+        ${failureBarsHtml('Failing to scrape', '#sources&status=failing', sources.failing_to_scrape, failures.scrape)}
+        ${failureBarsHtml('Last crawl failed', '#sources&status=crawl_failing', sources.crawl_failing, failures.crawl)}
+      </div>`);
+}
+
+function reviewFlowCardHtml(reviews, flow) {
+    const oldest = reviews.oldest_pending ? elapsedTime(reviews.oldest_pending).replace(' ago', '') : '—';
+    const net = flow.opened_24h - flow.approved_24h - flow.rejected_24h;
+    return metricCard('Review queue', 'crawl-enabled sources', `<div class="metric-grid two">
+        ${metric(oldest, 'Oldest pending', {href: '#reviews&status=PENDING_REVIEW', sub: reviews.median_pending_age_secs === null ? '' : `median ${durationText(reviews.median_pending_age_secs)}`,
+            title: reviews.oldest_pending ? `Opened ${formatDate(reviews.oldest_pending)}` : 'Nothing pending', tone: reviews.oldest_pending ? 'warn' : ''})}
+        ${metric(formatCount(flow.opened_24h), 'Opened, 24 h', {sub: `${net > 0 ? '+' : net < 0 ? '−' : '±'}${formatCount(Math.abs(net))} net`, title: 'Reviews opened minus those approved or rejected in the last day'})}
+        ${metric(formatCount(flow.approved_24h + flow.rejected_24h), 'Decided, 24 h', {sub: `${formatCount(flow.approved_24h)} approved · ${formatCount(flow.rejected_24h)} rejected`})}
+        ${metric(durationText(flow.median_decision_secs_7d), 'Median time to decide', {sub: 'last 7 days', title: 'From opening to approval or rejection'})}
+      </div>`);
 }
 
 // ───────────────────────────── Recent activity ─────────────────────────────
@@ -702,11 +846,11 @@ const lists = {
 };
 
 const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled'],
-    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked']];
+    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human'], ['parked', 'Parked'], ['stale', 'Stale']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
-const SOURCE_SORTS = {attention: 'desc', name: 'asc', pending_reviews: 'desc', last_successful_scrape: 'desc', next_crawl_at: 'desc'};
+const SOURCE_SORTS = {attention: 'desc', name: 'asc', pending_reviews: 'desc', last_successful_scrape: 'desc', next_crawl_at: 'desc', idle_since: 'asc'};
 const REVIEW_SORTS = {queue: 'asc', created: 'desc', updated: 'desc', source: 'asc'};
 
 function listParameter(name) {
@@ -825,9 +969,7 @@ function renderListPage() {
         <table class="data-table" id="listTable"></table>
         <div class="pager" id="listPager" hidden></div>
       </div>`;
-    showPage(route.name === 'overview'
-        ? `<div id="overviewTiles">${overviewTilesHtml()}</div><div class="overview-grid">${table}<div class="card" id="activityFeed">${activityHtml()}</div></div>`
-        : table);
+    showPage(table);
     renderListBody(kind);
 }
 
@@ -5739,8 +5881,12 @@ function openRoute(next) {
         loadOverview();
         return loadSourcePage();
     }
+    if (next.name === 'overview') {
+        renderOverviewPage();
+        return Promise.all([loadOverview(), loadActivity(), loadStaleSources()]);
+    }
     renderListPage();
-    return Promise.all([loadOverview(), loadList(), next.name === 'overview' ? loadActivity() : null]);
+    return Promise.all([loadOverview(), loadList()]);
 }
 
 function applyRouteFromUrl() {
@@ -5793,7 +5939,7 @@ async function refreshView() {
     refreshTimer = null;
     try {
         const work = [loadOverview()];
-        if (route.name === 'overview') work.push(loadActivity());
+        if (route.name === 'overview') work.push(loadActivity(), loadStaleSources());
         if (listRouteKind()) work.push(loadList());
         else if (route.name === 'source') work.push(loadSourcePage());
         else if (route.name === 'review') work.push(loadRail(), loadQueue());

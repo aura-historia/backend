@@ -611,3 +611,46 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
     .banner:has(.banner-actions + .banner-dismiss) .banner-actions { grid-row: 1; }
     .banner:has(.banner-actions + .banner-dismiss) .banner-dismiss { grid-column: 4; grid-row: 1; }
 }
+
+/* ───────────────────────────── 19. Overview metrics ───────────────────────────── */
+/* Cards of plain numbers beside the activity feed: a number links only to the list that shows
+   exactly what it counts. */
+.metric-cards { columns: 2 340px; column-gap: var(--s-4); }
+.metric-cards > .metric-card { break-inside: avoid; margin-bottom: var(--s-4); }
+.metric-card .card-head h2 { font-size: var(--fs-md); }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--s-3) var(--s-4); }
+.metric-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.metric { display: grid; gap: 2px; align-content: start; min-width: 0; color: inherit; }
+a.metric-link { margin: calc(-1 * var(--s-2)); padding: var(--s-2); border-radius: var(--r-md); text-decoration: none; }
+a.metric-link:hover { background: var(--surface-2); text-decoration: none; }
+a.metric-link .metric-label { color: var(--accent); }
+.metric-value { color: var(--ink); font-size: var(--fs-xl); font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.metric-value.zero { color: var(--muted); }
+.metric-value.tone-warn { color: var(--warn); }
+.metric-label { color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.3; }
+.metric-sub { display: block; color: var(--muted); font-size: var(--fs-xs); font-weight: 400; }
+.metric-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.metric-table th, .metric-table td { padding: 6px var(--s-2); border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.metric-table th:first-child { padding-left: 0; text-align: left; white-space: normal; }
+.metric-table td:last-child, .metric-table th:last-child { padding-right: 0; }
+.metric-table thead th { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; }
+.metric-table tbody th { color: var(--ink-2); font-weight: 500; }
+.metric-table tbody tr:last-child > * { border-bottom: 0; }
+.idle-list { display: grid; gap: var(--s-2); margin-top: var(--s-4); }
+.idle-list ul { display: grid; margin: 0; padding: 0; list-style: none; }
+.idle-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: 5px 0; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.idle-list li:first-child { border-top: 0; }
+.idle-list li a { min-width: 0; overflow: hidden; color: var(--ink); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.idle-age { flex: none; color: var(--warn); font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
+.failure-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-2); }
+/* One series of magnitudes: one hue, thin bars with rounded data-ends, the number in ink beside. */
+.bar-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.bar-list li { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 3.5em; gap: var(--s-2); align-items: center; font-size: var(--fs-sm); }
+.bar-label { overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 8px; border-radius: 0 4px 4px 0; background: var(--surface-2); }
+.bar { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--accent); }
+.bar-value { color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 719px) {
+    .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .bar-list li { grid-template-columns: minmax(0, 8em) minmax(0, 1fr) 3em; }
+}
