@@ -187,7 +187,8 @@ const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
     ) r ON r.listing_source_id = s.listing_source_id
     LEFT JOIN (
         -- The only pass over every URL: the overview reads each other count of URLs from an
-        -- index or from these totals.
+        -- index or from these totals. A time bound is a scalar subquery, which is evaluated
+        -- once per read; written inline, `NOW() - INTERVAL` is evaluated for every URL.
         SELECT listing_source_id,
                COUNT(*) AS product_urls,
                COUNT(*) FILTER (WHERE last_error_kind = $3) AS held_removal_urls,
@@ -198,15 +199,18 @@ const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALIZED (
                    AS identity_conflict_urls,
                MIN(identity_conflict_since) FILTER (
                    WHERE last_error_kind = 'SourceListingIdConflict') AS identity_conflict_since,
-               COUNT(*) FILTER (WHERE page_identity_changed_at > NOW() - INTERVAL '7 days')
+               COUNT(*) FILTER (WHERE page_identity_changed_at > (SELECT NOW() - INTERVAL '7 days'))
                    AS page_identity_changed_urls,
                COUNT(*) FILTER (WHERE last_error_kind IS DISTINCT FROM $3
-                                  AND last_scraped > NOW() - INTERVAL '1 hour') AS scraped_1h,
+                                  AND last_scraped > (SELECT NOW() - INTERVAL '1 hour'))
+                   AS scraped_1h,
                COUNT(*) FILTER (WHERE last_error_kind IS DISTINCT FROM $3
-                                  AND last_scraped > NOW() - INTERVAL '24 hours') AS scraped_24h,
-               COUNT(*) FILTER (WHERE created > NOW() - INTERVAL '24 hours') AS found_24h,
+                                  AND last_scraped > (SELECT NOW() - INTERVAL '24 hours'))
+                   AS scraped_24h,
+               COUNT(*) FILTER (WHERE created > (SELECT NOW() - INTERVAL '24 hours'))
+                   AS found_24h,
                COUNT(*) FILTER (WHERE last_scraped IS NULL) AS never_scraped,
-               COUNT(*) FILTER (WHERE last_scraped <= NOW() - INTERVAL '1 day')
+               COUNT(*) FILTER (WHERE last_scraped <= (SELECT NOW() - INTERVAL '1 day'))
                    AS not_scraped_for_a_day
         FROM listing_source_urls
         WHERE url_class = 'product'
