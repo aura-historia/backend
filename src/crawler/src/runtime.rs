@@ -23,6 +23,7 @@ use crate::scraper::css_selector::product_schema_repository::ListingSourceProduc
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crate::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crate::scraper::scraper_service::{HtmlFetcher, ReqwestHtmlFetcher, ScraperServiceImpl};
+use crate::service::activity_history::ActivityHistoryRepository;
 use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob, CronStop};
 use crate::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
@@ -331,7 +332,8 @@ where
         listing_source_registration,
         raw_capture,
     )
-    .with_stop(cron_stop);
+    .with_stop(cron_stop)
+    .with_activity_history(ActivityHistoryRepository::new(pool.clone()));
     // The audit opens reviews for the review agents to repair, so it runs only where they do.
     let cron_job = if authoring == CrawlerAuthoringMode::Agent {
         cron_job.with_schema_audit(SchemaAudit::new(

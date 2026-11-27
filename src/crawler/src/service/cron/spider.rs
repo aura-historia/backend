@@ -1,4 +1,4 @@
-use super::job::CrawlerCronJob;
+use super::job::{CrawlerCronJob, record_activity};
 use super::metrics::emit_pass_record;
 use crate::CrawlerReviewId;
 use crate::metrics::{CrawlerMetric, MetricRecord};
@@ -6,6 +6,7 @@ use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
+use crate::service::activity_history::{ActivityCounts, CrawlRunClass};
 use crate::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, FAILED_CRAWL_OUTCOME,
     NEEDS_OPERATOR_CRAWL_OUTCOME, RATE_LIMITED_CRAWL_OUTCOME, SPIDER_RECRAWL_INTERVAL,
@@ -310,6 +311,24 @@ enum SpiderSlotStatus {
     RootMoved,
     /// Another spider worker holds the spider ListingSource lock.
     Deferred,
+}
+
+impl SpiderSlotStatus {
+    /// How the activity history counts the run; `None` for a slot that ran no crawl.
+    const fn crawl_run_class(self) -> Option<CrawlRunClass> {
+        match self {
+            Self::Succeeded => Some(CrawlRunClass::Completed),
+            Self::Failed | Self::StoppedForOperator => Some(CrawlRunClass::Failed),
+            Self::Truncated
+            | Self::TruncatedRepeatedly
+            | Self::Stopped
+            | Self::RateLimited
+            | Self::AwaitingReview
+            | Self::ReviewDecided
+            | Self::RootMoved => Some(CrawlRunClass::Other),
+            Self::Deferred => None,
+        }
+    }
 }
 
 struct SpiderSlotOutcome {
@@ -1092,6 +1111,7 @@ impl CrawlerCronJob {
         let spider_candidates = Arc::clone(&self.spider_candidates);
         let spider_service = Arc::clone(&self.spider_service);
         let lock_manager = Arc::clone(&self.lock_manager);
+        let activity_history = self.activity_history.clone();
         let threshold = self.config.spider_classify_threshold;
         let crawl_root_url = candidate.crawl_root.url().to_string();
         let listing_source_id = candidate.listing_source_id;
@@ -1136,6 +1156,16 @@ impl CrawlerCronJob {
                             .await;
                         let status =
                             record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
+                        if let Some(class) = status.crawl_run_class() {
+                            let found = run
+                                .as_ref()
+                                .map_or(0, |result| result.new_product_urls_count);
+                            record_activity(
+                                activity_history.as_deref(),
+                                ActivityCounts::crawl_run(class, found),
+                            )
+                            .await;
+                        }
                         SpiderSlotOutcome {
                             listing_source_id,
                             status,
@@ -1574,6 +1604,19 @@ mod tests {
             .await;
 
         assert_eq!(*next_budget.lock().unwrap(), Some(3));
+    }
+
+    #[test]
+    fn should_count_a_run_stopped_for_an_operator_as_failed_and_a_deferred_slot_as_no_run() {
+        assert_eq!(
+            SpiderSlotStatus::StoppedForOperator.crawl_run_class(),
+            Some(CrawlRunClass::Failed)
+        );
+        assert_eq!(
+            SpiderSlotStatus::Truncated.crawl_run_class(),
+            Some(CrawlRunClass::Other)
+        );
+        assert_eq!(SpiderSlotStatus::Deferred.crawl_run_class(), None);
     }
 
     #[test]
@@ -2214,6 +2257,7 @@ mod tests {
         Ok(SpiderRunResult {
             total_links: 40,
             product_urls_count: 3,
+            new_product_urls_count: 0,
             product_pattern: Some("/product/".to_string()),
             completion,
             pending_url_pattern_review: None,
@@ -2318,6 +2362,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
@@ -2416,6 +2461,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
@@ -2482,6 +2528,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
@@ -3244,6 +3291,7 @@ mod tests {
         SpiderRunResult {
             total_links: 4_000,
             product_urls_count: 1_200,
+            new_product_urls_count: 0,
             product_pattern: Some("/product/".to_string()),
             completion,
             pending_url_pattern_review: None,
@@ -3637,6 +3685,7 @@ mod tests {
                     Ok(SpiderRunResult {
                         total_links: 10,
                         product_urls_count: 5,
+                        new_product_urls_count: 0,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,

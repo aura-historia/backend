@@ -68,6 +68,7 @@ async fn should_insert_and_update_url_for_its_same_owner() {
     assert_eq!(inserted.disposition, CrawlerDisposition::Active);
     assert!(inserted.last_scraped.is_none());
     assert!(inserted.last_scraped_hash.is_none());
+    assert!(inserted.newly_stored, "the first store of the URL");
 
     let updated = repository
         .upsert_link(&listing_source_id, &url, &UrlClass::Other)
@@ -77,6 +78,7 @@ async fn should_insert_and_update_url_for_its_same_owner() {
     assert_eq!(updated.url, url);
     assert_eq!(updated.url_class, UrlClass::Other);
     assert_eq!(updated.disposition, CrawlerDisposition::Active);
+    assert!(!updated.newly_stored, "a URL stored before");
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
     )

@@ -4,13 +4,14 @@
 use super::ListingSourceOverviewReader;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{
-    ConsoleOverview, DailyReviewFlow, PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts,
-    ReviewFlow, SourceCounts,
+    ACTIVITY_HOURS, ActivityHistory, ConsoleOverview, DailyReviewFlow, HourlyActivity,
+    PendingByArtifact, REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts,
 };
 use crate::review::repository::{
     CrawlerReviewRepository, agent_round_binds, held_for_non_product_loop, review_waits_for_human,
 };
 use crate::spider::local_lock::WorkLockScope;
+use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 
 /// Reads the counts of the console's first page under the review agents' decision policy of the
@@ -34,13 +35,14 @@ impl ConsoleOverviewReader {
     }
 
     /// The numbers of all ListingSources and of all reviews: one pass over the ListingSources and
-    /// their URLs, one over their failures, one over the pending reviews and one over the recent
-    /// decisions.
+    /// their URLs, one over their failures, one over the pending reviews, one over the recent
+    /// decisions and one over the last day's hours of the activity history.
     pub async fn overview(&self) -> Result<ConsoleOverview, sqlx::Error> {
         let metrics = self.sources.source_metrics().await?;
         let failures = self.sources.failure_kinds().await?;
         let reviews = self.review_counts().await?;
         let review_flow = self.review_flow().await?;
+        let activity = self.activity_history().await?;
         let health = metrics.health;
         Ok(ConsoleOverview {
             sources: SourceCounts {
@@ -66,7 +68,35 @@ impl ConsoleOverviewReader {
             failures,
             reviews,
             review_flow,
+            activity,
             agent_mode: self.agent_decisions.repair_rounds_cap().is_some(),
+        })
+    }
+
+    /// The last [`ACTIVITY_HOURS`] clock hours of the activity history, at most that many rows
+    /// read by their primary key, and the earliest hour it holds.
+    async fn activity_history(&self) -> Result<ActivityHistory, sqlx::Error> {
+        let rows = sqlx::query(ACTIVITY_HISTORY_SQL)
+            .bind(i32::try_from(ACTIVITY_HOURS - 1).unwrap_or(i32::MAX))
+            .fetch_all(&self.pool)
+            .await?;
+        let recording_since = match rows.first() {
+            Some(row) => row.try_get("recording_since")?,
+            None => None,
+        };
+        let by_hour = rows
+            .iter()
+            .map(hourly_activity)
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .map_err(|hours: Vec<HourlyActivity>| {
+                sqlx::Error::Decode(
+                    format!("{} activity hours instead of {ACTIVITY_HOURS}", hours.len()).into(),
+                )
+            })?;
+        Ok(ActivityHistory {
+            recording_since,
+            by_hour,
         })
     }
 
@@ -118,6 +148,36 @@ impl ConsoleOverviewReader {
         })
     }
 }
+
+/// One row of [`ACTIVITY_HISTORY_SQL`].
+fn hourly_activity(row: &PgRow) -> Result<HourlyActivity, sqlx::Error> {
+    Ok(HourlyActivity {
+        hour: row.try_get("hour")?,
+        pages_scraped: row.try_get("pages_scraped")?,
+        page_scrapes_failed: row.try_get("page_scrapes_failed")?,
+        crawl_runs_completed: row.try_get("crawl_runs_completed")?,
+        crawl_runs_failed: row.try_get("crawl_runs_failed")?,
+        crawl_runs_other: row.try_get("crawl_runs_other")?,
+        product_urls_found: row.try_get("product_urls_found")?,
+    })
+}
+
+/// Every clock hour (UTC) from `$1` hours before the running one to the running one, the oldest
+/// first, with its counts or zeros, and on each row the earliest hour the history holds.
+const ACTIVITY_HISTORY_SQL: &str = "
+    SELECT h.hour,
+           COALESCE(a.pages_scraped, 0) AS pages_scraped,
+           COALESCE(a.page_scrapes_failed, 0) AS page_scrapes_failed,
+           COALESCE(a.crawl_runs_completed, 0) AS crawl_runs_completed,
+           COALESCE(a.crawl_runs_failed, 0) AS crawl_runs_failed,
+           COALESCE(a.crawl_runs_other, 0) AS crawl_runs_other,
+           COALESCE(a.product_urls_found, 0) AS product_urls_found,
+           (SELECT MIN(hour) FROM crawler_activity_hours) AS recording_since
+    FROM generate_series(date_trunc('hour', NOW(), 'UTC') - make_interval(hours => $1),
+                         date_trunc('hour', NOW(), 'UTC'),
+                         INTERVAL '1 hour') AS h(hour)
+    LEFT JOIN crawler_activity_hours a ON a.hour = h.hour
+    ORDER BY h.hour";
 
 /// The reviews opened and decided in each of the last [`REVIEW_FLOW_DAYS`] 24-hour windows,
 /// `_0` the oldest and the last one ending now, in one pass over the reviews of those days. An

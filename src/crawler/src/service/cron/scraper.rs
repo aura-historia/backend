@@ -1,4 +1,4 @@
-use super::job::CrawlerCronJob;
+use super::job::{CrawlerCronJob, record_activity};
 use super::metrics::emit_pass_record;
 use super::stop::CronStop;
 use crate::CrawlerReviewId;
@@ -33,6 +33,7 @@ use crate::scraper::scraper_service::{
 use crate::scraper::shared_redirect::{
     other_urls_needed, shared_redirect_removal, url_keeps_redirecting_to,
 };
+use crate::service::activity_history::ActivityCounts;
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
 };
@@ -314,6 +315,9 @@ impl DeferralReason {
 struct ScrapeBatchOutcome {
     succeeded: usize,
     failed: usize,
+    /// URLs whose scrape ran and neither failed nor waited on a product-schema review: the
+    /// captured, unchanged and removed pages, which the activity history counts as scraped.
+    pages_scraped: usize,
     /// URLs whose page waits on a pending product-schema review, counted apart from `failed`.
     awaiting_schema_review: usize,
     skipped: usize,
@@ -2231,6 +2235,12 @@ async fn scrape_batch_candidates(
         {
             scraped_urls += 1;
         }
+        if candidate_outcome.scraped
+            && !candidate_outcome.errored
+            && candidate_outcome.awaited_schema_review.is_none()
+        {
+            outcome.pages_scraped += 1;
+        }
 
         if candidate_outcome.errored {
             outcome.failed += 1;
@@ -2928,17 +2938,24 @@ impl CrawlerCronJob {
             stop: self.stop.clone(),
             claimed_identities: Arc::default(),
         };
+        let activity_history = self.activity_history.clone();
         let span = tracing::info_span!("scrape_batch", listing_source_id = %listing_source_id);
         join_set.spawn(
             async move {
+                let outcome = ctx
+                    .source_log_context()
+                    .scope(scrape_batch_candidates(candidates, ctx))
+                    .await;
+                record_activity(
+                    activity_history.as_deref(),
+                    ActivityCounts::scrape_batch(outcome.pages_scraped, outcome.failed),
+                )
+                .await;
                 ScheduledScrapeBatchOutcome {
                     listing_source_id,
                     listing_source_name,
                     domain: crawl_host,
-                    outcome: ctx
-                        .source_log_context()
-                        .scope(scrape_batch_candidates(candidates, ctx))
-                        .await,
+                    outcome,
                 }
             }
             .instrument(span),
@@ -4014,6 +4031,10 @@ mod tests {
 
             assert_eq!(outcome.failed, 1);
             assert_eq!(outcome.skipped, 2, "the responsive URLs ran");
+            assert_eq!(
+                outcome.pages_scraped, 2,
+                "the unchanged pages count as scraped, the timeout does not"
+            );
         }
 
         #[tokio::test]

@@ -3,6 +3,7 @@ use super::metrics::PerfCounter;
 use super::stop::CronStop;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
+use crate::service::activity_history::{ActivityCounts, ActivityHistoryRepository};
 use crate::service::listing_source_registration::ListingSourceRegistrationService;
 use crate::service::raw_capture::ProductListingRawCaptureService;
 use crate::service::schema_audit::SchemaAudit;
@@ -29,6 +30,8 @@ pub struct CrawlerCronJob {
     pub(super) stop: CronStop,
     /// The live schema audit, in `agent` authoring mode only.
     pub(super) schema_audit: Option<Arc<SchemaAudit>>,
+    /// Where scraper batches and spider runs add what they did; none in unit tests.
+    pub(super) activity_history: Option<Arc<ActivityHistoryRepository>>,
 }
 
 impl CrawlerCronJob {
@@ -56,7 +59,14 @@ impl CrawlerCronJob {
             scraper_perf: Arc::new(PerfCounter::new(500, "scraper")),
             stop: CronStop::default(),
             schema_audit: None,
+            activity_history: None,
         }
+    }
+
+    /// Adds what each scraper batch and spider run did to `activity_history` as it ends.
+    pub fn with_activity_history(mut self, activity_history: ActivityHistoryRepository) -> Self {
+        self.activity_history = Some(Arc::new(activity_history));
+        self
     }
 
     /// Runs the live schema audit every `schema_audit_interval` next to the other loops.
@@ -181,6 +191,28 @@ impl CrawlerCronJob {
                 false
             }
         }
+    }
+}
+
+/// Adds `counts` to `activity_history` when the job has one. The work it counts is recorded
+/// already, so a failed write is logged and the count lost
+/// (`docs/crawler/operations.md#activity-history`).
+pub(super) async fn record_activity(
+    activity_history: Option<&ActivityHistoryRepository>,
+    counts: ActivityCounts,
+) {
+    let Some(activity_history) = activity_history else {
+        return;
+    };
+    if let Err(error) = activity_history
+        .add(time::OffsetDateTime::now_utc(), counts)
+        .await
+    {
+        warn!(
+            event = "crawler.activity_history.write_failed",
+            error = %error,
+            "Failed to add to the crawler's activity history; the count is lost"
+        );
     }
 }
 

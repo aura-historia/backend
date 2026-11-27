@@ -20,6 +20,9 @@ use crawler::review::readers::{
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::service::activity_history::{
+    ActivityCounts, ActivityHistoryRepository, CrawlRunClass,
+};
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::local_lock::{LocalLockManager, WorkLock, WorkLockScope};
@@ -1063,6 +1066,7 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
     let freshness = counts["freshness"].take();
     let crawl_runs_by_hour = counts["throughput"]["crawl_runs_by_hour"].take();
     let daily_review_flow = counts["review_flow"]["daily"].take();
+    let activity = counts["activity"].take();
     let oldest_pending = counts["reviews"]["oldest_pending"].take();
     let median_pending_age = counts["reviews"]["median_pending_age_secs"].take();
     assert_eq!(
@@ -1102,9 +1106,15 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "median_pending_age_secs": null
             },
             "review_flow": { "daily": null, "median_decision_secs_7d": 0 },
+            "activity": null,
             "agent_mode": true
         })
     );
+    assert!(
+        activity["recording_since"].is_string(),
+        "the hour the migration ran in: {activity}"
+    );
+    assert_eq!(activity["by_hour"].as_array().map(Vec::len), Some(24));
     assert_eq!(freshness["since_last_scrape"], json!(null));
     assert_eq!(freshness["since_last_crawl"]["sources"], 1);
     assert_eq!(freshness["longest_idle"], json!([]));
@@ -1138,6 +1148,119 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         review_ids(&crawled_pending),
         vec![waiting],
         "the pending reviews the header and the Overview count: of crawl-enabled sources"
+    );
+}
+
+/// The clock hour (UTC) `at` falls in.
+fn clock_hour(at: OffsetDateTime) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp(at.unix_timestamp().div_euclid(3600) * 3600)
+        .unwrap_or_else(|error| panic!("{error}"))
+}
+
+/// What the scraper and the spider add to the activity history, summed per UTC clock hour, as the
+/// Overview reads the last day of it; an hour past the retention is deleted by the first write of
+/// a later hour.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_sum_the_activity_added_in_each_clock_hour_and_forget_expired_hours() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let history = ActivityHistoryRepository::new(pool.clone());
+    let this_hour = clock_hour(OffsetDateTime::now_utc());
+    let last_hour = this_hour - time::Duration::hours(1);
+    let add = |at: OffsetDateTime, counts: ActivityCounts| {
+        let history = &history;
+        async move { history.add(at, counts).await.unwrap() }
+    };
+
+    add(
+        this_hour - time::Duration::days(40),
+        ActivityCounts::scrape_batch(9, 9),
+    )
+    .await;
+    add(this_hour, ActivityCounts::scrape_batch(10, 2)).await;
+    add(
+        this_hour + time::Duration::seconds(1),
+        ActivityCounts::scrape_batch(5, 0),
+    )
+    .await;
+    add(
+        last_hour,
+        ActivityCounts::crawl_run(CrawlRunClass::Completed, 4),
+    )
+    .await;
+    add(
+        last_hour + time::Duration::minutes(59) + time::Duration::seconds(59),
+        ActivityCounts::crawl_run(CrawlRunClass::Failed, 0),
+    )
+    .await;
+    add(
+        last_hour,
+        ActivityCounts::crawl_run(CrawlRunClass::Other, 1),
+    )
+    .await;
+
+    let activity = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap()
+        .activity;
+
+    let hour = |at: OffsetDateTime| {
+        activity
+            .by_hour
+            .iter()
+            .find(|entry| entry.hour == at)
+            .copied()
+            .unwrap_or_else(|| panic!("{at} is among the last 24 hours: {activity:?}"))
+    };
+    let now = hour(this_hour);
+    assert_eq!(
+        (now.pages_scraped, now.page_scrapes_failed),
+        (15, 2),
+        "two batches of this hour: {now:?}"
+    );
+    let before = hour(last_hour);
+    assert_eq!(
+        (
+            before.crawl_runs_completed,
+            before.crawl_runs_failed,
+            before.crawl_runs_other,
+            before.product_urls_found,
+            before.pages_scraped
+        ),
+        (1, 1, 1, 5, 0),
+        "three runs of the hour before, one in its last second: {before:?}"
+    );
+    assert_eq!(
+        activity
+            .by_hour
+            .iter()
+            .map(|entry| entry.pages_scraped)
+            .sum::<i64>(),
+        15
+    );
+    assert_eq!(
+        activity
+            .by_hour
+            .windows(2)
+            .map(|pair| pair[1].hour - pair[0].hour)
+            .collect::<Vec<_>>(),
+        vec![time::Duration::hours(1); 23],
+        "24 consecutive clock hours, the oldest first"
+    );
+    let expired: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM crawler_activity_hours WHERE hour < NOW() - INTERVAL '35 days'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(expired, 0, "the hour 40 days ago was deleted");
+    assert!(
+        activity
+            .recording_since
+            .is_some_and(|since| since > this_hour - time::Duration::days(35)),
+        "the earliest hour kept, the expired one gone: {:?}",
+        activity.recording_since
     );
 }
 
