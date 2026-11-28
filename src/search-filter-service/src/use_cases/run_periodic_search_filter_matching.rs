@@ -702,8 +702,11 @@ where
                     filter,
                     window_end,
                     Vec::new(),
-                    true,
-                    TitleChangeHandling::Ignore,
+                    CommitPolicy {
+                        advance_progress: true,
+                        title_changes: TitleChangeHandling::Ignore,
+                    },
+                    &mut [],
                     report,
                 )
                 .await?
@@ -824,11 +827,11 @@ where
                 sources
             }
         };
-        let refs = selected
-            .as_ref()
+        let selected = selected
+            .as_mut()
             .ok_or(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch)?;
         let mut candidates = Vec::new();
-        for reference in refs {
+        for reference in selected.iter() {
             if let Some(source) = eligible_source(reference, &sources, report)? {
                 candidates.push(source);
             }
@@ -844,13 +847,6 @@ where
         let (mut accepted, mut retryable) = self
             .classify_candidates(&decision, &candidates, report)
             .await;
-        if retryable || report.permanent_evaluation_failures > 0 {
-            tracing::warn!(search_filter_id = %filter.search_filter_id, selected = refs.len(),
-                stop_reason = "technical_incomplete", retryable_failures = report.retryable_evaluation_failures,
-                permanent_failures = report.permanent_evaluation_failures,
-                advance_progress = !retryable,
-                "search_filter.periodic_match.incomplete");
-        }
         let mut title_changes = if semantic {
             TitleChangeHandling::Reclassify
         } else {
@@ -862,8 +858,11 @@ where
                     filter,
                     window_end,
                     accepted,
-                    !retryable,
-                    title_changes,
+                    CommitPolicy {
+                        advance_progress: !retryable,
+                        title_changes,
+                    },
+                    selected,
                     report,
                 )
                 .await?
@@ -887,6 +886,13 @@ where
                 }
             }
         };
+        if retryable || report.permanent_evaluation_failures > 0 {
+            tracing::warn!(search_filter_id = %filter.search_filter_id, selected = selected.len(),
+                stop_reason = "technical_incomplete", retryable_failures = report.retryable_evaluation_failures,
+                permanent_failures = report.permanent_evaluation_failures,
+                advance_progress = !retryable,
+                "search_filter.periodic_match.incomplete");
+        }
         Ok(
             if matches!(outcome, FilterOutcome::Completed) && retryable {
                 FilterOutcome::Retryable
@@ -991,8 +997,8 @@ where
         filter: &PeriodicSearchFilterCandidate,
         window_end: OffsetDateTime,
         accepted: Vec<AcceptedCandidate>,
-        advance_progress: bool,
-        title_changes: TitleChangeHandling,
+        policy: CommitPolicy,
+        selected: &mut [ProductListingSearchFilterMatchSourceRef],
         report: &mut FilterAttemptReport,
     ) -> Result<CommitAttempt, RunPeriodicSearchFilterMatchingError> {
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
@@ -1027,7 +1033,14 @@ where
             return Ok(FilterOutcome::AlreadyCovered.into());
         }
         let revalidation = self
-            .revalidate_accepted(&mut tx, accepted, title_changes, report)
+            .revalidate_accepted(
+                &mut tx,
+                filter,
+                accepted,
+                policy.title_changes,
+                selected,
+                report,
+            )
             .await?;
         if !revalidation.title_changed.is_empty() {
             // Rolls back: the caller classifies the changed titles before committing again.
@@ -1050,7 +1063,7 @@ where
                 .await
                 .map_err(match_write_error)?
         };
-        if advance_progress {
+        if policy.advance_progress {
             let progress = self
                 .progress
                 .in_transaction(&mut tx)
@@ -1079,12 +1092,15 @@ where
 
     /// Locks the accepted listings until `tx` ends and keeps each decision whose evidence the
     /// listing still holds, moved to the listing's current event. Enrichment such as an
-    /// embedding advances the current event without changing what was decided.
+    /// embedding advances the current event without changing what was decided. The selection
+    /// follows each kept listing to its current event, so a retried attempt still finds it.
     async fn revalidate_accepted(
         &self,
         tx: &mut U::Tx,
+        filter: &PeriodicSearchFilterCandidate,
         accepted: Vec<AcceptedCandidate>,
         title_changes: TitleChangeHandling,
+        selected: &mut [ProductListingSearchFilterMatchSourceRef],
         report: &mut FilterAttemptReport,
     ) -> Result<Revalidation, RunPeriodicSearchFilterMatchingError> {
         let product_listing_ids = accepted
@@ -1147,17 +1163,19 @@ where
                 continue;
             };
             match (
-                match_evidence_change(&candidate.evidence, current),
+                match_evidence_change(&filter.search, &candidate.evidence, current),
                 title_changes,
             ) {
                 (MatchEvidenceChange::Unchanged, _)
                 | (MatchEvidenceChange::ClassifierTitle, TitleChangeHandling::Ignore) => {
                     report.candidates_revalidated += 1;
+                    follow_listing(selected, reference);
                     candidate.product_match.origin_event_id = current_event_id;
                     candidate.evidence = current.clone();
                     revalidation.current.push(candidate);
                 }
                 (MatchEvidenceChange::ClassifierTitle, TitleChangeHandling::Reclassify) => {
+                    follow_listing(selected, reference);
                     revalidation.title_changed.push(current.clone());
                 }
                 (MatchEvidenceChange::ClassifierTitle, TitleChangeHandling::Drop)
@@ -1172,6 +1190,25 @@ where
 struct AcceptedCandidate {
     product_match: SearchFilterProductListingMatch,
     evidence: ProductListingSearchFilterMatchSource,
+}
+
+/// Points the selection's entry for the listing at its current event.
+fn follow_listing(
+    selected: &mut [ProductListingSearchFilterMatchSourceRef],
+    current: ProductListingSearchFilterMatchSourceRef,
+) {
+    for reference in selected {
+        if reference.product_listing_id == current.product_listing_id {
+            *reference = current;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CommitPolicy {
+    /// False while retryable work remains, so the window is decided again.
+    advance_progress: bool,
+    title_changes: TitleChangeHandling,
 }
 
 /// What a commit does with an accepted listing whose English title changed after its decision.
@@ -2479,8 +2516,11 @@ mod tests {
                 filter,
                 window_end,
                 accepted,
-                advance_progress,
-                TitleChangeHandling::Ignore,
+                CommitPolicy {
+                    advance_progress,
+                    title_changes: TitleChangeHandling::Ignore,
+                },
+                &mut [],
                 report,
             )
             .await?
@@ -2827,6 +2867,68 @@ mod tests {
         assert_eq!(1, report.candidates_accepted);
         assert_eq!(2, report.classification_requests);
         assert_eq!(0, report.candidates_stale);
+    }
+
+    #[tokio::test]
+    async fn should_retry_a_failed_reclassification_at_the_listings_current_event() {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let refs = seed_candidates(&state, 1);
+        let translated = {
+            let mut state = state.lock().unwrap();
+            state.evaluator_results = [
+                decision(true),
+                Err(ClassificationError::Timeout),
+                decision(true),
+            ]
+            .into();
+            let translated = moved(&state.sources[&refs[0]], translate_title);
+            state
+                .moves_before_commit
+                .push_back(vec![translated.clone()]);
+            translated.event_id
+        };
+        let handler = full_budget_handler(Arc::clone(&state));
+        let filter = ordinary_filter();
+        let window_end = OffsetDateTime::UNIX_EPOCH + Duration::hours(1);
+        let mut selected = None;
+
+        let first = handler
+            .process_filter(
+                &filter,
+                &test_snapshot(),
+                window_end,
+                &mut selected,
+                &mut FilterAttemptReport::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(FilterOutcome::Retryable, first);
+        assert_eq!(
+            Some(translated),
+            selected.as_ref().map(|refs| refs[0].event_id)
+        );
+        assert_eq!(0, state.lock().unwrap().checkpoints);
+
+        let mut retry = FilterAttemptReport::default();
+        let second = handler
+            .process_filter(
+                &filter,
+                &test_snapshot(),
+                window_end,
+                &mut selected,
+                &mut retry,
+            )
+            .await
+            .unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(FilterOutcome::Completed, second);
+        assert_eq!(1, state.persisted.len());
+        assert_eq!(translated, state.persisted[0].origin_event_id);
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(0, retry.candidates_stale);
     }
 
     #[tokio::test]

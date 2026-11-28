@@ -129,9 +129,10 @@ pub(crate) enum MatchEvidenceChange {
     Decision,
 }
 
-/// Compares the evidence of a decision with the listing's later state. The destructuring is
-/// exhaustive so that a new source field must be classified here.
+/// Compares the evidence of a decision for `search` with the listing's later state. The
+/// destructuring is exhaustive so that a new source field must be classified here.
 pub(crate) fn match_evidence_change(
+    search: &ProductListingSearch,
     decided: &ProductListingSearchFilterMatchSource,
     current: &ProductListingSearchFilterMatchSource,
 ) -> MatchEvidenceChange {
@@ -142,8 +143,7 @@ pub(crate) fn match_evidence_change(
         origin_event_time: _,
         current_event_id: _,
         projection_version: _,
-        // Freshness bounds the matching window; the embedding only ranks retrieval.
-        updated: _,
+        // The embedding only ranks retrieval.
         embedding: _,
         // Translations serve search; the classifier reads only the English title, below.
         titles: _,
@@ -162,16 +162,28 @@ pub(crate) fn match_evidence_change(
         lifecycle,
         auction,
         created,
+        updated,
         product_title,
         product_description,
         descriptions,
         image,
         images,
     } = current;
+    // Shipping and geography enrichment matter only to filters that constrain them; freshness
+    // only to an authored upper bound, since the matching window itself ends before the run.
+    let same_shipping = search.shipping.is_none() || *shipping == decided.shipping;
+    let same_geography = (search.geography.is_none() && search.shipping.is_none())
+        || *geography == decided.geography;
+    let within_authored_updated = search
+        .updated_query
+        .as_ref()
+        .and_then(|range| range.max)
+        .is_none_or(|max| *updated <= max);
     let same_decision_facts = *product_listing_id == decided.product_listing_id
         && source.listing_source_id == decided.source.listing_source_id
-        && *geography == decided.geography
-        && *shipping == decided.shipping
+        && same_geography
+        && same_shipping
+        && within_authored_updated
         && *pricing == decided.pricing
         && *sale_observation == decided.sale_observation
         && *availability == decided.availability
@@ -201,11 +213,23 @@ mod tests {
     use super::*;
     use crate::product_match_evaluator::tests::product;
     use domain_primitives::event_id::EventId;
+    use domain_primitives::query::range_query::RangeQuery;
     use localization::{Language, Localized};
+    use money::Currency;
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::product_listing_image::ProductListingImage;
 
     fn change(
+        apply: impl FnOnce(&mut ProductListingSearchFilterMatchSource),
+    ) -> MatchEvidenceChange {
+        change_for(
+            &ProductListingSearch::new(Language::En, Currency::Eur),
+            apply,
+        )
+    }
+
+    fn change_for(
+        search: &ProductListingSearch,
         apply: impl FnOnce(&mut ProductListingSearchFilterMatchSource),
     ) -> MatchEvidenceChange {
         let decided = product().unwrap();
@@ -215,7 +239,7 @@ mod tests {
         current.projection_version += 1;
         current.updated += time::Duration::minutes(20);
         apply(&mut current);
-        match_evidence_change(&decided, &current)
+        match_evidence_change(search, &decided, &current)
     }
 
     #[test]
@@ -261,5 +285,51 @@ mod tests {
         for apply in changes {
             assert_eq!(MatchEvidenceChange::Decision, change(apply));
         }
+    }
+
+    fn shipping_search() -> ProductListingSearch {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        search.shipping = Some(
+            product_listing_core::shipping_search::ShippingSearch::new(
+                geo::reference::ReferenceRelease::CURRENT,
+                Some(geo::CountryCode::DEU),
+                None,
+                None,
+                false,
+            )
+            .unwrap(),
+        );
+        search
+    }
+
+    fn reproject_shipping(source: &mut ProductListingSearchFilterMatchSource) {
+        source.shipping.prohibited = true;
+        source.shipping.conditional = false;
+    }
+
+    #[test]
+    fn should_ignore_shipping_enrichment_for_a_filter_without_a_shipping_predicate() {
+        assert_eq!(MatchEvidenceChange::Unchanged, change(reproject_shipping));
+    }
+
+    #[test]
+    fn should_report_a_decision_change_when_shipping_changes_under_a_shipping_predicate() {
+        assert_eq!(
+            MatchEvidenceChange::Decision,
+            change_for(&shipping_search(), reproject_shipping)
+        );
+    }
+
+    #[test]
+    fn should_report_a_decision_change_when_freshness_passes_an_authored_maximum() {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        search.updated_query = Some(RangeQuery {
+            min: None,
+            max: Some(time::OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(10)),
+        });
+        assert_eq!(
+            MatchEvidenceChange::Decision,
+            change_for(&search, |source| source.embedding = Some(vec![0.1; 4]))
+        );
     }
 }
