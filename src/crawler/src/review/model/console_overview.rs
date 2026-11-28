@@ -217,8 +217,21 @@ pub struct HourlyActivity {
     /// When the hour began.
     #[serde(with = "time::serde::rfc3339")]
     pub hour: OffsetDateTime,
-    /// Product pages the scraper evaluated: captured, unchanged or removed.
+    /// Product pages the scraper evaluated without a failure: the sum of the five counts by
+    /// outcome below, except in hours recorded before the history split them, which keep only
+    /// this total.
     pub pages_scraped: i64,
+    /// Pages whose listing was captured for the first time.
+    pub pages_new: i64,
+    /// Pages whose listing was captured again with another capture.
+    pub pages_changed: i64,
+    /// Pages that matched their last capture.
+    pub pages_unchanged: i64,
+    /// Verified removals captured.
+    pub pages_removed: i64,
+    /// Pages scraped without a capture for another reason, such as a removal the mass-removal
+    /// guard held.
+    pub pages_skipped: i64,
     pub page_scrapes_failed: i64,
     pub crawl_runs_completed: i64,
     pub crawl_runs_failed: i64,
@@ -312,6 +325,11 @@ mod tests {
         let mut activity_by_hour = [HourlyActivity {
             hour: first_hour,
             pages_scraped: 0,
+            pages_new: 0,
+            pages_changed: 0,
+            pages_unchanged: 0,
+            pages_removed: 0,
+            pages_skipped: 0,
             page_scrapes_failed: 0,
             crawl_runs_completed: 0,
             crawl_runs_failed: 0,
@@ -323,6 +341,11 @@ mod tests {
         }
         activity_by_hour[23] = HourlyActivity {
             pages_scraped: 140,
+            pages_new: 12,
+            pages_changed: 20,
+            pages_unchanged: 100,
+            pages_removed: 5,
+            pages_skipped: 3,
             page_scrapes_failed: 6,
             crawl_runs_completed: 2,
             crawl_runs_failed: 1,
@@ -511,8 +534,9 @@ mod tests {
         assert_eq!(
             activity_hours[23],
             json!({
-                "hour": "2026-11-27T12:00:00Z", "pages_scraped": 140, "page_scrapes_failed": 6,
-                "crawl_runs_completed": 2, "crawl_runs_failed": 1, "crawl_runs_other": 3,
+                "hour": "2026-11-27T12:00:00Z", "pages_scraped": 140, "pages_new": 12,
+                "pages_changed": 20, "pages_unchanged": 100, "pages_removed": 5,
+                "pages_skipped": 3, "page_scrapes_failed": 6, "crawl_runs_completed": 2, "crawl_runs_failed": 1, "crawl_runs_other": 3,
                 "product_urls_found": 17
             })
         );

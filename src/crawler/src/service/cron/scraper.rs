@@ -33,7 +33,7 @@ use crate::scraper::scraper_service::{
 use crate::scraper::shared_redirect::{
     other_urls_needed, shared_redirect_removal, url_keeps_redirecting_to,
 };
-use crate::service::activity_history::ActivityCounts;
+use crate::service::activity_history::{ActivityCounts, ScrapedPageOutcome, ScrapedPages};
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
 };
@@ -161,6 +161,22 @@ enum RawCaptureFailureAction {
         url: url::Url,
         expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
     },
+}
+
+impl RawCaptureRequest {
+    /// What the scraped page this request captures came to: a removal, or the page's listing
+    /// captured for the first time or again.
+    fn page_outcome(&self) -> ScrapedPageOutcome {
+        match &self.on_success {
+            RawCaptureSuccessAction::MarkRemoved { .. } => ScrapedPageOutcome::Removed,
+            RawCaptureSuccessAction::MarkScraped(meta)
+                if meta.expected_last_captured_raw_input_sha256.is_none() =>
+            {
+                ScrapedPageOutcome::New
+            }
+            RawCaptureSuccessAction::MarkScraped(_) => ScrapedPageOutcome::Changed,
+        }
+    }
 }
 
 impl From<(ProductListingRawCaptureItem, CandidateMeta)> for RawCaptureRequest {
@@ -315,14 +331,13 @@ impl DeferralReason {
 struct ScrapeBatchOutcome {
     succeeded: usize,
     failed: usize,
-    /// URLs whose scrape ran and neither failed nor waited on a product-schema review: the
-    /// captured, unchanged and removed pages, which the activity history counts as scraped.
-    pages_scraped: usize,
+    /// URLs whose scrape ran and neither failed nor waited on a product-schema review, by what
+    /// they came to, which the activity history counts. Their unchanged pages are the part of
+    /// `skipped` that needed no work.
+    scraped_pages: ScrapedPages,
     /// URLs whose page waits on a pending product-schema review, counted apart from `failed`.
     awaiting_schema_review: usize,
     skipped: usize,
-    /// URLs whose page matches their last scrape: the part of `skipped` that needed no work.
-    unchanged: usize,
     /// `skipped` by reason, which the pass summary reports.
     skip_reasons: BTreeMap<&'static str, usize>,
     /// URLs deferred by lock contention: every candidate of a deferred scraper batch plus
@@ -2235,13 +2250,8 @@ async fn scrape_batch_candidates(
         {
             scraped_urls += 1;
         }
-        if candidate_outcome.scraped
-            && !candidate_outcome.errored
-            && candidate_outcome.awaited_schema_review.is_none()
-        {
-            outcome.pages_scraped += 1;
-        }
-
+        // A scraped page counts once among `scraped_pages` or `failed`: a capture once it is
+        // queued, a new removal once the mass-removal guard judged it.
         if candidate_outcome.errored {
             outcome.failed += 1;
         } else if candidate_outcome.awaited_schema_review.is_some() {
@@ -2254,10 +2264,17 @@ async fn scrape_batch_candidates(
             outcome.record_deferred(DeferralReason::UrlLock, 1);
         } else if candidate_outcome.skipped {
             let url_outcome = candidate_outcome.url_outcome();
-            outcome.unchanged += usize::from(url_outcome == UrlOutcome::Unchanged);
             outcome.record_skipped(url_outcome.skip_label(), 1);
+            if candidate_outcome.scraped {
+                outcome
+                    .scraped_pages
+                    .record(uncaptured_page_outcome(&url_outcome));
+            }
         } else {
             outcome.succeeded += 1;
+            if candidate_outcome.scraped {
+                outcome.scraped_pages.record(ScrapedPageOutcome::Unchanged);
+            }
         }
 
         evidence.observe(
@@ -2415,6 +2432,7 @@ async fn settle_new_removals(
             enqueue_candidate_capture(ctx, request, outcome).await;
         } else {
             outcome.record_skipped(SkipReason::StaleWrite.as_str(), 1);
+            outcome.scraped_pages.record(ScrapedPageOutcome::Skipped);
         }
     }
 }
@@ -2470,6 +2488,7 @@ async fn hold_mass_removal(
             &removal.telemetry,
         );
         outcome.record_skipped(SkipReason::MassRemovalHeld.as_str(), 1);
+        outcome.scraped_pages.record(ScrapedPageOutcome::Skipped);
     }
 }
 
@@ -2542,16 +2561,26 @@ async fn persist_held_page_directive_withdrawal(
     }
 }
 
-/// Queues a candidate's capture and counts the candidate as succeeded, or as failed when the
-/// collector is gone.
+/// What a scraped page that was neither captured nor failed came to, by its outcome log.
+fn uncaptured_page_outcome(url_outcome: &UrlOutcome) -> ScrapedPageOutcome {
+    match url_outcome {
+        UrlOutcome::Skipped(_) => ScrapedPageOutcome::Skipped,
+        _ => ScrapedPageOutcome::Unchanged,
+    }
+}
+
+/// Queues a candidate's capture and counts the candidate as succeeded and its page by what the
+/// capture records, or as failed when the collector is gone.
 async fn enqueue_candidate_capture(
     ctx: &ScrapeBatchContext,
     request: RawCaptureRequest,
     outcome: &mut ScrapeBatchOutcome,
 ) {
+    let page_outcome = request.page_outcome();
     match enqueue_raw_capture(&ctx.command_tx, request).await {
         Ok(queue_wait) => {
             outcome.succeeded += 1;
+            outcome.scraped_pages.record(page_outcome);
 
             if queue_wait >= Duration::from_millis(10) {
                 warn_in_source!(
@@ -2807,7 +2836,7 @@ impl CrawlerCronJob {
                     failed += scheduled.outcome.failed;
                     awaiting_schema_review += scheduled.outcome.awaiting_schema_review;
                     skipped += scheduled.outcome.skipped;
-                    unchanged += scheduled.outcome.unchanged;
+                    unchanged += scheduled.outcome.scraped_pages.unchanged;
                     url_failures += scheduled.outcome.url_failures();
                     deferred_urls += scheduled.outcome.deferred_urls;
                     if scheduled.outcome.deferred {
@@ -2948,7 +2977,7 @@ impl CrawlerCronJob {
                     .await;
                 record_activity(
                     activity_history.as_deref(),
-                    ActivityCounts::scrape_batch(outcome.pages_scraped, outcome.failed),
+                    ActivityCounts::scrape_batch(outcome.scraped_pages, outcome.failed),
                 )
                 .await;
                 ScheduledScrapeBatchOutcome {
@@ -4032,7 +4061,11 @@ mod tests {
             assert_eq!(outcome.failed, 1);
             assert_eq!(outcome.skipped, 2, "the responsive URLs ran");
             assert_eq!(
-                outcome.pages_scraped, 2,
+                outcome.scraped_pages,
+                ScrapedPages {
+                    unchanged: 2,
+                    ..ScrapedPages::default()
+                },
                 "the unchanged pages count as scraped, the timeout does not"
             );
         }
@@ -6552,6 +6585,14 @@ mod tests {
             assert_eq!(queued_removals(&mut command_rx), 0);
             assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
             assert_eq!(outcome.failed, 0);
+            assert_eq!(
+                outcome.scraped_pages,
+                ScrapedPages {
+                    skipped: 12,
+                    ..ScrapedPages::default()
+                },
+                "a held removal is no removal"
+            );
         }
 
         #[tokio::test]
@@ -6571,6 +6612,14 @@ mod tests {
 
             assert_eq!(queued_removals(&mut command_rx), 10);
             assert_eq!((outcome.succeeded, outcome.skipped), (10, 10));
+            assert_eq!(
+                outcome.scraped_pages,
+                ScrapedPages {
+                    removed: 10,
+                    unchanged: 10,
+                    ..ScrapedPages::default()
+                }
+            );
         }
 
         #[tokio::test]
@@ -6730,8 +6779,13 @@ mod tests {
             let (ctx, _command_rx) =
                 batch_context(failing, shop_removing_the_first(5), listing_source_id);
 
-            scrape_batch_candidates(candidates, ctx).await;
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
 
+            assert_eq!(
+                (outcome.failed, outcome.scraped_pages.total()),
+                (5, 15),
+                "a removal that cannot be captured counts as failed only"
+            );
             let labels = outcome_labels(&events);
             assert_eq!(
                 labels
@@ -6755,8 +6809,16 @@ mod tests {
             let (ctx, _command_rx) =
                 batch_context(stale, shop_removing_the_first(5), listing_source_id);
 
-            scrape_batch_candidates(candidates, ctx).await;
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
 
+            assert_eq!(
+                outcome.scraped_pages,
+                ScrapedPages {
+                    skipped: 5,
+                    unchanged: 15,
+                    ..ScrapedPages::default()
+                }
+            );
             let labels = outcome_labels(&events);
             assert_eq!(
                 labels
@@ -6801,7 +6863,11 @@ mod tests {
 
             assert_eq!(queued_removals(&mut command_rx), 0);
             assert_eq!(
-                (outcome.succeeded, outcome.skipped, outcome.unchanged),
+                (
+                    outcome.succeeded,
+                    outcome.skipped,
+                    outcome.scraped_pages.unchanged
+                ),
                 (0, 30, 20),
                 "the rechecked removals are unchanged pages"
             );
@@ -7840,6 +7906,59 @@ mod tests {
                 kind: NetworkErrorKind::HttpStatus(500),
                 details: "internal server error".to_owned(),
             }
+        }
+
+        /// A page captured from a URL that holds no capture is a new listing; one captured again
+        /// with another raw input is a changed one, and a failed page is neither.
+        #[tokio::test]
+        async fn should_count_first_captures_as_new_and_later_captures_as_changed() {
+            let (mut candidates, listing_source_id) = source_batch("outcomes.example.com", 3);
+            candidates[1].last_captured_raw_input_sha256 = Some(vec![1; 32]);
+            let failing_url = candidates[2].url.clone();
+            let mut scraper_candidates = scraper_candidates_without_identity_carrier();
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .returning(|_, _, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().returning(move |request| {
+                let url = request.url;
+                let result = if url == failing_url {
+                    Err(http_500(url))
+                } else {
+                    Ok(Some(ScrapedProduct {
+                        source_listing_id: url.path().to_owned(),
+                        title: Some(url.path().to_owned()),
+                        ..scraped_product(url)
+                    }))
+                };
+                Box::pin(async move { scrape_outcome(result) })
+            });
+            let (command_tx, _command_rx) = mpsc::channel(3);
+            let ctx = ScrapeBatchContext {
+                command_tx,
+                ..batch_context_of(
+                    scraper_candidates,
+                    scraper_service,
+                    listing_source_id,
+                    CrawlerCronConfig::default().scraper_batch_time_budget,
+                )
+            };
+
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
+
+            assert_eq!(
+                (outcome.scraped_pages, outcome.failed),
+                (
+                    ScrapedPages {
+                        new: 1,
+                        changed: 1,
+                        ..ScrapedPages::default()
+                    },
+                    1
+                )
+            );
         }
 
         /// A batch only counts; it is the pass that publishes, once, so no per-source record

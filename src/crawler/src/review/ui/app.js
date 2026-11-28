@@ -802,6 +802,52 @@ function pageFreshnessCardHtml(pages, freshness) {
         'A page is due for its next scrape a day after its last', pageFreshnessParts(pages, freshness.stale_after_days), pages.total));
 }
 
+// What a scraped page came to, in the order the pages chart stacks them from its axis up: what
+// scraping captured first, then what it left as it was. `pages_scraped` is their sum, except in
+// hours recorded before the crawler split it, whose remainder is `not split`.
+const PAGE_OUTCOMES = [
+    {key: 'new', field: 'pages_new', name: 'New', title: 'The listing captured for the first time'},
+    {key: 'changed', field: 'pages_changed', name: 'Changed', title: 'The listing captured again: the page changed or moved'},
+    {key: 'removed', field: 'pages_removed', name: 'Removed', title: 'A verified removal captured: a removed-page template or a gone page. A sold page is captured as new or changed.'},
+    {key: 'unchanged', field: 'pages_unchanged', name: 'Unchanged', title: 'Nothing new to capture: the page matches its last capture'},
+    {key: 'skipped', field: 'pages_skipped', name: 'Skipped', title: 'Scraped, nothing captured: a removal the mass-removal guard held, a duplicate URL, an unsettled redirect or a write another writer overtook'}
+];
+
+// The parts of an hour's column in the pages chart, bottom up: the pages by outcome, the pages
+// scraped before the split, and the failed scrapes on top.
+function scrapedPageParts(entry) {
+    const parts = PAGE_OUTCOMES.map(outcome => ({key: outcome.key, name: outcome.name, value: entry[outcome.field]}));
+    const unsplit = Math.max(0, entry.pages_scraped - parts.reduce((total, part) => total + part.value, 0));
+    return [...parts, {key: 'unsplit', name: 'Not split', value: unsplit}, {key: 'failed', name: 'Failed', value: entry.page_scrapes_failed}];
+}
+
+// The pages chart's legend, each part with its total over the 24 hours; `not split` only while
+// one of them holds pages scraped before the split.
+function scrapedPagesLegendHtml(hours) {
+    const titles = {unsplit: 'Pages scraped before the crawler counted them by outcome', failed: 'Page scrapes that failed'};
+    for (const outcome of PAGE_OUTCOMES) titles[outcome.key] = outcome.title;
+    const totals = hours.map(scrapedPageParts).reduce((sums, parts) => sums.map((part, index) => ({...part, value: part.value + parts[index].value})));
+    const unsplit = totals.find(part => part.key === 'unsplit').value;
+    return `<ul class="chart-legend chart-totals">${totals.filter(part => part.key !== 'unsplit' || unsplit).map(part =>
+        `<li title="${escapeHtmlAttr(titles[part.key])}"><i class="swatch seg-${part.key}"></i>${escapeHtml(part.name)} <strong>${formatCount(part.value)}</strong></li>`).join('')}</ul>
+        ${unsplit ? '<p class="small muted">Not split: pages scraped in hours recorded before the crawler counted them by outcome.</p>' : ''}`;
+}
+
+// The pages chart's figures for every hour; an hour recorded before the split shows its outcomes
+// as unknown and its pages as not split.
+function scrapedPagesTableHtml(hours, hourCell) {
+    const showUnsplit = hours.some(entry => scrapedPageParts(entry)[PAGE_OUTCOMES.length].value);
+    const heads = ['Hour', 'Scraped', ...PAGE_OUTCOMES.map(outcome => outcome.name), ...(showUnsplit ? ['Not split'] : []), 'Failed'];
+    const rows = hours.map((entry, index) => {
+        const parts = scrapedPageParts(entry);
+        const unsplit = parts[PAGE_OUTCOMES.length].value;
+        const unknown = unsplit > 0 && unsplit === entry.pages_scraped;
+        return [hourCell(entry, index), formatCount(entry.pages_scraped), ...parts.slice(0, PAGE_OUTCOMES.length).map(part => unknown ? '—' : formatCount(part.value)),
+            ...(showUnsplit ? [formatCount(unsplit)] : []), formatCount(entry.page_scrapes_failed)];
+    });
+    return chartTableHtml('pages-scraped', heads, rows);
+}
+
 // What the crawler did in each of the last 24 clock hours, counted as each scraper batch and
 // spider run ended; a deployment that has not recorded the whole day yet says since when it counts.
 function activityCardHtml(o) {
@@ -815,14 +861,15 @@ function activityCardHtml(o) {
         : '';
     return overviewCard('Crawler activity, last 24 hours', headNote('per clock hour, the running one last'), `${partial}
         <div class="metric-grid">
-          ${metric(formatCount(sum('pages_scraped')), 'Pages scraped', {sub: `${formatCount(sum('page_scrapes_failed'))} scrapes failed`, title: 'Product pages the scraper evaluated: captured, unchanged or removed. A page scraped twice counts twice.'})}
+          ${metric(formatCount(sum('pages_scraped')), 'Pages scraped', {sub: `${formatCount(sum('page_scrapes_failed'))} scrapes failed`, title: 'Product pages the scraper evaluated without a failure: new, changed, removed, unchanged or skipped. A page scraped twice counts twice.'})}
           ${metric(formatCount(runs), 'Crawl runs', {sub: `${formatCount(sum('crawl_runs_completed'))} completed · ${formatCount(sum('crawl_runs_failed'))} failed · ${formatCount(sum('crawl_runs_other'))} other`, title: 'Spider runs that ended, of any outcome; other: cut short, rate-limited, stopped or waiting on a review'})}
           ${metric(formatCount(o.throughput.product_urls_found_24h), 'New product URLs', {title: 'Product URLs first stored in the last 24 hours that are product URLs now'})}
         </div>
         <div>
-          <div class="chart-title">Pages scraped per hour, last 24 h<span class="chart-legend"><span><i class="swatch series-1"></i>Scraped</span><span><i class="swatch series-2"></i>Failed</span></span></div>
-          <div class="chart" data-chart="pages-scraped" tabindex="0" role="group" aria-label="Pages scraped and scrapes failed in each of the last 24 clock hours. Use the arrow keys to read an hour."></div>
-          ${chartTableHtml('pages-scraped', ['Hour', 'Pages scraped', 'Scrapes failed'], hours.map((entry, index) => [hourCell(entry, index), formatCount(entry.pages_scraped), formatCount(entry.page_scrapes_failed)]))}
+          <div class="chart-title">Pages scraped per hour, last 24 h</div>
+          ${scrapedPagesLegendHtml(hours)}
+          <div class="chart" data-chart="pages-scraped" tabindex="0" role="group" aria-label="Pages scraped by outcome and scrapes failed in each of the last 24 clock hours. Use the arrow keys to read an hour."></div>
+          ${scrapedPagesTableHtml(hours, hourCell)}
         </div>
         <div>
           <div class="chart-title">Crawl runs per hour<span class="chart-legend"><span><i class="swatch series-1"></i>Completed</span><span><i class="swatch series-2"></i>Failed</span></span></div>
@@ -900,14 +947,17 @@ const CHART_PLOT_HEIGHT = 96;
 const CHART_AXIS_BAND = 20;
 const CHART_TOP = 6;
 const CHARTS = {
-    'pages-scraped': (o, width) => hourlyChartSvg(width, o.activity.by_hour, entry => [
-        {value: entry.pages_scraped, series: 1, name: entry.pages_scraped === 1 ? 'page scraped' : 'pages scraped'},
-        {value: entry.page_scrapes_failed, series: 2, name: entry.page_scrapes_failed === 1 ? 'scrape failed' : 'scrapes failed'}
-    ]),
-    crawls: (o, width) => hourlyChartSvg(width, o.activity.by_hour, entry => [
+    // An hour that holds pages scraped before the split names only the counts it has: its zeros
+    // by outcome would claim what it never counted.
+    'pages-scraped': (o, width) => hourlyChartSvg(width, o.activity.by_hour, entry => {
+        const parts = scrapedPageParts(entry);
+        const unsplit = parts.some(part => part.key === 'unsplit' && part.value);
+        return {stack: parts.filter(part => unsplit ? part.value : part.key !== 'unsplit').map(part => ({...part, name: part.name.toLowerCase()}))};
+    }, entry => [[formatCount(entry.pages_scraped), entry.pages_scraped === 1 ? 'page scraped in all' : 'pages scraped in all']]),
+    crawls: (o, width) => hourlyChartSvg(width, o.activity.by_hour, entry => ({bars: [
         {value: entry.crawl_runs_completed, series: 1, name: 'completed'},
         {value: entry.crawl_runs_failed, series: 2, name: 'failed'}
-    ], entry => [[formatCount(entry.crawl_runs_other), 'other: cut short, rate-limited, stopped or waiting on a review']]),
+    ]}), entry => [[formatCount(entry.crawl_runs_other), 'other: cut short, rate-limited, stopped or waiting on a review']]),
     reviews: (o, width) => columnChartSvg(width, o.review_flow.daily.map((day, index, all) => {
         const daysAgo = all.length - 1 - index;
         return {
@@ -923,15 +973,16 @@ const CHARTS = {
     'crawl-freshness': (o, width) => segmentBarSvg(width, crawlFreshnessParts(o.crawls), o.crawls.total)
 };
 
-// Columns of the clock hours `hours`, the running one last and drawn as partial: `bars` gives an
-// hour's columns and `notes` its figures that only the tooltip names.
-function hourlyChartSvg(width, hours, bars, notes = () => []) {
+// Columns of the clock hours `hours`, the running one last and drawn as partial: `marks` gives an
+// hour's `bars` or `stack` and `notes` its figures that only the tooltip names.
+function hourlyChartSvg(width, hours, marks, notes = () => []) {
     return columnChartSvg(width, hours.map((entry, index) => {
         const running = index === hours.length - 1;
         return {
             tick: new Date(entry.hour).getHours() % 6 === 0 ? clockText(entry.hour) : '',
             title: hourSpanText(entry.hour, running),
-            bars: bars(entry).map(bar => ({...bar, partial: running})),
+            partial: running,
+            ...marks(entry),
             notes: notes(entry)
         };
     }));
@@ -992,38 +1043,68 @@ function countAxisTicks(max) {
     return ticks;
 }
 
-// Columns on one count axis: `groups` of one or two bars ({value, series, name, partial}), each
-// group with its `title` for the tooltip, optional `notes` ([value, name]) the tooltip adds
-// without a column, and its `tick` label under the axis, empty for none.
+// Columns on one count axis: `groups` of one or two side-by-side `bars` ({value, series, name})
+// or of one `stack` ({value, key, name} from the axis up), each group with its `title` for the
+// tooltip, `partial` while its figures still grow, optional `notes` ([value, name]) the tooltip
+// adds without a column, and its `tick` label under the axis, empty for none.
 function columnChartSvg(width, groups) {
-    const ticks = countAxisTicks(Math.max(...groups.flatMap(group => group.bars.map(bar => bar.value))));
+    const groupTop = group => group.stack ? group.stack.reduce((total, part) => total + part.value, 0) : Math.max(...group.bars.map(bar => bar.value));
+    const ticks = countAxisTicks(Math.max(...groups.map(groupTop)));
     const top = ticks[ticks.length - 1];
     const gutter = Math.max(22, formatCount(top).length * 7 + 10);
     const plotWidth = width - gutter - 2;
     const bottom = CHART_TOP + CHART_PLOT_HEIGHT;
     const slot = plotWidth / groups.length;
-    const perGroup = groups[0].bars.length;
-    const barWidth = Math.max(2, Math.min(perGroup > 1 ? 16 : 24, Math.floor((slot - (perGroup > 1 ? 10 : 2)) / perGroup) - (perGroup > 1 ? 1 : 0)));
+    const perGroup = groups[0].stack ? 1 : groups[0].bars.length;
+    const barWidth = groups[0].stack
+        ? Math.max(2, Math.min(24, Math.floor(slot * 0.7)))
+        : Math.max(2, Math.min(perGroup > 1 ? 16 : 24, Math.floor((slot - (perGroup > 1 ? 10 : 2)) / perGroup) - (perGroup > 1 ? 1 : 0)));
     const groupWidth = perGroup * barWidth + (perGroup - 1) * 2;
     const y = value => bottom - value / top * CHART_PLOT_HEIGHT;
     const grid = ticks.map(value => `${value ? `<line class="chart-grid" x1="${gutter}" x2="${width}" y1="${y(value)}" y2="${y(value)}"/>` : ''}<text class="chart-tick" x="${gutter - 6}" y="${y(value) + 4}" text-anchor="end">${formatCount(value)}</text>`).join('');
+    const partialClass = group => group.partial ? ' partial' : '';
     const marks = groups.map((group, index) => {
         const left = gutter + index * slot;
         const start = left + (slot - groupWidth) / 2;
-        const bars = group.bars.map((bar, position) => {
+        const bars = group.stack ? stackedColumnSvg(group.stack, start, barWidth, bottom, y, partialClass(group)) : group.bars.map((bar, position) => {
             if (!bar.value) return '';
             const height = Math.max(2, bar.value / top * CHART_PLOT_HEIGHT);
             const x = start + position * (barWidth + 2);
-            const radius = Math.min(4, barWidth / 2, height);
-            return `<path class="chart-bar series-${bar.series}${bar.partial ? ' partial' : ''}" d="M${x},${bottom}V${bottom - height + radius}Q${x},${bottom - height} ${x + radius},${bottom - height}H${x + barWidth - radius}Q${x + barWidth},${bottom - height} ${x + barWidth},${bottom - height + radius}V${bottom}Z"/>`;
+            return `<path class="chart-bar series-${bar.series}${partialClass(group)}" d="${columnPath(x, barWidth, bottom, height)}"/>`;
         }).join('');
-        const tip = {title: group.title, rows: [...group.bars.map(bar => [formatCount(bar.value), bar.name, bar.series]), ...(group.notes || []).map(([value, name]) => [value, name, null])]};
+        const keyed = group.stack ? group.stack.map(part => [formatCount(part.value), part.name, part.key]) : group.bars.map(bar => [formatCount(bar.value), bar.name, bar.series]);
+        const tip = {title: group.title, rows: [...keyed, ...(group.notes || []).map(([value, name]) => [value, name, null])]};
         const center = left + slot / 2;
         const anchor = center < 24 ? 'start' : center > width - 24 ? 'end' : 'middle';
         const tick = group.tick ? `<text class="chart-tick" x="${anchor === 'middle' ? center : anchor === 'start' ? left : left + slot}" y="${bottom + 15}" text-anchor="${anchor}">${escapeHtml(group.tick)}</text>` : '';
         return `<g class="chart-mark" data-tip="${escapeHtmlAttr(JSON.stringify(tip))}"><rect class="chart-hit" x="${left}" y="${CHART_TOP}" width="${slot}" height="${CHART_PLOT_HEIGHT}"/>${bars}</g>${tick}`;
     }).join('');
     return `<svg width="${width}" height="${bottom + CHART_AXIS_BAND}" viewBox="0 0 ${width} ${bottom + CHART_AXIS_BAND}" aria-hidden="true" focusable="false">${grid}${marks}<line class="chart-axis" x1="${gutter}" x2="${width}" y1="${bottom}" y2="${bottom}"/></svg>`;
+}
+
+// One column of `parts` stacked from the axis at `bottom` up, `y` placing a count: a 2px gap
+// between the parts and the rounded data end on the top one. A part with a figure stays at least
+// a pixel tall, so a single page among thousands still shows.
+function stackedColumnSvg(parts, x, width, bottom, y, partialClass) {
+    const shown = parts.filter(part => part.value > 0);
+    let below = 0;
+    return shown.map((part, index) => {
+        const base = y(below) - (index ? 2 : 0);
+        below += part.value;
+        const height = Math.max(1, base - y(below));
+        const shape = index === shown.length - 1
+            ? `<path d="${columnPath(x, width, base, height)}"`
+            : `<rect x="${x}" y="${base - height}" width="${width}" height="${height}"`;
+        return `${shape} class="chart-bar seg-${part.key}${partialClass}"/>`;
+    }).join('');
+}
+
+// The outline of a column `width` wide standing at `x` on `base`, `height` tall, with a rounded
+// data end.
+function columnPath(x, width, base, height) {
+    const radius = Math.min(4, width / 2, height);
+    const top = base - height;
+    return `M${x},${base}V${top + radius}Q${x},${top} ${x + radius},${top}H${x + width - radius}Q${x + width},${top} ${x + width},${top + radius}V${base}Z`;
 }
 
 // One whole split into `parts` ({key, name, value}): a thin bar with rounded ends and a gap
