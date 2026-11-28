@@ -31,7 +31,7 @@ Every crawler request (spider pages and robots.txt, scraper HTML fetches, image 
 
 - The crawler identifies itself honestly instead of posing as a browser. robots.txt groups are matched against the leading `AuraHistoriaBot` token, so a shop can allow or refuse the crawler by name.
 - Use the bare product-token form. Some shop firewalls reject the `Mozilla/5.0 (compatible; ...)` form from unverified addresses, and a pinned browser version goes stale and gets blocked as outdated.
-- The backend's [image fetcher](../../src/image-fetcher/src/lib.rs), which loads captured listing images for saved-search classification, embeddings and LLM inputs, sends the same user agent with its own copy of the string, so a shop that allow-lists the crawler admits those requests too. It does not read robots.txt, and some image hosts refuse every request without a user agent.
+- The backend's [image fetcher](../../src/image-fetcher/src/lib.rs), which loads captured listing images for saved-search classification, embeddings and LLM inputs, sends the same `AuraHistoriaBot` product token, with its own crate version, so a shop that allow-lists the crawler admits those requests too. It does not read robots.txt, and some image hosts refuse every request without a user agent.
 - A 401 or 403 from the crawl root is reported as `AccessDenied` with the root status and the user agent in the crawl diagnostics. Spider's own reading of the refusal (a blocked status, a JavaScript challenge, a recognised vendor block) keeps precedence over the generic `crawl_root_access_denied` reason.
 
 ## Request headers

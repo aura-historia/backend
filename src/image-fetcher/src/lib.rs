@@ -18,22 +18,22 @@ const IMAGE_FETCH_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
 const IMAGE_FETCH_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const IMAGE_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The identity every image request sends. It is the crawler's, because the images are the ones
-/// the crawler captured from the same shops, so a shop that allow-lists `AuraHistoriaBot` admits
-/// both (`docs/crawler/networking.md#crawler-identity`). Some image hosts refuse every request
-/// without a user agent.
+/// The identity every image request sends: the crawler's `AuraHistoriaBot` product token, because
+/// the images are the ones the crawler captured from the same shops, so a shop that allow-lists
+/// the crawler admits both (`docs/crawler/networking.md#crawler-identity`). The version is this
+/// crate's. Some image hosts refuse every request without a user agent.
 const IMAGE_FETCH_USER_AGENT: &str = concat!(
     "AuraHistoriaBot/",
     env!("CARGO_PKG_VERSION"),
     " (+https://aura-historia.com)"
 );
 
-/// The image formats [`supported_image_mime_type_from_bytes`] accepts, preferred over anything else.
-/// Naming them instead of `image/*` keeps hosts that negotiate formats from choosing one the
-/// fetcher rejects, such as AVIF; the `*/*` fallback keeps hosts that label images
-/// `application/octet-stream` answering.
-const IMAGE_FETCH_ACCEPT: &str =
-    "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,*/*;q=0.8";
+/// The image formats every consumer decodes, preferred over anything else. Hosts that pick a
+/// format from `Accept` switch to one only when it is named, so naming these instead of `image/*`
+/// keeps them from serving AVIF, HEIC or GIF in place of an original JPEG. The `*/*` fallback
+/// keeps hosts that serve another original, or label images `application/octet-stream`,
+/// answering.
+const IMAGE_FETCH_ACCEPT: &str = "image/jpeg,image/png,image/webp,*/*;q=0.8";
 
 /// Fetches external images after validating every network hop.
 ///
@@ -811,7 +811,9 @@ mod tests {
         let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
 
         // A request without a user agent is refused, as by the image hosts that motivated it.
-        let anonymous = reqwest::Client::new()
+        let anonymous = reqwest::Client::builder()
+            .no_proxy()
+            .build()?
             .get(server.url.clone())
             .header(reqwest::header::ACCEPT, IMAGE_FETCH_ACCEPT)
             .send()
