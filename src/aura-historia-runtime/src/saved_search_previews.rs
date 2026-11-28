@@ -37,7 +37,7 @@ pub const CLOUDFLARE_API_TOKEN_ENV: &str = "CLOUDFLARE_API_TOKEN";
 pub const SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV: &str =
     "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS";
 const CLOUDFLARE_PROVIDER: &str = "cloudflare";
-const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
+const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 7_000;
 
 /// Deliberately not `Debug`: it holds the classifier API token.
 #[derive(Clone, PartialEq, Eq)]
@@ -204,7 +204,7 @@ mod tests {
         let config = config(&[]).unwrap();
 
         assert_eq!(CloudflareModel::Clef, config.classifier.model());
-        assert_eq!(0.5, config.should_show_threshold.get());
+        assert_eq!(0.7, config.should_show_threshold.get());
     }
 
     #[test]
