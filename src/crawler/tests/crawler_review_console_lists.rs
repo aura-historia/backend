@@ -22,7 +22,7 @@ use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatu
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use crawler::service::activity_history::{
-    ActivityCounts, ActivityHistoryRepository, CrawlRunClass,
+    ActivityCounts, ActivityHistoryRepository, CrawlRunClass, ScrapedPages,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::crawled_root::CrawledRoot;
@@ -1116,6 +1116,18 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         "the hour the migration ran in: {activity}"
     );
     assert_eq!(activity["by_hour"].as_array().map(Vec::len), Some(24));
+    assert_eq!(
+        [
+            "pages_new",
+            "pages_changed",
+            "pages_unchanged",
+            "pages_removed",
+            "pages_skipped"
+        ]
+        .map(|outcome| activity["by_hour"][23][outcome].clone()),
+        [json!(0), json!(0), json!(0), json!(0), json!(0)],
+        "nothing scraped yet, by outcome: {activity}"
+    );
     assert_eq!(freshness["since_last_scrape"], json!(null));
     assert_eq!(freshness["since_last_crawl"]["sources"], 1);
     assert_eq!(freshness["longest_idle"], json!([]));
@@ -1175,13 +1187,40 @@ async fn should_sum_the_activity_added_in_each_clock_hour_and_forget_expired_hou
 
     add(
         this_hour - time::Duration::days(40),
-        ActivityCounts::scrape_batch(9, 9),
+        ActivityCounts::scrape_batch(
+            ScrapedPages {
+                unchanged: 9,
+                ..ScrapedPages::default()
+            },
+            9,
+        ),
     )
     .await;
-    add(this_hour, ActivityCounts::scrape_batch(10, 2)).await;
+    add(
+        this_hour,
+        ActivityCounts::scrape_batch(
+            ScrapedPages {
+                new: 3,
+                changed: 2,
+                unchanged: 4,
+                removed: 1,
+                skipped: 0,
+            },
+            2,
+        ),
+    )
+    .await;
     add(
         this_hour + time::Duration::seconds(1),
-        ActivityCounts::scrape_batch(5, 0),
+        ActivityCounts::scrape_batch(
+            ScrapedPages {
+                new: 1,
+                unchanged: 3,
+                skipped: 1,
+                ..ScrapedPages::default()
+            },
+            0,
+        ),
     )
     .await;
     add(
@@ -1220,6 +1259,17 @@ async fn should_sum_the_activity_added_in_each_clock_hour_and_forget_expired_hou
         (15, 2),
         "two batches of this hour: {now:?}"
     );
+    assert_eq!(
+        (
+            now.pages_new,
+            now.pages_changed,
+            now.pages_unchanged,
+            now.pages_removed,
+            now.pages_skipped
+        ),
+        (4, 2, 7, 1, 1),
+        "the pages of both batches by outcome: {now:?}"
+    );
     let before = hour(last_hour);
     assert_eq!(
         (
@@ -1227,9 +1277,10 @@ async fn should_sum_the_activity_added_in_each_clock_hour_and_forget_expired_hou
             before.crawl_runs_failed,
             before.crawl_runs_other,
             before.product_urls_found,
-            before.pages_scraped
+            before.pages_scraped,
+            before.pages_new + before.pages_unchanged
         ),
-        (1, 1, 1, 5, 0),
+        (1, 1, 1, 5, 0, 0),
         "three runs of the hour before, one in its last second: {before:?}"
     );
     assert_eq!(

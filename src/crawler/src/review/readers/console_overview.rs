@@ -155,6 +155,11 @@ fn hourly_activity(row: &PgRow) -> Result<HourlyActivity, sqlx::Error> {
     Ok(HourlyActivity {
         hour: row.try_get("hour")?,
         pages_scraped: row.try_get("pages_scraped")?,
+        pages_new: row.try_get("pages_new")?,
+        pages_changed: row.try_get("pages_changed")?,
+        pages_unchanged: row.try_get("pages_unchanged")?,
+        pages_removed: row.try_get("pages_removed")?,
+        pages_skipped: row.try_get("pages_skipped")?,
         page_scrapes_failed: row.try_get("page_scrapes_failed")?,
         crawl_runs_completed: row.try_get("crawl_runs_completed")?,
         crawl_runs_failed: row.try_get("crawl_runs_failed")?,
@@ -168,6 +173,11 @@ fn hourly_activity(row: &PgRow) -> Result<HourlyActivity, sqlx::Error> {
 const ACTIVITY_HISTORY_SQL: &str = "
     SELECT h.hour,
            COALESCE(a.pages_scraped, 0) AS pages_scraped,
+           COALESCE(a.pages_new, 0) AS pages_new,
+           COALESCE(a.pages_changed, 0) AS pages_changed,
+           COALESCE(a.pages_unchanged, 0) AS pages_unchanged,
+           COALESCE(a.pages_removed, 0) AS pages_removed,
+           COALESCE(a.pages_skipped, 0) AS pages_skipped,
            COALESCE(a.page_scrapes_failed, 0) AS page_scrapes_failed,
            COALESCE(a.crawl_runs_completed, 0) AS crawl_runs_completed,
            COALESCE(a.crawl_runs_failed, 0) AS crawl_runs_failed,

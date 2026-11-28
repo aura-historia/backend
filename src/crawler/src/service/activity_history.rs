@@ -13,8 +13,14 @@ pub const ACTIVITY_RETENTION_DAYS: i64 = 35;
 /// negative.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ActivityCounts {
-    /// Product pages the scraper fetched and evaluated: captured, unchanged or removed.
+    /// Product pages the scraper fetched and evaluated without a failure: the sum of the pages
+    /// by [`ScrapedPageOutcome`] below.
     pub pages_scraped: i64,
+    pub pages_new: i64,
+    pub pages_changed: i64,
+    pub pages_unchanged: i64,
+    pub pages_removed: i64,
+    pub pages_skipped: i64,
     /// Page scrapes that failed.
     pub page_scrapes_failed: i64,
     pub crawl_runs_completed: i64,
@@ -24,6 +30,55 @@ pub struct ActivityCounts {
     pub crawl_runs_other: i64,
     /// Product URLs a spider run stored for the first time.
     pub product_urls_found: i64,
+}
+
+/// What a page the scraper fetched and evaluated without a failure came to, as the history
+/// counts it. A page that waits on a product-schema review is neither scraped nor failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrapedPageOutcome {
+    /// The page's listing captured for the first time: its URL holds no capture yet.
+    New,
+    /// The page's listing captured again: its raw input differs from the URL's last capture, or
+    /// the page moved to another URL.
+    Changed,
+    /// Nothing new to capture: the page, or the removal it still shows, matches the URL's last
+    /// capture.
+    Unchanged,
+    /// A verified removal captured: a removed-page template, a gone page or other removal
+    /// evidence. A sold page is no removal: it is captured, and the worker reads its state.
+    Removed,
+    /// Scraped, and nothing captured for a reason the URL's outcome log names: a removal the
+    /// mass-removal guard held, a duplicate URL retired, a redirect nothing settles or a write
+    /// another writer overtook.
+    Skipped,
+}
+
+/// The pages of one scraper batch by [`ScrapedPageOutcome`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScrapedPages {
+    pub new: usize,
+    pub changed: usize,
+    pub unchanged: usize,
+    pub removed: usize,
+    pub skipped: usize,
+}
+
+impl ScrapedPages {
+    pub fn record(&mut self, outcome: ScrapedPageOutcome) {
+        let count = match outcome {
+            ScrapedPageOutcome::New => &mut self.new,
+            ScrapedPageOutcome::Changed => &mut self.changed,
+            ScrapedPageOutcome::Unchanged => &mut self.unchanged,
+            ScrapedPageOutcome::Removed => &mut self.removed,
+            ScrapedPageOutcome::Skipped => &mut self.skipped,
+        };
+        *count += 1;
+    }
+
+    /// Every page scraped, whatever it came to.
+    pub fn total(&self) -> usize {
+        self.new + self.changed + self.unchanged + self.removed + self.skipped
+    }
 }
 
 /// How a spider run ended, as the history counts it.
@@ -38,9 +93,14 @@ pub enum CrawlRunClass {
 
 impl ActivityCounts {
     /// The counts of one scraper batch.
-    pub fn scrape_batch(pages_scraped: usize, page_scrapes_failed: usize) -> Self {
+    pub fn scrape_batch(pages: ScrapedPages, page_scrapes_failed: usize) -> Self {
         Self {
-            pages_scraped: count(pages_scraped),
+            pages_scraped: count(pages.total()),
+            pages_new: count(pages.new),
+            pages_changed: count(pages.changed),
+            pages_unchanged: count(pages.unchanged),
+            pages_removed: count(pages.removed),
+            pages_skipped: count(pages.skipped),
             page_scrapes_failed: count(page_scrapes_failed),
             ..Self::default()
         }
@@ -103,10 +163,17 @@ impl ActivityHistoryRepository {
         sqlx::query(
             "INSERT INTO crawler_activity_hours AS a
                  (hour, pages_scraped, page_scrapes_failed, crawl_runs_completed,
-                  crawl_runs_failed, crawl_runs_other, product_urls_found)
-             VALUES (date_trunc('hour', $1::TIMESTAMPTZ, 'UTC'), $2, $3, $4, $5, $6, $7)
+                  crawl_runs_failed, crawl_runs_other, product_urls_found, pages_new,
+                  pages_changed, pages_unchanged, pages_removed, pages_skipped)
+             VALUES (date_trunc('hour', $1::TIMESTAMPTZ, 'UTC'), $2, $3, $4, $5, $6, $7, $8, $9,
+                     $10, $11, $12)
              ON CONFLICT (hour) DO UPDATE SET
                  pages_scraped = a.pages_scraped + EXCLUDED.pages_scraped,
+                 pages_new = a.pages_new + EXCLUDED.pages_new,
+                 pages_changed = a.pages_changed + EXCLUDED.pages_changed,
+                 pages_unchanged = a.pages_unchanged + EXCLUDED.pages_unchanged,
+                 pages_removed = a.pages_removed + EXCLUDED.pages_removed,
+                 pages_skipped = a.pages_skipped + EXCLUDED.pages_skipped,
                  page_scrapes_failed = a.page_scrapes_failed + EXCLUDED.page_scrapes_failed,
                  crawl_runs_completed = a.crawl_runs_completed + EXCLUDED.crawl_runs_completed,
                  crawl_runs_failed = a.crawl_runs_failed + EXCLUDED.crawl_runs_failed,
@@ -120,6 +187,11 @@ impl ActivityHistoryRepository {
         .bind(counts.crawl_runs_failed)
         .bind(counts.crawl_runs_other)
         .bind(counts.product_urls_found)
+        .bind(counts.pages_new)
+        .bind(counts.pages_changed)
+        .bind(counts.pages_unchanged)
+        .bind(counts.pages_removed)
+        .bind(counts.pages_skipped)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -165,7 +237,40 @@ mod tests {
 
     #[test]
     fn should_have_nothing_to_write_for_a_batch_that_scraped_nothing() {
-        assert!(ActivityCounts::scrape_batch(0, 0).is_empty());
-        assert!(!ActivityCounts::scrape_batch(0, 1).is_empty());
+        assert!(ActivityCounts::scrape_batch(ScrapedPages::default(), 0).is_empty());
+        assert!(!ActivityCounts::scrape_batch(ScrapedPages::default(), 1).is_empty());
+    }
+
+    /// The pages scraped stay the total the Overview showed before the split, now the sum of
+    /// the pages by outcome.
+    #[test]
+    fn should_count_the_pages_of_a_batch_by_outcome_and_as_their_sum() {
+        let mut pages = ScrapedPages::default();
+        for outcome in [
+            ScrapedPageOutcome::New,
+            ScrapedPageOutcome::New,
+            ScrapedPageOutcome::Changed,
+            ScrapedPageOutcome::Unchanged,
+            ScrapedPageOutcome::Unchanged,
+            ScrapedPageOutcome::Unchanged,
+            ScrapedPageOutcome::Removed,
+            ScrapedPageOutcome::Skipped,
+        ] {
+            pages.record(outcome);
+        }
+
+        assert_eq!(
+            ActivityCounts::scrape_batch(pages, 4),
+            ActivityCounts {
+                pages_scraped: 8,
+                pages_new: 2,
+                pages_changed: 1,
+                pages_unchanged: 3,
+                pages_removed: 1,
+                pages_skipped: 1,
+                page_scrapes_failed: 4,
+                ..ActivityCounts::default()
+            }
+        );
     }
 }

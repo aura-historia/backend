@@ -42,8 +42,10 @@
     --bad: #b3261e;       --bad-soft: #fcebea;     --bad-line: #f2b3ae;
     --info: #2456c8;      --info-soft: #e8eefc;    --info-line: #b7c8f3;
     --neutral: #475063;   --neutral-soft: #eceef2; --neutral-line: #c9cfda;
-    /* chart marks: two series, and the due and overdue parts of a whole; text never wears them */
+    /* chart marks: two series, the due and overdue parts of a whole, and the outcomes of a scraped
+       page (new is series 1, failed series 2, unchanged a recessive neutral); text never wears them */
     --chart-1: #2456c8; --chart-2: #e76624; --chart-due: #d28e05; --chart-overdue: #dc3c3d;
+    --chart-changed: #00b894; --chart-removed: #f2a600; --chart-skipped: #6a4ce2; --chart-unchanged: #9aa2b1;
     /* elevation */
     --shadow-1: 0 1px 2px rgba(20, 26, 40, 0.06);
     --shadow-2: 0 4px 16px rgba(20, 26, 40, 0.10);
@@ -80,6 +82,7 @@
         --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
         --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
         --chart-1: #5b8ff0;
+        --chart-changed: #00a888; --chart-removed: #d28e05; --chart-skipped: #9887ef; --chart-unchanged: #666f82;
         --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
         color-scheme: dark;
     }
@@ -95,6 +98,7 @@
     --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
     --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
     --chart-1: #5b8ff0;
+    --chart-changed: #00a888; --chart-removed: #d28e05; --chart-skipped: #9887ef; --chart-unchanged: #666f82;
     --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
 }
@@ -625,6 +629,7 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .overview-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); align-items: start; }
 .overview-col { display: grid; gap: var(--s-4); min-width: 0; }
 .overview-card .card-head h2 { font-size: var(--fs-md); }
+.overview-card > .card-body { grid-template-columns: minmax(0, 1fr); }
 /* Plain numbers: a value, its label and at most one line under it. */
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--s-3) var(--s-4); }
 .metric-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -673,8 +678,17 @@ a.count-row:hover .count-label { color: var(--accent); text-decoration: underlin
 .chart-legend { display: inline-flex; gap: var(--s-3); color: var(--ink-2); font-weight: 500; letter-spacing: 0; text-transform: none; }
 .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; }
-.series-1, .seg-fresh { background: var(--chart-1); fill: var(--chart-1); }
-.series-2 { background: var(--chart-2); fill: var(--chart-2); }
+.series-1, .seg-fresh, .seg-new { background: var(--chart-1); fill: var(--chart-1); }
+.series-2, .seg-failed { background: var(--chart-2); fill: var(--chart-2); }
+.seg-changed { background: var(--chart-changed); fill: var(--chart-changed); }
+.seg-removed { background: var(--chart-removed); fill: var(--chart-removed); }
+.seg-unchanged { background: var(--chart-unchanged); fill: var(--chart-unchanged); }
+.seg-skipped { background: var(--chart-skipped); fill: var(--chart-skipped); }
+/* Pages scraped before the split by outcome: an outline, so no hue stands for an unknown outcome. */
+.seg-unsplit { background: transparent; box-shadow: inset 0 0 0 1px var(--muted); fill: none; stroke: var(--muted); stroke-width: 1; }
+.chart-totals { flex-wrap: wrap; gap: 2px var(--s-3); margin: 0 0 var(--s-2); padding: 0; list-style: none; font-size: var(--fs-xs); }
+.chart-totals li { display: inline-flex; align-items: center; gap: 6px; }
+.chart-totals strong { color: var(--ink); font-variant-numeric: tabular-nums; }
 .seg-due { background: var(--chart-due); fill: var(--chart-due); }
 .seg-overdue { background: var(--chart-overdue); fill: var(--chart-overdue); }
 .seg-never { background: var(--line-strong); fill: var(--line-strong); }
@@ -686,11 +700,13 @@ a.count-row:hover .count-label { color: var(--accent); text-decoration: underlin
 .chart-hit { fill: transparent; }
 .chart-mark:hover .chart-hit, .chart-mark.active .chart-hit { fill: var(--surface-3); }
 rect.chart-mark:hover { opacity: 0.8; }
-.chart-table { margin-top: var(--s-1); font-size: var(--fs-xs); }
+/* A table wider than its card, such as the pages by outcome, scrolls inside it. */
+.chart-table { min-width: 0; margin-top: var(--s-1); overflow-x: auto; font-size: var(--fs-xs); }
 .chart-table summary { width: fit-content; color: var(--muted); cursor: pointer; }
 .chart-table summary:hover { color: var(--ink-2); }
 .chart-table .metric-table { margin-top: var(--s-1); font-size: var(--fs-xs); }
 .chart-table .metric-table th, .chart-table .metric-table td { padding: 3px var(--s-2); }
+.chart-table .metric-table tbody th { white-space: nowrap; }
 .chart-tip { position: fixed; z-index: 30; max-width: 260px; padding: 6px var(--s-2); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-2); color: var(--ink-2); font-size: var(--fs-xs); line-height: 1.5; pointer-events: none; }
 .chart-tip-title { color: var(--muted); }
 .chart-tip strong { color: var(--ink); font-variant-numeric: tabular-nums; }

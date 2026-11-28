@@ -58,7 +58,7 @@ impl PassSummary {
             failed: outcome.failed,
             awaiting_schema_review: outcome.awaiting_schema_review,
             skipped: outcome.skipped,
-            unchanged: outcome.unchanged,
+            unchanged: outcome.scraped_pages.unchanged,
             deferred: outcome.deferred_urls,
             skip_reasons: outcome.skip_reasons.clone(),
             deferred_reasons: outcome.deferred_reasons.clone(),
@@ -175,7 +175,7 @@ mod tests {
     fn should_sum_the_deferral_reasons_and_count_unchanged_urls_when_the_pass_ends() {
         let mut first = ScrapeBatchOutcome::default();
         first.record_deferred(DeferralReason::TimeBudget, 5);
-        first.unchanged = 2;
+        first.scraped_pages.unchanged = 2;
         let mut second = ScrapeBatchOutcome::default();
         second.record_deferred(DeferralReason::TimeBudget, 1);
         second.record_deferred(DeferralReason::UrlLock, 1);
