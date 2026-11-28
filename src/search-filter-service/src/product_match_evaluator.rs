@@ -449,7 +449,7 @@ fn question_id(value: &str) -> QuestionId {
 
 /// The English title, translated or original, and otherwise the title in its own language, for
 /// example before title translation completes.
-fn candidate_title(product: &ProductListingSearchFilterMatchSource) -> &str {
+pub(crate) fn candidate_title(product: &ProductListingSearchFilterMatchSource) -> &str {
     product
         .titles
         .get(&Language::En)

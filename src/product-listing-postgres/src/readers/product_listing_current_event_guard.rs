@@ -4,9 +4,8 @@ use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
-    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
-    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
-    ProductListingCurrentEventRef,
+    ProductListingCurrentEventCheckError, ProductListingCurrentEventGuard,
+    ProductListingCurrentEventGuardFactory,
 };
 use sqlx::PgConnection;
 use std::collections::HashMap;
@@ -43,51 +42,19 @@ impl ProductListingCurrentEventGuardFactory<SqlxTransaction>
 
 #[async_trait::async_trait]
 impl ProductListingCurrentEventGuard for SqlxProductListingCurrentEventGuard<'_> {
-    async fn lock_and_check(
+    async fn lock_current_events(
         &mut self,
-        product_listing_id: ProductListingId,
-        expected_event_id: EventId,
-    ) -> Result<ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError> {
-        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR SHARE",
-        )
-        .bind(product_listing_id.as_uuid())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(|source| ProductListingCurrentEventCheckError::CheckFailed {
-            source: box_error(ProductListingCurrentEventGuardSqlxError(source)),
-        })?;
-
-        Ok(match current_event_id {
-            Some(event_id)
-                if try_from_uuid::<EventId>(event_id, "current event ID").map_err(
-                    |source| ProductListingCurrentEventCheckError::CheckFailed {
-                        source: box_error(source),
-                    },
-                )? == expected_event_id =>
-            {
-                ProductListingCurrentEventCheck::Current
-            }
-            Some(_) | None => ProductListingCurrentEventCheck::Stale,
-        })
-    }
-
-    async fn lock_and_check_all(
-        &mut self,
-        refs: &[ProductListingCurrentEventRef],
-    ) -> Result<
-        HashMap<ProductListingCurrentEventRef, ProductListingCurrentEventCheck>,
-        ProductListingCurrentEventCheckError,
-    > {
-        if refs.is_empty() {
+        product_listing_ids: &[ProductListingId],
+    ) -> Result<HashMap<ProductListingId, EventId>, ProductListingCurrentEventCheckError> {
+        if product_listing_ids.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let product_listing_ids = refs
+        let product_listing_ids = product_listing_ids
             .iter()
-            .map(|reference| reference.product_listing_id.into_uuid())
+            .map(|product_listing_id| product_listing_id.into_uuid())
             .collect::<Vec<_>>();
-        let current_event_ids = sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid)>(
+        sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid)>(
             r#"
             SELECT product_listing_id, current_event_id
             FROM product_listings
@@ -103,34 +70,22 @@ impl ProductListingCurrentEventGuard for SqlxProductListingCurrentEventGuard<'_>
         })?
         .into_iter()
         .map(|(product_listing_id, current_event_id)| {
-            let product_listing_id =
+            Ok((
                 try_from_uuid::<ProductListingId>(product_listing_id, "ProductListing ID")
-                    .map_err(|source| ProductListingCurrentEventCheckError::CheckFailed {
-                        source: box_error(source),
-                    })?;
-            let current_event_id = try_from_uuid::<EventId>(current_event_id, "current event ID")
-                .map_err(|source| {
-                ProductListingCurrentEventCheckError::CheckFailed {
-                    source: box_error(source),
-                }
-            })?;
-            Ok((product_listing_id, current_event_id))
+                    .map_err(invalid_row)?,
+                try_from_uuid::<EventId>(current_event_id, "current event ID")
+                    .map_err(invalid_row)?,
+            ))
         })
-        .collect::<Result<HashMap<_, _>, ProductListingCurrentEventCheckError>>()?;
+        .collect()
+    }
+}
 
-        Ok(refs
-            .iter()
-            .copied()
-            .map(|reference| {
-                let check = match current_event_ids.get(&reference.product_listing_id) {
-                    Some(event_id) if *event_id == reference.expected_event_id => {
-                        ProductListingCurrentEventCheck::Current
-                    }
-                    Some(_) | None => ProductListingCurrentEventCheck::Stale,
-                };
-                (reference, check)
-            })
-            .collect())
+fn invalid_row(
+    source: impl std::error::Error + Send + Sync + 'static,
+) -> ProductListingCurrentEventCheckError {
+    ProductListingCurrentEventCheckError::CheckFailed {
+        source: box_error(source),
     }
 }
 

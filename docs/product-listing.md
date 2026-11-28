@@ -399,8 +399,11 @@ version are submitted again, so a [forced re-embedding](durable-worker-runbook.m
 after a model or format change cannot be confirmed away.
 
 A listing without an embedding is still found lexically. Saved-search matching runs daily and
-does not wait for embeddings: one that lands after a match advances the listing's `updated`, so
-the next match picks it up. Operations are in the
+does not wait for embeddings. One that lands while a run decides the listing leaves the decision
+standing, and the match records the listing's current event
+([saved-filter matching](events/flow.md#periodic-saved-filter-matching)). One that lands later
+advances the listing's `updated`, so a later window can select the listing again, within that
+window's candidate cap. Operations are in the
 [runbook](durable-worker-runbook.md#product-embedding-recovery).
 
 ## Enrichment of listings not for sale

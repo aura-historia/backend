@@ -6,8 +6,7 @@ use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_postgres::SqlxProductListingCurrentEventGuardFactory;
 use product_listing_service::ports::{
-    ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
-    ProductListingCurrentEventGuardFactory, ProductListingCurrentEventRef,
+    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
 };
 use std::time::Duration;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -30,25 +29,14 @@ async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut guard_transaction = unit_of_work.begin().await?;
 
-    let current_ref = ProductListingCurrentEventRef {
-        product_listing_id,
-        expected_event_id: current_event_id,
-    };
-    let stale_ref = ProductListingCurrentEventRef {
-        product_listing_id,
-        expected_event_id: EventId::new(),
-    };
+    let missing = ProductListingId::new();
     let current_events = SqlxProductListingCurrentEventGuardFactory::new()
         .in_transaction(&mut guard_transaction)
-        .lock_and_check_all(&[current_ref, stale_ref])
+        .lock_current_events(&[product_listing_id, missing])
         .await?;
     assert_eq!(
-        Some(&ProductListingCurrentEventCheck::Current),
-        current_events.get(&current_ref)
-    );
-    assert_eq!(
-        Some(&ProductListingCurrentEventCheck::Stale),
-        current_events.get(&stale_ref)
+        std::collections::HashMap::from([(product_listing_id, current_event_id)]),
+        current_events
     );
 
     let next_event_id = EventId::new();
@@ -93,7 +81,7 @@ async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error
 async fn should_recheck_current_event_after_waiting_for_concurrent_product_commit() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
-        let (product_id, original) = seed_product(&pool).await?;
+        let (product_id, _) = seed_product(&pool).await?;
         let newer = EventId::new();
         let mut update = pool.begin().await?;
         let blocker_pid = sqlx::query_scalar("SELECT pg_backend_pid()")
@@ -108,15 +96,15 @@ async fn should_recheck_current_event_after_waiting_for_concurrent_product_commi
         let final_guard = async {
             let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
             let result = SqlxProductListingCurrentEventGuardFactory::new().in_transaction(&mut tx)
-                .lock_and_check(product_id, original).await?;
+                .lock_current_events(&[product_id]).await?;
             tx.commit().await?;
             Ok::<_, Box<dyn std::error::Error>>(result)
         };
         tokio::pin!(final_guard);
         support::assert_blocked(&pool, blocker_pid, 1, final_guard.as_mut()).await?;
         update.commit().await?;
-        assert_eq!(ProductListingCurrentEventCheck::Stale,
-            tokio::time::timeout(Duration::from_secs(10), final_guard).await??);
+        let current_events = tokio::time::timeout(Duration::from_secs(10), final_guard).await??;
+        assert_eq!(Some(&newer), current_events.get(&product_id));
         Ok(())
     }.await;
     assert!(
