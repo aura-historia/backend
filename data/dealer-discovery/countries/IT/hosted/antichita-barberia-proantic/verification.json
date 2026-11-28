@@ -1,33 +1,34 @@
 {
-  "run": "2026-11-02-it-229",
-  "verifiedAt": "2026-11-04T17:25:14.162079Z",
+  "run": "2026-11-27-handoff",
+  "verifiedAt": "2026-11-27T07:07:32.617796Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
   "fullVerifiedAt": "2026-11-04T17:17:08.617938Z",
-  "dealersCheckedThisRun": 0,
+  "dealersCheckedThisRun": 1,
   "dealersReused": 1,
   "counts": {
     "parties": 1,
-    "listingSources": 1,
+    "listingSources": 2,
     "locations": 1,
-    "logos": 0,
-    "identifiedPlatforms": 1,
+    "logos": 1,
+    "identifiedPlatforms": 2,
     "deliveryProfiles": 1,
-    "emptyIngestionMethods": 1,
+    "emptyIngestionMethods": 2,
+    "ingestionConfigured": 0,
     "excluded": 0,
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 4822,
-    "listingSources": 4868
+    "parties": 4791,
+    "listingSources": 4835
   },
-  "paidDataSpendUsd": 0.0,
+  "paidDataSpendUsd": 1.12,
   "checks": [
     "Live managed Party contacts and ownership match reviewed evidence",
     "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
+    "Live ingestion methods recorded per dealer (discovery never enables them); platform metadata independent",
     "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Inventory inheritance has explicit evidence or the single-location dealer policy"
   ],
   "dealers": [
     {
@@ -42,6 +43,19 @@
       "verified": true,
       "verifiedAt": "2026-11-04T17:17:08.617637Z",
       "observationDigest": "0083cdfddb0a3489406a3cc7cdf5873160d595d0c1f9a20cdb2ee7f84a47c4d4"
+    },
+    {
+      "domain": "antichitabarberia.com",
+      "listingSourceId": "ls_01m8dwvbdcehsvy0q3r1fcmcsx",
+      "partyId": "pty_01m6kncyq2e27bz5cffgm690cn",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-27T07:07:32.615241Z",
+      "observationDigest": "54c5e3e797564bd1d2f8dd4e7dc50153d69aaca47cc89eb349aa22f9da1d365f"
     }
   ]
 }

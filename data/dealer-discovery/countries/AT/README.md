@@ -62,3 +62,24 @@ The Die Galerien association index dated 2026-11-04 (batch 119) covers the natio
 Unresolved shipping-area assertions have a 255-character API limit. Keep complete native destination lists and tariff brackets in reviewed ledger evidence, with short faithful area summaries. Reconcile any rejected profile request by listing profiles and checking the default before correcting input or resuming; retain created source, Party and location IDs.
 
 For subdomain leads, scan the parent registered host and gallery/trader name before the first fetch. A parent-domain decision may already own the identity or its dated hold; a related subdomain is not automatically an alias or a separate legal operator.
+
+## 2026-11-25 DACH parallel run (AT)
+
+Runs `2026-11-25-at-par-*`: **+32 dealers ADDED (169 now)**, 255 EXCLUDED (100 `CONTEMPORARY_ART`) and 161 DEFERRED decisions, read back live with empty ingestion. Paid-data spend: $0.
+
+- The earlier AT deferrals were mostly galleries of living artists (now excluded) and brochure-only dealers. Fresh leads from Herold/WKO category pages and from blocked-domain niche web searches converted best (about 15-25%);
+  later niche rounds fell below 20% and cross-link pages gave nothing, so AT looks close to saturated for free sources.
+- Hosted subdomain shops use the subdomain as the canonical domain; the apex is an alias only when it has no record of its own.
+- Open owner decisions: see [the owner review](../../owner-review-2026-11-25/README.md). Deferred hosts are due again 2027-01-09, 2027-02-25 and 2027-05-25.
+
+## 2026-11-26 owner decisions and treg search follow-up (AT)
+- Owner rules applied (no vintage/new mixes, no contemporary/post-war art mixes; see the owner-review README).
+- 20 live dealers were removed from the backend; 13 more had ingested ProductListings, so the API could not delete them; the owner authorised direct database deletion and they were removed afterwards (`removal-blocked-has-listings.tsv`): 33 AT dealers removed in total.
+- 2 dealers were added from treg.to searches (erlach.shop, antike-kacheloefen.at); the 4 deferred `MODERN_ART_OWNER_DECISION` galleries were re-checked and excluded.
+- Austrian search yield is near saturation (3 rounds: 2 additions from about 22 leads).
+
+### 2026-11-26 follow-up: marketplace-only dealers removed, orphan cleanup
+- Owner ruling: dealers whose stock exists only on third-party marketplaces are removed. 4 deferrals (`MARKETPLACE_ONLY_STOCK_OWNER_DECISION`) are now `EXCLUDED` (`MARKETPLACE_ONLY_STOCK`).
+- Orphan Parties/locations of the dealers removed on 2026-11-26 were cleaned up where nothing references them (`../../owner-review-2026-11-25/README.md`). The 13 AT dealers that held ingested listings were removed later the same day: their listings and raw streams were deleted in the database, their search documents were replaced by the application's own tombstones, then the sources and orphan Parties were deleted. Live ledger count after the removal: AT 138 `ADDED`.
+- Second round of owner decisions (2026-11-26, later): 4 deferred dealers with an unresolved auction role are `EXCLUDED` (`AUCTION_ROLE_OWNER_DECISION`); katharina-vintage.com removed from the backend (scope). Operator Parties held by shipping history were erased with their shipping (see `../../owner-review-2026-11-25/README.md`). Live ledger count: AT 137 `ADDED`.
+- Rule B on auctions (owner, 2026-11-26): 21 AT dealers were re-read live; 2 added (vetter-antiquitaeten.at, salzburger-muenzhandlung.at), see `../../owner-review-2026-11-25/rule-b-added.tsv`. Live ledger count: AT 139 `ADDED`.

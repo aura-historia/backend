@@ -27,3 +27,23 @@ Strict root and hosted verification failed: 70 sources now have externally confi
 ## Continuation
 
 Continue queued leads and dated follow-ups in `frontier.jsonl`; check all country ownership before mutation. Run explicit country-ledger audits, indexes and verification after each batch. Preserve external ingestion changes and report strict failures honestly; never enable ingestion during onboarding. Raw evidence and temporary orchestration remain under `/tmp/aura-dealer-discovery/CH/`.
+
+## 2026-11-25 DACH parallel run (CH)
+
+Runs `2026-11-25-ch-par-*`: **+48 dealers ADDED (259 now)**, 289 EXCLUDED (89 `CONTEMPORARY_ART`) and 169 DEFERRED decisions, read back live with empty ingestion. Paid-data spend: $0.
+
+- Plain re-checks and association lists were saturated; blocked-domain niche web searches (vintage design Zürich/Winterthur/Basel, postcards, coins, antiquarian books, stoves, militaria) found most new dealers, but conversion fell to about 5% in the last round.
+- Swiss shops publish German, French or Italian imprints and price in CHF; shipping thresholds are recorded in CHF. The official UID register (`uid-wse.admin.ch`, about 10 requests per hour per IP) resolves sole-proprietor and legal operators when a site names no legal form; it supports, never replaces, the site's own statement.
+- Open owner decisions: see [the owner review](../../owner-review-2026-11-25/README.md). Deferred hosts are due again 2027-01-09, 2027-02-25 and 2027-05-25.
+
+## 2026-11-26 owner decisions and treg search follow-up (CH)
+- Owner rules applied (no vintage/new mixes, no contemporary/post-war art mixes; see the owner-review README).
+- 25 live dealers were removed from the backend; 11 more had ingested ProductListings, so the API could not delete them; the owner authorised direct database deletion and they were removed afterwards (`removal-blocked-has-listings.tsv`): 36 CH dealers removed in total.
+- 1 dealer was added from treg.to searches (lodeco.ch); the 24 deferred `MODERN_ART_OWNER_DECISION` galleries were re-checked under the new rule and all excluded.
+- Swiss search yield is near saturation (3 rounds: 1 addition from about 24 leads).
+
+### 2026-11-26 follow-up: marketplace-only dealers removed, orphan cleanup
+- Owner ruling: dealers whose stock exists only on third-party marketplaces are removed. 3 deferrals (`MARKETPLACE_ONLY_STOCK_OWNER_DECISION`) are now `EXCLUDED` (`MARKETPLACE_ONLY_STOCK`).
+- Orphan Parties/locations of the dealers removed on 2026-11-26 were cleaned up where nothing references them (`../../owner-review-2026-11-25/README.md`). The 11 CH dealers that held ingested listings were removed later the same day (listings and raw streams deleted in the database, search documents replaced by tombstones, sources and orphan Parties deleted). Live ledger count after the removal: CH 224 `ADDED`.
+- Second round of owner decisions (2026-11-26, later): 4 deferred dealers with an unresolved auction role are `EXCLUDED` (`AUCTION_ROLE_OWNER_DECISION`); swisswatches-andmore.com removed from the backend and schmucklicher.ch `EXCLUDED` (scope); the Kirchner/Potthof shops stay excluded. Operator Parties held by shipping history were erased with their shipping (see `../../owner-review-2026-11-25/README.md`). Live ledger count: CH 223 `ADDED`.
+- Rule B on auctions (owner, 2026-11-26): 30 CH dealers were re-read live; 3 added (swissposterart.com, antik-unique.ch, cahn.ch) plus poster-auctioneer.com (second storefront of the poster operator), see `../../owner-review-2026-11-25/rule-b-added.tsv`. Live ledger count: CH 227 `ADDED`.

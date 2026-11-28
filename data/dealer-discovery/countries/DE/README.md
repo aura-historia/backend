@@ -308,3 +308,32 @@ checks are separate from new discovery; no paid provider is currently necessary.
 - Shipping class codes require real per-item crawler assignments. Keep item-specific furniture, parcel and digital-goods restrictions in observations when assignments do not exist; use unknown service eligibility where source-wide availability cannot be supported. Put a free-shipping threshold on its service and retain an unknown-price fallback. These observations do not authorize ingestion.
 
 - Shipping actors use tagged objects such as `{"kind":"LISTING_SOURCE"}`, not bare enum strings. After a rejected profile write, reconcile the live profile list and default before resuming with retained IDs and the stable creation key. Ledger observations replace top-level `facts` as a whole; journal the complete reviewed facts when correcting one member.
+
+## 2026-11-25 DACH parallel run (DE)
+
+Runs `2026-11-25-de-par-*`: **+116 dealers ADDED (955 now)**, 526 EXCLUDED (96 `CONTEMPORARY_ART` under the 2026-11-24 policy) and 371 DEFERRED
+decisions, all read back live (identity, locations, defaults, delivery profiles; every new ingestion list empty). Paid-data spend: $0.
+
+- Re-checking due DEFERRED domains converted only about 2-3%: most were brochure sites, buying-only services or dead hosts. Never-reviewed leads converted
+  best: **niche web searches** (WebSearch with the directory/marketplace hosts in `blocked_domains` and "Impressum" in the query) found dealer-owned sites that plain
+  queries never show; vintage/mid-century design, postcards/ephemera, antiquarian-book specialties, militaria and salvage niches were the richest (15-45% of leads qualified).
+- Directory pages, association lists (VdA, VDDM) and cross-link pages were already saturated; a late search round converted about 16%.
+- Second own storefronts of an already managed operator use `existingOperator` rows written into this ledger (11 added this way, incl. the Steutzger, Czellnik and Berlin Antiquariat shops).
+- Operators without a named proprietor are recorded by trading name; conflicting imprint/AGB identities stay DEFERRED. A redirect/alias domain with its own record is its own `EXCLUDED ALIAS_OF_EXISTING_SOURCE` row, never an `aliases` entry.
+- Open owner decisions: see [the owner review](../../owner-review-2026-11-25/README.md). Deferred hosts are due again 2027-01-09, 2027-02-25 and 2027-05-25.
+
+## 2026-11-26 owner decisions and treg search follow-up (DE)
+- Owner rules applied: no vintage/new mixes, no contemporary art or post-war art mixes, model railways out; Nazi-era literature/militaria and commission/consignment sellers allowed
+  (see `data/dealer-discovery/owner-review-2026-11-25/README.md`). Live dealers were scanned for new-goods signals (script, then first-party review of about 250 flagged dealers).
+- 70 live dealers were removed from the backend (source deleted, `EXCLUDED` row with `backend.removed` ids); 61 more had ingested ProductListings,
+  so the API could not delete them; the owner authorised direct database deletion and they were removed afterwards (`removal-blocked-has-listings.tsv`): 131 DE dealers removed in total. Orphan Parties were cleaned up in the database.
+- 40 dealers were added: 8 from previously deferred commission/Nazi-era-literature cases and 32 from treg.to Google searches (three rounds, about 1,100 queries; city x niche
+  and niche x "Impressum" patterns with `-site:` exclusions worked best; yield fell from 15% to 5% of leads per round).
+- `MODERN_ART_OWNER_DECISION` deferrals were re-checked under the new rule: all 7 excluded. Model-railway deferrals (modellbahn-rhein-main.de, nordbahn.net) excluded.
+- Paid-data spend this follow-up: about USD 1.12 (treg.to search only; no phone/email verification, no other endpoint).
+
+### 2026-11-26 follow-up: marketplace-only dealers removed, orphan cleanup
+- Owner ruling: dealers whose stock exists only on third-party marketplaces are removed. 28 deferrals with `MARKETPLACE_ONLY_STOCK_OWNER_DECISION` plus 27 deferrals that record the same fact under other reason codes are now `EXCLUDED` (`MARKETPLACE_ONLY_STOCK`).
+- Operator Parties and locations of the dealers removed on 2026-11-26 were cleaned up in the database where nothing references them (details: `../../owner-review-2026-11-25/README.md`). The 61 DE dealers that held ingested listings were removed later the same day (listings and raw streams deleted in the database, search documents replaced by tombstones, sources and orphan Parties deleted). Live ledger count after the removal: DE 864 `ADDED`.
+- Second round of owner decisions (2026-11-26, later): 18 deferred dealers with an unresolved auction role are `EXCLUDED` (`AUCTION_ROLE_OWNER_DECISION`); scope calls: nikonclassics-michalke.de and porzellan-porcelain.de removed from the backend, till-weber.de `EXCLUDED`. Operator Parties held by shipping history were erased with their shipping (see `../../owner-review-2026-11-25/README.md`). Live ledger count: DE 862 `ADDED`.
+- Rule B on auctions (owner, 2026-11-26): 104 DE dealers excluded for auctions or deferred were re-read live; 15 were added from the re-review plus 2 from queued leads (briefe.shop, richard-militaria.at, an Austria-located dealer kept in this ledger), see `../../owner-review-2026-11-25/rule-b-added.tsv`. Live ledger count: DE 879 `ADDED`.

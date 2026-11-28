@@ -1,482 +1,763 @@
-domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases	catalogueUrl	ledgerPath	sourceScope
-abstractartshop.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	herschberger.at	https://abstractartshop.com/collections/originalgemalde	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-acrylkunst-artstudiodicken.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://acrylkunst-artstudiodicken.at/acryl-groessere-formate/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-adis-guitar.at	ADDED	SQUARESPACE	ls_01m6h71mfge94tndqn0sp84hev	pty_01m6h71mf1e7bb5j17a6g0ek2p	2026-11-03T17:24:26.506872Z			https://www.adis-guitar.at/vintage-instruments	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-adrienne-egger.com	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.adrienne-egger.com/gallery	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-afterhourfurniture.com	ADDED	WIX	ls_01m6hag53qeshs58dbbq1z6ky3	pty_01m6hag536e9tr9xt3emf0hj0x	2026-11-03T18:24:48.450135Z			https://www.afterhourfurniture.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ag18gallery.com	DEFERRED				2026-11-04T10:25:39.275638Z			https://ag18gallery.com/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-agnesreinthaler.com	DEFERRED				2026-11-04T12:20:22.204026Z			https://www.agnesreinthaler.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-agora.co.at	EXCLUDED				2026-11-03T10:04:22.250637Z	AUCTION_BUSINESS		https://agora.co.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ahrer.info	DEFERRED				2026-11-03T15:11:32.511955Z	CURRENT_QUALIFIED_HISTORICAL_STOCK_UNVERIFIED		https://www.ahrer.info/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-aichholzer.wien	DEFERRED				2026-11-03T10:38:34.156668Z	PRIMARY_DOMAIN_UNRESOLVED		https://www.aichholzer.wien/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-alfonswalde.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	shop.alfonswalde.com	https://alfonswalde.com/produkt-kategorie/originalwerke/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-alpantik.at	DEFERRED				2026-11-03T13:31:11.278364Z	SPECIFIC_CURRENT_OWN_RETAIL_STOCK_UNVERIFIED		https://alpantik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-altebaustoffe.at	ADDED	MOTO_CMS	ls_01m6gkw0bje0kr2gkdkcyj7r4d	pty_01m6gkw0b7eqfbkff0gbzchxf8	2026-11-03T11:49:19.892289Z			https://www.altebaustoffe.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-altebuecher.at	ADDED	WIX	ls_01m6h0s0dzesab54d5488q9jd7	pty_01m6h0s0d7er29we7skw472egt	2026-11-03T15:34:52.970824Z			https://www.altebuecher.at/buecher	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-altekunst-vienna.com	ADDED		ls_01m6ghakkdey6avd1km7x6br2j	pty_01m6ghakjwe11v5z24svp0b765	2026-11-03T11:04:52.640367Z			https://www.altekunst-vienna.com/frontend/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-alterschmuck.at	DEFERRED				2026-11-03T12:18:52.232207Z	LEGAL_OPERATOR_AND_CURRENT_STOCK_UNVERIFIED		https://alterschmuck.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-althyas.com	DEFERRED				2026-11-04T09:35:20.532754Z			https://www.althyas.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-altwaren-ventilator.com	DEFERRED				2026-11-03T17:50:08.643168Z	RETAIL_TRANSITION_AND_CURRENT_SELLER_UNRESOLVED		https://www.altwaren-ventilator.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-altwienkunst.com	ADDED	WORDPRESS	ls_01m6ge2hjve8gah83mhtnmw7vr	pty_01m6ge2hj8ecxvx2w66s8m5qrj	2026-11-03T10:08:02.068516Z			https://altwienkunst.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-amart.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.amart.at/marquant-online-ausstellung-2026/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-an-t-ra.com	DEFERRED				2026-11-03T15:53:59.454450Z	CONFLICTING_CURRENT_OPERATOR_IDENTITY		https://www.an-t-ra.com/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-andtheeditions.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.andtheeditions.com/collections/all	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ankauf-demolsky.at	ADDED	WORDPRESS	ls_01m6hbzqs0ef8rmz9kbnsbpegv	pty_01m6hbzqrhepb8c61q3s4reast	2026-11-03T18:50:47.162825Z			https://www.ankauf-demolsky.at/verkauf	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-art.at	ADDED	WOOCOMMERCE	ls_01m6hbzn17exnvpew8w695xkxc	pty_01m6hbzn0mex8rhcxvk2bpy373	2026-11-03T18:50:45.555688Z			https://antik-art.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-dorner.at	DEFERRED				2026-11-04T14:59:29.027557Z			https://www.antik-dorner.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-experte.at	DEFERRED				2026-11-04T08:57:27.288285Z			https://www.antik-experte.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-flohmarkt-ferlach.at	DEFERRED				2026-11-03T11:28:37.860053Z	SPECIFIC_QUALIFYING_CURRENT_STOCK_NOT_VERIFIED		https://www.antik-flohmarkt-ferlach.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-gebrauchtwaren.at	DEFERRED				2026-11-03T10:25:14.397010Z	CONFLICTING_OPERATOR_IDENTITIES		https://antik-gebrauchtwaren.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-grandits.at	ADDED		ls_01m6gee7t8efvsjs4bazsp0cgt	pty_01m6gee7sxej8vwkgw1z13wc24	2026-11-03T10:14:25.703600Z			https://www.antik-grandits.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-hegenbart.at	DEFERRED				2026-11-04T13:48:37.500167Z			https://www.antik-hegenbart.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-kabinett.at	ADDED	WORDPRESS	ls_01m6h7vr22e7xb3p7pky50z645	pty_01m6h7vr1nekfvbwhrhtgfg9gn	2026-11-03T17:38:42.323422Z			https://www.antik-kabinett.at/antiquitaeten/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-kachelofen.com	ADDED	JIMDO	ls_01m6jvh7ggedys0j05gpyqjd5m	pty_01m6jvh7eveenbcnk9mjrfjrq1	2026-11-04T08:43:07.609686Z			https://www.antik-kachelofen.com/kachel%C3%B6fen/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-kunst-design.at	DEFERRED				2026-11-04T08:34:04.039270Z			https://antik-kunst-design.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-kurios.at	DEFERRED				2026-11-03T15:11:32.511943Z	CURRENT_RETAIL_AVAILABILITY_UNVERIFIED		https://www.antik-kurios.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-mg.at	DEFERRED				2026-11-04T08:48:23.360151Z			https://www.antik-mg.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-modern.shop	DEFERRED				2026-11-03T10:11:12.158416Z	PERIOD_STOCK_REQUIRES_ITEM_REVIEW		https://antik-modern.shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-more.sta.io	DEFERRED				2026-11-04T13:28:54.980678Z			https://antik-more.sta.io/	data/dealer-discovery/countries/AT/dealers.jsonl	EXACT_HOSTED_BUSINESS_PROFILE
-antik-rath.com	DEFERRED				2026-11-03T10:04:22.250637Z	CURRENT_STOCK_NOT_INSPECTABLE		https://antik-rath.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-stadl.at	DEFERRED				2026-11-03T10:56:18.786994Z	SPECIFIC_CURRENT_STOCK_UNVERIFIED		https://www.antik-stadl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-stein.at	ADDED	WORDPRESS	ls_01m6gkvy7gegktdxzzgpcab451	pty_01m6gkvy75ex39tm625qxxt6dj	2026-11-03T11:49:17.440001Z			https://www.antik-stein.at/wp/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-stinatz.webnode.page	DEFERRED				2026-11-03T11:23:15.933186Z	CONTRACTING_LEGAL_OPERATOR_NOT_EXPLICIT		https://antik-stinatz.webnode.page/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-strassner.com	ADDED	JIMDO	ls_01m6gghatkexdbs80yfc279nbj	pty_01m6gghat4e4nvcqfp54dkzxt5	2026-11-03T10:51:03.803518Z			https://www.antik-strassner.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-tirol.com	DEFERRED				2026-11-03T13:31:56.568664Z	SPECIFIC_CURRENT_OWN_RETAIL_STOCK_UNVERIFIED		https://www.antik-tirol.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-vintage.net	DEFERRED				2026-11-03T14:44:08.572311Z	QUALIFYING_CURRENT_STOCK_NOT_INSPECTABLE		https://antik-vintage.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antik-zone.at	ADDED	WOOCOMMERCE	ls_01m6gfdb7qesm8626pxdh3yrgw	pty_01m6gfdb72e03bcyb6248ag9t3	2026-11-03T10:31:25.309322Z			https://www.antik-zone.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikankauf-oesterreich.at	DEFERRED				2026-11-04T13:23:03.110044Z			https://www.antikankauf-oesterreich.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikantik.at	DEFERRED				2026-11-03T12:18:52.232204Z	SPECIFIC_CURRENT_STOCK_UNVERIFIED		http://antikantik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antike-moebel.at	ADDED	WORDPRESS	ls_01m6gg5tfsejgajesf0d2rdjbe	pty_01m6gg5td6ebctbdfjyq7pvwww	2026-11-03T10:44:47.215695Z			https://www.antike-moebel.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikebaustoffe.at	ADDED		ls_01m6gkw2szebtvt8ntkn72er5f	pty_01m6gkw2skegh8nff0dcapcky6	2026-11-03T11:49:21.564859Z			https://www.antikebaustoffe.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikegger.at	DEFERRED				2026-11-03T10:30:30.529413Z	LEGAL_OPERATOR_NOT_EXPLICIT		http://www.antikegger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikes-flucher.at	ADDED	WOOCOMMERCE	ls_01m6gjd0e4emt8x1zhah58c83j	pty_01m6gjd0dneba94xts2hzv6h7p	2026-11-03T11:23:39.757807Z			https://www.antikes-flucher.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikesallerart.jimdofree.com	DEFERRED				2026-11-04T13:31:27.958242Z			https://antikesallerart.jimdofree.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikesvomland.at	ADDED	DUDA	ls_01m6ggcgp3etdsbm8aq20xqhxa	pty_01m6ggcgnwegca9rqrzex56ax2	2026-11-03T10:48:25.852465Z			https://www.antikesvomland.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikhandel-gabl.at	DEFERRED				2026-11-03T19:28:31.379460Z			https://antikhandel-gabl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikhof-figl.at	ADDED		ls_01m6kc00m9ez3bn84797nts2mx	pty_01m6kc00kpeg1b23fcjeavxt39	2026-11-04T13:29:25.509050Z			https://www.antikhof-figl.at/antiquitaeten	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikhof.com	DEFERRED				2026-11-03T15:08:43.260895Z	CURRENT_QUALIFIED_STOCK_UNVERIFIED		https://antikhof.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikhof.net	DEFERRED				2026-11-03T15:08:43.260900Z	CURRENT_QUALIFIED_STOCK_UNVERIFIED		https://antikhof.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikholz.info	DEFERRED				2026-11-04T13:00:53.342751Z			https://www.antikholz.info/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikmarkt-tirol.at	ADDED	PRESTASHOP	ls_01m6gf8nbveq38d1c1fc0xwgv3	pty_01m6gf8nbde4s9abxmjy6fs0pe	2026-11-03T10:28:50.925249Z			https://antikmarkt-tirol.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikmichl.at	DEFERRED				2026-11-03T11:11:16.942429Z	SPECIFIC_CURRENT_STOCK_NOT_VERIFIED		https://antikmichl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikshop-riegersburg.at	ADDED	WOOCOMMERCE	ls_01m6gp2mpdee18hxxyy09t38rq	pty_01m6gp2mp1ewxrvk5zekw1jsn6	2026-11-03T12:27:54.306555Z			https://www.antikshop-riegersburg.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikstadl.at	DEFERRED				2026-11-03T12:31:30.450334Z	CURRENT_OFFERS_MIXED_WITH_COMPLETED_PROJECTS		https://www.antikstadl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikstadl.com	ADDED		ls_01m6ggvnpnec5tnt021xzzwz1b	pty_01m6ggvnp9ew692f4r4vhf4v0w	2026-11-03T10:56:42.772070Z			https://www.antikstadl.com/index.php	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiktirol.at	DEFERRED				2026-11-03T19:28:31.379472Z			https://antiktirol.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikuhren.eu	DEFERRED				2026-11-03T16:03:19.878791Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.antikuhren.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antikundco.com	DEFERRED				2026-11-03T12:15:48.550571Z	SPECIFIC_CURRENT_STOCK_UNVERIFIED		https://antikundco.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquari.at	ADDED	MODIFIED_ECOMMERCE	ls_01m6gqctmre36skpez2t0k6xed	pty_01m6gqctmceg0s99vaxr9x3fmb	2026-11-03T13:34:51.753345Z			https://antiquari.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-deinbacher.at	ADDED	MAGENTO	ls_01m6h5rg4ne1xrsq5h0m5jyqzq	pty_01m6h5rg47esc9xvs32qy6b7q5	2026-11-03T17:01:59.318985Z			http://www.antiquariat-deinbacher.at/index.php/varia/alte-drucke-bis-1800-early-printed-till-1800.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-donhofer.at	DEFERRED				2026-11-03T12:37:39.768556Z	LEGAL_OPERATOR_AND_CURRENT_STOCK_UNVERIFIED		http://www.antiquariat-donhofer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-fetzer.de	ADDED	IONOS_MYWEBSITE	ls_01m6gr6j0fepd8vkabegprep8d	pty_01m6gr6hzyeext61pbjj34m96e	2026-11-03T13:04:59.738465Z			http://www.antiquariat-fetzer.de/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-krikl.co.at	DEFERRED				2026-11-03T13:16:14.025717Z	CURRENT_LEGAL_OPERATOR_UNRESOLVED		http://www.antiquariat-krikl.co.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-krug.at	DEFERRED				2026-11-03T15:27:33.662145Z	CURRENT_RETAIL_STOCK_UNVERIFIED		https://antiquariat-krug.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-loewenstein.at	ADDED	HESCOM_SHOP	ls_01m6h0rxz0e3rv06j4taqg5hg8	pty_01m6h0rxyee4carwyzj2vyhyqv	2026-11-03T15:34:50.597106Z			https://www.antiquariat-loewenstein.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-ms.at	ADDED	IONOS_MYWEBSITE	ls_01m6gqcrz7egfa62cy5g0txyyh	pty_01m6gqcryteg494nmgh62cak1z	2026-11-03T12:50:54.368437Z			https://www.antiquariat-ms.at/katalog/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat-weinek.at	ADDED	WIX	ls_01m6ghx8k1e428g0yz65b6w68h	pty_01m6ghx8jfenz86s0m37jqm7m8	2026-11-03T11:15:03.297456Z			https://www.antiquariat-weinek.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquariat.wien	DEFERRED				2026-11-03T14:31:27.932755Z	ANNOUNCED_TEMPORARY_ORDER_PROCESSING_PAUSE		https://www.antiquariat.wien/buecher/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquatis.at	DEFERRED				2026-11-03T11:52:51.251290Z	SPECIFIC_CURRENT_OWN_STOCK_NOT_VERIFIED		http://antiquatis.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-am-dom.at	DEFERRED				2026-11-03T15:08:43.260903Z	CURRENT_QUALIFIED_STOCK_UNVERIFIED		http://www.antiquitaeten-am-dom.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-ankauf.at	ADDED	SIQUANDO	ls_01m6ghpta2ecjrsej8ghwn61ac	pty_01m6ghpt9gesd8aew82qfx4hfd	2026-11-03T11:11:32.134402Z			http://www.antiquitaeten-ankauf.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-brune.at	DEFERRED				2026-11-03T12:18:52.232199Z	SPECIFIC_CURRENT_OFFER_UNVERIFIED		https://www.antiquitaeten-brune.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-edler.at	DEFERRED				2026-11-03T10:38:34.156671Z	SPECIFIC_ANTIQUE_STOCK_UNVERIFIED		https://antiquitaeten-edler.at/de/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-innsbruck.at	DEFERRED				2026-11-03T10:11:12.158414Z	CURRENT_STOCK_NOT_INSPECTABLE		https://www.antiquitaeten-innsbruck.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-kral.at	ADDED	NEXTJS	ls_01m6ge959aepv99w0xhaxjasgz	pty_01m6ge958xe429btr10bp30s43	2026-11-03T10:11:38.772502Z			https://www.antiquitaeten-kral.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-moskat.at	ADDED	SQUARESPACE	ls_01m6gf8q08erwvv820z3xckm4d	pty_01m6gf8pzxexmvtgb35e4zqa9s	2026-11-03T10:28:52.673323Z			https://antiquitaeten-moskat.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-poell.com	DEFERRED				2026-11-03T11:34:53.438432Z	SPECIFIC_CURRENT_OWN_STOCK_NOT_VERIFIED		https://www.antiquitaeten-poell.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-reisch.com	ADDED		ls_01m6gfpc5heg08hm4bq0zkzy0s	pty_01m6gfpc52esf9hcv0w2y4y4e5	2026-11-03T10:36:20.446551Z			https://antiquitaeten-reisch.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-schmalzer.at	DEFERRED				2026-11-03T10:04:22.250637Z	CURRENT_STOCK_REQUIRES_CHANNEL_REVIEW		https://www.antiquitaeten-schmalzer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-schwaighofer.at	DEFERRED				2026-11-03T11:14:32.376677Z	CURRENT_FIRST_PARTY_DEALER_SITE_UNAVAILABLE		http://www.antiquitaeten-schwaighofer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-taeuber.com	ADDED	SQUARESPACE	ls_01m6jw828se2vsp60ryeaq4jtg	pty_01m6jw828he2hrg6dz4bkkp505	2026-11-04T08:54:12.245225Z			https://www.antiquitaeten-taeuber.com/produkte	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaeten-tsantilas.at	ADDED		ls_01m6gk2zjfeh3tbhypjcc888mk	pty_01m6gk2zhreeavpwvdx2e1etpb	2026-11-03T11:35:39.387205Z			https://www.antiquitaeten-tsantilas.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaetenrestaurator.at	ADDED	WEBADOR	ls_01m6h2dx6mevyvm454mtc3fr49	pty_01m6h2dx62e4jtw2rm0c1eewej	2026-11-03T16:03:46.601643Z			https://www.antiquitaetenrestaurator.at/verkauf/uhren	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antiquitaetenwinkel.de	DEFERRED				2026-11-03T10:44:20.979462Z	SPECIFIC_CURRENT_STOCK_UNVERIFIED		http://www.antiquitaetenwinkel.de/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-antix.cc	DEFERRED				2026-11-03T10:28:04.466805Z	FIRST_PARTY_ACCESS_UNAVAILABLE		https://www.antix.cc/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-anzenbergergallery-bookshop.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://anzenbergergallery-bookshop.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-anzenbergergallery.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.anzenbergergallery.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-apfel-antik.com	ADDED	JIMDO	ls_01m6ge2fmbe3n98cehs2rywpc3	pty_01m6ge2fkzee4vcw8s43vj17xp	2026-11-03T10:07:59.959360Z			https://www.apfel-antik.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-arsartis.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.arsartis.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-art-michael-alexander-seywald.com	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.art-michael-alexander-seywald.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artanima.at	DEFERRED				2026-11-04T09:55:01.232177Z			https://www.artanima.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artaustria.net	DEFERRED				2026-11-04T08:24:59.692036Z			https://www.artaustria.net/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artdepot-austria.at	EXCLUDED				2026-11-03T18:41:15.673166Z	MULTI_ARTIST_DIRECT_SALES_PLATFORM		https://artdepot-austria.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artdepot.co.at	DEFERRED				2026-11-04T10:12:51.455988Z			https://artdepot.co.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artecont.at	DEFERRED				2026-11-03T19:59:18.213602Z			https://www.artecont.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artfigl.at	DEFERRED				2026-11-03T10:38:34.156663Z	FIRST_PARTY_FETCH_FAILED		https://artfigl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artforyou.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.artforyou.at/index.html#galerie	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artheum.at	ADDED	WOOCOMMERCE	ls_01m6ge2cz9e7makz029j3m50wt	pty_01m6ge2cyje53bkmqd60fh5h8h	2026-11-03T10:07:58.197720Z			https://artheum.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artinprint.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.artinprint.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artkonzett.com	DEFERRED				2026-11-04T11:31:41.579850Z			https://www.artkonzett.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artmoments.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://artmoments.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artofsalzburg.com	DEFERRED				2026-11-04T09:14:55.501433Z			https://artofsalzburg.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artsofwoman.at	DEFERRED				2026-11-04T08:57:27.288279Z			https://www.artsofwoman.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-artziwna.com	ADDED	JIMDO	ls_01m6hdvzh4e7tsrcvsdvk7c3vz	pty_01m6hdvzgqewkvwedv1b1f7v4s	2026-11-03T19:23:41.548826Z			https://www.artziwna.com/kuenstler-artist/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-asiatikavienna.com	ADDED	WORDPRESS	ls_01m6h1wwgzegtttf89ym10y1gd	pty_01m6h1wwgde59a9b3c136vkv2k	2026-11-03T15:54:28.057065Z			https://asiatikavienna.com/shop-2/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-atelier-elisabeth.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.atelier-elisabeth.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ateliervogelfrei.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.ateliervogelfrei.com/de/malerei/originale/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-aufderseil.at	EXCLUDED				2026-11-03T17:55:44.919200Z	CURRENT_PREMISES_CLOSED_AND_NO_AVAILABLE_CATALOGUE		https://www.aufderseil.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-auktionen-fruehwald.com	EXCLUDED				2026-11-03T16:57:27.256227Z	AUCTION_BUSINESS		https://www.auktionen-fruehwald.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-auktioneum-shop.com	DEFERRED				2026-11-03T12:15:48.550580Z	CONFLICTING_LEGAL_OPERATOR		https://auktioneum-shop.com/de/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-auroraarts.at	DEFERRED				2026-11-04T13:00:53.342759Z			https://auroraarts.at/collections/originale	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-automobileforst.at	DEFERRED				2026-11-03T15:14:59.558899Z	CONTRACTUAL_OPERATOR_AND_POLICY_RECONCILIATION		https://www.automobileforst.at/vintage-retro-and-handmade-shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-av-coins.com	DEFERRED				2026-11-03T16:54:35.214100Z	IDENTITY_AND_CURRENT_STOCK_UNRESOLVED		https://www.av-coins.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bakerhousegallery.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://bakerhousegallery.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bananas.at	ADDED		ls_01m6has17yeekrqmvjt6gn9b81	pty_01m6has17ge51s8bjkfcpd6t76	2026-11-03T18:29:39.312482Z			https://bananas.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bardotantiquejewellery.com	DEFERRED				2026-11-03T11:17:47.209651Z	LEGAL_OPERATOR_INCOMPLETE_AND_STOCK_LOAD_FAILURE		https://www.bardotantiquejewellery.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-barvinskyi.gallery	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.barvinskyi.gallery/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-baumann-juwelen.at	DEFERRED				2026-11-03T17:01:27.453820Z	CURRENT_STOCK_UNRESOLVED		https://www.baumann-juwelen.at/antiquitaeten/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-beletage.com	ADDED	JOOMLA	ls_01m6gewpywekt85bckch8qpgcz	pty_01m6gewpyhe36882khkgtwg22t	2026-11-03T10:22:19.719563Z			https://www.beletage.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-berndkugler.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.berndkugler.at/viewing-rooms/2026/madeleine-boschan-new-edition-duino-1912/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bernhard-edelsfeld.at.st	DEFERRED				2026-11-04T15:13:17.706347Z			http://www.bernhard-edelsfeld.at.st	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bild-und-rahmen.at	ADDED	WORDPRESS	ls_01m6jzqt8he3bv7camt0d6x99d	pty_01m6jzqt84evfsq33nr9d2d93p	2026-11-04T09:55:13.490757Z			https://bild-und-rahmen.at/lagernde-werke	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bluedanubeviolins.com	ADDED	WOOCOMMERCE	ls_01m6h71j73e8xahqgg3xpq1811	pty_01m6h71j6nem9bqhx5zpvhfdpp	2026-11-03T17:24:24.788112Z			https://www.bluedanubeviolins.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-bonbon-interior.at	ADDED	SQUARESPACE	ls_01m6harym4eensns8p01zae4gs	pty_01m6harykpe4sbnhpxwzwq6nv1	2026-11-03T18:29:37.228308Z			https://www.bonbon-interior.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-briefmarken-handel.at	DEFERRED				2026-11-03T13:21:37.636488Z	CURRENT_STOCK_AND_AUCTION_ROLE_UNRESOLVED		https://briefmarken-handel.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-briefmarken-stari.at	ADDED	XT_COMMERCE	ls_01m6gsf7mfesys6wbsdjp892cg	pty_01m6gsf7kqeb3sy4j35nbhbza6	2026-11-03T13:27:12.424945Z			https://briefmarken-stari.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-buecherbuben.at	ADDED	WOOCOMMERCE	ls_01m6h0c734ezystp169nqxqpty	pty_01m6h0c72restaran0y2vgaaqj	2026-11-03T15:27:54.074914Z			https://buecherbuben.at/produkt-kategorie/antiquariat/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-burn-in.at	EXCLUDED	DRUPAL_COMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://burn-in.at/online-depot	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-c-art.at	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.c-art.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-cacontemporary.com	DEFERRED				2026-11-04T10:48:11.168371Z			https://cacontemporary.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-camera31.com	DEFERRED				2026-11-03T17:13:42.069567Z	CURRENT_STOCK_UNRESOLVED		https://www.camera31.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-cavinnash.at	EXCLUDED				2026-11-03T11:39:01.695337Z	OPERATES_CURRENT_AUCTIONS		https://www.cavinnash.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-cb-gallery.com	ADDED	WOOCOMMERCE	ls_01m6gfpe0fea2v3mcetq7he9n5	pty_01m6gfpe01e7fv385frk7pr6gk	2026-11-03T10:36:23.190946Z			https://www.cb-gallery.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-charimgalerie.at	DEFERRED				2026-11-03T19:36:44.938454Z			https://www.charimgalerie.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-chary-chic.at	ADDED	WOOCOMMERCE	ls_01m6gjq4drephravb4m0xt6whp	pty_01m6gjq4d7ehfre3cj6kb2d61r	2026-11-03T14:00:50.780304Z			https://chary-chic.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-chic-antique.at	DEFERRED				2026-11-04T13:48:37.500185Z			https://chic-antique.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-christine-pahl.at	DEFERRED				2026-11-04T16:22:12.294768Z			https://www.christine-pahl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-christine-scherl.at	EXCLUDED	WIX			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.christine-scherl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-christinekoeniggalerie.com	EXCLUDED	ARTBUTLER			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://christinekoeniggalerie.com/artists/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-christophwalterpirker.com	DEFERRED				2026-11-04T15:13:17.706343Z			https://www.christophwalterpirker.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-cichinidesign.at	DEFERRED				2026-11-03T10:25:14.397007Z	LEGAL_OPERATOR_PLACEHOLDER		https://www.cichinidesign.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-city-antik.at	DEFERRED				2026-11-03T12:18:52.232186Z	OWN_AUCTION_ROLE_REQUIRES_CLARIFICATION		https://city-antik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-city-galerie-wien.com	DEFERRED				2026-11-04T10:48:11.168375Z			https://city-galerie-wien.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-citymusic19.com	ADDED	SHOPIFY	ls_01m6h7ck7ne9d8vfngy9s1cthn	pty_01m6h7ck76e2ftxnjktkvr1yqp	2026-11-03T17:30:26.261229Z			https://www.citymusic19.com/collections/vintage-gebraucht	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-clockwise.at	DEFERRED				2026-11-03T16:08:01.476669Z	CONTRACTUAL_OPERATOR_UNVERIFIED		https://clockwise.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-coiny-joe.at	ADDED		ls_01m6h50w0reaxbs5b4mzv4enbz	pty_01m6h50w0fefzr8yx193ssbejx	2026-11-03T16:49:04.908402Z			https://www.coiny-joe.at/frontend/scripts/index.php?groupId=70040&setMainAreaTemplatePath=mainarea_productlist.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-coloursofthoughts.at	EXCLUDED	WIX			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.coloursofthoughts.at/available-works	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-commune-gallery.com	EXCLUDED	ARTLOGIC			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.commune-gallery.com/artists/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-croneedition.com	EXCLUDED	SHOPIFY			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://croneedition.com/collections/unique-items	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-croynielsen.com	DEFERRED				2026-11-04T11:24:21.750886Z			https://croynielsen.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-dantendorfer.art	DEFERRED				2026-11-04T11:14:23.706257Z			https://www.dantendorfer.art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-daughtersons.at	ADDED	WIX	ls_01m6h71g01efkbssnfjgjnc11b	pty_01m6h71fzmecc9wsbvdg4592zf	2026-11-03T17:24:22.441845Z			https://www.daughtersons.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-deco50.at	ADDED	WOOCOMMERCE	ls_01m6gzx04peh3b2b9cx86042hb	pty_01m6geea24eanbnh34937wvegc	2026-11-03T15:19:34.711443Z			https://www.deco50.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-dekorative.at	ADDED		ls_01m6jt04zaehsbsgwn4tah6s9j	pty_01m6jt04z3ez7twp325pd760jk	2026-11-04T08:14:55.736729Z			https://dekorative.at/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-dersammer.at	DEFERRED				2026-11-04T08:57:27.288274Z			https://dersammer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-dieschrottmeyer.at	DEFERRED				2026-11-04T08:40:52.124343Z			https://dieschrottmeyer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-diewohnung.wien	ADDED	WIX	ls_01m6has38jekhav0yp27svqv3s	pty_01m6has385e2nraeehczxgb02n	2026-11-03T18:29:41.781758Z			https://www.diewohnung.wien/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-domenigartdesign.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.domenigartdesign.at/verf%C3%BCgbare-bilder-und-veredelte-drucke-1/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-eberhardjordan.com	DEFERRED				2026-11-04T15:13:17.706327Z			https://www.eberhardjordan.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-edelstoffe.art	DEFERRED				2026-11-04T08:48:23.360155Z			https://www.edelstoffe.art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-edelwerkstatt.at	ADDED	JIMDO	ls_01m6kbcwqxe42v6xyn4nbjcyjv	pty_01m6kbcwqdegmvs162bpa9gxgk	2026-11-04T13:18:59.672240Z			https://www.edelwerkstatt.at/webshop/fury-tales/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-edlezeitmesser.at	ADDED	WIX	ls_01m6h2phwpeqhvcnrqqq7qqbgq	pty_01m6h2phw1ejvra393gbscvfcj	2026-11-03T16:08:29.893226Z			https://www.edlezeitmesser.at/category/all-products	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-edwinheider.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.edwinheider.at/galerie/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-eiamaya.at	ADDED	SHOPWARE	ls_01m6gsf9nqecnr2e3xg4fg4c54	pty_01m6gsf9nde8p895kez84gr9cs	2026-11-03T13:27:14.715662Z			https://eiamaya.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-elektrohalle-rhomberg.net	DEFERRED				2026-11-04T11:07:35.788223Z			https://elektrohalle-rhomberg.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-elias-rubenstein.com	DEFERRED				2026-11-04T16:38:48.493131Z			https://www.elias-rubenstein.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-elisabethsturm.at	DEFERRED				2026-11-03T10:59:37.345634Z	PRIMARY_SITES_ARE_HOSTING_PLACEHOLDERS		https://www.elisabethsturm.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ellenbittner.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://ellenbittner.at/spuren-von-erinnerungen	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-emanuellayr.com	DEFERRED				2026-11-04T12:04:58.073404Z			https://emanuellayr.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-erlesenes.org	ADDED	WOOCOMMERCE	ls_01m6grvzy8essad7hcxqty1k4n	pty_01m6grvzxreryvy2v7vfkev17h	2026-11-03T13:16:42.404784Z			http://www.erlesenes.org/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-euroantik-auktionen.com	EXCLUDED				2026-11-03T20:11:06.695902Z			https://www.euroantik-auktionen.com/impressum	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-exilegallery.org	EXCLUDED				2026-11-04T12:09:35.532064Z			https://exilegallery.org/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-fannyetmari.com	ADDED	WIX	ls_01m6gj3022e2hvx0a4f034qzfk	pty_01m6gj301ee8n9pvpferjdc9kc	2026-11-03T11:18:11.482407Z			https://www.fannyetmari.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-farkas-numismatik.com	EXCLUDED				2026-11-03T16:44:07.980713Z	AUCTION_BUSINESS		https://farkas-numismatik.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-feichtnergallery.com	DEFERRED				2026-11-03T19:59:18.213596Z			https://www.feichtnergallery.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-felixgaudlitz.com	DEFERRED				2026-11-04T11:24:21.750892Z			https://felixgaudlitz.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-fiveplusartgallery.eu	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://fiveplusartgallery.eu/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-flashmusic.at	ADDED		ls_01m6h7cqzde6f92p88kgz55daw	pty_01m6h7cqz0eh4ayk6c1zzhnd76	2026-11-03T17:30:30.775349Z			http://flashmusic.at/artikelliste.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-flohmarktprofi.at	EXCLUDED				2026-11-04T13:58:42.640277Z			https://flohmarktprofi.at/	data/dealer-discovery/countries/AT/dealers.jsonl	MARKETPLACE_OPERATOR_WEBSITE
-floriankolhammer.com	ADDED	WOOCOMMERCE	ls_01m6gg0he4ez8t39jvjr4pnbr1	pty_01m6gg0hdnewxrdkd76ssy7j73	2026-11-03T10:41:54.253734Z			https://floriankolhammer.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-floriannoerl.art	DEFERRED				2026-11-04T09:41:58.376238Z			https://floriannoerl.art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-fotoblick.at	DEFERRED				2026-11-04T15:35:10.227996Z			https://www.fotoblick.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-friedrich-wurm.at	DEFERRED				2026-11-04T09:41:58.376240Z			https://www.friedrich-wurm.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-gahr.art	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.gahr.art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-10erhaus.at	EXCLUDED	VIRTUEMART			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-10erhaus.at/index.php/10erhausshop/mein-zuhause/bild-wandschmuck	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-albertina.at	ADDED	WORDPRESS	ls_01m6k1fzbkexqbc9nj729zq9sy	pty_01m6k1fzb1ebataa5w5myp4sff	2026-11-04T10:25:53.884499Z			https://www.galerie-albertina.at/kuenstler/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-altnoeder.com	ADDED		ls_01m6hdgwq8e4cbes74y1gv1pt8	pty_01m6hdgwpve4t8hwgv1t08dshd	2026-11-03T19:17:37.857007Z			https://www.galerie-altnoeder.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-augustin.com	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-augustin.com/de/bilder-special-prices.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-chobot.at	DEFERRED				2026-11-03T19:23:05.727419Z			https://galerie-chobot.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-felixhoeller.shop	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-felixhoeller.shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-frewein-kazakbaev.com	DEFERRED				2026-11-03T19:26:15.654615Z			https://galerie-frewein-kazakbaev.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-frey.com	DEFERRED				2026-11-03T18:41:15.673177Z	EXPLICIT_CURRENT_SALES_OFFER_UNRESOLVED		https://www.galerie-frey.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-hartinger.at	DEFERRED				2026-11-04T10:35:40.941311Z			https://galerie-hartinger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-juenger.at	DEFERRED				2026-11-04T10:53:28.949758Z			https://www.galerie-juenger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-kaiblinger.at	ADDED	TYPO3	ls_01m6ghahaje4pswpp9h8prj04b	pty_01m6ghah9xeht88jmmf89astng	2026-11-03T11:04:50.093914Z		gallery-vienna.com	https://www.galerie-kaiblinger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-krinzinger-shop.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-krinzinger-shop.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-leonhard.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-leonhard.at/online-shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-magnet.at	DEFERRED				2026-11-03T10:52:45.318611Z	PRIMARY_TLS_VALIDATION_FAILED		https://www.galerie-magnet.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-mam.com	EXCLUDED	ARTBUTLER			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://galerie-mam.com/artists/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-maringer.at	DEFERRED				2026-11-03T19:36:44.938463Z			https://www.galerie-maringer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-schloss-wiespach.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-schloss-wiespach.at/k%C3%BCnstler-innen/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-slavik.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-slavik.com/produkt-kategorie/objekte/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-stock.net	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-stock.net/impressionen-editionen/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-trafela.at	ADDED	WEBNODE	ls_01m6h27rrxeeza277qg905vtbp	pty_01m6h27rrdew9r14zshj6kvmpt	2026-11-03T16:00:24.687163Z			https://www.galerie-trafela.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie-walker.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie-walker.at/online-shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie10.at	ADDED	TYPO3	ls_01m6he1jtbegkarg3arezmqz99	pty_01m6he1jsveew8n2h4p5pa1vd1	2026-11-03T19:26:44.990016Z			https://galerie10.at/werke	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie21.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie21.at/kunst-kaufen/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie3.com	EXCLUDED	ARTBUTLER_WEB			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://galerie3.com/surprise/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie3034.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerie3034.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerie422.at	DEFERRED				2026-11-03T19:20:11.480147Z			https://www.galerie422.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerieamhofsteig.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerieamhofsteig.at/aktuelle-ausstellung/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerieamstein.at	DEFERRED				2026-11-03T19:33:17.486044Z			https://galerieamstein.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriebrugger.com	DEFERRED				2026-11-04T10:35:40.941318Z			https://www.galeriebrugger.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriedornerbauer.com	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://galeriedornerbauer.com/#kuenstler-werke	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriedumas.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://galeriedumas.com/shop-galerie-dumas-linz/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerieeisenstadt.at	DEFERRED				2026-11-04T09:06:31.226931Z			https://galerieeisenstadt.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriegrill.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://galeriegrill.com/pages/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriehochdruck.com	ADDED		ls_01m6gr6mesekqbaez0hq9rhzx7	pty_01m6gr6me8e72sgc0ctp7f44cy	2026-11-03T13:05:01.795425Z			https://galeriehochdruck.com/index.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerieinderschmiede.com	DEFERRED				2026-11-04T10:43:51.352636Z			https://www.galerieinderschmiede.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriekrobath.at	DEFERRED				2026-11-04T11:31:41.579854Z			https://www.galeriekrobath.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriekuenstlich.at	DEFERRED				2026-11-04T09:35:20.532751Z			https://www.galeriekuenstlich.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerielehner.at	EXCLUDED				2026-11-03T18:41:15.673172Z	OWNER_EXPLICITLY_OPERATES_AUCTION_HOUSE		https://www.galerielehner.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriemaximilianhutz.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galeriemaximilianhutz.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriepetraseiser.at	DEFERRED				2026-11-04T10:43:51.352616Z			https://galeriepetraseiser.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerierudolfleeb.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerierudolfleeb.at/collections/all	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerieschlossparz.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galerieschlossparz.at/unter-1000/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriesommer.com	EXCLUDED	CM4ALL			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.galeriesommer.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerietrapp.at	EXCLUDED				2026-11-03T13:39:57.723903Z	FIRST_PARTY_CONFIRMED_BUSINESS_CLOSED		https://galerietrapp.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galerievundv.com	DEFERRED				2026-11-04T12:49:08.273048Z			https://www.galerievundv.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-galeriewinter.at	DEFERRED				2026-11-03T15:39:49.622963Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.galeriewinter.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ganzenbacher.at	DEFERRED				2026-11-04T14:20:13.603008Z			https://www.ganzenbacher.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-geraldscheidl.at	DEFERRED				2026-11-04T15:16:51.861753Z			https://www.geraldscheidl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-gerersdorfer.at	EXCLUDED				2026-11-03T19:59:18.213582Z			https://www.gerersdorfer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-gerlisart.jimdo.com	DEFERRED				2026-11-04T17:04:58.650618Z			https://gerlisart.jimdo.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-gezwanzig.com	EXCLUDED	WORDPRESS			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.gezwanzig.com/category/editions/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-gieseundschweiger.at	ADDED	ARTLOGIC	ls_01m6gewwz6ekca6wxdznrtt5t0	pty_01m6gewwytey7b7yrx73qxqq79	2026-11-03T10:22:25.518584Z			https://www.gieseundschweiger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-glasergewoelbe.at	ADDED	WOOCOMMERCE	ls_01m6gg5rhyemjbd3j5tb3x0fxb	pty_01m6gg5rhgekasezgd4e1mqtye	2026-11-03T10:44:44.568417Z			https://www.glasergewoelbe.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-glasfabrik.at	DEFERRED				2026-11-03T17:55:44.919161Z	MULTI_DEALER_UMBRELLA_AND_SELLER_SCOPE_UNRESOLVED		https://www.glasfabrik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-goldankauf-antiquitaeten-kunst.at	DEFERRED				2026-11-03T15:51:26.006712Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://goldankauf-antiquitaeten-kunst.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-goldankauf-regional.at	EXCLUDED				2026-11-04T08:34:04.039273Z			https://www.goldankauf-regional.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-goldinvest.at	ADDED		ls_01m6h46c6ye51s7xdteqnp0v9v	pty_01m6h46c6je8ds6tkqyxpfs57r	2026-11-03T16:34:36.633763Z			https://www.goldinvest.at/de/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-graessle.art	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.graessle.art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-gregorpodnar.com	DEFERRED				2026-11-04T12:14:48.979805Z			https://www.gregorpodnar.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-guitarox.com	ADDED	WORDPRESS	ls_01m6h7kyvcejwb2rkcn6638f1z	pty_01m6h7kytzeyarhv4mx36fs50s	2026-11-03T17:34:27.305961Z			https://www.guitarox.com/guitars/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hackl-antik.at	ADDED	CM4ALL	ls_01m6gpa4rcefvsdhvhmxbtv0n6	pty_01m6gpa4r0ezht5586rjfq5n4x	2026-11-03T12:31:59.536233Z			http://www.hackl-antik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-halbparterre.com	ADDED	WIX	ls_01m6gf2ez5egebm7nn2fkp8mw7	pty_01m6gf2eyvev7txfp42wb1n4g4	2026-11-03T14:00:50.780190Z			https://www.halbparterre.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-haldenwang.at	DEFERRED				2026-11-03T18:50:00.301612Z	SPECIFIC_CURRENT_RETAIL_STOCK_UNRESOLVED		https://www.haldenwang.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hannesmair.at	EXCLUDED	SITE123			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.hannesmair.at/e-commerce/gem%C3%84ldeshop-alle-kategorien	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hauch-art.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.hauch-art.at/collections/all	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-haus-der-geschenke.at	DEFERRED				2026-11-04T14:59:29.027566Z			https://www.haus-der-geschenke.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hegenbart.at	EXCLUDED				2026-11-04T13:31:27.958261Z			https://www.hegenbart.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-heinzweinberger.at	DEFERRED				2026-11-04T17:04:58.650622Z			https://www.heinzweinberger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-herinek.at	DEFERRED				2026-11-03T15:23:26.679019Z	CURRENT_RETAIL_STOCK_UNVERIFIED		http://www.herinek.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hg-art.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://hg-art.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hias86.bigcartel.com	EXCLUDED	BIG_CARTEL			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://hias86.bigcartel.com/products	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hieke-art.com	ADDED	SQUARESPACE	ls_01m6ggnkhfewns1mw03xzjwq96	pty_01m6ggnkgze5ctdjcxg4k8zfmx	2026-11-03T10:53:24.289640Z			https://www.hieke-art.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hilger.at	EXCLUDED	ARTBUTLER_WEB			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.hilger.at/en/home/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-historische-kacheloefen.at	DEFERRED				2026-11-04T08:53:46.636688Z			https://www.historische-kacheloefen.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-hofkabinett.at	DEFERRED				2026-11-04T09:41:58.376245Z			https://www.hofkabinett.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-holzfeind-wieltschnig.at	DEFERRED				2026-11-04T09:55:01.232170Z			https://holzfeind-wieltschnig.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ifantik.at	ADDED	SHOPWARE	ls_01m6gee5gfe0j92rty8xky9cv4	pty_01m6gee5g3e70t6w66k2zh5vhf	2026-11-03T10:14:23.376362Z			https://www.ifantik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ikonen-mautner.com	ADDED	BASE44	ls_01m6k9h5rge40rjbd3kfkyeqcc	pty_01m6k9h5r2eeebj38s99j5h0kw	2026-11-04T12:46:22.224697Z			https://ikonen-mautner.com/en/collection	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ikonenkunst.at	DEFERRED				2026-11-04T12:49:08.273030Z			http://www.ikonenkunst.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-indigoexpress.at	ADDED	WOOCOMMERCE	ls_01m6h9hgm5enyr8xa0wnfzx25c	pty_01m6h9hgkhe3g8bwb5der40fmf	2026-11-03T18:08:04.758620Z			https://www.indigoexpress.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-irisfocus.jimdosite.com	DEFERRED				2026-11-04T15:45:15.595895Z			https://irisfocus.jimdosite.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-isolde.design	ADDED	SHOPIFY	ls_01m6gz9pvxen6v8cq1hsy1bns7	pty_01m6gz9pvke4rad48e49n8vz0w	2026-11-03T15:09:02.998608Z			https://isolde.design/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-jahrbacher.at	DEFERRED				2026-11-04T13:58:42.640290Z			https://jahrbacher.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-janschek.art	EXCLUDED	TYPO3			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.janschek.art/werke-zum-kauf	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-jetlag.at	ADDED	WORDPRESS	ls_01m6h617d2eqprwv3j6jmhfz74	pty_01m6h617cpezbrq2w0zvn35g17	2026-11-03T17:06:44.512214Z			https://www.jetlag.at/newcomer/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-johannesfaber.com	DEFERRED				2026-11-03T15:49:17.245048Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.johannesfaber.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-johannesfessl.at	DEFERRED				2026-11-04T08:57:27.288259Z			https://www.johannesfessl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-judith-artdesign.com	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.judith-artdesign.com/galerie/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kah-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kah-online.com/collections/alle-werke	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kandlhofer.com	EXCLUDED	ARTLOGIC			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kandlhofer.com/artists/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-karikaturen.guru	EXCLUDED	WORDPRESS			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.karikaturen.guru/wp/de/bilder/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kartenland.at	DEFERRED				2026-11-03T15:34:23.661800Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://kartenland.at/shop/shop.php	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kassecker.at	DEFERRED				2026-11-04T14:06:20.131025Z			https://kassecker.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-katharina-vintage.com	ADDED	SQUARESPACE	ls_01m6h89t12e7er7y36e1bsjt1c	pty_01m6h89t0gewns2kxqa1tgr0nd	2026-11-03T17:46:23.464010Z			https://www.katharina-vintage.com/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kaukas.at	DEFERRED				2026-11-03T15:51:26.006708Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.kaukas.at/orientteppiche/orientteppiche-classic/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-keil-kunsthandel.at	ADDED	WORDPRESS	ls_01m6gfv3t6e7abqhkzejbcamev	pty_01m6gfv3ssej6tcyy2s801cr7v	2026-11-03T10:38:55.677437Z			http://keil-kunsthandel.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kevinschafner.at	DEFERRED				2026-11-04T13:18:32.812216Z			https://www.kevinschafner.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kilengi.at	ADDED	WORDPRESS	ls_01m6gj2xajer9ssvg1j3ndrnhm	pty_01m6gj2xa1etcvgr23wdy9adzc	2026-11-03T11:18:09.298036Z			https://kilengi.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kindler-kunsthandel.at	DEFERRED				2026-11-03T10:50:33.966172Z	PRIMARY_FETCH_TIMEOUT		http://www.kindler-kunsthandel.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kk-galerie.at	DEFERRED				2026-11-04T09:35:20.532743Z			https://www.kk-galerie.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kk-vs.at	ADDED	JIMDO	ls_01m6h7cnghewrs5q0rb040n0xj	pty_01m6h7cng3e8w86xycwbrktq03	2026-11-03T17:30:28.806418Z			https://www.kk-vs.at/plattenspieler/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kladivko-kunst.at	DEFERRED				2026-11-04T16:03:54.923546Z			https://www.kladivko-kunst.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-klangmalkunst.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.klangmalkunst.at/bildergalerie-abstrakte-und-synaesthetische-kunst-von-klangmalkunstrie/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-klein-fein.eu	DEFERRED				2026-11-04T12:49:08.273044Z			https://www.klein-fein.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kleinegalerie.at	EXCLUDED				2026-11-04T12:09:35.532069Z			https://www.kleinegalerie.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kmotionlimitartganatschnig.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://kmotionlimitartganatschnig.com/online-shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-knollgalerie.at	DEFERRED				2026-11-04T11:14:23.706262Z			https://www.knollgalerie.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kolhammer-mahringer.at	DEFERRED				2026-11-03T10:50:33.966175Z	CONTRACTING_OPERATOR_AMBIGUOUS		https://www.kolhammer-mahringer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kolhammer.com	ADDED	WOOCOMMERCE	ls_01m6gdwnx1eteaykhk0g00adkx	pty_01m6gdwnwberavqcqjwsa71qam	2026-11-03T10:05:29.489399Z			https://kolhammer.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kovacek-zetter.at	ADDED	DRUPAL	ls_01m6gewtpnehmvwfq83kmc9vx8	pty_01m6gewtpcek7brfmrq9rgxwcw	2026-11-03T10:22:23.796592Z			https://www.kovacek-zetter.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kovacek.at	ADDED		ls_01m6gews0aez5t5b5mangrx3g7	pty_01m6gews00epea4dqpffmatmhf	2026-11-03T10:22:21.503931Z			https://www.kovacek.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kulturrettung.at	ADDED	WOOCOMMERCE	ls_01m6gp2s6te02th5pbqnjy775a	pty_01m6gp2s6aeznrtngnhwjhavvt	2026-11-03T12:27:58.846200Z			https://kulturrettung.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunst-galerie-schillinger.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kunst-galerie-schillinger.at/shop-angebote/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunst-kaernten.jimdosite.com	DEFERRED				2026-11-04T09:35:20.532748Z			https://kunst-kaernten.jimdosite.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunst-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kunst-online.com/collections/bettina-greslehner	data/dealer-discovery/countries/AT/hosted/bettina-greslehner/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-kunst-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kunst-online.com/collections/christian-aspermayr	data/dealer-discovery/countries/AT/hosted/christian-aspermayr/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-kunst-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kunst-online.com/collections/corinna-sadleder	data/dealer-discovery/countries/AT/hosted/corinna-sadleder/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-kunst-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kunst-online.com/collections/gabriele-ehmann	data/dealer-discovery/countries/AT/hosted/gabriele-ehmann/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-kunst-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.kunst-online.com/collections/stefan-mullner	data/dealer-discovery/countries/AT/hosted/stefan-muellner/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-kunsthammer.at	DEFERRED				2026-11-03T10:11:12.158409Z	FIRST_PARTY_FETCH_BLOCKED		https://kunsthammer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandel-fiedler.at	ADDED	WEBNODE	ls_01m6gy8xtee3csg5mp0g2s2qjp	pty_01m6gy8xssehjagsxbngqht9fp	2026-11-03T14:51:08.311322Z			https://www.kunsthandel-fiedler.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandel-freller.at	ADDED	WOOCOMMERCE	ls_01m6gek8m6ektb4frpytxsmz83	pty_01m6gek8kwe9atwe5btrbj8ggx	2026-11-03T10:17:09.838239Z			https://kunsthandel-freller.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandel-pichler.at	ADDED	SHOPIFY	ls_01m6gg0f4mewsrgwedvetfs63g	pty_01m6gg0f46er8aytpsdy7gpzab	2026-11-03T10:41:51.609919Z			https://www.kunsthandel-pichler.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandel-seitz.at	DEFERRED				2026-11-03T20:03:34.068674Z			https://kunsthandel-seitz.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandel-stock.net	DEFERRED				2026-11-03T10:36:02.946517Z	CONTRACTING_OPERATOR_AMBIGUOUS		https://www.kunsthandel-stock.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandel-zoechling.at	ADDED		ls_01m6gh1zqcetvsj7ppbz318xdm	pty_01m6gh1zpkecwsbmsy1ma0ve0h	2026-11-03T11:00:09.614202Z			https://www.kunsthandel-zoechling.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandelproarte.at	DEFERRED				2026-11-03T19:47:10.271229Z			https://kunsthandelproarte.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthandelwidder.com	EXCLUDED				2026-11-03T11:39:01.695341Z	DEALER_ALSO_OPERATES_AUCTION_HOUSE		https://www.kunsthandelwidder.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunsthaus-wiesinger.at	ADDED		ls_01m6gfpa95ektry2hzjf1ek6sg	pty_01m6gfpa8kej4b54tva5nnxygs	2026-11-03T10:36:18.535890Z			https://kunsthaus-wiesinger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunstkauf-online.at	ADDED	SHOPIFY	ls_01m6kbnaa4eccbnejz7s05q0sj	pty_01m6kbna9kej3a8tzhvk9s809r	2026-11-04T13:23:35.957620Z			https://kunstkauf-online.at/collections/marc-chagall	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunstundart.com	DEFERRED				2026-11-03T17:55:44.919210Z	LEGAL_OPERATOR_UNRESOLVED		https://kunstundart.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kunstwelt.at	ADDED		ls_01m6gh1xnwetxvw97xdzvb36d9	pty_01m6gh1xmze5ps70tr5g7rvj7s	2026-11-03T11:00:07.626971Z			https://www.kunstwelt.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-kupferreliefkuenstler.com	DEFERRED				2026-11-04T08:57:27.288282Z			https://www.kupferreliefkuenstler.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-l-art.at	DEFERRED				2026-11-04T10:25:39.275642Z			https://www.l-art.at/de/store	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-lerschgeigenbau.at	DEFERRED				2026-11-03T17:25:57.310461Z	CURRENT_STOCK_UNRESOLVED		https://www.lerschgeigenbau.at/instrumente.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-leskovarfineart.at	ADDED	WORDPRESS	ls_01m6gfv7cqe02seqcwvcszngnq	pty_01m6gfv7caevaadfgrdtxrm2ex	2026-11-03T10:38:59.218917Z			https://leskovarfineart.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-liedermann-antique.com	ADDED	TYPO3	ls_01m6gfd8m0eq9vtqweny3fj1jh	pty_01m6gfd8kdeewrt5ch0j8rfg4h	2026-11-03T10:31:22.743360Z			https://www.liedermann-antique.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-lillys-art.com	ADDED	WORDPRESS	ls_01m6ge92xae1rvm691dkhhhzsn	pty_01m6ge92wxebesqhrwr7x2hd7a	2026-11-03T10:11:36.977850Z			https://lillys-art.com/en/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-lombardi-kargl.com	EXCLUDED	CRAFT_CMS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.lombardi-kargl.com/en/shop?cat=editions	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-luminated.at	DEFERRED				2026-11-03T10:07:32.645370Z	CURRENT_SALES_ACTIVITY_UNCLEAR		https://luminated.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-madero-collectorsroom.com	ADDED	WOOCOMMERCE	ls_01m6h615fdeerbpj7h63jtybaa	pty_01m6h615f0efgvzve4e8gjszrw	2026-11-03T17:06:42.774623Z			https://madero-collectorsroom.com/?lang=de	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-manuelskirl.com	DEFERRED				2026-11-04T09:41:58.376232Z			https://manuelskirl.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-marchgraber.at	DEFERRED				2026-11-03T12:31:30.450338Z	FIRST_PARTY_ACCESS_FAILURE		https://www.marchgraber.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-marcwalter-numismatik.com	ADDED	JIMDO	ls_01m6h46gh7e1ksmgy1f7qt3s3d	pty_01m6h46ggve6jvrzmen6n6ajr9	2026-11-03T16:34:41.184421Z			https://www.marcwalter-numismatik.com/webshop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-marie-luise.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://marie-luise.at/art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-markusgell.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.markusgell.com/de/edition.php	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-marsvltor.com	EXCLUDED				2026-11-03T16:44:07.980697Z	AUCTION_BUSINESS	eidmarauctions.com	https://www.marsvltor.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-martina-kreuzer.com	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.martina-kreuzer.com/about-3	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-martinjanda.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.martinjanda.at/books-editions/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-matern.at	DEFERRED				2026-11-03T15:34:23.661797Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.matern.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-metallstein.at	EXCLUDED	ZETA_PRODUCER			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.metallstein.at/metallbilder.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-meyerkainer.com	DEFERRED				2026-11-04T12:04:58.073408Z			https://meyerkainer.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-michael-ferner.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://michael-ferner.at/originale/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-miklautz.at	DEFERRED				2026-11-03T10:56:18.787000Z	LEGAL_OPERATOR_PAGE_UNAVAILABLE		https://miklautz.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-milaneum.com	DEFERRED				2026-11-03T15:49:17.245053Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://milaneum.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-mjs-coins.eu	DEFERRED				2026-11-03T16:48:35.533668Z	CURRENT_STOCK_UNRESOLVED		https://www.mjs-coins.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-moebel-kunst-galerie.com	ADDED	WOOCOMMERCE	ls_01m6hcj6v5e20smtq8c5ef8494	pty_01m6hcj6t8evv8zs9kdhschyac	2026-11-03T19:00:52.895596Z			https://moebel-kunst-galerie.com/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-moneta.at	DEFERRED				2026-11-03T16:54:35.214106Z	AUCTION_ROLE_UNRESOLVED		https://www.moneta.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-mordilloart.com	DEFERRED				2026-11-04T13:23:03.110039Z			https://www.mordilloart.com/products/heart-in-the-tree	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-msmozart.at	ADDED		ls_01m6h46ebdegva09e7vejjacd7	pty_01m6h46eatecmvhx0z290yadx7	2026-11-03T16:34:38.879711Z			https://www.msmozart.at/de/shop/osterreich/munzen-2-republik-ab-1945	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-muenzen-linz.at	EXCLUDED				2026-11-03T16:51:31.559513Z	AUCTION_BUSINESS	coinsofhistory.eu	https://muenzen-linz.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-muenzen-prager.com	EXCLUDED				2026-11-03T12:02:58.509196Z	OPERATES_OWN_EBAY_AUCTIONS		https://www.muenzen-prager.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-muenzensalon.at	DEFERRED				2026-11-03T15:53:59.454460Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.muenzensalon.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-muenzhandel-lener.at	DEFERRED				2026-11-03T10:47:58.546112Z	HISTORICAL_STOCK_NOT_VERIFIED		https://www.muenzhandel-lener.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-muenzhandel.at	DEFERRED				2026-11-03T10:47:58.546114Z	HISTORICAL_STOCK_NOT_VERIFIED		https://muenzhandel.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-neubauer-geigenbau.com	DEFERRED				2026-11-03T17:25:57.310473Z	CURRENT_STOCK_UNRESOLVED		https://neubauer-geigenbau.com/instrumente/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-nl-galerie.com	DEFERRED				2026-11-03T13:59:50.157586Z	CURRENT_LEGAL_OPERATOR_VAT_CONFLICT		https://www.nl-galerie.com/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-noettling.at	DEFERRED				2026-11-04T13:18:32.812212Z			https://www.noettling.at/galerie/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-noricum-antiques.at	EXCLUDED				2026-11-03T20:11:06.695889Z			https://www.noricum-antiques.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-nostalgie-salzburg.at	ADDED	SHOPIFY	ls_01m6gdws6hej4afr5dm1d4r9jv	pty_01m6gdws5xeamvpgkf0sm7ys6n	2026-11-03T10:04:53.991471Z			https://www.nostalgie-salzburg.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-numidas.at	ADDED	JIMDO	ls_01m6h50srte3ctd049x9nhctsw	pty_01m6h50sr7epka8je1v28spcg1	2026-11-03T16:49:02.558238Z			https://www.numidas.at/m%C3%BCnzen/roman-1-2-century/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-numismatik-grubauer.at	DEFERRED				2026-11-03T15:23:26.679032Z	CURRENT_RETAIL_STOCK_UNVERIFIED		https://numismatik-grubauer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-numismatik-naumann.at	EXCLUDED				2026-11-03T16:54:35.214065Z	AUCTION_BUSINESS		https://www.numismatik-naumann.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-numismatik-zoettl.at	EXCLUDED				2026-11-03T16:54:35.214092Z	AUCTION_BUSINESS		https://www.numismatik-zoettl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-numismatik.at	DEFERRED	JTL_SHOP			2026-11-03T16:48:35.533662Z	CURRENT_STOCK_UNRESOLVED		https://numismatik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-numissauer.at	DEFERRED				2026-11-03T16:17:33.282832Z	AUCTION_ROLE_UNRESOLVED		https://www.numissauer.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-orientteppich-koppensteiner.com	ADDED		ls_01m6h1r1mfenebeswamthxtcv2	pty_01m6h1r1kve888a6fbenvne3r0	2026-11-03T15:51:49.499893Z			https://www.orientteppich-koppensteiner.com/antik.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-oxandbear.com	ADDED	SHOPIFY	ls_01m6gf2h1met0tq1rgy093r29p	pty_01m6gf2h1aegvbkg56f71t95sr	2026-11-03T10:25:30.466060Z			https://oxandbear.com/collections/vintage-originals	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-oxymoron-galerie.at	EXCLUDED	SQUARESPACE_COMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.oxymoron-galerie.at/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-pahor.at	ADDED	WOOCOMMERCE	ls_01m6grw2eyeq5axf9a103p4cd1	pty_01m6grw2eeeyjs6emassrykxvn	2026-11-03T13:16:44.805044Z		pahor.de	https://pahor.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-pammersteine.at	ADDED		ls_01m6gm412xe8bb48k4qnckta5k	pty_01m6gm412detjs777twg3fhvaf	2026-11-03T11:53:42.238880Z			https://www.pammersteine.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-paulflora.at	ADDED	WOOCOMMERCE	ls_01m6gt7g69e9stvs3ytvh3sz72	pty_01m6gt7g5vehts2gyna6r2vna4	2026-11-03T13:40:27.662227Z			https://www.paulflora.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-peterfreygallery.com	DEFERRED				2026-11-04T10:43:51.352631Z			https://peterfreygallery.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-pezzo-kunst.at	DEFERRED				2026-11-04T08:34:04.039266Z			https://www.pezzo-kunst.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-pfand.gold	DEFERRED				2026-11-03T19:47:10.271235Z			https://pfand.gold/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-photoboerse.at	ADDED	WOOCOMMERCE	ls_01m6h6fctref2rhxgjs1875wnt	pty_01m6h6fctce1g9z2720zdwgn0y	2026-11-03T17:14:28.915780Z			https://photoboerse.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-posch-antiquitaeten.at	ADDED	WORDPRESS	ls_01m6gp2pz6en88scwgrs6k7rjk	pty_01m6gp2pyye52vcwrk1dd7w8tw	2026-11-03T12:27:56.586267Z			https://www.posch-antiquitaeten.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-premiumfol-austria.at	DEFERRED				2026-11-03T15:11:32.511959Z	CURRENT_QUALIFIED_HISTORICAL_STOCK_UNVERIFIED		https://www.premiumfol-austria.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-projektraum.at	DEFERRED				2026-11-04T12:14:48.979818Z			https://projektraum.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-rahmenstudio-sailer.com	DEFERRED				2026-11-04T08:53:46.636692Z			https://www.rahmenstudio-sailer.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-raritaeten-shop.com	ADDED	MODIFIED_ECOMMERCE	ls_01m6h27pj2ev2adqe3xzxy7sg0	pty_01m6h27pgtegqa8q03adr6fgax	2026-11-03T16:00:22.885667Z			https://www.raritaeten-shop.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-rarities.at	DEFERRED				2026-11-04T13:39:56.847452Z			https://www.rarities.at/de/produkte	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-raubein.at	DEFERRED				2026-11-03T17:45:45.611565Z	LEGAL_OPERATOR_CONFLICT		https://www.raubein.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-reginaanzenberger.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://reginaanzenberger.com/smartformat	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-reinhard-jordan.at	DEFERRED				2026-11-04T15:16:51.861736Z			https://www.reinhard-jordan.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-renatepraschberger.com	DEFERRED				2026-11-04T13:28:54.980672Z			https://www.renatepraschberger.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-restaurator-paul.at	DEFERRED				2026-11-04T08:13:09.010601Z			https://restaurator-paul.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-restaurator.cc	DEFERRED				2026-11-04T14:59:29.027587Z			http://www.restaurator.cc/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-restauratorfeuerstein.at	DEFERRED				2026-11-03T10:56:18.786998Z	QUALIFYING_STOCK_DESCRIPTION_UNVERIFIED		https://www.restauratorfeuerstein.at/moebel-zu-verkaufen	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-retro-moebel.at	ADDED	WOOCOMMERCE	ls_01m6geea2he2xasqs9z9bsm94t	pty_01m6geea24eanbnh34937wvegc	2026-11-03T10:14:28.072620Z			https://retro-moebel.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-robertakeil.com	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.robertakeil.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-rodler-gschwenter.com	DEFERRED				2026-11-04T12:20:22.204033Z			https://www.rodler-gschwenter.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-rofa.art	EXCLUDED	MAGENTO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.rofa.art/kunstler	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-rosterei.net	DEFERRED				2026-11-04T09:14:55.501437Z			https://www.rosterei.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ruberl.at	ADDED	CRAFT_CMS	ls_01m6gka1z2ewvbb4wqgq9b8gty	pty_01m6gka1ydeaet8agk7ede16fr	2026-11-03T11:39:31.116454Z			https://www.ruberl.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-runge.at	ADDED	WORDPRESS	ls_01m6gee3f6ezmbbrce73885db7	pty_01m6gee3etemeae5vjagwk8235	2026-11-03T10:14:21.035179Z			https://runge.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-ruzicska.com	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.ruzicska.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-samsmovement.com	DEFERRED				2026-11-04T14:59:29.027581Z			https://www.samsmovement.com/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sanctlucas.com	ADDED	SQUARESPACE	ls_01m6gg0bhaewmb7cav9jh2gp9n	pty_01m6gg0bgeedqbzgy2302xw999	2026-11-03T10:41:47.442951Z			https://sanctlucas.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-schmuck-kat.com	DEFERRED				2026-11-03T12:15:48.550576Z	QUALIFYING_STOCK_UNVERIFIED		https://www.schmuck-kat.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-schmuck-pintar.at	ADDED	JOOMLA	ls_01m6gghcpyet4synjceaag578c	pty_01m6gghcphe4ftekca1mr4m75k	2026-11-03T10:51:06.265474Z			https://schmuck-pintar.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-schneider-f.com	DEFERRED				2026-11-04T16:43:39.648161Z			https://www.schneider-f.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-schuetzartsociety.at	ADDED	TYPO3	ls_01m6gg0db7eqetekek5k9y0sbe	pty_01m6gg0datef29vdtmydeqfacp	2026-11-03T10:41:49.245860Z			https://www.schuetzartsociety.at/galerie	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-schwab-patzl.com	DEFERRED				2026-11-03T11:23:15.933192Z	CURRENT_OPERATOR_CATALOGUE_RELATIONSHIP_UNRESOLVED		https://www.schwab-patzl.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-secondhand.united-camera.at	ADDED		ls_01m6h6fej1ezr9qtx348qbnqkr	pty_01m6h6fehnehstptvrhhff2hbc	2026-11-03T17:14:31.574856Z			https://secondhand.united-camera.at/shop.next/default.asp	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sehfelder.at	DEFERRED				2026-11-04T17:10:40.681706Z			https://www.sehfelder.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-seli.at	EXCLUDED	ECWID			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.seli.at/online-kaufgalerie/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.autoquariat.at	DEFERRED				2026-11-03T17:38:06.921952Z	CURRENT_PERIOD_STOCK_AND_OPERATOR_HISTORY_UNRESOLVED		https://shop.autoquariat.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.buerscher.com	ADDED	CMS_MADE_SIMPLE	ls_01m6gs5tzre0xtq0eshncmptba	pty_01m6gs5tz9e6rt6183a50kcv1r	2026-11-03T13:22:05.303105Z			https://shop.buerscher.com/at/online-shop.html	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.galerie-lisihaemmerle.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://shop.galerie-lisihaemmerle.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.galeriegugging.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	galeriegugging.com	https://shop.galeriegugging.com/de/collections/etchings-2024	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.galeriethoman.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://shop.galeriethoman.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.muenzversand.at	EXCLUDED				2026-11-03T10:47:58.546108Z	DEALER_OPERATES_AUCTIONS		https://shop.muenzversand.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shop.schwarzwaelder.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://shop.schwarzwaelder.at/collections/editions	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-shore-gallery.eu	DEFERRED				2026-11-04T12:23:33.690607Z			https://www.shore-gallery.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-silverfineart.com	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://silverfineart.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-simonaledl.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.simonaledl.com/exclusiv-artroom/kunstwerke/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sk-selling.at	DEFERRED				2026-11-04T13:58:42.640294Z			https://www.sk-selling.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sl-galerie.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.sl-galerie.at/schaudepot/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-smolkacontemporary.at	DEFERRED				2026-11-03T19:39:52.941673Z			https://smolkacontemporary.at/de/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-somethingvintage.com	ADDED	WOOCOMMERCE	ls_01m6h9hed0etxtwqg1rc96fty5	pty_01m6h9hecne4pv8dw7xc3xw4m0	2026-11-03T18:08:02.303547Z			https://somethingvintage.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sophietappeiner.com	DEFERRED				2026-11-04T12:28:23.512593Z			https://www.sophietappeiner.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sparbuchgruber.at	ADDED	WORDPRESS	ls_01m6gmq2ghekc9ddhfzajkc9yr	pty_01m6gmq2g6ej9bdt5j8sq951n9	2026-11-03T12:04:06.636590Z			https://www.sparbuchgruber.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-st-georgs-antiquariat.at	DEFERRED				2026-11-04T08:40:52.124346Z			https://www.st-georgs-antiquariat.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-steinek.at	DEFERRED				2026-11-03T11:04:07.377421Z	CONTRACTING_OPERATOR_AND_STOCK_SCOPE_UNRESOLVED		https://www.steinek.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-stephanieleitner.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://stephanieleitner.com/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sternat.com	DEFERRED				2026-11-03T11:04:07.377418Z	FULL_LEGAL_OPERATOR_NOT_VERIFIED		https://www.sternat.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-steyrantik.at	DEFERRED				2026-11-04T13:31:27.958258Z			https://steyrantik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-studiocasita.at	ADDED	WIX	ls_01m6gjq2hqewxssa1p2j24h4yp	pty_01m6gjq2h6essa4fpzh7cnaxeh	2026-11-03T11:29:09.085692Z			https://www.studiocasita.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sturm-drang.at	DEFERRED				2026-11-04T09:41:58.376243Z			https://sturm-drang.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sturmschober.com	DEFERRED				2026-11-04T12:28:23.512584Z			https://www.sturmschober.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-sug-flohmarkt.at	DEFERRED				2026-11-04T09:57:38.036116Z			https://www.sug-flohmarkt.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-szaal.at	ADDED	WORDPRESS	ls_01m6gek70getc8whymdhpxyc5g	pty_01m6gek701ej0b5xg95b956dnt	2026-11-03T10:17:08.079850Z			https://www.szaal.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-szaal.com	ADDED	JOOMLA	ls_01m6gewygzeh9s8d3k3xrgn93n	pty_01m6gek701ej0b5xg95b956dnt	2026-11-03T10:22:26.926017Z			https://www.szaal.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-szaivert-numis.at	EXCLUDED				2026-11-03T16:17:33.282814Z	AUCTION_BUSINESS		https://szaivert-numis.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-tamaramichel.net	DEFERRED				2026-11-04T14:59:29.027572Z			https://www.tamaramichel.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-tandlas.com	ADDED	SHOPIFY	ls_01m6hag2zpexct4tjxq491hryk	pty_01m6hag2z8eb1873n64xazcaca	2026-11-03T18:24:46.344432Z			https://tandlas.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-theresaemmerich.net	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.theresaemmerich.net/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-thomassalis.com	DEFERRED				2026-11-04T11:00:21.138280Z			https://thomassalis.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-tiberius-auctions.com	EXCLUDED				2026-11-03T15:08:43.260905Z	AUCTION_BUSINESS		https://tiberius-auctions.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-timeclassics.at	ADDED	WEBADOR	ls_01m6h2dzp9eg2t7pby3kp85j2b	pty_01m6h2dznpet2s3a5rtwrtmsq0	2026-11-03T16:03:48.998660Z			https://www.timeclassics.at/online-shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-tkalec.at	DEFERRED				2026-11-03T10:44:20.979458Z	INTERACTIVE_STOCK_NOT_INSPECTABLE		https://www.tkalec.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-tonskulpturen.at	DEFERRED				2026-11-04T15:16:51.861749Z			https://www.tonskulpturen.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-troedelmair.at	DEFERRED				2026-11-04T09:57:38.036092Z			https://www.troedelmair.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-twenty-six.at	DEFERRED				2026-11-03T19:39:52.941667Z			https://www.twenty-six.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-tyrol-phila.at	ADDED	MAGENTO	ls_01m6gsqwwmet7802m8qrvc0caq	pty_01m6gsqww8evsbr7vdem4dzbw1	2026-11-03T13:31:56.439360Z			https://www.tyrol-phila.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-uhren-mikl.com	ADDED	WOOCOMMERCE	ls_01m6h2pg89ec8aq9fwkjgxktqh	pty_01m6h2pg80e7tbbfh6ay18dzzd	2026-11-03T16:08:27.313664Z			https://www.uhren-mikl.com/produkt-kategorie/vintage-uhren/verfuegbar/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-uniantiquariat.com	ADDED		ls_01m6gmq00ve9wv8mq9h5qr2rtf	pty_01m6gmq00defnsvv6h5608pewh	2026-11-03T12:04:04.328737Z		uniantiquariat.at	https://www.uniantiquariat.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-value88.eu	DEFERRED				2026-11-04T16:32:12.496115Z			https://value88.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vampirndl.com	DEFERRED				2026-11-04T16:43:39.648143Z			https://www.vampirndl.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-verve-shop.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://verve-shop.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vetter-antiquitaeten.at	DEFERRED				2026-11-03T10:16:46.567628Z	AUCTION_ACTIVITY_REQUIRES_OPERATOR_REVIEW		https://www.vetter-antiquitaeten.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-via-numismatic.com	EXCLUDED				2026-11-03T16:51:31.559488Z	AUCTION_BUSINESS		https://www.via-numismatic.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vienna-antique.at	ADDED	WOOCOMMERCE	ls_01m6gyrkgxeyvat70pknnccq5r	pty_01m6gyrkggeb7b9hcx5p8yd1hz	2026-11-03T14:59:42.994450Z			https://www.vienna-antique.at/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vintage-chic-antik.jimdosite.com	DEFERRED				2026-11-04T14:59:29.027536Z			https://vintage-chic-antik.jimdosite.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vintage-m7.com	DEFERRED				2026-11-03T12:18:52.232210Z	CURRENT_HOSTED_STOCK_AND_AUCTION_ROLE_UNVERIFIED		https://www.vintage-m7.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vintage-shop.kabeline.at	DEFERRED				2026-11-03T15:59:44.343410Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://vintage-shop.kabeline.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vintagerie.at	DEFERRED				2026-11-03T18:28:56.425832Z	SPECIFIC_CURRENT_STOCK_UNRESOLVED		https://www.vintagerie.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vintagetoysnnerdstuff.at	ADDED	WEBADOR	ls_01m6gs5rn0e45bhkx2w2b8ksb6	pty_01m6gs5rmgejxsez38eyqm9wcb	2026-11-03T14:00:50.780426Z			https://www.vintagetoysnnerdstuff.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-vinvin.eu	DEFERRED				2026-11-04T12:32:08.734925Z			https://vinvin.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-w-k.art	ADDED		ls_01m6ggnnwaefwryw10n3nfcsf8	pty_01m6ggnnvxe20ttkwec451758s	2026-11-03T10:53:26.433712Z			https://www.w-k.art/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-weber-unger.com	ADDED	WOOCOMMERCE	ls_01m6gy8zj2e0evjm4q82what8p	pty_01m6gy8zhkess9px9fysz46dzg	2026-11-03T14:51:10.382238Z		wisskab.com	https://www.weber-unger.com/index.php/shop/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-wernermuehlburger.at	DEFERRED				2026-11-04T08:13:09.010605Z			https://wernermuehlburger.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-wiebkenicklisch.com	EXCLUDED	WIX			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART		https://www.wiebkenicklisch.com/shop	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-wiener-juwelen.at	ADDED	WOOCOMMERCE	ls_01m6gnd7dhevwrsbwnp0tyg3dn	pty_01m6gnd7d1e6t8qrnse2y2061c	2026-11-03T12:16:12.715807Z			https://wiener-juwelen.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-willart.at	DEFERRED				2026-11-04T09:35:20.532756Z			https://willart.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-willhaben.at	ADDED	WILLHABEN	ls_01m6ghxxr5epnvnt6cvvfmsemg	pty_01m6ghxxqne6fvmfdtj1tr146g	2026-11-03T11:15:25.540479Z			https://www.willhaben.at/iad/shop/antiquitaeten-an-und-verkauf	data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-willhaben.at	ADDED	WILLHABEN	ls_01m6gk3k6nedvbgxqnxgkjqm6f	pty_01m6gk3k62ekj93tz5nerw0nv4	2026-11-03T11:36:00.436735Z			https://www.willhaben.at/iad/shop/nostalgie-antik	data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl	HOSTED_DEALER_CATALOGUE
-windora.eu	EXCLUDED				2026-11-03T18:41:15.673150Z	AUCTION_OPERATOR		https://www.windora.eu/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-woka.com	ADDED		ls_01m6gp2vcxehztz0n48t4xv080	pty_01m6gp2vcme49sq2sm27ejjn5g	2026-11-03T12:28:01.187981Z		www4.woka.com	https://www.woka.com/de/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-woodart.at	DEFERRED				2026-11-03T10:16:46.567625Z	CURRENT_PERIOD_STOCK_NOT_ITEMIZED		https://woodart.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-wutaivintage.com	DEFERRED				2026-11-03T18:24:21.519503Z	CURRENT_STOCK_AND_SCOPED_CATALOGUE_UNRESOLVED		https://www.wutaivintage.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-xn--antik-sd-d6a.at	DEFERRED				2026-11-03T15:56:29.268809Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED		https://www.xn--antik-sd-d6a.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-xn--antiquitten-reich-xqb.at	ADDED	WOOCOMMERCE	ls_01m6hdvxx4eghrast44fzyk5cj	pty_01m6hdvxwqe2h9ssgt98j859xg	2026-11-03T19:23:39.551436Z			https://xn--antiquitten-reich-xqb.at/kategorien/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-xn--wip-antiquitten-clb.com	ADDED	SQUARESPACE	ls_01m6gzn1b2eddvybenqrt17qsr	pty_01m6gzn1ame5mt9drqz3jcg5rx	2026-11-03T15:15:13.685972Z			https://www.xn--wip-antiquitten-clb.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-zeichenfabrik.at	DEFERRED				2026-11-04T14:20:13.603003Z			https://www.zeichenfabrik.at/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-zellervanalmsick.com	DEFERRED				2026-11-04T12:32:08.734945Z			https://www.zellervanalmsick.com/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-zsart.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART		https://www.zsart.at/de/editionen/	data/dealer-discovery/countries/AT/dealers.jsonl	DEALER_DOMAIN
-zvab.com	ADDED	ZVAB	ls_01m6gpq9xae15br30srbpha6h8	pty_01m6gpq9wmeax9qsxyec6v20ac	2026-11-03T12:39:11.246404Z			https://www.zvab.com/wissenschaftliches-antiquariat-mayrhofer-p%c3%bcrbach/57166617/sf	data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl	HOSTED_DEALER_CATALOGUE
+domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases
+1a-antiquitaeten.at	EXCLUDED				2026-11-25T19:51:00.899270Z	BUYING_SERVICE_NO_SALE_STOCK	
+99originals.at	DEFERRED				2026-11-25T19:51:00.805739Z	PRIMARY_SITE_UNAVAILABLE	
+abc-wien.at	DEFERRED				2026-11-25T15:05:40.463029Z	CURRENT_OWN_STOCK_UNCONFIRMED	
+abstractartshop.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	herschberger.at
+acrylkunst-artstudiodicken.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+adis-guitar.at	ADDED	SQUARESPACE	ls_01m6h71mfge94tndqn0sp84hev	pty_01m6h71mf1e7bb5j17a6g0ek2p	2026-11-03T17:24:26.506872Z		
+adrienne-egger.com	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+afterhourfurniture.com	ADDED	WIX	ls_01m6hag53qeshs58dbbq1z6ky3	pty_01m6hag536e9tr9xt3emf0hj0x	2026-11-03T18:24:48.450135Z		
+ag18gallery.com	EXCLUDED				2026-11-25T15:04:01.079832Z	CONTEMPORARY_ART	
+agnesreinthaler.com	EXCLUDED				2026-11-25T15:04:01.095711Z	CONTEMPORARY_ART	
+agora.co.at	EXCLUDED				2026-11-26T15:42:18.629192Z	NO_INSPECTABLE_ONLINE_STOCK	
+agraritaeten-shop.com	EXCLUDED				2026-11-25T15:13:52.782754Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+ahrer.info	EXCLUDED				2026-11-25T15:11:27.778590Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+aichholzer.wien	DEFERRED				2026-11-25T15:01:06.129306Z	PRIMARY_DNS_UNAVAILABLE	
+aida-graz.at	DEFERRED				2026-11-25T15:04:15.943631Z	QUALIFYING_CURRENT_STOCK_NOT_INSPECTABLE	
+alexisbrune-gallery.com	EXCLUDED				2026-11-26T09:56:50.527242Z	CONTEMPORARY_ART	
+alfonswalde.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	shop.alfonswalde.com
+alisonn.at	EXCLUDED				2026-11-25T15:14:14.156491Z	CONTEMPORARY_ART	
+alkove.at	EXCLUDED				2026-11-26T19:21:36.846705Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+alpantik.at	EXCLUDED				2026-11-25T15:11:27.789951Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+alte-ansichtskarten.at	EXCLUDED				2026-11-26T20:04:55.559439Z	NOT_A_DEALER	
+alte-schaetze.at	EXCLUDED				2026-11-25T15:27:47.684516Z	BUYING_SERVICE_NO_SALE_STOCK	
+altebaustoffe.at	ADDED	MOTO_CMS	ls_01m6gkw0bje0kr2gkdkcyj7r4d	pty_01m6gkw0b7eqfbkff0gbzchxf8	2026-11-03T11:49:19.892289Z		
+altebuecher.at	ADDED	WIX	ls_01m6h0s0dzesab54d5488q9jd7	pty_01m6h0s0d7er29we7skw472egt	2026-11-03T15:34:52.970824Z		
+altekunst-vienna.com	ADDED		ls_01m6ghakkdey6avd1km7x6br2j	pty_01m6ghakjwe11v5z24svp0b765	2026-11-03T11:04:52.640367Z		
+altemoebel.at	DEFERRED				2026-11-25T15:27:47.646125Z	PRIMARY_DNS_UNAVAILABLE	
+alterschmuck.at	DEFERRED				2026-11-25T15:11:27.980563Z	LEGAL_OPERATOR_AND_CURRENT_STOCK_UNVERIFIED	
+althyas.com	DEFERRED				2026-11-25T15:25:05.542321Z	PRIMARY_SITE_UNAVAILABLE	
+altstadt-linz.at	EXCLUDED				2026-11-26T09:20:49.173427Z	MULTI_MERCHANT_MARKETPLACE	
+altstadtladen.at	EXCLUDED				2026-11-26T19:21:36.563616Z	NEW_GOODS_RETAIL	
+altwaren-ventilator.com	EXCLUDED				2026-11-25T15:24:10.861447Z	CLOSED_PERMANENTLY	
+altwarenganz.com	DEFERRED				2026-11-25T15:15:29.781958Z	CURRENT_PERIOD_STOCK_NOT_EVIDENCED	
+altwienkunst.com	ADDED	WORDPRESS	ls_01m6ge2hjve8gah83mhtnmw7vr	pty_01m6ge2hj8ecxvx2w66s8m5qrj	2026-11-03T10:08:02.068516Z		
+amart.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+an-t-ra.com	DEFERRED				2026-11-25T15:11:27.991131Z	CONFLICTING_CURRENT_OPERATOR_IDENTITY	
+anbu.at	EXCLUDED				2026-11-25T15:31:10.836353Z	NO_INSPECTABLE_ONLINE_STOCK	
+andreewitch.com	ADDED	WOOCOMMERCE	ls_01m89m4sedemb9xde43e458r35	pty_01m89m4seaeqbv5n1sdg6c08sd	2026-11-25T15:10:49.142104Z		andreewitch.at
+andtheeditions.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+ankauf-antik.at	EXCLUDED				2026-11-26T20:00:10.763150Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+ankauf-demolsky.at	ADDED	WORDPRESS	ls_01m6hbzqs0ef8rmz9kbnsbpegv	pty_01m6hbzqrhepb8c61q3s4reast	2026-11-03T18:50:47.162825Z		
+annette-ahrens.at	ADDED	WOOCOMMERCE	ls_01m8a47cpee3v81q91134vqy8w	pty_01m8a47cp4e3evm5dxb5dmaw24	2026-11-25T19:51:51.911292Z		
+ansichtskarten-kartomanie.at	EXCLUDED				2026-11-25T15:50:55.768555Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+ansichtskarten-postcards.at	ADDED		ls_01m8a5bh0med2t1vpzqj3wzckc	pty_01m8a5bh0aessb952kvb2v660e	2026-11-25T20:11:36.027653Z		
+antik-art.at	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:01.117675Z	CONTEMPORARY_ART	
+antik-dorner.at	DEFERRED				2026-11-25T15:01:06.153843Z	PRIMARY_DNS_UNAVAILABLE	
+antik-egger.at	DEFERRED				2026-11-25T15:26:15.471174Z	PRIMARY_DNS_UNAVAILABLE	
+antik-experte.at	EXCLUDED				2026-11-25T15:11:27.800040Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antik-fischer.at	EXCLUDED				2026-11-25T15:13:52.830989Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antik-flohmarkt-ferlach.at	EXCLUDED				2026-11-25T15:11:27.813043Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antik-gebrauchtwaren.at	DEFERRED				2026-11-25T15:11:28.001757Z	CONFLICTING_OPERATOR_IDENTITIES	
+antik-grandits.at	ADDED		ls_01m6gee7t8efvsjs4bazsp0cgt	pty_01m6gee7sxej8vwkgw1z13wc24	2026-11-03T10:14:25.703600Z		
+antik-grandits.jimdo.com	DEFERRED				2026-11-25T16:45:26.002786Z	PRIMARY_TLS_HANDSHAKE_FAILURE	
+antik-hegenbart.at	DEFERRED				2026-11-25T15:01:06.167014Z	PRIMARY_DNS_UNAVAILABLE	
+antik-kabinett.at	ADDED	WORDPRESS	ls_01m6h7vr22e7xb3p7pky50z645	pty_01m6h7vr1nekfvbwhrhtgfg9gn	2026-11-03T17:38:42.323422Z		
+antik-kachelofen.com	ADDED	JIMDO	ls_01m6jvh7ggedys0j05gpyqjd5m	pty_01m6jvh7eveenbcnk9mjrfjrq1	2026-11-04T08:43:07.609686Z		
+antik-koessl.at	DEFERRED				2026-11-25T15:16:26.743768Z	PRIMARY_SITE_UNAVAILABLE	
+antik-kunst-design.at	EXCLUDED				2026-11-25T15:11:27.825954Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antik-kurios.at	DEFERRED				2026-11-25T15:11:28.011680Z	CURRENT_RETAIL_AVAILABILITY_UNVERIFIED	
+antik-mg.at	DEFERRED				2026-11-25T15:11:28.022013Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antik-modern.at	EXCLUDED				2026-11-25T15:16:26.703607Z	ALIAS_OF_KNOWN_DOMAIN	
+antik-modern.shop	EXCLUDED				2026-11-25T15:11:27.891474Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antik-moebel.at	ADDED	WOOCOMMERCE	ls_01m89naqerejv94h0e923qath6	pty_01m89naqemeex98xsbcr46mjxp	2026-11-25T15:31:32.631605Z		
+antik-more.sta.io	DEFERRED				2026-11-25T15:25:05.555208Z	PRIMARY_SITE_UNAVAILABLE	
+antik-rath.com	DEFERRED				2026-11-25T15:11:28.032603Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antik-renatefila.at	EXCLUDED				2026-11-25T15:07:54.917059Z	NO_INSPECTABLE_ONLINE_STOCK	
+antik-renz.at	EXCLUDED				2026-11-26T08:43:55.523878Z	NO_INSPECTABLE_ONLINE_STOCK	
+antik-schrattenecker.at	DEFERRED				2026-11-25T15:04:16.055254Z	NATIVE_SITE_UNDER_REVISION_OPERATOR_ALREADY_MANAGED	
+antik-st-rupert.at	DEFERRED				2026-11-25T15:35:11.746918Z	PRIMARY_SITE_UNAVAILABLE	
+antik-stadl.at	EXCLUDED				2026-11-25T15:11:27.865550Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antik-stein.at	ADDED	WORDPRESS	ls_01m6gkvy7gegktdxzzgpcab451	pty_01m6gkvy75ex39tm625qxxt6dj	2026-11-03T11:49:17.440001Z		
+antik-stinatz.webnode.page	DEFERRED				2026-11-25T15:11:28.045557Z	CONTRACTING_LEGAL_OPERATOR_NOT_EXPLICIT	
+antik-strassner.com	ADDED	JIMDO	ls_01m6gghatkexdbs80yfc279nbj	pty_01m6gghat4e4nvcqfp54dkzxt5	2026-11-03T10:51:03.803518Z		
+antik-sued.com	EXCLUDED				2026-11-25T15:49:08.898001Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antik-tirol.com	EXCLUDED				2026-11-25T15:11:27.839711Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antik-vintage.net	DEFERRED				2026-11-25T15:25:05.565252Z	QUALIFYING_CURRENT_STOCK_NOT_INSPECTABLE	
+antik-wien.at	EXCLUDED				2026-11-26T08:40:42.725528Z	NEW_GOODS_MIX	
+antik-zone.at	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:00.827881Z	NEW_GOODS_MIX	
+antik.at	EXCLUDED				2026-11-26T19:21:36.862160Z	NOT_A_DEALER	
+antik4you.info	DEFERRED				2026-11-25T15:15:46.284295Z	CONFLICTING_OPERATOR_IDENTITIES	
+antikankauf-oesterreich.at	EXCLUDED				2026-11-25T15:11:27.852710Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antikantik.at	DEFERRED				2026-11-25T15:25:05.579012Z	SPECIFIC_CURRENT_STOCK_UNVERIFIED	
+antikbazar.at	DEFERRED				2026-11-25T15:05:40.436357Z	PRIMARY_DNS_UNAVAILABLE	
+antikcenter.at	EXCLUDED				2026-11-26T19:21:36.581631Z	BUSINESS_CARD_NO_INSPECTABLE_STOCK	
+antike-kacheloefen.at	ADDED	JIMDO	ls_01m8bjh49webjavjy171dx8e1d	pty_01m8bjh49teatrhadyqnzr1kak	2026-11-26T09:21:05.737833Z		
+antike-moebel.at	ADDED	WORDPRESS	ls_01m6gg5tfsejgajesf0d2rdjbe	pty_01m6gg5td6ebctbdfjyq7pvwww	2026-11-03T10:44:47.215695Z		
+antikebaustoffe.at	EXCLUDED				2026-11-26T15:00:11.552180Z	NEW_GOODS_MIX	
+antikegger.at	DEFERRED				2026-11-25T15:11:28.055790Z	LEGAL_OPERATOR_NOT_EXPLICIT	
+antikes-flucher.at	ADDED	WOOCOMMERCE	ls_01m6gjd0e4emt8x1zhah58c83j	pty_01m6gjd0dneba94xts2hzv6h7p	2026-11-03T11:23:39.757807Z		
+antikes-vom-josefhof.at	DEFERRED				2026-11-25T15:14:49.514497Z	PRIMARY_SITE_UNAVAILABLE	
+antikes.at	EXCLUDED				2026-11-25T15:16:26.632476Z	ALIAS_OF_KNOWN_DOMAIN	
+antikesallerart.jimdofree.com	DEFERRED				2026-11-25T15:11:28.068763Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antikesbringtgeld.at	EXCLUDED				2026-11-25T15:27:47.699137Z	BUYING_SERVICE_NO_SALE_STOCK	
+antikesvomland.at	ADDED	DUDA	ls_01m6ggcgp3etdsbm8aq20xqhxa	pty_01m6ggcgnwegca9rqrzex56ax2	2026-11-03T10:48:25.852465Z		
+antikeum.at	EXCLUDED				2026-11-25T15:31:10.849756Z	BUYING_SERVICE_NO_SALE_STOCK	
+antikexperte.at	EXCLUDED				2026-11-25T15:27:47.713676Z	BUYING_AND_CLEARANCE_SERVICE_NO_SALE_STOCK	
+antikfreak.at	DEFERRED				2026-11-25T16:45:25.991945Z	PRIMARY_DNS_UNAVAILABLE	
+antikgreissler.at	DEFERRED				2026-11-25T15:07:54.369641Z	PRIMARY_SITE_UNAVAILABLE	
+antikhandel-gabl.at	DEFERRED				2026-11-25T15:11:28.079781Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antikhof-figl.at	ADDED		ls_01m6kc00m9ez3bn84797nts2mx	pty_01m6kc00kpeg1b23fcjeavxt39	2026-11-04T13:29:25.509050Z		
+antikhof.com	DEFERRED				2026-11-25T15:11:28.089851Z	CURRENT_QUALIFIED_STOCK_UNVERIFIED	
+antikhof.net	DEFERRED				2026-11-25T15:11:28.100065Z	CURRENT_QUALIFIED_STOCK_UNVERIFIED	
+antikholz.info	EXCLUDED				2026-11-25T15:11:27.878557Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antiklinz.at	EXCLUDED				2026-11-25T20:32:54.819219Z	BUYING_SERVICE_NO_SALE_STOCK	
+antikmarkt-tirol.at	EXCLUDED	PRESTASHOP			2026-11-26T15:00:11.500392Z	CONTEMPORARY_ART	
+antikmeister.at	DEFERRED				2026-11-25T15:46:56.524418Z	CURRENT_OWN_STOCK_UNCONFIRMED	
+antikmichl.at	DEFERRED				2026-11-25T15:11:28.115259Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antiksalzburg.at	EXCLUDED				2026-11-25T20:10:29.827327Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antikschmuck.at	DEFERRED				2026-11-25T15:46:56.541140Z	PRIMARY_SITE_UNAVAILABLE	
+antikseger.com	ADDED	SHOPIFY	ls_01m89pjxrne29s77s48zjd58xw	pty_01m89pjxrjeb7amr0614q44q5g	2026-11-25T15:53:29.450733Z		
+antikshop-riegersburg.at	ADDED	WOOCOMMERCE	ls_01m6gp2mpdee18hxxyy09t38rq	pty_01m6gp2mp1ewxrvk5zekw1jsn6	2026-11-03T12:27:54.306555Z		
+antikstadl.at	DEFERRED				2026-11-25T15:11:28.125905Z	CURRENT_OFFERS_MIXED_WITH_COMPLETED_PROJECTS	
+antikstadl.com	ADDED		ls_01m6ggvnpnec5tnt021xzzwz1b	pty_01m6ggvnp9ew692f4r4vhf4v0w	2026-11-03T10:56:42.772070Z		
+antikstudio-1900.at	EXCLUDED				2026-11-25T15:27:47.723568Z	BUYING_SERVICE_NO_SALE_STOCK	
+antiktirol.at	DEFERRED				2026-11-25T15:11:02.775413Z	PRIMARY_SITE_UNAVAILABLE	
+antikuhren.eu	EXCLUDED				2026-11-25T15:11:27.928752Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antikundco.com	ADDED	WOOCOMMERCE	ls_01m89m6wgge9hr87y5a8dqwdxr	pty_01m89m6wgfebwsmqeeq4gayexw	2026-11-25T15:11:57.716848Z	SPECIFIC_CURRENT_STOCK_UNVERIFIED	
+antikverkauf.at	EXCLUDED				2026-11-25T15:26:15.551190Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antikverkaufen-koenig.at	EXCLUDED				2026-11-26T20:00:10.774905Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+antikwerkstaette.at	DEFERRED				2026-11-25T15:49:08.919369Z	PRIMARY_DNS_UNAVAILABLE	
+antikwunder.at	EXCLUDED				2026-11-25T16:45:25.980713Z	BUYING_SERVICE_NO_SALE_STOCK	
+antiquari.at	ADDED	MODIFIED_ECOMMERCE	ls_01m6gqctmre36skpez2t0k6xed	pty_01m6gqctmceg0s99vaxr9x3fmb	2026-11-03T13:34:51.753345Z		
+antiquariat-deinbacher.at	ADDED	MAGENTO	ls_01m6h5rg4ne1xrsq5h0m5jyqzq	pty_01m6h5rg47esc9xvs32qy6b7q5	2026-11-03T17:01:59.318985Z		
+antiquariat-donhofer.at	EXCLUDED				2026-11-25T15:11:02.703611Z	NO_INSPECTABLE_ONLINE_STOCK	
+antiquariat-donhofer.firma.cc	EXCLUDED				2026-11-26T08:44:09.532798Z	ALIAS_OF_EXISTING_SOURCE	
+antiquariat-fetzer.de	ADDED	IONOS_MYWEBSITE	ls_01m6gr6j0fepd8vkabegprep8d	pty_01m6gr6hzyeext61pbjj34m96e	2026-11-03T13:04:59.738465Z		
+antiquariat-hoerandner.at	EXCLUDED				2026-11-25T15:14:49.467239Z	NO_INSPECTABLE_ONLINE_STOCK	
+antiquariat-krikl.co.at	ADDED		ls_01m89m5mkzetham6mxef5rmcx4	pty_01m89m5mkvef2ayk45dgpxvbe8	2026-11-25T15:11:17.198642Z	CURRENT_LEGAL_OPERATOR_UNRESOLVED	
+antiquariat-krug.at	DEFERRED				2026-11-25T15:11:28.135114Z	CURRENT_RETAIL_STOCK_UNVERIFIED	
+antiquariat-loewenstein.at	ADDED	HESCOM_SHOP	ls_01m6h0rxz0e3rv06j4taqg5hg8	pty_01m6h0rxyee4carwyzj2vyhyqv	2026-11-03T15:34:50.597106Z		
+antiquariat-mayrhofer.at	EXCLUDED				2026-11-25T15:04:16.014937Z	ALREADY_MANAGED_OPERATOR_NATIVE_PRESENTATION	
+antiquariat-ms.at	ADDED	IONOS_MYWEBSITE	ls_01m6gqcrz7egfa62cy5g0txyyh	pty_01m6gqcryteg494nmgh62cak1z	2026-11-03T12:50:54.368437Z		
+antiquariat-weinek.at	ADDED	WIX	ls_01m6ghx8k1e428g0yz65b6w68h	pty_01m6ghx8jfenz86s0m37jqm7m8	2026-11-03T11:15:03.297456Z		
+antiquariat.wien	DEFERRED				2026-11-03T14:31:27.932755Z	ANNOUNCED_TEMPORARY_ORDER_PROCESSING_PAUSE	
+antiquatis.at	EXCLUDED				2026-11-25T15:11:02.713354Z	NO_INSPECTABLE_ONLINE_STOCK	
+antiques-vienna.at	DEFERRED				2026-11-25T15:50:55.755332Z	CURRENT_OWN_STOCK_UNCONFIRMED	
+antiquitaeten-am-dom.at	EXCLUDED				2026-11-25T15:11:02.726856Z	NO_INSPECTABLE_ONLINE_STOCK	
+antiquitaeten-ankauf.at	ADDED	SIQUANDO	ls_01m6ghpta2ecjrsej8ghwn61ac	pty_01m6ghpt9gesd8aew82qfx4hfd	2026-11-03T11:11:32.134402Z		
+antiquitaeten-brune.at	DEFERRED				2026-11-25T15:11:28.154865Z	SPECIFIC_CURRENT_OFFER_UNVERIFIED	
+antiquitaeten-edler.at	DEFERRED				2026-11-25T15:11:28.169734Z	SPECIFIC_ANTIQUE_STOCK_UNVERIFIED	
+antiquitaeten-hoehn.at	DEFERRED				2026-11-25T15:27:47.656067Z	PRIMARY_DNS_UNAVAILABLE	
+antiquitaeten-innsbruck.at	DEFERRED				2026-11-25T15:11:28.190109Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antiquitaeten-kral.at	ADDED	NEXTJS	ls_01m6ge959aepv99w0xhaxjasgz	pty_01m6ge958xe429btr10bp30s43	2026-11-03T10:11:38.772502Z		
+antiquitaeten-moskat.at	ADDED	SQUARESPACE	ls_01m6gf8q08erwvv820z3xckm4d	pty_01m6gf8pzxexmvtgb35e4zqa9s	2026-11-03T10:28:52.673323Z		
+antiquitaeten-peterschwandl.at	DEFERRED				2026-11-25T15:26:15.484703Z	PRIMARY_DNS_UNAVAILABLE	
+antiquitaeten-poell.com	DEFERRED				2026-11-25T15:11:28.202478Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antiquitaeten-reisch.com	ADDED		ls_01m6gfpc5heg08hm4bq0zkzy0s	pty_01m6gfpc52esf9hcv0w2y4y4e5	2026-11-03T10:36:20.446551Z		
+antiquitaeten-salzburg.at	DEFERRED				2026-11-25T15:09:37.252049Z	CURRENT_STOCK_NOT_INSPECTABLE	
+antiquitaeten-schmalzer.at	DEFERRED				2026-11-25T15:11:28.215359Z	CURRENT_STOCK_REQUIRES_CHANNEL_REVIEW	
+antiquitaeten-schwaighofer.at	DEFERRED				2026-11-25T15:11:02.832876Z	PRIMARY_SITE_UNAVAILABLE	
+antiquitaeten-taeuber.com	ADDED	SQUARESPACE	ls_01m6jw828se2vsp60ryeaq4jtg	pty_01m6jw828he2hrg6dz4bkkp505	2026-11-04T08:54:12.245225Z		
+antiquitaeten-tsantilas.at	ADDED		ls_01m6gk2zjfeh3tbhypjcc888mk	pty_01m6gk2zhreeavpwvdx2e1etpb	2026-11-03T11:35:39.387205Z		
+antiquitaeten-wien.at	EXCLUDED				2026-11-25T20:32:54.855382Z	BUYING_SERVICE_NO_SALE_STOCK	
+antiquitaeten-wien.com	EXCLUDED				2026-11-25T19:51:00.824799Z	BUYING_SERVICE_NO_SALE_STOCK	
+antiquitaeten.ws	EXCLUDED				2026-11-26T19:21:36.606798Z	DOMAIN_PARKING_PAGE	
+antiquitaetenrestaurator.at	ADDED	WEBADOR	ls_01m6h2dx6mevyvm454mtc3fr49	pty_01m6h2dx62e4jtw2rm0c1eewej	2026-11-03T16:03:46.601643Z		
+antiquitaetenwinkel.de	EXCLUDED				2026-11-25T15:11:02.740261Z	NO_INSPECTABLE_ONLINE_STOCK	
+antix.cc	DEFERRED				2026-11-25T15:11:02.788731Z	PRIMARY_SITE_UNAVAILABLE	
+anzenbergergallery-bookshop.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+anzenbergergallery.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+apfel-antik.com	ADDED	JIMDO	ls_01m6ge2fmbe3n98cehs2rywpc3	pty_01m6ge2fkzee4vcw8s43vj17xp	2026-11-03T10:07:59.959360Z		
+armstarkkunsthandel.com	DEFERRED				2026-11-25T15:46:56.562400Z	PRIMARY_SITE_UNAVAILABLE	
+arsartis.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+art-michael-alexander-seywald.com	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+artanima.at	DEFERRED				2026-11-25T15:11:02.797982Z	PRIMARY_SITE_UNAVAILABLE	
+artaustria.net	DEFERRED				2026-11-25T15:11:02.810133Z	PRIMARY_SITE_UNAVAILABLE	
+artdepot-austria.at	EXCLUDED				2026-11-03T18:41:15.673166Z	MULTI_ARTIST_DIRECT_SALES_PLATFORM	
+artdepot.co.at	EXCLUDED				2026-11-25T15:11:02.384960Z	CONTEMPORARY_ART	
+artecont.at	EXCLUDED				2026-11-25T15:11:02.401268Z	CONTEMPORARY_ART	
+artessa.at	EXCLUDED				2026-11-26T15:42:31.758878Z	AUCTION_BUSINESS	
+artfigl.at	ADDED	WORDPRESS	ls_01m89m5nx8eak93sya9537m2ns	pty_01m89m5nx0eys9xn5j7507d8vp	2026-11-25T15:11:18.160495Z	FIRST_PARTY_FETCH_FAILED	
+artforyou.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+artheum.at	ADDED	WOOCOMMERCE	ls_01m6ge2cz9e7makz029j3m50wt	pty_01m6ge2cyje53bkmqd60fh5h8h	2026-11-25T15:04:37.872312Z		
+artinprint.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+artkonzett.com	EXCLUDED				2026-11-26T09:55:41.068276Z	CONTEMPORARY_ART	
+artmoments.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+artofsalzburg.com	EXCLUDED				2026-11-25T15:11:27.904455Z	CONTEMPORARY_ART	
+artsofwoman.at	EXCLUDED				2026-11-25T15:11:02.413449Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+artziwna.com	EXCLUDED	JIMDO			2026-11-26T13:25:34.768640Z	CONTEMPORARY_ART	
+asiatikavienna.com	ADDED	WORDPRESS	ls_01m6h1wwgzegtttf89ym10y1gd	pty_01m6h1wwgde59a9b3c136vkv2k	2026-11-03T15:54:28.057065Z		
+atelier-elisabeth.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+ateliervogelfrei.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+aufderseil.at	EXCLUDED				2026-11-03T17:55:44.919200Z	CURRENT_PREMISES_CLOSED_AND_NO_AVAILABLE_CATALOGUE	
+auktionen-fruehwald.com	EXCLUDED				2026-11-03T16:57:27.256227Z	AUCTION_BUSINESS	
+auktioneum-shop.com	DEFERRED				2026-11-25T15:11:28.228593Z	CONFLICTING_LEGAL_OPERATOR	
+auroraarts.at	EXCLUDED				2026-11-25T15:11:02.425883Z	CONTEMPORARY_ART	
+automobileforst.at	EXCLUDED				2026-11-25T15:11:27.967686Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+av-coins.com	EXCLUDED				2026-11-25T15:11:02.692736Z	NO_INSPECTABLE_ONLINE_STOCK	
+bakerhousegallery.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+bananas.at	ADDED		ls_01m6has17yeekrqmvjt6gn9b81	pty_01m6has17ge51s8bjkfcpd6t76	2026-11-03T18:29:39.312482Z		
+bardotantiquejewellery.com	DEFERRED				2026-11-25T15:11:28.241589Z	LEGAL_OPERATOR_INCOMPLETE	
+baresfuerwahres.at	EXCLUDED				2026-11-25T15:31:10.823269Z	BUYING_SERVICE_NO_SALE_STOCK	
+barvinskyi.gallery	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+bauer.antiquar.de	DEFERRED				2026-11-25T15:08:00.950816Z	FIRST_PARTY_ACCESS_BLOCKED	
+baumann-juwelen.at	EXCLUDED				2026-11-25T15:11:27.917352Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+baumarkt-antiqua.at	EXCLUDED				2026-11-26T19:21:36.617562Z	NO_INSPECTABLE_ONLINE_STOCK	
+baumarkt-antiqua.com	DEFERRED				2026-11-25T15:14:49.353774Z	LEGAL_OPERATOR_NOT_VERIFIED	
+baustoffmanufaktur.at	EXCLUDED				2026-11-25T20:10:29.846654Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+bauwohnwelt.at	EXCLUDED				2026-11-25T15:06:07.257865Z	MULTI_MERCHANT_MARKETPLACE	
+bednarczyk.at	DEFERRED				2026-11-25T15:12:26.145703Z	PRIMARY_SITE_UNAVAILABLE	
+beletage.com	ADDED	JOOMLA	ls_01m6gewpywekt85bckch8qpgcz	pty_01m6gewpyhe36882khkgtwg22t	2026-11-03T10:22:19.719563Z		
+bella-nostalgia.com	EXCLUDED				2026-11-26T20:00:10.797367Z	CLOSED_PERMANENTLY	
+berndkugler.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+bernhard-edelsfeld.at.st	EXCLUDED				2026-11-25T15:11:02.435397Z	CONTEMPORARY_ART	
+biedermeier-vienna.com	DEFERRED				2026-11-25T15:50:55.744569Z	LEGAL_OPERATOR_UNPUBLISHED	
+bild-und-rahmen.at	ADDED	WORDPRESS	ls_01m6jzqt8he3bv7camt0d6x99d	pty_01m6jzqt84evfsq33nr9d2d93p	2026-11-04T09:55:13.490757Z		
+bildzeitschrift.com	DEFERRED				2026-11-26T08:43:31.150179Z	CATALOGUE_PRICES_NOT_PUBLISHED	
+bischoff.at	EXCLUDED				2026-11-25T20:10:40.935279Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+bluedanubeviolins.com	ADDED	WOOCOMMERCE	ls_01m6h71j73e8xahqgg3xpq1811	pty_01m6h71j6nem9bqhx5zpvhfdpp	2026-11-03T17:24:24.788112Z		
+bonbon-interior.at	EXCLUDED	SQUARESPACE			2026-11-26T15:13:01.106829Z	NEW_GOODS_MIX	
+breisach.co.at	EXCLUDED				2026-11-25T15:09:51.158234Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+briefmarken-handel.at	EXCLUDED				2026-11-25T15:11:27.941704Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+briefmarken-manfred.at	EXCLUDED				2026-11-25T15:26:15.422256Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+briefmarken-stari.at	ADDED	XT_COMMERCE	ls_01m6gsf7mfesys6wbsdjp892cg	pty_01m6gsf7kqeb3sy4j35nbhbza6	2026-11-03T13:27:12.424945Z		
+briefmarken-strasser.com	DEFERRED				2026-11-26T19:21:36.890971Z	FIRST_PARTY_FETCH_BLOCKED	
+brigittakovacs.at	DEFERRED				2026-11-25T15:05:40.422353Z	PRIMARY_DNS_UNAVAILABLE	
+buch-schaden.at	DEFERRED				2026-11-25T15:05:40.407041Z	ANTIQUE_SCOPE_UNCONFIRMED	
+buchgruber.com	EXCLUDED				2026-11-25T15:05:40.395019Z	NO_INSPECTABLE_ONLINE_STOCK	
+buchinger-austria.com	EXCLUDED				2026-11-25T15:14:49.422922Z	CONTEMPORARY_ART	
+buchkauz.at	EXCLUDED				2026-11-26T09:20:49.201405Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+buchtip.at	EXCLUDED				2026-11-25T15:13:21.724261Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+buchwien.at	EXCLUDED				2026-11-25T15:07:54.940992Z	NOT_A_DEALER	
+buecher-ernst.at	DEFERRED				2026-11-25T15:34:11.652756Z	ANTIQUE_SCOPE_UNCONFIRMED	
+buecher-ernst.com	DEFERRED				2026-11-25T15:13:05.154788Z	ANTIQUE_SCOPE_UNCONFIRMED	
+buecher.at	EXCLUDED				2026-11-25T15:04:38.929363Z	NOT_A_DEALER_ASSOCIATION_DIRECTORY	
+buecherbuben.at	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:00.965775Z	NEW_GOODS_MIX	
+buecherstube-weinhaus.at	EXCLUDED				2026-11-26T20:04:55.453117Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+buechertheke.at	EXCLUDED				2026-11-25T15:49:08.867147Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+buerscher.at	EXCLUDED				2026-11-25T15:04:39.014677Z	ALREADY_MANAGED_OPERATOR_NATIVE_PRESENTATION	
+burgscharnitz.com	EXCLUDED				2026-11-26T19:21:36.631927Z	NO_INSPECTABLE_ONLINE_STOCK	
+burn-in.at	EXCLUDED	DRUPAL_COMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+c-art.at	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+cacontemporary.com	EXCLUDED				2026-11-25T15:11:02.446130Z	CONTEMPORARY_ART	
+camera31.com	EXCLUDED				2026-11-25T15:11:27.954791Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+catrinette.at	EXCLUDED				2026-11-25T19:51:00.815379Z	NO_INSPECTABLE_ONLINE_STOCK	
+cavinnash.at	EXCLUDED				2026-11-26T15:42:18.543182Z	AUCTION_BUSINESS	
+cb-gallery.com	ADDED	WOOCOMMERCE	ls_01m6gfpe0fea2v3mcetq7he9n5	pty_01m6gfpe01e7fv385frk7pr6gk	2026-11-03T10:36:23.190946Z		
+charimgalerie.at	EXCLUDED				2026-11-25T15:11:02.460375Z	CONTEMPORARY_ART	
+chary-chic.at	ADDED	WOOCOMMERCE	ls_01m6gjq4drephravb4m0xt6whp	pty_01m6gjq4d7ehfre3cj6kb2d61r	2026-11-03T14:00:50.780304Z		
+chic-antique.at	DEFERRED				2026-11-25T15:11:02.822385Z	PRIMARY_SITE_UNAVAILABLE	
+christine-pahl.at	DEFERRED				2026-11-25T15:01:06.404279Z	PRIMARY_DNS_UNAVAILABLE	
+christine-scherl.at	EXCLUDED	WIX			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+christinekoeniggalerie.com	EXCLUDED	ARTBUTLER			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+christophwalterpirker.com	DEFERRED				2026-11-25T15:01:06.418311Z	PRIMARY_DNS_UNAVAILABLE	
+chronothek.at	EXCLUDED				2026-11-26T09:40:12.445204Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+cichinidesign.at	DEFERRED				2026-11-25T15:11:28.254682Z	LEGAL_OPERATOR_PLACEHOLDER	
+cinoa.org	EXCLUDED				2026-11-25T15:04:38.978879Z	NOT_A_DEALER_ASSOCIATION_DIRECTORY	
+city-antik.at	EXCLUDED				2026-11-26T15:42:18.590262Z	MARKETPLACE_ONLY_STOCK	
+city-galerie-wien.com	EXCLUDED				2026-11-25T15:11:02.475650Z	CONTEMPORARY_ART	
+citymusic19.com	ADDED	SHOPIFY	ls_01m6h7ck7ne9d8vfngy9s1cthn	pty_01m6h7ck76e2ftxnjktkvr1yqp	2026-11-03T17:30:26.261229Z		
+clockwise.at	EXCLUDED				2026-11-25T15:05:42.848028Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+coiny-joe.at	ADDED		ls_01m6h50w0reaxbs5b4mzv4enbz	pty_01m6h50w0fefzr8yx193ssbejx	2026-11-03T16:49:04.908402Z		
+coloursofthoughts.at	EXCLUDED	WIX			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+commune-gallery.com	EXCLUDED	ARTLOGIC			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+croneedition.com	EXCLUDED	SHOPIFY			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+croynielsen.com	EXCLUDED				2026-11-25T15:11:02.487825Z	CONTEMPORARY_ART	
+dantendorfer.art	EXCLUDED				2026-11-25T15:11:02.499156Z	CONTEMPORARY_ART	
+daughtersons.at	ADDED	WIX	ls_01m6h71g01efkbssnfjgjnc11b	pty_01m6h71fzmecc9wsbvdg4592zf	2026-11-03T17:24:22.441845Z		
+de-de.facebook.com	EXCLUDED				2026-11-26T19:21:36.642732Z	NO_INSPECTABLE_ONLINE_STOCK	
+deco-art.at	EXCLUDED				2026-11-26T09:40:12.462457Z	NO_INSPECTABLE_ONLINE_STOCK	
+deco50.at	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:00.788620Z	NEW_GOODS_MIX	
+dekorative.at	ADDED		ls_01m6jt04zaehsbsgwn4tah6s9j	pty_01m6jt04z3ez7twp325pd760jk	2026-11-04T08:14:55.736729Z		
+dermauritz.at	DEFERRED				2026-11-26T09:20:49.153151Z	PRIMARY_SITE_UNAVAILABLE	
+derrestaurator.at	EXCLUDED				2026-11-25T15:50:55.793831Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+dersammer.at	EXCLUDED				2026-11-25T15:11:02.682184Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+derteppich.com	EXCLUDED				2026-11-26T15:13:01.624903Z	NEW_GOODS_MIX	
+designovist.at	DEFERRED				2026-11-25T15:01:06.442902Z	PRIMARY_DNS_UNAVAILABLE	
+deutart.at	DEFERRED				2026-11-25T15:09:51.204148Z	PRIMARY_DNS_UNAVAILABLE	
+die-gute-alte-zeit.at	ADDED	WOOCOMMERCE	ls_01m8a5bjdveyqt7ax97nqqt2cf	pty_01m8a5bjdqectadfhbt9wx17vj	2026-11-25T20:11:37.510760Z		
+dieschrottmeyer.at	DEFERRED				2026-11-25T15:24:40.234723Z	NO_ONLINE_CATALOGUE_BROCHURE_SITE_ONLY	
+dieter-halama.at	EXCLUDED				2026-11-25T15:05:40.375478Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+diewohnung.wien	ADDED	WIX	ls_01m6has38jekhav0yp27svqv3s	pty_01m6has385e2nraeehczxgb02n	2026-11-03T18:29:41.781758Z		
+divusnumismatik.com	EXCLUDED				2026-11-26T13:19:12.412787Z	MARKETPLACE_ONLY_STOCK	
+domenigartdesign.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+donum-antik.at	EXCLUDED				2026-11-25T19:51:00.992802Z	BUSINESS_CARD_NO_INSPECTABLE_STOCK	
+eberhardjordan.com	EXCLUDED				2026-11-25T15:11:02.508681Z	CONTEMPORARY_ART	
+edelstoffe.art	EXCLUDED				2026-11-25T15:11:02.522109Z	CONTEMPORARY_ART	
+edelwerkstatt.at	EXCLUDED	JIMDO			2026-11-26T15:13:01.260873Z	NEW_GOODS_MIX	
+edlezeitmesser.at	EXCLUDED	WIX			2026-11-26T15:13:01.003258Z	NEW_GOODS_MIX	
+edwinheider.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+eiamaya.at	ADDED	SHOPWARE	ls_01m6gsf9nqecnr2e3xg4fg4c54	pty_01m6gsf9nde8p895kez84gr9cs	2026-11-03T13:27:14.715662Z		
+eigelsreiter.org	DEFERRED				2026-11-25T15:49:08.999697Z	ANTIQUE_SCOPE_UNCONFIRMED	
+elektrohalle-rhomberg.net	EXCLUDED				2026-11-25T15:11:02.533895Z	CONTEMPORARY_ART	
+elias-rubenstein.com	EXCLUDED				2026-11-25T15:11:02.547419Z	CONTEMPORARY_ART	
+elisabethsturm.at	DEFERRED				2026-11-25T15:11:02.843768Z	PRIMARY_SITES_ARE_HOSTING_PLACEHOLDERS	
+ellenbittner.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+emanuellayr.com	EXCLUDED				2026-11-25T15:11:02.561047Z	CONTEMPORARY_ART	
+empireantiques.at	EXCLUDED				2026-11-25T19:51:00.843922Z	BUYING_SERVICE_NO_SALE_STOCK	
+entruempler.at	EXCLUDED				2026-11-26T19:21:36.916147Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+erlach.shop	ADDED	SHOPIFY	ls_01m8bge57qe9hsvqbkyy35yr5b	pty_01m8bge57me2g9mpmkjx7tapqh	2026-11-26T08:44:31.215830Z		
+erlesenes.org	ADDED	WOOCOMMERCE	ls_01m6grvzy8essad7hcxqty1k4n	pty_01m6grvzxreryvy2v7vfkev17h	2026-11-03T13:16:42.404784Z		
+ethnothek.at	EXCLUDED				2026-11-26T08:40:42.776323Z	NEW_GOODS_MIX	
+euroantik-auktionen.com	EXCLUDED				2026-11-03T20:11:06.695902Z		
+exceptionalantiques.com	DEFERRED				2026-11-25T15:27:47.633281Z	PRIMARY_DNS_UNAVAILABLE	
+exilegallery.org	EXCLUDED				2026-11-04T12:09:35.532064Z		
+fannyetmari.com	ADDED	WIX	ls_01m6gj3022e2hvx0a4f034qzfk	pty_01m6gj301ee8n9pvpferjdc9kc	2026-11-03T11:18:11.482407Z		
+farkas-numismatik.com	DEFERRED				2026-11-26T15:47:37.895729Z	AUCTION_SHARE_AMBIGUOUS	
+feichtnergallery.com	EXCLUDED				2026-11-25T15:11:02.572539Z	CONTEMPORARY_ART	
+felicitas-home.at	DEFERRED				2026-11-25T20:32:54.800324Z	ANTIQUE_SCOPE_UNCONFIRMED	
+felixgaudlitz.com	EXCLUDED				2026-11-25T15:11:02.586137Z	CONTEMPORARY_ART	
+felixhoeller.art	EXCLUDED				2026-11-25T15:06:07.347089Z	CONTEMPORARY_ART	
+fernsehservice-moedling.at	EXCLUDED				2026-11-25T20:32:54.838715Z	NO_INSPECTABLE_ONLINE_STOCK	
+firmen.wko.at	EXCLUDED				2026-11-25T15:06:07.301980Z	NOT_A_DEALER_ASSOCIATION_DIRECTORY	
+fiveplusartgallery.eu	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+flashmusic.at	EXCLUDED				2026-11-26T13:25:34.740116Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+flohmarktprofi.at	EXCLUDED				2026-11-04T13:58:42.640277Z		
+floriankolhammer.com	ADDED	WOOCOMMERCE	ls_01m6gg0he4ez8t39jvjr4pnbr1	pty_01m6gg0hdnewxrdkd76ssy7j73	2026-11-03T10:41:54.253734Z		
+floriannoerl.art	EXCLUDED				2026-11-25T15:11:02.599705Z	CONTEMPORARY_ART	
+fosshop.at	EXCLUDED				2026-11-26T19:21:36.946728Z	NEW_GOODS_RETAIL	
+fotoblick.at	DEFERRED				2026-11-25T15:01:06.499239Z	PRIMARY_DNS_UNAVAILABLE	
+friedrich-wurm.at	EXCLUDED				2026-11-25T15:11:02.613283Z	CONTEMPORARY_ART	
+fuhs.cc	DEFERRED				2026-11-26T09:20:49.162406Z	PRIMARY_SITE_UNAVAILABLE	
+g-riedmann.at	ADDED	PRESTASHOP	ls_01m89p87xzetar51zf9szbze3m	pty_01m89p87xweb8t44aygm7gapyy	2026-11-25T15:47:39.592699Z		
+gablitzer-antiquariat.at	ADDED		ls_01m8cmxgdnedttweq5m1n8c45h	pty_01m8cmxgd8e4ws81b8azqsk6zv	2026-11-26T19:22:02.761646Z		
+gahr.art	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-10erhaus.at	EXCLUDED	VIRTUEMART			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-albertina.at	EXCLUDED	WORDPRESS			2026-11-26T15:00:11.701475Z	CONTEMPORARY_ART	
+galerie-altnoeder.com	EXCLUDED				2026-11-26T13:25:34.757992Z	POST_WAR_MODERN_ART	
+galerie-augustin.com	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-chobot.at	EXCLUDED				2026-11-25T15:11:02.624350Z	CONTEMPORARY_ART	
+galerie-felixhoeller.shop	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-frewein-kazakbaev.com	EXCLUDED				2026-11-25T15:11:02.635161Z	CONTEMPORARY_ART	
+galerie-frey.com	EXCLUDED				2026-11-25T15:11:02.645275Z	CONTEMPORARY_ART	
+galerie-hartinger.at	EXCLUDED				2026-11-25T15:11:02.658779Z	CONTEMPORARY_ART	
+galerie-juenger.at	EXCLUDED				2026-11-25T15:11:02.668872Z	CONTEMPORARY_ART	
+galerie-kaiblinger.at	EXCLUDED	TYPO3			2026-11-26T13:25:34.657288Z	CONTEMPORARY_ART	gallery-vienna.com
+galerie-krinzinger-shop.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-krinzinger.at	EXCLUDED				2026-11-25T15:06:33.820844Z	CONTEMPORARY_ART	
+galerie-leonhard.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-lisihaemmerle.at	EXCLUDED				2026-11-25T15:06:33.907663Z	CONTEMPORARY_ART	
+galerie-magnet.at	DEFERRED				2026-11-25T15:17:34.134300Z	PRIMARY_TLS_VALIDATION_FAILED	
+galerie-mam.com	EXCLUDED	ARTBUTLER			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-maringer.at	EXCLUDED				2026-11-25T15:17:33.623514Z	CONTEMPORARY_ART	
+galerie-schloss-wiespach.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-seywald.at	EXCLUDED				2026-11-25T15:05:29.548730Z	ALREADY_MANAGED_OPERATOR_NATIVE_PRESENTATION	
+galerie-slavik.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-stock.net	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie-trafela.at	ADDED	WEBNODE	ls_01m6h27rrxeeza277qg905vtbp	pty_01m6h27rrdew9r14zshj6kvmpt	2026-11-03T16:00:24.687163Z		
+galerie-walker.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie.steinek.at	EXCLUDED				2026-11-25T15:06:33.950303Z	CONTEMPORARY_ART	
+galerie10.at	ADDED	TYPO3	ls_01m6he1jtbegkarg3arezmqz99	pty_01m6he1jsveew8n2h4p5pa1vd1	2026-11-03T19:26:44.990016Z		
+galerie13.at	EXCLUDED				2026-11-25T15:04:24.890039Z	NO_INSPECTABLE_ONLINE_STOCK	
+galerie21.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie3.com	EXCLUDED	ARTBUTLER_WEB			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie3034.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerie422.at	EXCLUDED				2026-11-25T15:17:33.655175Z	CONTEMPORARY_ART	
+galerieamhofsteig.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerieamstein.at	EXCLUDED				2026-11-25T15:18:00.256640Z	CONTEMPORARY_ART	
+galeriebrugger.com	EXCLUDED				2026-11-25T15:17:33.679473Z	CONTEMPORARY_ART	
+galeriecrone.com	EXCLUDED				2026-11-25T15:06:33.987247Z	CONTEMPORARY_ART	
+galeriedornerbauer.com	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galeriedumas.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerieeisenstadt.at	EXCLUDED				2026-11-25T15:17:34.052271Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+galeriegrill.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galeriehochdruck.com	ADDED		ls_01m6gr6mesekqbaez0hq9rhzx7	pty_01m6gr6me8e72sgc0ctp7f44cy	2026-11-03T13:05:01.795425Z		
+galerieinderschmiede.at	EXCLUDED				2026-11-25T15:17:33.712032Z	CONTEMPORARY_ART	
+galerieinderschmiede.com	EXCLUDED				2026-11-25T15:17:33.691238Z	CONTEMPORARY_ART	
+galeriekrobath.at	EXCLUDED				2026-11-25T15:17:33.731987Z	CONTEMPORARY_ART	
+galeriekuenstlich.at	DEFERRED				2026-11-25T15:17:34.147821Z	FIRST_PARTY_FETCH_BLOCKED	
+galerielehner.at	DEFERRED				2026-11-26T15:52:36.653812Z	PRIMARY_SITE_UNAVAILABLE	
+galeriemaximilianhutz.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galeriepetraseiser.at	EXCLUDED				2026-11-25T15:17:33.749696Z	CONTEMPORARY_ART	
+galerierudolfleeb.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galerieschlossparz.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galeriesommer.com	EXCLUDED	CM4ALL			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+galeriethoman.com	EXCLUDED				2026-11-25T15:06:34.048497Z	CONTEMPORARY_ART	
+galerietrapp.at	EXCLUDED				2026-11-03T13:39:57.723903Z	FIRST_PARTY_CONFIRMED_BUSINESS_CLOSED	
+galerievundv.com	EXCLUDED				2026-11-25T15:17:33.770455Z	CONTEMPORARY_ART	
+galeriewinter.at	EXCLUDED				2026-11-25T15:18:00.273594Z	CONTEMPORARY_ART	
+gallerytoplev.com	EXCLUDED				2026-11-25T15:06:34.097470Z	CONTEMPORARY_ART	
+ganzenbacher.at	EXCLUDED				2026-11-25T15:17:33.818223Z	CONTEMPORARY_ART	
+geraldscheidl.at	DEFERRED				2026-11-25T15:01:06.596663Z	PRIMARY_DNS_UNAVAILABLE	
+gerersdorfer.at	EXCLUDED				2026-11-03T19:59:18.213582Z		
+gerlisart.jimdo.com	EXCLUDED				2026-11-25T15:17:33.834018Z	CONTEMPORARY_ART	
+geschirrsucht.at	EXCLUDED				2026-11-25T16:45:26.036451Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+geschirrsucht.com	EXCLUDED				2026-11-25T16:45:26.056452Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+gezwanzig.com	EXCLUDED	WORDPRESS			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+gieseundschweiger.at	EXCLUDED	ARTLOGIC			2026-11-26T15:00:11.484454Z	CONTEMPORARY_ART	
+gkmilitaria.at	ADDED	CONCEPT500	ls_01m89pjythemptm9mb32wt11sv	pty_01m89pjytges5bnvhz1y11y1r9	2026-11-25T15:53:30.696628Z		
+glasergewoelbe.at	ADDED	WOOCOMMERCE	ls_01m6gg5rhyemjbd3j5tb3x0fxb	pty_01m6gg5rhgekasezgd4e1mqtye	2026-11-03T10:44:44.568417Z		
+glasfabrik.at	DEFERRED				2026-11-25T15:24:40.255350Z	MULTI_DEALER_UMBRELLA_AND_SELLER_SCOPE_UNRESOLVED	
+goldankauf-antiquitaeten-kunst.at	EXCLUDED				2026-11-25T15:24:00.186031Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+goldankauf-regional.at	EXCLUDED				2026-11-04T08:34:04.039273Z		
+goldgasse.com	EXCLUDED				2026-11-26T09:20:49.182642Z	MULTI_MERCHANT_MARKETPLACE	
+goldinvest.at	ADDED		ls_01m6h46c6ye51s7xdteqnp0v9v	pty_01m6h46c6je8ds6tkqyxpfs57r	2026-11-03T16:34:36.633763Z		
+graessle.art	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+graveuratelier-lubach.com	EXCLUDED				2026-11-25T19:51:00.982440Z	CONTEMPORARY_ART	
+gregorpodnar.com	EXCLUDED				2026-11-25T15:17:33.854636Z	CONTEMPORARY_ART	
+grosslicht.at	EXCLUDED				2026-11-25T15:09:58.824153Z	NO_INSPECTABLE_ONLINE_STOCK	
+gudrunbluemel.com	EXCLUDED				2026-11-25T15:50:55.711853Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+guenterhaider.at	EXCLUDED				2026-11-26T19:21:36.667214Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+guidozotti.com	EXCLUDED				2026-11-26T09:20:49.191881Z	NEW_GOODS_MIX	
+guitarox.com	EXCLUDED	WORDPRESS			2026-11-26T15:13:01.073418Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+hackl-antik.at	ADDED	CM4ALL	ls_01m6gpa4rcefvsdhvhmxbtv0n6	pty_01m6gpa4r0ezht5586rjfq5n4x	2026-11-25T15:04:41.566784Z		
+halbparterre.com	ADDED	WIX	ls_01m6gf2ez5egebm7nn2fkp8mw7	pty_01m6gf2eyvev7txfp42wb1n4g4	2026-11-03T14:00:50.780190Z		
+haldenwang.at	DEFERRED				2026-11-25T15:24:40.270102Z	NO_ONLINE_CATALOGUE_BROCHURE_SITE_ONLY	
+hannesmair.at	EXCLUDED	SITE123			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+haslauer-spedition.at	EXCLUDED				2026-11-25T15:26:15.525835Z	NO_INSPECTABLE_ONLINE_STOCK	
+hassler-antik.at	EXCLUDED				2026-11-25T15:26:15.498106Z	NO_INSPECTABLE_ONLINE_STOCK	
+hauch-art.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+haus-der-geschenke.at	DEFERRED				2026-11-25T15:01:06.608545Z	PRIMARY_DNS_UNAVAILABLE	
+hdrauch.com	EXCLUDED				2026-11-25T15:24:10.498473Z	OWN_AUCTION_OPERATOR	
+hegenbart.at	EXCLUDED				2026-11-04T13:31:27.958261Z		
+heinzweinberger.at	DEFERRED				2026-11-25T15:01:06.619042Z	PRIMARY_DNS_UNAVAILABLE	
+hereke.at	EXCLUDED				2026-11-25T19:51:00.940285Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+herinek.at	DEFERRED				2026-11-25T15:17:34.109244Z	CURRENT_RETAIL_STOCK_UNVERIFIED	
+herold.at	EXCLUDED				2026-11-25T15:07:03.090452Z	NOT_A_DEALER_ASSOCIATION_DIRECTORY	
+hg-art.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+hias86.bigcartel.com	EXCLUDED	BIG_CARTEL			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+hieke-art.com	EXCLUDED	SQUARESPACE			2026-11-26T15:13:00.858436Z	CONTEMPORARY_ART	
+hilger.at	EXCLUDED	ARTBUTLER_WEB			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+historische-kacheloefen.at	DEFERRED				2026-11-25T15:24:40.283185Z	CURRENT_STOCK_AVAILABILITY_UNVERIFIED	
+hitzenberger.cc	EXCLUDED				2026-11-25T15:34:11.554560Z	NO_INSPECTABLE_ONLINE_STOCK	
+hofkabinett.at	EXCLUDED				2026-11-25T15:17:33.865888Z	CONTEMPORARY_ART	
+holzfeind-wieltschnig.at	EXCLUDED				2026-11-25T15:17:33.885954Z	CONTEMPORARY_ART	
+hubsi.shop	EXCLUDED				2026-11-26T19:21:36.680786Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+hupf.at	EXCLUDED				2026-11-25T15:34:11.575648Z	NO_INSPECTABLE_ONLINE_STOCK	
+ifantik.at	ADDED	SHOPWARE	ls_01m6gee5gfe0j92rty8xky9cv4	pty_01m6gee5g3e70t6w66k2zh5vhf	2026-11-03T10:14:23.376362Z		
+ikonen-mautner.com	ADDED	BASE44	ls_01m6k9h5rge40rjbd3kfkyeqcc	pty_01m6k9h5r2eeebj38s99j5h0kw	2026-11-04T12:46:22.224697Z		
+ikonenkunst.at	EXCLUDED				2026-11-25T15:17:33.907189Z	CONTEMPORARY_ART	
+imm-muenze.at	EXCLUDED				2026-11-26T08:43:55.537180Z	NEW_GOODS_MIX	
+indigoexpress.at	ADDED	WOOCOMMERCE	ls_01m6h9hgm5enyr8xa0wnfzx25c	pty_01m6h9hgkhe3g8bwb5der40fmf	2026-11-03T18:08:04.758620Z		
+internumis.at	ADDED	WOOCOMMERCE	ls_01m8a47abfebk8xx2am42yp3e6	pty_01m8a47abee9k8qp0mky5fb99z	2026-11-25T19:51:49.160229Z		
+irisfocus.jimdosite.com	EXCLUDED				2026-11-25T15:17:33.926478Z	CONTEMPORARY_ART	
+isolde.design	ADDED	SHOPIFY	ls_01m6gz9pvxen6v8cq1hsy1bns7	pty_01m6gz9pvke4rad48e49n8vz0w	2026-11-03T15:09:02.998608Z		
+jagd-tracht-antik.at	EXCLUDED				2026-11-25T20:10:40.926403Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+jahrbacher.at	EXCLUDED				2026-11-25T15:17:34.067634Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+jahrbacher.eu	EXCLUDED				2026-11-25T16:45:26.045791Z	ALIAS_OF_EXISTING_SOURCE	
+janschek.art	EXCLUDED	TYPO3			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+jedermanns.eu	EXCLUDED				2026-11-26T20:04:55.462174Z	NO_INSPECTABLE_ONLINE_STOCK	
+jetlag.at	ADDED	WORDPRESS	ls_01m6h617d2eqprwv3j6jmhfz74	pty_01m6h617cpezbrq2w0zvn35g17	2026-11-03T17:06:44.512214Z		
+johannesfaber.com	DEFERRED				2026-11-25T15:17:34.124769Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED	
+johannesfessl.at	DEFERRED				2026-11-25T15:17:34.158394Z	FIRST_PARTY_FETCH_BLOCKED	
+judith-artdesign.com	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+kah-online.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+kandlhofer.com	EXCLUDED	ARTLOGIC			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+karikaturen.guru	EXCLUDED	WORDPRESS			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+kartenland.at	DEFERRED				2026-11-25T15:24:40.295990Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED	
+kassecker.at	EXCLUDED				2026-11-25T15:17:33.938233Z	CONTEMPORARY_ART	
+katharina-vintage.com	EXCLUDED	SQUARESPACE			2026-11-26T15:13:01.084792Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+kaufhaus-ackerl.at	DEFERRED				2026-11-25T15:34:11.678942Z	ANTIQUE_SCOPE_UNCONFIRMED	
+kaukas.at	EXCLUDED				2026-11-25T15:24:00.162163Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+kehuna.at	EXCLUDED				2026-11-26T19:21:36.964012Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+keil-kunsthandel.at	ADDED	WORDPRESS	ls_01m6gfv3t6e7abqhkzejbcamev	pty_01m6gfv3ssej6tcyy2s801cr7v	2026-11-03T10:38:55.677437Z		
+kevinschafner.at	EXCLUDED				2026-11-25T15:17:33.952681Z	CONTEMPORARY_ART	
+kica-jugendstil.at	ADDED	WOOCOMMERCE	ls_01m89nanhpe198qqm00y2dz72s	pty_01m89nanhhezganp0sja020v4x	2026-11-25T15:31:30.289894Z		
+kilengi.at	ADDED	WORDPRESS	ls_01m6gj2xajer9ssvg1j3ndrnhm	pty_01m6gj2xa1etcvgr23wdy9adzc	2026-11-03T11:18:09.298036Z		
+kindler-kunsthandel.at	DEFERRED				2026-11-25T15:17:34.217394Z	PRIMARY_FETCH_TIMEOUT	
+kitzantik.at	DEFERRED				2026-11-25T16:45:26.014664Z	SITE_UNDER_CONSTRUCTION	
+kitzbuehel.com	EXCLUDED				2026-11-25T15:07:03.139001Z	MULTI_MERCHANT_MARKETPLACE	
+kk-galerie.at	DEFERRED				2026-11-25T15:17:34.168682Z	FIRST_PARTY_FETCH_BLOCKED	
+kk-vs.at	ADDED	JIMDO	ls_01m6h7cnghewrs5q0rb040n0xj	pty_01m6h7cng3e8w86xycwbrktq03	2026-11-03T17:30:28.806418Z		
+klabund.at	DEFERRED				2026-11-25T15:07:54.930211Z	CURRENT_OWN_STOCK_UNCONFIRMED	
+kladivko-kunst.at	EXCLUDED				2026-11-25T15:17:33.968828Z	CONTEMPORARY_ART	
+klangmalkunst.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+klein-fein.eu	EXCLUDED				2026-11-25T15:17:34.080467Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+kleinegalerie.at	EXCLUDED				2026-11-04T12:09:35.532069Z		
+kmotionlimitartganatschnig.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+knollgalerie.at	EXCLUDED				2026-11-25T15:17:33.992605Z	CONTEMPORARY_ART	
+koessl.jimdo.com	DEFERRED				2026-11-25T15:09:51.250233Z	PRIMARY_SITE_UNAVAILABLE	
+kohlhammer.at	EXCLUDED				2026-11-25T15:15:03.582134Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+kolhammer-mahringer.at	DEFERRED				2026-11-25T15:05:42.899706Z	CONTRACTING_OPERATOR_AMBIGUOUS	
+kolhammer.com	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:00.751354Z	CONTEMPORARY_ART	
+konradsalterschmuck.at	EXCLUDED				2026-11-26T20:04:55.569347Z	UNTRUSTWORTHY_SPAM_REDIRECT	
+koppen-steiner.at	EXCLUDED				2026-11-25T15:34:45.850583Z	RELATED_SITE_OF_EXISTING_OPERATOR	
+kosel.com	EXCLUDED				2026-11-26T19:21:36.694424Z	NEW_GOODS_RETAIL	
+kovacek-zetter.at	EXCLUDED	DRUPAL			2026-11-26T15:00:11.460215Z	CONTEMPORARY_ART	
+kovacek.at	ADDED	GRAV	ls_01m6gews0aez5t5b5mangrx3g7	pty_01m6gews00epea4dqpffmatmhf	2026-11-25T15:04:35.160275Z		
+ksh-graz.at	EXCLUDED				2026-11-25T15:04:24.866807Z	DOMAIN_PARKING_PAGE	
+kuettner-kuettner.com	ADDED	PRESTASHOP	ls_01m89skss1edvrv4krcb5mnxcp	pty_01m89sksrxe73vdta9kr35ecs0	2026-11-25T16:46:24.018070Z		kuettnerundkuettner.at
+kufnet.at	EXCLUDED				2026-11-25T15:10:32.946119Z	NOT_AN_ANTIQUES_DEALER	
+kulcsar.at	EXCLUDED				2026-11-25T16:45:26.025341Z	NO_INSPECTABLE_ONLINE_STOCK	
+kulturrettung.at	ADDED	WOOCOMMERCE	ls_01m6gp2s6te02th5pbqnjy775a	pty_01m6gp2s6aeznrtngnhwjhavvt	2026-11-03T12:27:58.846200Z		
+kunst-galerie-schillinger.at	EXCLUDED	JIMDO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+kunst-kaernten.jimdosite.com	DEFERRED				2026-11-25T15:17:34.183740Z	FIRST_PARTY_FETCH_BLOCKED	
+kunst19-bg.at	DEFERRED				2026-11-25T19:51:00.853766Z	SITE_UNDER_CONSTRUCTION	
+kunstgalerie-holasek.at	DEFERRED				2026-11-25T15:16:04.451664Z	LEGAL_OPERATOR_AND_CURRENT_STOCK_UNVERIFIED	
+kunsthammer.at	DEFERRED				2026-11-25T15:17:34.192897Z	FIRST_PARTY_FETCH_BLOCKED	
+kunsthand.art	EXCLUDED				2026-11-25T15:04:24.879530Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+kunsthand.at	EXCLUDED				2026-11-25T15:11:18.928027Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+kunsthandel-fiedler.at	ADDED	WEBNODE	ls_01m6gy8xtee3csg5mp0g2s2qjp	pty_01m6gy8xssehjagsxbngqht9fp	2026-11-03T14:51:08.311322Z		
+kunsthandel-freller.at	ADDED	WOOCOMMERCE	ls_01m6gek8m6ektb4frpytxsmz83	pty_01m6gek8kwe9atwe5btrbj8ggx	2026-11-03T10:17:09.838239Z		
+kunsthandel-pichler.at	ADDED	SHOPIFY	ls_01m6gg0f4mewsrgwedvetfs63g	pty_01m6gg0f46er8aytpsdy7gpzab	2026-11-03T10:41:51.609919Z		
+kunsthandel-seitz.at	EXCLUDED				2026-11-26T09:54:57.786758Z	NO_INSPECTABLE_ONLINE_STOCK	
+kunsthandel-stock.net	EXCLUDED				2026-11-25T15:05:42.952822Z	CONTEMPORARY_ART	
+kunsthandel-zoechling.at	ADDED		ls_01m6gh1zqcetvsj7ppbz318xdm	pty_01m6gh1zpkecwsbmsy1ma0ve0h	2026-11-03T11:00:09.614202Z		
+kunsthandel.steinek.org	DEFERRED				2026-11-25T15:07:37.860959Z	PRIMARY_SITE_UNAVAILABLE	
+kunsthandelproarte.at	DEFERRED				2026-11-25T15:17:34.207788Z	PRIMARY_SITE_UNAVAILABLE	
+kunsthandelwidder.com	DEFERRED				2026-11-26T15:52:36.682063Z	PRIMARY_SITE_UNAVAILABLE	
+kunsthandlung-mueller.at	EXCLUDED				2026-11-25T15:49:08.813560Z	ALIAS_OF_EXISTING_SOURCE	
+kunsthaus-wiesinger.at	EXCLUDED				2026-11-26T15:00:11.516224Z	NEW_GOODS_MIX	
+kunstkauf-online.at	ADDED	SHOPIFY	ls_01m6kbnaa4eccbnejz7s05q0sj	pty_01m6kbna9kej3a8tzhvk9s809r	2026-11-04T13:23:35.957620Z		
+kunstmeilegraz.at	EXCLUDED				2026-11-25T19:51:00.919766Z	NOT_A_DEALER_ASSOCIATION_DIRECTORY	
+kunstsammler.at	EXCLUDED				2026-11-26T19:21:36.718574Z	CONTEMPORARY_ART	
+kunstundart.com	DEFERRED				2026-11-25T15:24:40.306544Z	LEGAL_OPERATOR_UNRESOLVED	
+kunstvoll-baden.at	ADDED	IONOS_MYWEBSITE	ls_01m89nakfpey38bzcjejj3npkn	pty_01m89nakfne8ab258azpybyxcz	2026-11-25T15:31:28.110169Z		
+kunstwelt.at	ADDED		ls_01m6gh1xnwetxvw97xdzvb36d9	pty_01m6gh1xmze5ps70tr5g7rvj7s	2026-11-03T11:00:07.626971Z		
+kupferdruck.at	DEFERRED				2026-11-25T19:51:00.972167Z	PRIMARY_DNS_UNAVAILABLE	
+kupferreliefkuenstler.com	EXCLUDED				2026-11-25T15:17:34.012397Z	CONTEMPORARY_ART	
+l-art.at	EXCLUDED				2026-11-25T15:17:34.029931Z	CONTEMPORARY_ART	
+landhaus-bauernmoebel.at	EXCLUDED				2026-11-25T15:49:08.781937Z	ALIAS_OF_EXISTING_SOURCE	
+lehrtafeln-wallcharts.at	DEFERRED				2026-11-25T15:05:29.593913Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED	
+leonardo-antiquitaeten.at	EXCLUDED				2026-11-25T15:11:24.072314Z	NO_INSPECTABLE_ONLINE_STOCK	
+lerschgeigenbau.at	EXCLUDED				2026-11-25T15:17:34.095877Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+leskovarfineart.at	EXCLUDED	WORDPRESS			2026-11-26T13:25:34.623519Z	CONTEMPORARY_ART	
+libellus.at	EXCLUDED				2026-11-25T15:34:11.641470Z	NEW_GOODS_RETAIL	
+lichterloh.com	EXCLUDED				2026-11-26T08:40:42.749360Z	NEW_GOODS_MIX	
+liedermann-antique.com	ADDED	TYPO3	ls_01m6gfd8m0eq9vtqweny3fj1jh	pty_01m6gfd8kdeewrt5ch0j8rfg4h	2026-11-25T15:04:38.720368Z		
+lillys-art.com	ADDED	WORDPRESS	ls_01m6ge92xae1rvm691dkhhhzsn	pty_01m6ge92wxebesqhrwr7x2hd7a	2026-11-03T10:11:36.977850Z		
+lisamariepirker.com	EXCLUDED				2026-11-26T19:21:36.985035Z	CONTEMPORARY_ART	
+lombardi-kargl.com	EXCLUDED	CRAFT_CMS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+lotosmoebel.at	DEFERRED				2026-11-25T20:32:54.809808Z	CURRENT_OWN_STOCK_UNCONFIRMED	
+luis-scheicher.at	EXCLUDED				2026-11-25T15:10:32.892906Z	BUSINESS_CARD_NO_INSPECTABLE_STOCK	
+luminated.at	DEFERRED				2026-11-25T15:17:34.230894Z	PRIMARY_SITE_UNAVAILABLE	
+madero-collectorsroom.com	ADDED	WOOCOMMERCE	ls_01m6h615fdeerbpj7h63jtybaa	pty_01m6h615f0efgvzve4e8gjszrw	2026-11-03T17:06:42.774623Z		
+manuelskirl.com	EXCLUDED				2026-11-25T15:17:34.040403Z	CONTEMPORARY_ART	
+marchgraber.at	DEFERRED				2026-11-25T15:17:34.244707Z	PRIMARY_TLS_VALIDATION_FAILED	
+marcwalter-numismatik.com	ADDED	JIMDO	ls_01m6h46gh7e1ksmgy1f7qt3s3d	pty_01m6h46ggve6jvrzmen6n6ajr9	2026-11-03T16:34:41.184421Z		
+marie-luise.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+markusgell.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+marsvltor.com	DEFERRED				2026-11-26T15:52:42.926550Z	PRIMARY_SITE_UNAVAILABLE	eidmarauctions.com
+martina-kreuzer.com	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+martinjanda.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+masterpiece-antiques.com	DEFERRED				2026-11-25T15:10:32.955274Z	CURRENT_PRICED_STOCK_NOT_INSPECTABLE_ON_GALLERY_SITE	
+matern.at	ADDED		ls_01m89mjbq5epssdbmr2k92cwrw	pty_01m89mjbq1ey3931dg2xwf2y5x	2026-11-25T15:18:14.025143Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED	
+melnibone.at	EXCLUDED				2026-11-26T19:21:36.999755Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+metallstein.at	EXCLUDED	ZETA_PRODUCER			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+meyerkainer.com	EXCLUDED				2026-11-25T15:24:10.026861Z	CONTEMPORARY_ART	
+michael-ferner.at	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+michaelabauer.com	ADDED	WORDPRESS	ls_01m89pdabbe298ngdrjjrttdb0	pty_01m89pdab6evg8xrt6b5svq7c4	2026-11-25T15:50:25.931435Z		
+miklautz.at	DEFERRED				2026-11-25T15:24:10.040837Z	PRIMARY_SITE_UNAVAILABLE	
+milaneum.com	EXCLUDED				2026-11-25T15:24:10.049965Z	NO_INSPECTABLE_ONLINE_STOCK	
+militaria-antik.at	ADDED	WOOCOMMERCE	ls_01m89m4th1ea0bb53vmq1j3v25	pty_01m89m4tgwev6thtvzb0fmww3s	2026-11-25T15:10:50.461836Z		militariaantik.at
+millich-art.com	EXCLUDED				2026-11-25T15:31:10.757150Z	DOMAIN_PARKING_PAGE	
+mineralien-atelier.at	EXCLUDED				2026-11-26T19:21:37.014682Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+mitmannsgruber.at	DEFERRED				2026-11-25T15:26:15.442418Z	CURRENT_OWN_HISTORICAL_STOCK_UNCONFIRMED	
+mjs-coins.eu	DEFERRED				2026-11-25T15:24:40.315807Z	CURRENT_STOCK_UNRESOLVED	
+modelleisenbahn-wiensieben.at	EXCLUDED				2026-11-25T20:10:40.890109Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+moebel-kunst-galerie.com	ADDED	WOOCOMMERCE	ls_01m6hcj6v5e20smtq8c5ef8494	pty_01m6hcj6t8evv8zs9kdhschyac	2026-11-03T19:00:52.895596Z		
+moneta.at	DEFERRED				2026-11-26T15:47:37.876740Z	SITE_SECURITY_COMPROMISE_OBSERVED	
+mordilloart.com	EXCLUDED				2026-11-25T15:24:10.060576Z	CONTEMPORARY_ART	
+mostegl-trans.at	EXCLUDED				2026-11-26T19:21:36.744270Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+msmozart.at	ADDED		ls_01m6h46ebdegva09e7vejjacd7	pty_01m6h46eatecmvhx0z290yadx7	2026-11-03T16:34:38.879711Z		
+muenzen-linz.at	EXCLUDED				2026-11-26T15:42:18.639259Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	coinsofhistory.eu
+muenzen-prager.com	EXCLUDED				2026-11-26T15:42:18.599811Z	MARKETPLACE_ONLY_STOCK	
+muenzenhandlung.at	DEFERRED				2026-11-25T15:46:56.593785Z	WEBSHOP_ORDERS_SUSPENDED	
+muenzensalon.at	DEFERRED				2026-11-25T15:24:40.328833Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED	
+muenzenzentrum-wieland.com	EXCLUDED				2026-11-25T15:07:54.965012Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+muenzeoesterreich.at	EXCLUDED				2026-11-26T19:21:36.766434Z	NEW_GOODS_RETAIL	
+muenzhandel-graz.at	EXCLUDED				2026-11-25T19:51:00.882725Z	NO_INSPECTABLE_ONLINE_STOCK	
+muenzhandel-lener.at	EXCLUDED				2026-11-25T15:24:10.075230Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+muenzhandel-wolf.com	DEFERRED				2026-11-25T15:10:32.878470Z	PRIMARY_TLS_HOSTNAME_MISMATCH	
+muenzhandel.at	DEFERRED				2026-11-25T15:24:40.341835Z	HISTORICAL_STOCK_NOT_VERIFIED	
+muenzkontor.at	EXCLUDED				2026-11-26T20:04:55.471520Z	NEW_GOODS_MIX	
+muenzshop.at	EXCLUDED				2026-11-26T19:21:36.792695Z	NEW_GOODS_RETAIL	
+muenzversand.at	EXCLUDED				2026-11-25T15:49:08.761270Z	ALIAS_OF_EXISTING_SOURCE	
+musikantiquariat.at	DEFERRED				2026-11-26T15:47:37.905263Z	AUCTION_SHARE_AMBIGUOUS	
+musikhaus-laimer.at	EXCLUDED				2026-11-25T19:51:00.961925Z	NEW_GOODS_RETAIL	
+namnumismatic.com	EXCLUDED				2026-11-25T15:27:47.671281Z	NO_INSPECTABLE_ONLINE_STOCK	
+nebehay.at	EXCLUDED				2026-11-26T19:21:37.041876Z	NOT_A_DEALER	
+netantik.at	EXCLUDED				2026-11-25T20:32:54.828981Z	NO_INSPECTABLE_ONLINE_STOCK	
+neubauer-geigenbau.com	EXCLUDED				2026-11-25T15:24:10.084683Z	NO_INSPECTABLE_ONLINE_STOCK	
+nl-galerie.com	EXCLUDED				2026-11-25T15:24:10.096622Z	CONTEMPORARY_ART	
+nobarock.com	EXCLUDED				2026-11-25T15:04:24.849250Z	BUSINESS_CARD_NO_INSPECTABLE_STOCK	
+noettling.at	EXCLUDED				2026-11-25T15:24:10.106013Z	CONTEMPORARY_ART	
+noricum-antiques.at	EXCLUDED				2026-11-03T20:11:06.695889Z		
+nostalgie-antik.at	EXCLUDED				2026-11-25T15:04:16.108203Z	ALREADY_MANAGED_OPERATOR_NATIVE_PRESENTATION	
+nostalgie-salzburg.at	EXCLUDED	SHOPIFY			2026-11-26T15:13:00.767600Z	NEW_GOODS_MIX	
+nostalgiecorner.at	ADDED		ls_01m89napgwetb9q40tvge7f8r1	pty_01m89napgvee4t9cp54568dp1s	2026-11-25T15:31:31.196694Z		
+nostalgiestadl.at	EXCLUDED				2026-11-25T15:11:55.694631Z	NO_INSPECTABLE_ONLINE_STOCK	
+numidas.at	ADDED	JIMDO	ls_01m6h50srte3ctd049x9nhctsw	pty_01m6h50sr7epka8je1v28spcg1	2026-11-03T16:49:02.558238Z		
+numismatik-grubauer.at	EXCLUDED				2026-11-25T15:24:10.117412Z	NO_INSPECTABLE_ONLINE_STOCK	
+numismatik-naumann.at	EXCLUDED				2026-11-26T15:42:18.571792Z	AUCTION_BUSINESS	
+numismatik-zoettl.at	EXCLUDED				2026-11-26T15:42:18.580989Z	AUCTION_BUSINESS	
+numismatik.at	DEFERRED	JTL_SHOP			2026-11-25T15:24:40.355218Z	CURRENT_STOCK_UNRESOLVED	
+numissauer.at	EXCLUDED				2026-11-26T15:42:18.609311Z	MARKETPLACE_ONLY_STOCK	
+obermoser-bauernmoebel.at	EXCLUDED				2026-11-25T15:34:11.588603Z	REDIRECT_ALIAS_OF_ADDED_SOURCE	
+omoroi-ya.com	EXCLUDED				2026-11-25T15:46:56.583448Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+orientteppich-koppensteiner.com	EXCLUDED				2026-11-26T13:25:34.721852Z	NEW_GOODS_MIX	
+oxandbear.com	ADDED	SHOPIFY	ls_01m6gf2h1met0tq1rgy093r29p	pty_01m6gf2h1aegvbkg56f71t95sr	2026-11-03T10:25:30.466060Z		
+oxymoron-galerie.at	EXCLUDED	SQUARESPACE_COMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+pahor.at	ADDED	WOOCOMMERCE	ls_01m6grw2eyeq5axf9a103p4cd1	pty_01m6grw2eeeyjs6emassrykxvn	2026-11-03T13:16:44.805044Z		pahor.de
+pammersteine.at	ADDED		ls_01m6gm412xe8bb48k4qnckta5k	pty_01m6gm412detjs777twg3fhvaf	2026-11-03T11:53:42.238880Z		
+parmenides-altwaren.com	DEFERRED				2026-11-25T15:46:56.620542Z	PRIMARY_DNS_UNAVAILABLE	
+paulflora.at	ADDED	WOOCOMMERCE	ls_01m6gt7g69e9stvs3ytvh3sz72	pty_01m6gt7g5vehts2gyna6r2vna4	2026-11-03T13:40:27.662227Z		
+peterfreygallery.com	EXCLUDED				2026-11-25T15:24:10.139992Z	CONTEMPORARY_ART	
+pezzo-kunst.at	DEFERRED				2026-11-25T15:24:10.150622Z	PRIMARY_SITE_UNAVAILABLE	
+pfand.gold	EXCLUDED				2026-11-25T15:24:00.197456Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+philatelie-hirsch.at	DEFERRED				2026-11-25T15:07:37.910512Z	PRIMARY_SITE_UNAVAILABLE	
+photoboerse.at	ADDED	WOOCOMMERCE	ls_01m6h6fctref2rhxgjs1875wnt	pty_01m6h6fctce1g9z2720zdwgn0y	2026-11-03T17:14:28.915780Z		
+playhero.at	EXCLUDED				2026-11-26T19:21:36.807965Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+pompundgloria.at	DEFERRED				2026-11-25T19:51:00.834456Z	ANTIQUE_SCOPE_UNCONFIRMED	
+posch-antiquitaeten.at	ADDED	WORDPRESS	ls_01m6gp2pz6en88scwgrs6k7rjk	pty_01m6gp2pyye52vcwrk1dd7w8tw	2026-11-03T12:27:56.586267Z		
+premiumfol-austria.at	EXCLUDED				2026-11-25T15:24:10.163768Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+projektraum.at	EXCLUDED				2026-11-25T15:24:10.174359Z	CONTEMPORARY_ART	
+puppendoktor.at	EXCLUDED				2026-11-25T20:11:56.817251Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+rahmenstudio-sailer.com	EXCLUDED				2026-11-25T15:24:10.189458Z	NO_INSPECTABLE_ONLINE_STOCK	
+rajofot-21.at	ADDED	IONOS_MYWEBSITE	ls_01m8a6k1aseps8r07nng7tkt6a	pty_01m8a6k1akedg9erry66jaky0p	2026-11-25T20:33:10.469880Z		
+ramschundrosen.com	EXCLUDED				2026-11-26T19:21:37.063970Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+raritaeten-shop.com	ADDED	MODIFIED_ECOMMERCE	ls_01m6h27pj2ev2adqe3xzxy7sg0	pty_01m6h27pgtegqa8q03adr6fgax	2026-11-03T16:00:22.885667Z		
+rarities.at	EXCLUDED				2026-11-25T15:24:10.841625Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+raubein.at	DEFERRED				2026-11-25T15:24:10.200160Z	LEGAL_OPERATOR_CONFLICT	
+reginaanzenberger.com	EXCLUDED				2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+reinhard-jordan.at	EXCLUDED				2026-11-25T15:24:10.209385Z	CONTEMPORARY_ART	
+renatepraschberger.com	EXCLUDED				2026-11-25T15:24:10.222693Z	CONTEMPORARY_ART	
+restaurator-hofer.at	ADDED		ls_01m89nameseb09pn2syzs0n1tx	pty_01m89nameqeqwaqk1462kjsg6y	2026-11-25T15:31:29.224275Z		
+restaurator-paul.at	DEFERRED				2026-11-25T15:25:30.745550Z	NO_INSPECTABLE_OWN_CATALOGUE	
+restaurator.cc	DEFERRED				2026-11-25T15:24:10.234636Z	LEGAL_OPERATOR_CONFLICT	
+restauratorfeuerstein.at	DEFERRED				2026-11-25T15:25:05.448616Z	QUALIFYING_STOCK_DESCRIPTION_UNVERIFIED	
+retro-moebel.at	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:00.777921Z	NEW_GOODS_MIX	
+revenda.at	ADDED	SHOPIFY	ls_01m89pdbj8ex6r0m7e1qe9w3tw	pty_01m89pdbj4egc8yw57k5ss77xq	2026-11-25T15:50:27.096491Z		
+robertakeil.com	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+rodler-gschwenter.com	EXCLUDED				2026-11-25T15:24:10.243839Z	CONTEMPORARY_ART	
+rofa.art	EXCLUDED	MAGENTO			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+rosterei.net	EXCLUDED				2026-11-25T15:24:10.257029Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+rozetundfischmeister.at	EXCLUDED				2026-11-26T20:04:55.480778Z	NEW_GOODS_MIX	
+ruberl.at	EXCLUDED	CRAFT_CMS			2026-11-26T13:25:34.667441Z	POST_WAR_MODERN_ART	
+runge.at	EXCLUDED	WORDPRESS			2026-11-26T13:25:34.583224Z	CONTEMPORARY_ART	
+ruzicska.com	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+salzburger-muenzhandlung.at	ADDED		ls_01m8c8q695ejg8x1amn6asdmmh	pty_01m8c8q690ectrrxk2pd2h9mej	2026-11-26T15:48:52.766292Z	AUCTION_RULE_B_RECHECK	
+samsmovement.com	EXCLUDED				2026-11-25T15:24:10.269669Z	CONTEMPORARY_ART	
+sanctlucas.com	ADDED	SQUARESPACE	ls_01m6gg0bhaewmb7cav9jh2gp9n	pty_01m6gg0bgeedqbzgy2302xw999	2026-11-03T10:41:47.442951Z		
+schloss-wiespach.at	EXCLUDED				2026-11-25T15:06:34.134811Z	CONTEMPORARY_ART	
+schmuck-kat.com	EXCLUDED				2026-11-25T15:24:10.280558Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+schmuck-pintar.at	ADDED	JOOMLA	ls_01m6gghcpyet4synjceaag578c	pty_01m6gghcphe4ftekca1mr4m75k	2026-11-03T10:51:06.265474Z		
+schneider-f.com	EXCLUDED				2026-11-25T15:24:10.294155Z	CONTEMPORARY_ART	
+schoeller-muenzhandel.at	EXCLUDED				2026-11-25T15:07:54.951765Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+schuetz-antik.com	EXCLUDED				2026-11-25T15:06:54.635958Z	ALREADY_MANAGED_OPERATOR_NATIVE_PRESENTATION	
+schuetzartsociety.at	EXCLUDED	TYPO3			2026-11-26T13:25:34.636501Z	CONTEMPORARY_ART	
+schwab-patzl.com	DEFERRED				2026-11-25T15:24:10.303669Z	PRIMARY_SITE_UNAVAILABLE	
+schwarzwaelder.at	EXCLUDED				2026-11-25T15:06:34.177266Z	CONTEMPORARY_ART	
+secondhand.united-camera.at	ADDED		ls_01m6h6fej1ezr9qtx348qbnqkr	pty_01m6h6fehnehstptvrhhff2hbc	2026-11-03T17:14:31.574856Z		
+sehfelder.at	EXCLUDED				2026-11-25T15:24:10.315965Z	CONTEMPORARY_ART	
+seli.at	EXCLUDED	ECWID			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+seltene-teppiche.at	DEFERRED				2026-11-25T15:46:56.550271Z	CURRENT_OWN_STOCK_UNCONFIRMED	
+shop.antiquari.at	EXCLUDED				2026-11-25T15:34:11.601788Z	REDIRECT_ALIAS_OF_ADDED_SOURCE	
+shop.autoquariat.at	EXCLUDED				2026-11-25T15:24:10.329041Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+shop.buerscher.com	ADDED	CMS_MADE_SIMPLE	ls_01m6gs5tzre0xtq0eshncmptba	pty_01m6gs5tz9e6rt6183a50kcv1r	2026-11-03T13:22:05.303105Z		
+shop.galerie-lisihaemmerle.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+shop.galeriegugging.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	galeriegugging.com
+shop.galeriethoman.com	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+shop.militaria.at	EXCLUDED				2026-11-25T19:51:00.863335Z	NEW_GOODS_RETAIL	
+shop.muenzversand.at	DEFERRED				2026-11-26T15:47:45.862138Z	OPERATOR_IDENTITY_UNRESOLVED	
+shop.puppendoktor.at	EXCLUDED				2026-11-25T20:10:29.779767Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+shop.schwarzwaelder.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+shop.wienerbronzen.at	EXCLUDED				2026-11-25T15:04:24.902805Z	NEW_GOODS_RETAIL	
+shore-gallery.eu	EXCLUDED				2026-11-25T15:24:10.339329Z	CONTEMPORARY_ART	
+silverfineart.com	EXCLUDED	SQUARESPACE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+simonaledl.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+sk-selling.at	DEFERRED				2026-11-25T15:24:10.349954Z	PRIMARY_SITE_UNAVAILABLE	
+sl-galerie.at	EXCLUDED	WORDPRESS			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+smolka.at	EXCLUDED				2026-11-25T15:34:11.628432Z	NO_INSPECTABLE_ONLINE_STOCK	
+smolkacontemporary.at	EXCLUDED				2026-11-25T15:24:10.365658Z	CONTEMPORARY_ART	
+somethingvintage.com	ADDED	WOOCOMMERCE	ls_01m6h9hed0etxtwqg1rc96fty5	pty_01m6h9hecne4pv8dw7xc3xw4m0	2026-11-03T18:08:02.303547Z		
+sophietappeiner.com	EXCLUDED				2026-11-25T15:24:10.377573Z	CONTEMPORARY_ART	
+sparbuchgruber.at	ADDED	WORDPRESS	ls_01m6gmq2ghekc9ddhfzajkc9yr	pty_01m6gmq2g6ej9bdt5j8sq951n9	2026-11-03T12:04:06.636590Z		
+st-georgs-antiquariat.at	DEFERRED				2026-11-25T15:01:06.881313Z	PRIMARY_DNS_UNAVAILABLE	
+stablemark.com	DEFERRED				2026-11-25T15:31:10.783613Z	OPERATOR_HOME_COUNTRY_AND_STOCK_SCOPE_UNRESOLVED	
+steinek.at	EXCLUDED				2026-11-25T15:24:10.387937Z	CONTEMPORARY_ART	
+steineundfliesen.at	EXCLUDED				2026-11-25T20:10:29.836395Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+steinwelten.at	EXCLUDED				2026-11-26T19:21:37.087340Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+stephanieleitner.com	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+stereogram.at	EXCLUDED				2026-11-26T13:19:12.412787Z	MARKETPLACE_ONLY_STOCK	
+sternat.com	DEFERRED				2026-11-25T15:05:42.983826Z	FULL_LEGAL_OPERATOR_NOT_VERIFIED	
+steyrantik.at	EXCLUDED				2026-11-25T15:24:10.400885Z	NO_INSPECTABLE_ONLINE_STOCK	
+stilundantikmoebel.at	EXCLUDED				2026-11-25T15:08:53.543556Z	NO_INSPECTABLE_ONLINE_STOCK	
+studio5-salzburg.com	EXCLUDED	WOOCOMMERCE			2026-11-26T15:13:01.583204Z	NEW_GOODS_MIX	
+studiocasita.at	ADDED	WIX	ls_01m6gjq2hqewxssa1p2j24h4yp	pty_01m6gjq2h6essa4fpzh7cnaxeh	2026-11-03T11:29:09.085692Z		
+sturm-drang.at	EXCLUDED				2026-11-25T15:24:10.414177Z	CONTEMPORARY_ART	
+sturmschober.com	EXCLUDED				2026-11-25T15:24:10.427524Z	CONTEMPORARY_ART	
+suedsteiermarkversand.at	ADDED	OPENCART	ls_01m89skrkje6v9c6cbshv2kq7k	pty_01m89skrkee9za9hm1x6vvb2zg	2026-11-25T16:46:22.830521Z		
+sug-flohmarkt.at	DEFERRED				2026-11-25T15:01:06.894930Z	PRIMARY_DNS_UNAVAILABLE	
+susannebauer.com	ADDED	JOOMLA	ls_01m89peqebeyq9acn72qy3esya	pty_01m89peqe4engsf5hxgnewfge7	2026-11-25T15:51:12.046620Z		
+szaal.at	EXCLUDED	WORDPRESS			2026-11-26T08:15:27.328196Z	CONTEMPORARY_ART	
+szaal.com	ADDED	JOOMLA	ls_01m6gewygzeh9s8d3k3xrgn93n	pty_01m6gek701ej0b5xg95b956dnt	2026-11-03T10:22:26.926017Z		
+szaivert-numis.at	EXCLUDED				2026-11-26T15:42:18.619051Z	MARKETPLACE_ONLY_STOCK	
+tamaramichel.net	DEFERRED				2026-11-25T15:01:06.908510Z	PRIMARY_DNS_UNAVAILABLE	
+tandlas.com	ADDED	SHOPIFY	ls_01m6hag2zpexct4tjxq491hryk	pty_01m6hag2z8eb1873n64xazcaca	2026-11-03T18:24:46.344432Z		
+technikimbuero.at	EXCLUDED				2026-11-25T20:10:29.808600Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+teppichbazar.at	DEFERRED				2026-11-25T19:51:00.929994Z	ANTIQUE_SCOPE_UNCONFIRMED	
+teppiche-abbassi.at	EXCLUDED				2026-11-25T19:51:00.950555Z	NO_INSPECTABLE_ONLINE_STOCK	
+teppiche-kelim.com	EXCLUDED				2026-11-25T20:32:54.876248Z	NO_INSPECTABLE_ONLINE_STOCK	
+teppiche-zaim.at	DEFERRED				2026-11-25T15:46:56.574099Z	LEGAL_OPERATOR_UNPUBLISHED	
+thecoindealer.at	EXCLUDED				2026-11-25T15:10:38.814213Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+theresaemmerich.net	EXCLUDED	WIX			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+thomassalis.com	EXCLUDED				2026-11-26T09:55:16.029442Z	POST_WAR_MODERN_ART	
+tiberius-auctions.com	EXCLUDED				2026-11-03T15:08:43.260905Z	AUCTION_BUSINESS	
+timeclassics.at	ADDED	WEBADOR	ls_01m6h2dzp9eg2t7pby3kp85j2b	pty_01m6h2dznpet2s3a5rtwrtmsq0	2026-11-03T16:03:48.998660Z		
+timelounge.at	EXCLUDED				2026-11-26T09:40:12.426879Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+tischlerei-tauchmann.at	DEFERRED				2026-11-25T15:46:56.607772Z	PRIMARY_DNS_UNAVAILABLE	
+tkalec.at	DEFERRED				2026-11-25T15:25:05.467791Z	INTERACTIVE_STOCK_NOT_INSPECTABLE	
+tonskulpturen.at	EXCLUDED				2026-11-25T15:24:10.450945Z	CONTEMPORARY_ART	
+trachtenbibel.at	EXCLUDED				2026-11-26T09:40:12.408039Z	NOT_A_DEALER	
+traudeskinder.com	ADDED	SQUARESPACE	ls_01m8cqfdeseyxswsenedw6wd86	pty_01m8cqfdepehxs8s23rfxc0tgv	2026-11-26T20:06:46.495242Z		
+troedelmair.at	DEFERRED				2026-11-25T15:25:05.485972Z	CURRENT_STOCK_NOT_INSPECTABLE	
+trudica.at	EXCLUDED				2026-11-25T15:26:15.535267Z	CONTEMPORARY_ART	
+tschechisches-wohndesign.at	ADDED	WORDPRESS	ls_01m89nh0pgetm8z9sb06bsy9vb	pty_01m89nh0peer5rd3bbe6xmtnzn	2026-11-25T15:34:58.226206Z		
+twenty-six.at	EXCLUDED				2026-11-25T15:24:10.463066Z	CONTEMPORARY_ART	
+tyrol-phila.at	ADDED	MAGENTO	ls_01m6gsqwwmet7802m8qrvc0caq	pty_01m6gsqww8evsbr7vdem4dzbw1	2026-11-03T13:31:56.439360Z		
+uhren-mikl.com	EXCLUDED	WOOCOMMERCE			2026-11-26T15:00:11.600702Z	NEW_GOODS_MIX	
+uhren-neidhart.at	EXCLUDED				2026-11-26T09:40:12.435984Z	NO_INSPECTABLE_ONLINE_STOCK	
+uhrmacherei.at	EXCLUDED				2026-11-26T20:04:55.490069Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+ulrichhofstaetter.com	ADDED		ls_01m89mfg0eedd94zf40r02aye1	pty_01m89mfg0ce75thsyjyxrxzn90	2026-11-25T15:16:39.765793Z		
+uniantiquariat.com	ADDED		ls_01m6gmq00ve9wv8mq9h5qr2rtf	pty_01m6gmq00defnsvv6h5608pewh	2026-11-03T12:04:04.328737Z		uniantiquariat.at
+value88.eu	DEFERRED				2026-11-25T15:01:06.935053Z	PRIMARY_DNS_UNAVAILABLE	
+vampirndl.com	EXCLUDED				2026-11-25T15:24:10.473242Z	CONTEMPORARY_ART	
+vangold.at	EXCLUDED				2026-11-26T19:21:37.111974Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+verlassenschaften-wien.at	EXCLUDED				2026-11-26T20:04:55.499514Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+verve-shop.at	EXCLUDED	SHOPIFY			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
+vetter-antiquitaeten.at	ADDED	WIX	ls_01m8c8q55rezc8kdadhc7zrjpp	pty_01m8c8q55pe6wscwf7bhh34t4s	2026-11-26T15:48:51.357598Z	AUCTION_RULE_B_RECHECK	
+via-numismatic.com	EXCLUDED				2026-11-26T15:42:18.552748Z	AUCTION_BUSINESS	
+vienna-antique.at	ADDED	WOOCOMMERCE	ls_01m6gyrkgxeyvat70pknnccq5r	pty_01m6gyrkggeb7b9hcx5p8yd1hz	2026-11-03T14:59:42.994450Z		
+vienna-regulators.com	EXCLUDED				2026-11-26T20:04:55.509328Z	PRIVATE_COLLECTOR_NO_VERIFIED_DACH_BUSINESS	
+viennacrystal.com	EXCLUDED				2026-11-26T20:04:55.519051Z	NEW_GOODS_MIX	
+vintage-chic-antik.jimdosite.com	DEFERRED				2026-11-25T15:24:10.487963Z	PRIMARY_SITE_UNAVAILABLE	
+vintage-m7.com	DEFERRED				2026-11-25T15:25:30.763870Z	NO_INSPECTABLE_OWN_CATALOGUE	
+vintage-shop.kabeline.at	DEFERRED				2026-11-25T15:25:05.510107Z	CURRENT_INDIVIDUAL_RETAIL_STOCK_UNVERIFIED	
+vintage-uhrencenter.com	EXCLUDED				2026-11-26T13:19:12.412787Z	MARKETPLACE_ONLY_STOCK	
+vintage-wonderland.at	EXCLUDED				2026-11-26T20:04:55.529290Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+vintagerie.at	DEFERRED				2026-11-25T15:25:05.521434Z	SPECIFIC_CURRENT_STOCK_UNRESOLVED	
+vintagetoysnnerdstuff.at	EXCLUDED	WEBADOR			2026-11-26T15:13:00.908853Z	NEW_GOODS_MIX	
+vinvin.eu	EXCLUDED				2026-11-25T15:04:06.217171Z	CONTEMPORARY_ART	
+vl-nummus.com	EXCLUDED				2026-11-25T15:34:11.541648Z	OWN_AUCTION_OPERATOR	
+voem.org	EXCLUDED				2026-11-25T15:07:37.812696Z	NOT_A_DEALER_ASSOCIATION_DIRECTORY	
+volkshilfe-wien.at	EXCLUDED				2026-11-26T19:21:36.824182Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+vozab.net	EXCLUDED				2026-11-26T20:04:55.539501Z	ALIAS_OF_EXISTING_SOURCE	
+w-k.art	EXCLUDED				2026-11-26T15:00:11.534242Z	CONTEMPORARY_ART	
+wachauer-kunsthandel.at	EXCLUDED				2026-11-25T15:34:11.615147Z	NEW_GOODS_RETAIL	
+wasisteswert.at	EXCLUDED				2026-11-25T15:34:11.565193Z	NOT_A_DEALER	
+wdrews.com	DEFERRED				2026-11-25T15:07:54.320494Z	PRIMARY_SITE_UNAVAILABLE	
+weber-unger.com	ADDED	WOOCOMMERCE	ls_01m6gy8zj2e0evjm4q82what8p	pty_01m6gy8zhkess9px9fysz46dzg	2026-11-03T14:51:10.382238Z		wisskab.com
+wernerhoertnagl.at	ADDED	JIMDO	ls_01m89pdcpdem7bdnesz2dmtqck	pty_01m89pdcpcev78nng99fjeptah	2026-11-25T15:50:28.064077Z		
+wernermuehlburger.at	EXCLUDED				2026-11-25T15:24:00.226913Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+wiebkenicklisch.com	EXCLUDED	WIX			2026-11-25T07:50:42.065248Z	CONTEMPORARY_ART	
+wiener-juwelen.at	ADDED	WOOCOMMERCE	ls_01m6gnd7dhevwrsbwnp0tyg3dn	pty_01m6gnd7d1e6t8qrnse2y2061c	2026-11-03T12:16:12.715807Z		
+wiener-moderne.at	DEFERRED				2026-11-25T15:31:10.770308Z	PRIMARY_TLS_FAILURE	
+wiener-werkstaette-postkarten.com	EXCLUDED				2026-11-26T19:21:37.134609Z	AUCTION_BUSINESS	
+wienerbronzen.at	EXCLUDED				2026-11-25T15:11:18.948097Z	NEW_GOODS_RETAIL	
+wiesauer.at	EXCLUDED				2026-11-25T20:10:29.856249Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+willart.at	EXCLUDED				2026-11-25T15:26:15.456277Z	CONTEMPORARY_ART	
+wimstore.com	ADDED	WOOCOMMERCE	ls_01m89p86m4e05s8et3xajq41kd	pty_01m89p86kyehprwbtr7d9qe8qw	2026-11-25T15:47:38.330018Z		
+windora.eu	EXCLUDED				2026-11-26T15:42:18.562104Z	AUCTION_BUSINESS	
+wohnartwien.com	EXCLUDED				2026-11-26T20:04:55.549352Z	NEW_GOODS_MIX	
+woka.com	ADDED		ls_01m6gp2vcxehztz0n48t4xv080	pty_01m6gp2vcme49sq2sm27ejjn5g	2026-11-03T12:28:01.187981Z		www4.woka.com
+wolfern.at	EXCLUDED				2026-11-26T08:44:21.927470Z	NOT_A_DEALER	
+wolfrum.at	DEFERRED				2026-11-25T15:07:54.409673Z	PRIMARY_DNS_UNAVAILABLE	
+woodart.at	DEFERRED				2026-11-25T15:25:05.530612Z	CURRENT_PERIOD_STOCK_NOT_ITEMIZED	
+wortschatz.eu	DEFERRED				2026-11-25T15:34:11.665816Z	ANTIQUE_SCOPE_UNCONFIRMED	
+wutaivintage.com	EXCLUDED				2026-11-26T13:19:12.412787Z	MARKETPLACE_ONLY_STOCK	
+xn--antik-sd-d6a.at	EXCLUDED				2026-11-25T15:24:10.851276Z	NO_QUALIFIED_ART_ANTIQUES_STOCK	
+xn--antiquitten-reich-xqb.at	ADDED	WOOCOMMERCE	ls_01m6hdvxx4eghrast44fzyk5cj	pty_01m6hdvxwqe2h9ssgt98j859xg	2026-11-03T19:23:39.551436Z		
+xn--mnzhandel-wolf-gsb.com	ADDED	GAMBIO	ls_01m8a47bb0ead9759awk1c2f23	pty_01m8a47batef2rcnswk5sg690q	2026-11-25T19:51:50.489179Z		
+xn--reinbachers-raritten-rzb.at	EXCLUDED				2026-11-25T19:51:00.909375Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+xn--wip-antiquitten-clb.com	ADDED	SQUARESPACE	ls_01m6gzn1b2eddvybenqrt17qsr	pty_01m6gzn1ame5mt9drqz3jcg5rx	2026-11-03T15:15:13.685972Z		
+yakundyeti.at	EXCLUDED				2026-11-26T19:21:37.148417Z	NOT_A_DEALER	
+zabv.at	EXCLUDED				2026-11-25T20:32:54.762723Z	ALIAS_OF_EXISTING_SOURCE	
+zacke.at	DEFERRED				2026-11-25T15:49:08.945051Z	PRIMARY_HTTP_403	
+zeichenfabrik.at	EXCLUDED				2026-11-25T15:34:45.874670Z	NOT_A_DEALER	
+zeitreise-baden.at	DEFERRED				2026-11-25T15:26:15.511882Z	LEGAL_OPERATOR_UNVERIFIED	
+zeitwende.shop	EXCLUDED				2026-11-25T15:27:47.735477Z	NO_INSPECTABLE_ONLINE_STOCK	
+zellervanalmsick.com	EXCLUDED				2026-11-25T15:34:45.862495Z	CONTEMPORARY_ART	
+zoechmann-art.com	ADDED	JIMDO	ls_01m89m4rgwetea2gsy0qzzx6wv	pty_01m89m4rgpem5b9mdp46a1g8a6	2026-11-25T15:10:48.092829Z		
+zsart.at	EXCLUDED				2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	

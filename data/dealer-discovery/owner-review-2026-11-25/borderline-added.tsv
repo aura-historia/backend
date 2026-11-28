@@ -1,0 +1,42 @@
+domain	country	why_borderline	source_agent	status2026_11_26
+nikonanalog-harth.de	DE	specialist analog (Nikon) camera dealer - vintage/collectible scope; DE notes say general camera retail is out of scope	tiera-de-1	STILL LIVE
+galerie-antik-erzgebirge.de	DE	one documented one-off 2022 charity auction; added at confidence 0.96	tiera-de-1	STILL LIVE
+jugendstil-in-berlin.de	DE	imprint names only a natural person + VAT ID; recorded as sole-trader operator at ~0.96	recheck-de-3	STILL LIVE
+history-shop.de	DE	product photos need login (401); qualified on public text stock and AGB	recheck-de-3	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+antiquitaeten-erfurt.de	DE	owner announced retirement/stock clearance; still selling priced objects	recheck-de-2	STILL LIVE
+bierl-antiquariat.de	DE	imprint and AGB name different natural persons; operator recorded as trading name only	recheck-de-2	STILL LIVE
+antikhandel-stralsund.de	DE	imprint names no proprietor (operator = trading name); two conflicting landline numbers, only mobile recorded	recheck-de-1	STILL LIVE
+lesilluminesdesign.ch	CH	no imprint on site; operator = trading name; prices on request	frontier-ch-1	STILL LIVE
+elastique.ch	CH	no imprint; operator taken from privacy-page controller line	tiera-ch-1	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+leroideloccas.ch	CH	brocante; operator name from privacy notice, no legal form asserted	recheck-ch-2	STILL LIVE
+antiquariat-libelle.ch	CH	books/posters with art by deceased 20th-century artists - may overlap modern-art owner decision	recheck-ch-1	STILL LIVE
+andreewitch.com	AT	'Geschaeftsraeumung' banner; activity review set 2027-02-25	harvest-at-1	STILL LIVE
+galerieportfranc.ch	CH	no imprint on site; operator taken from UID register CHE-246.902.500 matching trading name+address (0.96)	tierb-ch-2	STILL LIVE
+bwoom-japan.de	DE	second storefront of Bwoom operator; Edo-Taisho antique block next to vintage Showa studio ceramics - judged not mainly contemporary	handoff-de	STILL LIVE
+exquisit.berlinantiquariat.com	DE	second Shopware storefront of BerlinAntiquariat operator (existingOperator reuse)	handoff-de	STILL LIVE
+wimstore.com	AT	historic coins/Notgeld/postcards + antique jewellery; coin/stamp mix accepted for historic stock	harvest-at-4	STILL LIVE
+g-riedmann.at	AT	historic coins, stamps, 1858-1879 invoices; coin/stamp mix accepted for historic stock	harvest-at-4	STILL LIVE
+antikseger.com	AT	no formal Impressum; operator = trading name	harvest-at-4	STILL LIVE
+gkmilitaria.at	AT	no formal Impressum; operator = trading name (legal_name from owner signature)	harvest-at-4	STILL LIVE
+elke-rehder.de	DE	proprietor is also an artist; only her antiquarian catalogue is the source	harvest-de-6	STILL LIVE
+vintagelamps.ch	CH	added; commission side service noted in row basis	harvest-ch-5	STILL LIVE
+militaria-schweiz.ch	CH	added; commission side service noted in row basis	harvest-ch-5	STILL LIVE
+chgallery.ch	CH	gallery-named; accepted on vintage/design stock - verify not contemporary art (second storefront chwarehouse.ch queued)	harvest-ch-5	STILL LIVE
+schoenemoebel.berlin	DE	scope line: antique and vintage design mixed with plain used furniture	harvest-de-9	STILL LIVE
+bauantik.de	DE	architectural salvage dealer accepted as genuine historic building elements	harvest-de-9	STILL LIVE
+altberliner-bauelemente.de	DE	architectural salvage dealer accepted as genuine historic building elements	harvest-de-9	STILL LIVE
+time tunnel (timetunnel.ch)	CH	about 7% of items are labelled reissues; mixed vintage stock accepted	niche-ch-1	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+perpetuum moebel	CH	imprint vs contact-page address conflict; only the contact-page showroom recorded	niche-ch-1	UNKNOWN
+xn--mnzhandel-wolf-gsb.com	AT	separate DEFERRED row muenzhandel-wolf.com (email domain of the same operator) - close as alias at review	niche-at-1	STILL LIVE
+kunst-waffenkammer.de	DE	offers a Vermittlung (brokering) service; AGB have no commission clause so stock treated as own	niche-de-2	STILL LIVE
+maletzkys.com	DE	minority of new silver pieces next to antique/vintage jewellery	niche-de-2	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+philipp-militaria.com	DE	shipping imported Germany-only (delivery page says worldwide, home page says EU shipping suspended)	niche-de-2	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+studio5-salzburg.com	AT	vintage design/Art Deco; small share of 1960s-2010s paintings and a few made-to-order new pieces	pass4-at-1	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+watcherie.de	DE	vintage watch dealer (vintage, not antique): accepted on genuine vintage stock	pass4-de-2	STILL LIVE
+vintagetick.de	DE	vintage watch dealer (vintage, not antique): accepted on genuine vintage stock	pass4-de-2	STILL LIVE
+sammleraktien-online.de	DE	historic securities (Wertpapiere) dealer: scope call, accepted on itemised historic stock	pass4-de-1	STILL LIVE
+bimmelbahn24.de	DE	collector-grade brass and small-series model railways: scope call	pass4-de-1	REMOVED 2026-11-26 (OUTSIDE_SPECIALIST_ANTIQUES_SCOPE)
+steutzger.info	DE	Zeitgenoessische Graphik section is ~27% of entries - owner review under contemporary-art policy	handoff-4	REMOVED 2026-11-26 (CONTEMPORARY_ART)
+comicmafia.de	DE	antiquarian comics/booklets (collectible scope call); same OHG as schildermafia.de	handoff-4	REMOVED 2026-11-26 (NEW_GOODS_MIX)
+rajofot-21.at	AT	repair-led vintage radio shop with a priced catalogue of restored 1930s-70s radios; vintage electronics scope call	pass5-at-1	STILL LIVE
+derteppich.com	AT	sells both historic and new carpets; historic category 447 items	pass5-at-1	REMOVED 2026-11-26 (NEW_GOODS_MIX)

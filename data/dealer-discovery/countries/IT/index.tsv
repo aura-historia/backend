@@ -1,9 +1,12 @@
 domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases
 acciarriantiques.com	ADDED	SHOPIFY	ls_01m6cwstfsecav48m7abwhp1m1	pty_01m6cwstfce3vbh3yk3zyyb4fw	2026-11-02T01:08:27.180497Z		
+acquisto-antichita.it	EXCLUDED				2026-11-27T00:15:12.444846Z	NO_INSPECTABLE_STOCK	
+acquistoantichita.it	EXCLUDED				2026-11-27T00:15:12.458467Z	NO_INSPECTABLE_STOCK	
 adresantiquariato.eu	ADDED	FLAZIO	ls_01m6h5rqkfe5j9ahj8e9fdhe38	pty_01m6h5rqk2e4cvfsxkmj2m4jbg	2026-11-03T20:37:34.523904Z		
 africacurio.com	DEFERRED	WORDPRESS			2026-11-03T08:21:27.999591Z	CURRENT_ANTIQUE_STOCK_UNCONFIRMED	www.africacurio.com
 aitretorchi.it	ADDED		ls_01m6d4yhpredkv31tpwsmnj3zg	pty_01m6d4yhp7e4685vvtywyw0k3k	2026-11-03T20:37:12.743444Z		
 ajassa.com	ADDED	NICEPAGE	ls_01m6e6yc15e339b89kc73r8sft	pty_01m6e6yc0geb3sg0pmxx5trkxm	2026-11-03T20:37:22.269214Z		
+albrici.com	EXCLUDED				2026-11-27T00:15:12.467651Z	NEW_GOODS_MIX	
 alessandrobiffanti.com	ADDED	WORDPRESS	ls_01m6g7v4d4ecmsvnw3s7gpseae	pty_01m6g7v4cdep4sddjakyzswyrm	2026-11-03T08:19:07.564407Z		
 alessandroborgato.com	DEFERRED	WORDPRESS			2026-11-02T03:50:31.709186Z		
 alessandrobruna.com	ADDED	WORDPRESS	ls_01m6e89bz9ehvvbz85xat7dn6c	pty_01m6e89bykemxshj0pcssn5v43	2026-11-02T13:48:25.498727Z		
@@ -12,15 +15,22 @@ alfeararebooks.com	ADDED		ls_01m6d6347ze3zrpc66prc8hjej	pty_01m6d6347ke5maekrn39
 alicefineart.com	ADDED	WORDPRESS	ls_01m6he5g3qem5a10bp8c79c9yc	pty_01m6he5g3ce3st32dy3a3a796a	2026-11-03T19:28:53.469225Z		
 aliprandiantichita.it	ADDED	WOOCOMMERCE	ls_01m6km0kn3eqjaey73nzzftmd5	pty_01m6km0kmfem28jjh3snjqshrm	2026-11-04T15:49:33.788662Z		
 altomani.com	ADDED	FLAZIO	ls_01m6gthdm6efwvwdv3yky1zrqz	pty_01m6gthdkmexftqfpspk7ykx43	2026-11-03T20:37:28.675886Z		
+altritempiantichita.it	DEFERRED				2026-11-26T23:43:46.967836Z	LEGAL_IDENTITY_UNPUBLISHED	
 andreasantichita.it	ADDED	WOOCOMMERCE	ls_01m6gqep4ve5mt44n7gy5t6hzy	pty_01m6gqep4aeq2th7ehnrv8gh57	2026-11-03T12:51:57.864233Z		
 angeliniavezzano.it	ADDED		ls_01m6h6pt05e80sprawzbr2dbtn	pty_01m6h6pszwenhrk98ahhmvv18w	2026-11-03T20:37:36.095352Z		
-angolodellemeraviglie.com	ADDED	WOOCOMMERCE	ls_01m6e3wwa0e5abwx5esgrm262b	pty_01m6e3ww9het1v01mcetsn551t	2026-11-02T12:31:42.629224Z		
+angolodellemeraviglie.com	EXCLUDED	WOOCOMMERCE			2026-11-26T21:56:37.286188Z	NEW_GOODS_MIX	
 antemioantiquariato.it	ADDED		ls_01m6hf2trbe84a6841s5y309bp	pty_01m6hf2tqtek7ay99b898asj1t	2026-11-03T20:37:37.220401Z		
 anticalibreria.it	ADDED	SHOPIFY	ls_01m6cnjzycewjttysy3a7b41te	pty_01m6cnjzy0eektgfy1jkpvdmdv	2026-11-01T23:02:23.762877Z		antica-libreria.myshopify.com
 anticamaisonpz.it	DEFERRED				2026-11-03T13:32:58.515011Z	CURRENT_FIRST_PARTY_SITE_UNREACHABLE	
 anticartantichita.it	ADDED	PAGINESI_CMS	ls_01m6h4zyr2ew8vzzxnxqjw7rd2	pty_01m6h4zyq4e3j8fnrf0rkrh4h5	2026-11-03T20:37:33.425514Z		
+anticatrieste.it	EXCLUDED				2026-11-27T00:15:12.714562Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+antichearmonie.it	EXCLUDED				2026-11-27T00:15:12.476876Z	NO_INSPECTABLE_STOCK	
+antichestampe.it	EXCLUDED				2026-11-27T01:13:14.191060Z	NOT_A_DEALER_WEBSITE	
+antichitaalessio.com	EXCLUDED				2026-11-26T23:43:47.019304Z	NEW_GOODS_MIX	
+antichitaalghetto.com	DEFERRED				2026-11-26T23:43:46.983218Z	CATALOGUE_ONLY_IN_PDF	
 antichitaaurame.com	ADDED	WORDPRESS	ls_01m6h5854zebvtkey0np28bwvb	pty_01m6h5854her49zb2t88a6dfdp	2026-11-03T16:53:02.936126Z		
 antichitabaldrighi.it	ADDED	WORDPRESS	ls_01m6hbb6fpe3wsxax35zgndhky	pty_01m6hbb6fbekqaanv6crn44ydd	2026-11-03T18:39:34.144859Z		
+antichitabarberia.com	DEFERRED				2026-11-27T00:17:58.117116Z	SECOND_STOREFRONT_OF_EXISTING_OPERATOR	
 antichitabeggio.it	ADDED	WORDPRESS	ls_01m6cj8j1aefba3qx7t6tzhqn3	pty_01m6cj8j0seq29cp555xqgsj62	2026-11-01T22:04:15.773268Z		
 antichitabellini.it	ADDED	WORDPRESS	ls_01m6cwee1mea79985ymmajmafr	pty_01m6cwee12eys9m0ssh58xyt1f	2026-11-02T01:02:14.585823Z		
 antichitabelsito.it	EXCLUDED				2026-11-02T02:04:15.081363Z		
@@ -38,6 +48,7 @@ antichitadaziano.com	ADDED	WOOCOMMERCE	ls_01m6hfwey7evhabmwm13mnfm41	pty_01m6hfw
 antichitadecomania.it	ADDED	WOOCOMMERCE	ls_01m6gxsja8em0s1rrd0bxemy5j	pty_01m6gxsj9jeqt9cabkghkwndzt	2026-11-03T14:42:44.979812Z		
 antichitademattei.com	ADDED	WIX	ls_01m6ch1fchefbszm5e0ha0aaec	pty_01m6ch1fc3e4gvt5r8d65ptjpc	2026-11-01T21:42:55.341749Z		
 antichitadisarcina.it	ADDED	FLAZIO	ls_01m6h5rs5je1j8mk5qbx89btkx	pty_01m6h5rs55ecnaj3rhvb26fytv	2026-11-03T20:37:35.038491Z		
+antichitaerestaurolepre.it	EXCLUDED				2026-11-27T01:13:13.901467Z	NO_INSPECTABLE_STOCK	
 antichitafallavena.com	ADDED	NEXT_JS	ls_01m6gv0gn6enx8nfyxycjervav	pty_01m6gv0gmreg3abqf9hvtvyqfs	2026-11-03T20:37:29.490507Z		
 antichitafiorillo.it	ADDED		ls_01m6g8ph0bexytpdpgcjzx34c9	pty_01m6g8pgzzee683w6vw713dmk9	2026-11-03T20:37:24.159968Z		www.antichitafiorillo.it
 antichitafirenze.com	DEFERRED				2026-11-03T22:06:32.494458Z	UNVERIFIED_LEGAL_OPERATOR	
@@ -47,9 +58,12 @@ antichitagabrielepintucci.com	ADDED	WORDPRESS	ls_01m6hgka3mepm9138vc8sptszj	pty_
 antichitagasparetto.it	DEFERRED				2026-11-01T22:09:42.249044Z		
 antichitagasperi.it	ADDED	WORDPRESS	ls_01m6e4vxxye7fbq6a93srxxy42	pty_01m6e4vxxme4havqk8a8hjwq3g	2026-11-02T12:48:39.135864Z		
 antichitagiorgis.it	ADDED	WOOCOMMERCE	ls_01m6h4e92tew1a6517h3gedxhr	pty_01m6h4e92eesjvtka3rafgg1b2	2026-11-03T16:38:55.550206Z		
+antichitagiovannaleonini.it	EXCLUDED				2026-11-26T23:43:47.070748Z	NO_INSPECTABLE_STOCK	
 antichitaglussich.com	ADDED	WOOCOMMERCE	ls_01m6cs01mker39swzf829syxae	pty_01m6cs01kxe99bg0x17kka4ckw	2026-11-02T00:01:57.315753Z		
 antichitagoglia.com	ADDED	WORDPRESS	ls_01m6hhhnf6egq8aj2cecthmgj4	pty_01m6hhhnemekdvh72805w7vxnf	2026-11-03T20:27:58.633218Z		
+antichitaguarracino.com	ADDED	DUDA	ls_01m8d5vvvserdrp8jsm1e0vazw	pty_01m8d5vvvqetvaygdm33fdvk7q	2026-11-27T00:18:14.493489Z		
 antichitailghiretto.com	ADDED	PAGINESI_CMS	ls_01m6cwsrnqek3r13xex69df689	pty_01m6cwsrn9e7hvrqvzm4819xqz	2026-11-03T20:37:08.644173Z		
+antichitailmercante.com	DEFERRED				2026-11-26T23:43:46.996062Z	SITE_COMPROMISED_SPAM_INJECTION	
 antichitailtarlomancini.it	ADDED		ls_01m6cw5r2megnvz2b1y9aq1hva	pty_01m6cw5r20ep5t5h1cys03nny7	2026-11-03T20:37:08.173000Z		
 antichitailtemporitrovato.it	ADDED		ls_01m6cermssepvawsp7kthxwpmd	pty_01m6cerms7echah5vsdbsy72ms	2026-11-03T20:36:59.129918Z		
 antichitaioviero.com	ADDED		ls_01m6ceh5n7ewxr0z9w9dm5ap68	pty_01m6ceh5mtepz96rrg554n9x5z	2026-11-03T20:36:58.685787Z		
@@ -71,16 +85,25 @@ antichitaponteduro.com	ADDED	WOOCOMMERCE	ls_01m6kq3974e4d90adf92r4pvr7	pty_01m6k
 antichitaradogna.com	ADDED	WOOCOMMERCE	ls_01m6cr8stpef29yf34nbqhkmsq	pty_01m6cr8stbe2z9scjk5jkg4v71	2026-11-01T23:49:15.450143Z		
 antichitarestauro.com	ADDED	WOOCOMMERCE	ls_01m6h74wwfeefsfvffd7cf9241	pty_01m6h74wvxe278yx5w1zfd5xaa	2026-11-03T17:26:13.910756Z		
 antichitaretini.com	ADDED	WOOCOMMERCE	ls_01m6csd24pe2fbd09bhydkhjyj	pty_01m6csd24beest7xh00q6emz9r	2026-11-02T00:09:03.397716Z		
+antichitasandrea.cloud	DEFERRED				2026-11-27T00:15:12.490253Z	UNTRUSTWORTHY_STANDALONE_DESTINATION	
 antichitasandrea.it	DEFERRED				2026-11-03T22:20:52.521859Z	UNTRUSTWORTHY_STANDALONE_DESTINATION	
 antichitasantoro.com	ADDED	ANTICOANTICO	ls_01m6hrj1j2ewf92w4s1e55499w	pty_01m6hrj1hke8yabyjpr9zcdr02	2026-11-03T22:30:29.958258Z		
+antichitasforza.it	EXCLUDED				2026-11-27T01:13:13.910536Z	NO_INSPECTABLE_STOCK	
+antichitatisi.it	EXCLUDED				2026-11-27T00:15:12.499423Z	NO_INSPECTABLE_STOCK	
 antichitatoscana.com	ADDED	SHOPIFY	ls_01m6cr8qp2eyktbhv8xs1se26p	pty_01m6cr8qnqepkbgfrqtvjtqc2g	2026-11-01T23:49:13.292237Z		d39635-2.myshopify.com
 antichitavecchiabottega.com	ADDED	WIX	ls_01m6hrm64eebcsqqk8g1zvxyvj	pty_01m6hrm646ee7a1x5vvb6kebjf	2026-11-03T22:31:39.982646Z		
 antichitaviani.it	ADDED	WOOCOMMERCE	ls_01m6ch1hdmecavwjxjykdkjyrc	pty_01m6ch1hd3ex3t9vs48emtf59z	2026-11-01T21:42:57.722169Z		
+antico.tornabuoniarte.it	ADDED	WORDPRESS	ls_01m8czj8kqe3db7409kaxxkesc	pty_01m8czj8kme5g8wqj5db2byc8s	2026-11-26T22:28:08.216872Z	PRICE_ON_REQUEST_RECHECK	
+anticodesign900.com	ADDED	WORDPRESS	ls_01m8d5vt4nehg9bnxc9xjt2x47	pty_01m8d5vt4megfr5dsz8s3awrbe	2026-11-27T00:18:13.287562Z		
 anticograndicostanza.com	ADDED	WOOCOMMERCE	ls_01m6kp6ckxe4qsvrxxc9f15td0	pty_01m6kp6ckee2btrysva3e34mws	2026-11-04T16:27:40.237242Z		
+anticoponteantiquariato.com	ADDED	WIX	ls_01m8d435e0ecsbrewq6sx895rx	pty_01m8d435dze7x8f654c200ck85	2026-11-26T23:47:16.444745Z		
 anticosi.it	DEFERRED				2026-11-02T00:15:33.474063Z		
+antik.it	ADDED		ls_01m8d434chex0857n40508mhxc	pty_01m8d434cge8ys7jb03q7165ka	2026-11-26T23:47:15.336964Z		
 antiksavoi.it	DEFERRED				2026-11-03T13:26:10.862270Z	CURRENT_FIRST_PARTY_SITE_UNREACHABLE	antichitasavoi-bz.com
 antiquafreddi.it	ADDED		ls_01m6dnh509ed3t0mp0d6f2ey02	pty_01m6dnh4zrer2aqsjme6gbxw0c	2026-11-03T20:37:18.988463Z		
 antiquando.it	ADDED	WOOCOMMERCE	ls_01m6ch1djmed2bs3xgzceyab2p	pty_01m6ch1dj6eve8xeymv8xvhphv	2026-11-01T21:42:53.163982Z		
+antiquariatoalpien.wordpress.com	EXCLUDED				2026-11-26T23:43:47.084972Z	NO_INSPECTABLE_STOCK	
+antiquariatoantico.it	EXCLUDED				2026-11-27T01:13:13.919495Z	NO_INSPECTABLE_STOCK	
 antiquariatoaosta.it	ADDED	JOOMLA	ls_01m6grx5g0e688bj39r22314zw	pty_01m6grx5feewt975vf8ctwbt3v	2026-11-03T13:17:20.038153Z		
 antiquariatoasseretoroberto.it	ADDED	WORDPRESS	ls_01m6gqp4nweed8zjwt1z55qkbd	pty_01m6gqp4nceddta5jqmr7421np	2026-11-03T12:56:01.492183Z		
 antiquariatobarberini.com	ADDED	WORDPRESS	ls_01m6cf20zged18n000jpzqftqr	pty_01m6cf20z1ebpt03fzyvnqdt98	2026-11-01T21:08:15.952544Z		
@@ -88,48 +111,69 @@ antiquariatobaroni.com	ADDED	JOOMLA	ls_01m6jv12a5eb9v5st0h1z0gx0t	pty_01m6jv129m
 antiquariatocannatella.it	ADDED		ls_01m6hhwc13eqk9v4ej1ayq3zm7	pty_01m6hhwc0med59zzh6b4n2rhac	2026-11-03T20:40:28.182145Z		
 antiquariatocecchini.it	ADDED	WOOCOMMERCE	ls_01m6hb3d29ekt836adepzm8z14	pty_01m6hb3d22eth8eppm5gemtmw9	2026-11-03T18:35:18.670485Z		
 antiquariatocosta.com	ADDED	WOOCOMMERCE	ls_01m6h7xw36e4ntm90mawy6mp4r	pty_01m6h7xw2me86txkfjs6crnv2x	2026-11-03T17:39:52.398318Z		
+antiquariatoerestauroverona.com	ADDED	WORDPRESS	ls_01m8d436fped9angw6vx0trhe1	pty_01m8d436fme6yapk4xngsbsghm	2026-11-26T23:47:17.262353Z		
 antiquariatoeuropeo.com	EXCLUDED				2026-11-03T13:08:38.099454Z	OPERATES_AUCTIONS	
 antiquariatolalucerna.it	DEFERRED				2026-11-03T13:43:58.030288Z	CURRENT_FIRST_PARTY_SITE_UNREACHABLE	
-antiquariatomonte.it	ADDED	WOOCOMMERCE	ls_01m6ccfy0wehtaxm7n3zhg6qgr	pty_01m6ccfy0deg08wegzrdgxjmfa	2026-11-01T20:23:26.749024Z		
+antiquariatomonte.it	EXCLUDED	WOOCOMMERCE			2026-11-26T21:56:36.828244Z	NEW_GOODS_MIX	
 antiquariatonapoli.it	ADDED	WORDPRESS	ls_01m6cmxhf1e3ka7dv2he2rjnz1	pty_01m6cmxhefe3j97b180tx3gghy	2026-11-01T22:50:40.363267Z		restauricortese.it
 antiquariatonline.net	ADDED	SHOPIFY	ls_01m6d1s64eesjsm7x8xwkj0fd8	pty_01m6d1s63zejqakxwrndv9ygsc	2026-11-02T02:35:29.653298Z		0e0e34-ce.myshopify.com
+antiquariatoparioli.com	EXCLUDED				2026-11-26T21:36:38.157536Z	NO_INSPECTABLE_STOCK_CATALOGUE_BUYING_SERVICE	
+antiquariatoroma.it	EXCLUDED				2026-11-26T21:36:38.170592Z	NO_INSPECTABLE_STOCK_CATALOGUE_BUYING_SERVICE	
 antiquariatovisconti.com	ADDED	WOOCOMMERCE	ls_01m6cfc6h7eqnbq417dk6gvnje	pty_01m6cfc6gpeqgarxg6y03krwyv	2026-11-02T15:17:19.394396Z		
 antiquariein.com	ADDED	WOOCOMMERCE	ls_01m6hkjjp5e86bqth6r8tsc9cm	pty_01m6hkjjnrew1aq0028ktyks5w	2026-11-03T21:03:25.204718Z		
+antiquarigenovesi.it	EXCLUDED				2026-11-27T01:13:13.929187Z	NO_INSPECTABLE_STOCK	
 antiquariobologna.it	ADDED		ls_01m6cfvjyee4fa0nd83g8135jq	pty_01m6cfvjwqertrpt9ve1yjn4s2	2026-11-03T20:37:00.118530Z		
+antiquariomilano.com	EXCLUDED				2026-11-27T01:13:13.941358Z	NO_INSPECTABLE_STOCK	
 antiquarioroma.com	ADDED	WOOCOMMERCE	ls_01m6krym0keczsgs57d71r8dsr	pty_01m6krykztegw88dw034wnx51y	2026-11-04T17:15:51.500704Z		
 antiquarius.it	ADDED	PRESTASHOP	ls_01m6ccg3dqer0ay9nv2ca9t559	pty_01m6ccg3d8em5bweq8v0651j77	2026-11-01T20:23:31.472017Z		
 antiquascrinium.it	DEFERRED				2026-11-03T14:28:56.243310Z	LEGAL_OPERATOR_AND_BUSINESS_IDENTITY_UNCONFIRMED	
-antiquastyle.it	ADDED	WEBBINS	ls_01m6ctqbs6ejk88ngex69kh8t2	pty_01m6ctqbrpe03a223wynscxfha	2026-11-03T20:37:06.338886Z		antiquastyle.com;cosevecchie.biz
+antiquastyle.it	EXCLUDED	WEBBINS			2026-11-26T21:56:37.071847Z	NEW_GOODS_MIX	antiquastyle.com;cosevecchie.biz
 antiquelab.it	DEFERRED	WEBADOR			2026-11-01T20:29:03.610280Z	AVAILABLE_HISTORIC_STOCK_UNCONFIRMED	
 antiquescamellini.com	ADDED	NOPCOMMERCE	ls_01m6k377f6ew79gnyjrcwccbhr	pty_01m6k377ete589sbhgf44k1kqr	2026-11-04T10:56:04.358089Z		
+antiquesinitaly.com	ADDED	WOOCOMMERCE	ls_01m8d437a7e1kakch42zbqspq9	pty_01m8d437a6e84t0n0r9f1s8h0x	2026-11-26T23:47:18.066522Z		
 antiquesmoglia.com	ADDED	WORDPRESS	ls_01m6hqn172e6d9dzt5rvv3kvyw	pty_01m6hqn168et1b8xv4aatcerpc	2026-11-03T22:14:39.396304Z		
 antoniofrosini.it	ADDED	WORDPRESS	ls_01m6crnkg2exvadcxqzaqkrh93	pty_01m6crnkfce1pabdt2794k4km2	2026-11-01T23:56:14.942939Z		
+appianiantiquariato.it	EXCLUDED				2026-11-27T00:15:12.508628Z	NO_INSPECTABLE_STOCK	
 aquafortis.com	ADDED		ls_01m6ga78asee7skye9h4tc9q47	pty_01m6ga78a4eq29rxe9x6nvwk5h	2026-11-03T20:37:24.614691Z		www.aquafortis.com
 arabafenicelucca.it	ADDED		ls_01m6hsq9j5exx8tke4pkr6v9sr	pty_01m6hsq9hnez0r0s3ej4g8wf1t	2026-11-03T22:50:50.708022Z		
 arcadiabologna.it	EXCLUDED				2026-11-03T09:06:05Z	OPERATES_AUCTIONS	
 arcutifineart.com	ADDED	WOOCOMMERCE	ls_01m6hsqg0neqavchcbk1emf1z5	pty_01m6hsqfzze95re5g73p0fhs5y	2026-11-03T22:50:58.191015Z		
 arengario.it	ADDED	WORDPRESS	ls_01m6d90kqye2fbn7gyc00rpp08	pty_01m6d90kqeeagsknjdb5gymzp9	2026-11-02T04:41:53.101060Z		
+armeriaeantiquariato.it	EXCLUDED				2026-11-27T01:13:14.172227Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 arrediantiquariato.it	ADDED	WOOCOMMERCE	ls_01m6cc72h6eb1s5tj0tg0dd65r	pty_01m6cc72grejbsjd6zkcc6qad5	2026-11-01T20:18:36.519878Z		
+arredoanticobologna.com	DEFERRED				2026-11-27T00:15:35.080262Z	LEGAL_OPERATOR_UNPUBLISHED	
 arsantiquasrl.com	EXCLUDED				2026-11-04T17:22:44.574365Z	OPERATES_AUCTIONS	
+artandbibliophilia.blogspot.com	EXCLUDED				2026-11-26T23:43:47.094879Z	NO_INSPECTABLE_STOCK	
+artandbibliophilia.blogspot.it	EXCLUDED				2026-11-26T23:47:54.792874Z	NO_INSPECTABLE_STOCK	
 artantico.com	ADDED	NICEPAGE	ls_01m6jt2aw2e91rwnazypb32zg5	pty_01m6jt2avke8a8ac8j6fz4n0p9	2026-11-04T08:16:06.893653Z		
 arte-orientale.com	ADDED	WOOCOMMERCE	ls_01m6cfvdt9ejx876c041f7wgd3	pty_01m6cfvdspe1rajrbhyf0qe335	2026-11-01T21:22:08.889702Z		
 artearredoandriollo.it	ADDED	WORDPRESS	ls_01m6ksdg49ehs9rnwf1bvmb197	pty_01m6ksdg3nekt9n6cj96jznt8y	2026-11-04T17:23:58.815252Z		
 artecastellarin.com	EXCLUDED				2026-11-03T14:42:02.431864Z	BUSINESS_EXPLICITLY_ORGANIZES_AUCTIONS	
+artemobili.it	EXCLUDED				2026-11-26T21:46:12.696316Z	NEW_GOODS_MIX	
+artenetworkicone.it	DEFERRED				2026-11-27T01:13:14.220075Z	OPERATOR_IDENTITY_CONFLICT	
 artevintage.shop	ADDED	WOOCOMMERCE	ls_01m6h9gyf3ek88rkt32336b5nc	pty_01m6h9gyere0ksy3akyg3mss69	2026-11-03T18:07:46.053416Z		
+artiscaminettiantichi.it	ADDED	PRESTASHOP	ls_01m8cxbp1ge4dt65mhweea0v2h	pty_01m8cxbp1eedvrvqmb2wg6jsy6	2026-11-26T21:49:35.922503Z		
 artmando.it	EXCLUDED				2026-11-02T12:33:27.336757Z	AUCTION_HOUSE	
+artorient.it	EXCLUDED				2026-11-27T01:13:14.045021Z	NEW_GOODS_MIX	
+artrecup.com	EXCLUDED				2026-11-27T00:15:12.517764Z	NO_INSPECTABLE_STOCK	
 artstudiopedrazzini.it	ADDED	WEEBLY	ls_01m6e60knbe0qt2jrgmxqf4346	pty_01m6e60kmrech9x95zk6t0j0e5	2026-11-03T20:37:21.724827Z		
 asteilconte.webnode.it	EXCLUDED				2026-11-03T17:13:21.763396Z	SELF_IDENTIFIES_AS_AUCTION_HOUSE	
 astetrionfante.it	EXCLUDED				2026-11-02T13:07:05.471949Z	AUCTION_HOUSE	
 athenantichita.com	ADDED	WOOCOMMERCE	ls_01m6ceh1brenf9078q69qw24fd	pty_01m6ceh1b9ex0azbx4yhyj0nm5	2026-11-01T20:58:59.722178Z		
 atlantislibriantichi.it	DEFERRED				2026-11-02T03:54:49.450135Z		
+atriumantiquaria.it	EXCLUDED				2026-11-27T00:15:12.770718Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 auroraarte.it	ADDED	WOOCOMMERCE	ls_01m6ksdrq4ezq91s9rzypknzvh	pty_01m6ksdrptemyayp9wmdmgb5tt	2026-11-04T17:24:07.502466Z		
 auroravittoriacolonna.it	DEFERRED				2026-11-01T20:15:03.528375Z	CURRENT_ANTIQUE_STOCK_UNVERIFIED	
+bacarelli.com	DEFERRED				2026-11-26T21:46:12.792063Z	LEGAL_OPERATOR_UNPUBLISHED	
 badoemart.it	EXCLUDED				2026-11-02T01:44:05.635858Z		
 bamyan.it	ADDED	WOOCOMMERCE	ls_01m6jtga71e1n8vx7vtpqw0880	pty_01m6jtga6neg0bex2smdg48pty	2026-11-04T08:23:44.745100Z		
+barattiantichita.it	EXCLUDED				2026-11-26T23:43:47.036281Z	NEW_GOODS_MIX	
 barbieriantiquariato.it	ADDED	WORDPRESS	ls_01m6cppwmqervs82cnb217dedd	pty_01m6cppwm5e2ebrypnfadvwnvp	2026-11-01T23:21:59.570362Z		
+bbvintagedecor.com	EXCLUDED				2026-11-26T21:36:38.183820Z	NEW_GOODS_MIX	
 beccaricosedelpassato.com	DEFERRED				2026-11-02T00:24:24.732777Z		
 beggiantichita.com	ADDED	DRUPAL	ls_01m6h4q3dteta865bj06xc59e4	pty_01m6h4q3d9eg4r3x1er73s2rtv	2026-11-03T16:43:44.272489Z		
 berardiarte.it	ADDED	WORDPRESS	ls_01m6jv1448eddv0129dns6t58y	pty_01m6jv143re3184r6nw43rev3d	2026-11-04T08:32:55.789897Z		
+bernardinimilano.com	EXCLUDED				2026-11-26T23:43:47.047033Z	NEW_GOODS_MIX	
 bernavasebastiano.com	ADDED	ANTICOANTICO	ls_01m6jvzbqceypa6hzrb64zgstg	pty_01m6jvzbpzedprwzedwh85jy96	2026-11-04T08:49:26.459918Z		
 bertiantiquariato.com	ADDED	DUDA	ls_01m6ccv01sewbv5bwaw46x4ph7	pty_01m6ccv01cedz92rfanadwap3j	2026-11-01T20:29:28.329460Z		
 bertinatoantiques.it	ADDED	WOOCOMMERCE	ls_01m6h7xya5e71at1gvgz78g4mn	pty_01m6h7xy9kew0t1029w3brt3km	2026-11-03T17:39:54.493166Z		
@@ -145,36 +189,57 @@ borgoantiques.com	DEFERRED				2026-11-01T22:16:08.691418Z
 borrelliantichita.it	ADDED	ANTICOANTICO	ls_01m6jyayhqe9g9t4fnch1dtzw0	pty_01m6jyayejevn85xb0k2gzsq47	2026-11-04T09:30:43.952494Z		
 bosiolibri.com	ADDED	WORDPRESS	ls_01m6df77jjed2rbfjpb2zw43er	pty_01m6df77j0en39n2hjx1s41vh4	2026-11-02T06:30:20.957533Z		
 bottegadarteantichita.com	ADDED	EDEN_ADMIN	ls_01m6cp9vn8eb78zm565tjdqqk8	pty_01m6cp9vmtetv9yz2km89hg9ma	2026-11-03T20:37:04.552365Z		
+bottegadellestampe.com	ADDED		ls_01m8d912k1ehr91eyetza7myde	pty_01m8d912jyeestshaexa9hcfbb	2026-11-27T01:13:30.642696Z		
+bottegantica.com	DEFERRED				2026-11-26T21:46:12.828585Z	MODERN_AND_LIVING_ARTIST_SHARE_ABOVE_THRESHOLD	
 botteghinadarte.it	ADDED		ls_01m6h2x5k1ephstxbmmpwr7ys1	pty_01m6h2x5jge65s0q0661nyn4bd	2026-11-03T20:37:32.386882Z		
+botticelliantichita.com	DEFERRED				2026-11-26T22:27:48.665312Z	PREMISES_ADDRESS_CONFLICT	
 bourlot.it	ADDED		ls_01m6cd5nw5e83vb7a568akh9be	pty_01m6cd5nvse6s9g1pdxd39gkts	2026-11-03T20:36:56.167720Z		
 brickandstone.it	ADDED	SHOPIFY	ls_01m6kf17baejdrs0bw9rt2ae4p	pty_01m6kf17ateaq8y9xfm5m0j956	2026-11-04T14:22:30.858705Z		
 brozzettiantichita.com	ADDED	ANTICOANTICO	ls_01m6k0fs9we0c977trckwn0cm6	pty_01m6k0fs9gee19b5gpj9v6qhme	2026-11-04T10:08:19.368590Z		
+brunfineart.com	ADDED	ARTLOGIC	ls_01m8czjagfe0jbhk8twbx17vjd	pty_01m8czjagdej3rja49bvr5hdwp	2026-11-26T22:28:10.412889Z	PRICE_ON_REQUEST_RECHECK	
 brunoantichita.it	DEFERRED	WORDPRESS			2026-11-02T00:20:25.010164Z		
 calattini.com	DEFERRED	WOOCOMMERCE			2026-11-02T00:24:24.732777Z		
+callea.eu	EXCLUDED				2026-11-26T23:43:47.185184Z	POST_WAR_MODERN_ART	
 callegariantiquariato.it	ADDED	NEXT_JS	ls_01m6cvxhveew0r3k93v10z6dy4	pty_01m6cvxhv4ezv8atcqajcjxpnx	2026-11-03T20:37:07.274543Z		
 callirestauro.com	ADDED	WOOCOMMERCE	ls_01m6ha8ny6esgb31ztscjwgs03	pty_01m6ha8nxwend9yssf5drake4a	2026-11-03T18:20:43.688212Z		
 calypsoantiquariato.com	DEFERRED				2026-11-03T14:24:04.802690Z	CURRENT_FIRST_PARTY_SITE_UNREACHABLE	
 caminivecchioenuovo.it	ADDED		ls_01m6kk3n7yeb7ayjkvgtsxnr2a	pty_01m6kk3n7ee1j9bms2kbqn18cg	2026-11-04T15:33:45.193788Z		
+camula.it	EXCLUDED				2026-11-26T23:43:47.250638Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+capellettiantichita.com	ADDED	WORDPRESS	ls_01m8d4382ye1st3xm48rwhsgjx	pty_01m8d4382xeaet705ngbdg6bhb	2026-11-26T23:47:18.914634Z		
 capozziantichita.com	EXCLUDED				2026-11-03T12:55:44.389608Z	OPERATES_AUCTIONS_WITHIN_SAME_GROUP	
+carlovirgilio.it	ADDED	WORDPRESS	ls_01m8czjbqhepfr199ferrvp85c	pty_01m8czjbqge0htrcvx21zq7vjm	2026-11-26T22:28:11.321844Z	PRICE_ON_REQUEST_RECHECK	
 cartiglio.it	ADDED		ls_01m6d887fmehhtzrc7ah8273bw	pty_01m6d887fceyybvnkztac5rmr4	2026-11-03T20:37:14.751042Z		
+cartonionline.com	EXCLUDED				2026-11-26T21:36:38.197196Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+casavivaantiquariato.it	ADDED	WOOCOMMERCE	ls_01m8cwmf5de5ctp5w312ewt2mp	pty_01m8cwmf5cez5bqvqdnwvkfd8j	2026-11-26T21:36:54.909586Z		
 castignoli.com	DEFERRED				2026-11-04T13:18:25.694869Z		
+catanai.it	EXCLUDED				2026-11-27T00:15:12.528397Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+cavalierenumismatica.com	EXCLUDED				2026-11-26T21:46:12.744465Z	NEW_GOODS_MIX	
 centrocommercialegamma.it	DEFERRED	WOOCOMMERCE			2026-11-02T02:34:55.236828Z		
 centromercatoantiquariato.it	ADDED	SHOPIFY	ls_01m6cbw1f1ew68ye3djk95wazk	pty_01m6cbw1egekpsx7sz0me4k0me	2026-11-02T15:17:17.729912Z		
+cesatiecesati.com	ADDED	WORDPRESS	ls_01m8czjcm4eqpad0jp064rxhfb	pty_01m8czjcm2e2yrnqwrxckgfkeg	2026-11-26T22:28:12.213375Z	PRICE_ON_REQUEST_RECHECK	
 cherubinovintage.com	ADDED	WIX	ls_01m6cc0yhperztq5gqv73p64d5	pty_01m6cc0yh8e338zmjp7446d9qm	2026-11-01T20:15:15.513583Z		
 chiavacci-antiques.it	ADDED		ls_01m6hgkh76e7es1bvbepy7tbcq	pty_01m6hgkh6me289cq3vxgpb71hg	2026-11-03T20:37:37.719936Z		
 cittaantiquaria.it	DEFERRED				2026-11-04T09:25:46.891472Z		
 clexidra.net	ADDED	WOOCOMMERCE	ls_01m6hajhvkef4rfd7medce16ky	pty_01m6hajhv7eycth5ddzep5mh6w	2026-11-03T18:26:07.164953Z		
+coinsandmore.it	EXCLUDED				2026-11-26T23:43:47.204192Z	AUCTION_BUSINESS	
 collezionismoa360gradi.it	ADDED	WOOCOMMERCE	ls_01m6hjjnd3e2zrzbnmkn85h6d6	pty_01m6hjjncneqvt2smf5g9wmq3d	2026-11-03T20:45:59.605890Z		
+collezionissimo.com	DEFERRED				2026-11-27T01:13:14.200517Z	CATALOGUE_SIZE_TRAJECTORY_UNCLEAR	
 colonnelibri.it	DEFERRED	DRUPAL			2026-11-02T05:23:22.221119Z		
 colonneselibrerie.it	ADDED	WOOCOMMERCE	ls_01m6dpsd82e41br2fgnp1c65y9	pty_01m6dpsd7je9j9ef9jdpe2tbqk	2026-11-02T08:42:38.088235Z		
+comproarteroma.it	EXCLUDED				2026-11-27T00:15:12.537719Z	NO_INSPECTABLE_STOCK	
+comproevendoantichitadal600al700.it	EXCLUDED				2026-11-27T00:15:12.548030Z	NO_INSPECTABLE_STOCK	
+compromobiliantichi.org	EXCLUDED				2026-11-27T00:15:12.559896Z	NO_INSPECTABLE_STOCK	
 contebiancamano.com	DEFERRED				2026-11-03T15:19:39.151228Z	EXACT_CURRENT_OPERATOR_LINK_UNCONFIRMED	
 copettiantiquari.com	DEFERRED				2026-11-01T21:53:34.810911Z		
 coradirarefinds.com	ADDED		ls_01m6k0g04ze5r9w2x3wvzvm6pj	pty_01m6k0g04pew2scbxmzahah6fc	2026-11-04T10:08:26.468550Z		
 corderobooks.com	ADDED	DRUPAL	ls_01m6d4yf5ye7mv5d6dbyw48rfs	pty_01m6d4yf58e2e9k1db2g8jts21	2026-11-02T03:30:48.749522Z		
+cose-antiche.biz	EXCLUDED				2026-11-26T23:43:47.105020Z	NO_INSPECTABLE_STOCK	
 cosevecchielenzi.com	ADDED	WEBADOR	ls_01m6cs03xde9y92kfdf4c40xvw	pty_01m6cs03x0exx9jkn2vyhdhnx9	2026-11-03T20:37:05.388214Z		
+cosevecchiepadova.it	EXCLUDED				2026-11-27T01:13:13.953475Z	NO_INSPECTABLE_STOCK	
 crazyart-milano.com	ADDED	SQUARESPACE	ls_01m6cvb64yeert2av9zr0227vz	pty_01m6cvb64cebzrf70bw8fqdk7x	2026-11-02T00:42:59.509866Z		
 credulapostero.com	ADDED	WORDPRESS	ls_01m6h0wdreegravj6bn0rtr1aa	pty_01m6h0wdr0etd8np1e4p4x1vb6	2026-11-03T15:36:44.834645Z		
 cremonantichita.it	DEFERRED				2026-11-03T14:48:47.698326Z	CURRENT_AVAILABLE_OBJECTS_UNINSPECTABLE	
+cremonaviolinstore.com	EXCLUDED				2026-11-27T01:13:14.065757Z	NEW_GOODS_MIX	
 cronosbresciaitaliavintage.com	ADDED	SI2SITE	ls_01m6e24t4mevdvr7g8ssbhqkxe	pty_01m6e24t4bedj9b9tqaggrdkbz	2026-11-03T20:37:20.661722Z		
 dagantiqua.it	ADDED	ARUBA_SUPERSITE	ls_01m6csd41fe1xrggm1zavtejzq	pty_01m6csd417eegs91t2h6k6592a	2026-11-03T20:37:05.824792Z		
 dallantiquario.it	ADDED	WORDPRESS	ls_01m6h7epv2eahan2fde34gyjne	pty_01m6h7eptkesgr895kjq94gvmm	2026-11-03T17:31:34.940743Z		
@@ -183,6 +248,7 @@ deantiquislibris.it	ADDED	ALDERSOFT_EASYSTORE	ls_01m6cy8dvkeqz9rvsbmw0hmb7n	pty_
 debbiantichita.it	ADDED	WOOCOMMERCE	ls_01m6k0ww72e2kvwfczz8brf3k9	pty_01m6k0ww6med68x4zkat5rz248	2026-11-04T10:15:27.886552Z		
 deimainella.it	DEFERRED				2026-11-03T13:32:58.515011Z	CURRENT_FIRST_PARTY_SITE_UNREACHABLE	
 delvillanomobili.it	ADDED	JIMDO	ls_01m6grdxvxeyqvxa4ab0e7bh13	pty_01m6grdxvae6xa8ydm5srmm2rt	2026-11-03T20:37:26.356288Z		
+demaldemilano.com	EXCLUDED				2026-11-27T01:13:14.035830Z	NEW_GOODS_MIX	
 demunariantiquariato.com	ADDED	WOOCOMMERCE	ls_01m6cfvneqep7beg0j28sw96mg	pty_01m6cfvne4eadb99ncreap7hqd	2026-11-01T21:22:16.137458Z		
 dentisrarebooks.it	ADDED	FLAZIO	ls_01m6ce0j94ex0ac4dqdp85ka83	pty_01m6ce0j8mee2s2fv2tfsg0vvk	2026-11-03T20:36:57.675157Z		
 depotsr.com	ADDED	WORDPRESS	ls_01m6cmxk8besytnxxb5bct68jt	pty_01m6cmxk7se4ssmqe2ehze3n6g	2026-11-01T22:50:42.846698Z		
@@ -190,80 +256,127 @@ dequart.com	ADDED	WOOCOMMERCE	ls_01m6k1aqbsex7v3f7grctravmb	pty_01m6k1aqb5ee1byt
 digart.it	ADDED		ls_01m6k1azeeej2b00kcwnvqytdr	pty_01m6k1azdyepd9pytgk6fe2mqw	2026-11-04T10:23:10.121070Z		
 dimanoinmano.it	ADDED		ls_01m6ckj96dejqv4rser57v7hge	pty_01m6ckj95vet4v6edepbtencxp	2026-11-03T20:37:02.555876Z		
 dimanoinmano.mom	EXCLUDED				2026-11-01T23:48:58.052490Z		
-domus13.com	ADDED	WOOCOMMERCE	ls_01m6ctqe6fe8kr1qacmvb207r1	pty_01m6ctqe62eh7t79xszhq1070h	2026-11-02T00:32:12.742864Z		
+dispensavintage.it	EXCLUDED				2026-11-26T21:36:38.342570Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+domus13.com	EXCLUDED	WOOCOMMERCE			2026-11-26T21:56:37.094124Z	NEW_GOODS_MIX	
 domusaureacatania.it	ADDED	JOOMLA	ls_01m6ceh3tjetzt8ajmg45j08wy	pty_01m6ceh3sxebasrnq9hn6et9mx	2026-11-02T15:17:18.887282Z		
 donatilibri.it	ADDED	WOOCOMMERCE	ls_01m6d90hfjegbanxztr6t07w0t	pty_01m6d90hezetdsg8g1j4qxw47k	2026-11-02T04:41:50.761509Z		
+edgallery.it	EXCLUDED				2026-11-26T21:36:38.446658Z	NO_INSPECTABLE_STOCK_EXHIBITION_PROGRAM_ONLY	
 edmondogovernaleantichita.it	DEFERRED				2026-11-01T22:46:44.706305Z		
+elyasy.com	EXCLUDED				2026-11-26T21:36:38.272573Z	NEW_GOODS_MIX	
 emporiodellepassioni.com	ADDED	WORDPRESS	ls_01m6k251kze8cafxcyw1d23ecv	pty_01m6k251kgejsr79j8k47txea2	2026-11-04T10:37:24.748824Z		
+eneabracciali.it	EXCLUDED				2026-11-26T23:43:47.115289Z	NO_INSPECTABLE_STOCK	
+enricoceci.com	EXCLUDED				2026-11-26T21:46:12.705484Z	NO_INSPECTABLE_ITEM_LEVEL_STOCK	
+enricogallerie.com	DEFERRED				2026-11-26T21:46:12.801210Z	OPERATOR_IDENTITY_CONFLICT	
+eredijovon.com	EXCLUDED				2026-11-26T21:36:38.283662Z	NEW_GOODS_MIX	
 exlibrisroma.it	ADDED		ls_01m6cy8bryevrrgcwz59zp0x2k	pty_01m6cy8brmepe9qv2wmz6wp2wc	2026-11-03T20:37:10.248026Z		
 exnovo-pn.it	EXCLUDED				2026-11-03T13:52:58.690116Z	OUT_OF_SCOPE_RECENT_SECONDHAND_FASHION	
-fanedecorations.com	ADDED	WOOCOMMERCE	ls_01m6ea241gek3t19qvpw1x0ck7	pty_01m6ea240ze4f92kep41t7qvhk	2026-11-02T15:17:23.294931Z		
+fanedecorations.com	EXCLUDED	WOOCOMMERCE			2026-11-26T21:56:37.311895Z	NEW_GOODS_MIX	
 faustinimarcoantichita.it	DEFERRED				2026-11-01T22:03:57.673747Z		
 fecarottantichita.com	ADDED	SHOPIFY	ls_01m6cegzh0ey0vqxyc1j73jva9	pty_01m6cegzgfexp9ptgk2ateq470	2026-11-01T20:58:57.381408Z		
 fifty-fifty.it	ADDED	WORDPRESS	ls_01m6gyh9ntev9s3tvbeehwx0av	pty_01m6gyh9n9e8gabn5v0yhsnq5t	2026-11-03T14:55:42.799520Z		
+filateliafischer.it	DEFERRED				2026-11-27T01:13:14.229445Z	AUCTION_SHARE_AMBIGUOUS	
+filatelialongobardi.it	ADDED		ls_01m8d43wxaetpbemb486ne3kqm	pty_01m8d43wx7ejetmykyspwsj007	2026-11-26T23:47:40.448443Z		
+filatelianumismaticaroma.it	EXCLUDED				2026-11-27T01:13:14.001861Z	NO_INSPECTABLE_STOCK	
 fiorillorestauro.com	ADDED	WIX	ls_01m6cggy2we8sr0cd1bp201v9z	pty_01m6cggy2behasytrs42edejqt	2026-11-01T21:33:53.659766Z		en.fiorillorestauro.com
 fondantico.it	ADDED	WORDPRESS	ls_01m6gvj84eexvamkev4ea48v8a	pty_01m6gvj83ye8nbq77t5kwj4peg	2026-11-03T14:03:48.007476Z		
+frascionearte.com	EXCLUDED				2026-11-26T22:27:48.644814Z	CONTEMPORARY_ART	
 fuoricatalogoartem.it	ADDED	WOOCOMMERCE	ls_01m6h6pw9ee5zr1q8pr2y605qf	pty_01m6h6pw95eehs3vrtaymdz4nh	2026-11-03T17:18:34.004772Z		
 furlanantichita.com	ADDED	WIX_STORES	ls_01m6h4q56jeq99qh90p20ewsr2	pty_01m6h4q54tejvbvz8bqhmhtgk4	2026-11-03T16:43:46.921924Z		
+galatearte.it	EXCLUDED				2026-11-27T00:15:12.578367Z	NEW_GOODS_MIX	
 galleria-ammendolea.com	ADDED	WOOCOMMERCE	ls_01m6hkgqk0ev28x0pww55653dw	pty_01m6hkgqjgebmvpmfwp796sh71	2026-11-03T21:02:24.137697Z		
 galleriabertola.com	ADDED	DUDA	ls_01m6ea2263ean9074a2hsawcjy	pty_01m6ea225fe0xb67nvktdxbtat	2026-11-02T15:17:22.799793Z		antichitabertolalauro.com
-galleriabosi.com	ADDED	WORDPRESS	ls_01m6hfez9henq93j0yf10v1vtv	pty_01m6hfez8het0rqcezz2h4nq84	2026-11-03T19:51:32.269538Z		
+galleriabosi.com	EXCLUDED	WORDPRESS			2026-11-26T21:56:37.667370Z	CONTEMPORARY_ART	
 galleriacantore.it	ADDED		ls_01m6e6ydz7egmrdckvhj5j1jg8	pty_01m6e6ydyre2rshb8j9aymbht5	2026-11-03T20:37:22.793672Z		
 galleriacesaro.com	DEFERRED				2026-11-04T11:44:21.073282Z		
 galleriacherubin.it	ADDED	WORDPRESS	ls_01m6chzk0yemtstxzn21t1f5aq	pty_01m6chzk0gepks4c6c1n7ct7ah	2026-11-01T21:59:22.558751Z		
+galleriacortona.com	ADDED		ls_01m8cxce30ernag91y3ax1h8x9	pty_01m8cxce2zed28dc6hvaty812c	2026-11-26T21:49:59.945502Z		
 galleriacosta.com	ADDED	SHOPIFY	ls_01m6e9d1vke8q9090mcvectx0m	pty_01m6e9d1tzetmszzv3khqjn22d	2026-11-02T15:17:21.970189Z		
 galleriadarteanticadibattista.com	ADDED	DUDA	ls_01m6h6ejgge5zstxwkpvtgj3x6	pty_01m6h6ejg3e74bxmceet1zms5w	2026-11-03T17:14:01.925875Z		
 galleriadartesanbarnaba.it	ADDED	WORDPRESS	ls_01m6g6pc1mewfb73gnm4pp54gb	pty_01m6g6pc11eas8r51h36d4vn19	2026-11-03T07:59:03.161746Z		
 galleriadatrino.it	DEFERRED				2026-11-02T15:38:27.534330Z	CURRENT_OPERATOR_AND_RETAIL_STOCK_UNVERIFIED	
 galleriadelcaminetto.it	ADDED		ls_01m6gahnyeev08ctgs0s3s3trs	pty_01m6gahnxtett886s44b5g206e	2026-11-03T20:37:25.110859Z		www.galleriadelcaminetto.it
 galleriaenricobrunello.it	ADDED	IONOS_MYWEBSITE_NOW	ls_01m6cjys09e668rr8p2c45zrfr	pty_01m6cjyrztee2btme0e9hck080	2026-11-03T20:37:02.015573Z		
-galleriaesposito.com	ADDED		ls_01m6d0mfcqehv92cj067yv7ed7	pty_01m6d0mfcaef39jggw34js5d8y	2026-11-03T20:37:12.305453Z		
+galleriaesposito.com	EXCLUDED				2026-11-26T21:56:37.146359Z	NEW_GOODS_MIX	
 galleriagiamblanco.com	ADDED	WOOCOMMERCE	ls_01m6eax8j9eqwt7wcszjx4spj8	pty_01m6eax8htebg8kgkqwv983pnr	2026-11-02T15:17:23.837138Z		
 galleriaimperiale.com	DEFERRED				2026-11-01T23:29:26.619218Z		
+galleriamegna.it	DEFERRED				2026-11-26T21:46:12.810446Z	LEGAL_OPERATOR_UNPUBLISHED	
 galleriamossini.it	ADDED	WORDPRESS	ls_01m6h0415neq0aac570er0d2j5	pty_01m6h04152ek4svf8z7hhz7szz	2026-11-03T15:23:25.099925Z		
 gallerianovecento.it	ADDED	SHOPIFY	ls_01m6ckjeq7ez9s2qfzvaa9dwe3	pty_01m6ckjepme159130953n15fcq	2026-11-02T15:17:19.977260Z		galleria-novecento.myshopify.com
 galleriaorsi.com	ADDED		ls_01m6g75w6aejxta4vp9k3jkse6	pty_01m6g75w5se458xbsx4qrrfk5g	2026-11-03T20:37:23.697798Z		
+galleriaparronchi.it	ADDED	WORDPRESS	ls_01m8czjdfze1tsj4vx91ynq5yv	pty_01m8czjdfyehqb20ngf4jwhmm2	2026-11-26T22:28:13.119065Z	PRICE_ON_REQUEST_RECHECK	
 galleriapirra.it	ADDED	WOOCOMMERCE	ls_01m6ec61cwerpsq9jtgm0qmmgz	pty_01m6ec61caenpaqywvrkkf1vab	2026-11-02T15:17:24.777242Z		
 galleriaprevitali.com	ADDED		ls_01m6e4vzksexn8eepr2y0c19dv	pty_01m6e4vzkeevstyxc081r822k1	2026-11-03T20:37:21.183147Z		
 galleriapuglisi.it	ADDED	WOOCOMMERCE	ls_01m6h1x4sveskryh30bafxkqge	pty_01m6h1x4sdenz8fr35r3zj3npm	2026-11-03T15:54:36.476335Z		
 galleriarobertoducci.com	ADDED	WOOCOMMERCE	ls_01m6ga01bqesyvmkfdx0hgeegv	pty_01m6ga01b9efqskam1ybrnbx7g	2026-11-03T08:56:45.957951Z		www.galleriarobertoducci.com
 galleriasarno.it	EXCLUDED				2026-11-01T22:46:44.706305Z		
 galleriasinigaglia.it	ADDED	WIX	ls_01m6k4k1vhe55tp3dtw596zytz	pty_01m6k4k1v1eybbqz15vsb814ar	2026-11-04T11:20:01.076676Z		
+galleriavalerioturchi.it	ADDED	WORDPRESS	ls_01m8czk050e6jrm2n3nqzcqbwp	pty_01m8czk04ye8mthkkqk7wn99c4	2026-11-26T22:28:32.150494Z	PRICE_ON_REQUEST_RECHECK	
 galleriazabert.it	DEFERRED				2026-11-03T12:51:37.087069Z	CURRENT_STOCK_AND_EXACT_OPERATOR_UNRESOLVED	
 galleriazonin.it	ADDED	WORDPRESS	ls_01m6grdw5fe5radby53h3asfjh	pty_01m6grdw53e34ve3qxn9tc126t	2026-11-03T13:08:58.998318Z		
 gallinimusica.it	ADDED		ls_01m6d6xs0ge30bqp6jgcrzp9ea	pty_01m6d6xrzye3xrg1ftwst539a6	2026-11-03T20:37:14.330523Z		
+gallofineart.it	ADDED		ls_01m8cxbv07eq1vs5ky6qskkbys	pty_01m8cxbv06ep28tjg2hwfj884t	2026-11-26T21:49:40.676023Z		
 galloriturchi.com	DEFERRED				2026-11-03T08:47:30.000000Z		www.galloriturchi.com
 gascoantichita.it	ADDED	WOOCOMMERCE	ls_01m6cbw45gek8tbwt42q5f069x	pty_01m6cbw450emra8y5wd493twxe	2026-11-01T20:12:37.549688Z		
 gelardiniaste.it	EXCLUDED				2026-11-01T20:15:03.528375Z	AUCTION_HOUSE	
 genovarte.it	DEFERRED				2026-11-01T23:29:26.619218Z		
 genovesiantichitarestauri.it	DEFERRED				2026-11-03T15:22:58.517243Z	CURRENT_SALE_STOCK_VS_WORK_GALLERY_UNCLEAR	
 ghilli.it	ADDED	WOOCOMMERCE	ls_01m6ccfvfyeey99mhw6a8wyp40	pty_01m6ccfvfaev5r3tm67wztspx4	2026-11-02T15:17:18.625727Z		
+giacomettiomp.com	EXCLUDED				2026-11-26T21:36:38.507331Z	NO_INSPECTABLE_STOCK_EXHIBITION_PROGRAM_ONLY	
+gianenzosperone.com	EXCLUDED				2026-11-26T21:36:38.352307Z	CONTEMPORARY_ART	
+gianlucabocchi.com	ADDED	WORDPRESS	ls_01m8czk0y4emvb75zj6eh7zg9z	pty_01m8czk0y3eb4s5k6wsy1h0tdy	2026-11-26T22:28:32.986902Z	PRICE_ON_REQUEST_RECHECK	
 gilibert.it	ADDED	WOOCOMMERCE	ls_01m6d6xtzzee192ra40wbxws8z	pty_01m6d6xtzmejwsyry3r0ewc9cn	2026-11-02T04:05:24.895234Z		
+gioielleriapennisi.com	ADDED	SHOPIFY	ls_01m8d913dwen0a1bgp79prej7h	pty_01m8d913dvesnrpsea478zpfph	2026-11-27T01:13:31.569689Z		
+gioielleriavintage.com	EXCLUDED				2026-11-26T23:43:47.223110Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 gioielligradara.it	ADDED	ANTICOANTICO	ls_01m6k61dcde5frjss2j5e96jst	pty_01m6k61dc1e1z8hbch7q61824e	2026-11-04T11:45:19.443161Z		
+giorgiobarattishop.com	ADDED	SHOPIFY	ls_01m8cwme0ketnvrkkm973ebag6	pty_01m8cwme0he84bjr6b11k5r45h	2026-11-26T21:36:53.731165Z		giorgiobaratti.it;giorgiobaratti.com
 giorgiomaffei.it	DEFERRED				2026-11-02T09:28:44.767726Z		
 giustiantichita.it	DEFERRED				2026-11-04T11:36:25.470173Z		
 globolibri.it	EXCLUDED				2026-11-03T14:31:54.082136Z	CURRENT_NEW_BOOK_RETAIL_WITHOUT_QUALIFIED_HISTORICAL_STOCK	
 gn-artgallery.com	DEFERRED				2026-11-01T20:15:03.528375Z	OWN_STOCK_UNCONFIRMED	
+golcondagioielli.it	EXCLUDED				2026-11-27T01:13:14.026355Z	NEW_GOODS_MIX	
+goldfinchfinearts.com	EXCLUDED				2026-11-26T22:27:48.654820Z	NO_INSPECTABLE_STOCK	
+goldside.it	ADDED	PRESTASHOP	ls_01m8cwmhd0emxt0g82a0ymbayw	pty_01m8cwmhczem5aw73pt3vhp0bw	2026-11-26T21:36:57.160419Z		
 gonnelli.it	EXCLUDED				2026-11-02T01:25:52.961899Z		
 gozzini.it	DEFERRED				2026-11-02T04:13:35.229611Z		
 gracis.com	DEFERRED				2026-11-03T08:02:58.375230Z	CURRENT_ANTIQUE_STOCK_UNCONFIRMED	galleriagracis.com;www.galleriagracis.com
 grimaldilibri.it	ADDED	WOOCOMMERCE	ls_01m6d7eg9he6ftbjzfe2e5wy3z	pty_01m6d7eg91e5wtqtm818da2jb3	2026-11-02T04:14:30.976823Z		grimaldilibri.com
+grisales.it	EXCLUDED				2026-11-27T01:13:14.056445Z	NEW_GOODS_MIX	
 gutenbergantiqua.it	EXCLUDED				2026-11-02T04:20:21.545970Z		
 historyantichita-trieste.it	ADDED	DUDA	ls_01m6cerjz0esgaxfqkyeq6g50b	pty_01m6cerjyjewzv4cg4hcgdkcpq	2026-11-01T21:03:06.656880Z		
 hobbylibri.com	DEFERRED				2026-11-03T15:26:16.970925Z	FULL_CURRENT_PROPRIETOR_UNCONFIRMED	
+il-rigattiere.net	EXCLUDED				2026-11-26T23:43:47.194952Z	AUCTION_BUSINESS	
 ilbalon.it	ADDED	WOOCOMMERCE	ls_01m6e9d4dxeagbxd0621ybye8v	pty_01m6e9d4dee5hvg981t0vdz2wy	2026-11-02T15:17:22.485838Z		
 ilbellodellusato.com	DEFERRED				2026-11-01T22:53:49.269295Z		
+ilcentrale.com	ADDED	PRESTASHOP	ls_01m8d43rp6entaznypzkwmnp6s	pty_01m8d43rp5epmr4j8wmahpt0xy	2026-11-26T23:47:36.146821Z		
+ilcesello.it	EXCLUDED				2026-11-26T23:43:47.126622Z	NO_INSPECTABLE_STOCK	
+ilcirmolo.it	EXCLUDED				2026-11-26T23:43:47.213737Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+ilcollezioniereantichitaroma.it	EXCLUDED				2026-11-27T01:13:13.965598Z	NO_INSPECTABLE_STOCK	
+ilducaorologi.it	EXCLUDED				2026-11-27T01:13:14.090634Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+ilmercantediognicosa.it	EXCLUDED				2026-11-27T00:15:12.587998Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 ilmercanteinfiera.eu	ADDED	WOOCOMMERCE	ls_01m6h6x7kke95946k0hjny40rn	pty_01m6h6x7k3esta4w5hrdg6m47x	2026-11-03T17:22:02.764080Z		
+ilmobileclassicoitaliano.it	EXCLUDED				2026-11-26T21:36:38.206407Z	NEW_GOODS_MIX	
+iltarloinbottega.com	EXCLUDED				2026-11-26T23:43:47.137277Z	NO_INSPECTABLE_STOCK	
 iltempochefu.it	ADDED	WORDPRESS	ls_01m6cnk21wegzbe1cwv85p9fmg	pty_01m6cnk21ee4msafvvmyryep6h	2026-11-01T23:02:25.976470Z		
+inchiostrovivo.it	ADDED	PRESTASHOP	ls_01m8d43ss8egs89r3veqxqkw9a	pty_01m8d43ss7e7rt088trtpdm0ba	2026-11-26T23:47:37.400844Z		
+incisioniantiche.com	DEFERRED				2026-11-26T21:36:38.629558Z	CATALOGUE_ON_BLOCKED_OTHER_DOMAIN	
+ingrocasa.it	EXCLUDED				2026-11-26T21:36:38.216992Z	NEW_GOODS_MIX	
+iolibrocarmine.com	EXCLUDED				2026-11-27T00:15:12.597338Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+isignorideltempo.com	EXCLUDED				2026-11-27T01:13:14.128685Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+italianvintagesofa.com	EXCLUDED				2026-11-26T21:36:38.244131Z	NEW_GOODS_MIX	
 itinerasiena.com	ADDED		ls_01m6h1x6edesatf0w0ecwyxadz	pty_01m6h1x6e2enm9aaa1w7fpj9ry	2026-11-03T20:37:31.905592Z		
 ivolpini.it	ADDED		ls_01m6gvj9tmecy8nhcvk5yxs53g	pty_01m6gvj9t5e16b31c6kvbt6v39	2026-11-03T20:37:29.940552Z		
+jackbovavintage.com	EXCLUDED				2026-11-27T00:15:12.606700Z	NO_INSPECTABLE_STOCK	
+kazuma.it	EXCLUDED				2026-11-26T23:43:47.262945Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 kinskygallery.com	ADDED	WOOCOMMERCE	ls_01m6k6mhb9ekvrx5gj6zhjt188	pty_01m6k6mhasevpb8az12x76r20h	2026-11-04T11:55:46.816913Z		
 la-pendulerie.com	ADDED		ls_01m6k7pv1seg78by4dnf3345ym	pty_01m6k7pv1gehsb223r6j82w4e6	2026-11-04T12:14:30.146941Z		
 labifora.it	ADDED	WOOCOMMERCE	ls_01m6gsep2bej5bffyh6tn92m6h	pty_01m6gsep1we7a95t6mascbp9bd	2026-11-03T13:26:54.644559Z		
 laboratoriolamole.com	ADDED	WORDPRESS	ls_01m6ce0gc9e8y9941jpypmzjqz	pty_01m6ce0gbge6krhq6jh8d2khhz	2026-11-01T20:49:57.624715Z		
 labottegadellusatoct.it	DEFERRED				2026-11-01T22:53:49.269295Z		
 labottegadelmobileparma.it	ADDED	PRESTASHOP	ls_01m6h1g8d8eezax9q1eevaza6t	pty_01m6h1g8cnery8bdmwt0ev5fcc	2026-11-03T15:47:34.967159Z		
+labottegadifiorenza.com	EXCLUDED				2026-11-27T01:13:14.081165Z	NEW_GOODS_RETAIL	
+laboutiqueartigiana.com	EXCLUDED				2026-11-26T23:43:47.281211Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 lacartabianca.it	DEFERRED				2026-11-02T04:58:39.556356Z		
+lacasadellorologio.it	DEFERRED				2026-11-27T01:13:14.210976Z	PREMISES_ADDRESS_CONFLICT	
 lacongrega.com	ADDED	WORDPRESS	ls_01m6gy630cea8ra5whdm4yjz2f	pty_01m6gy62zyecprdk3ajdyqd080	2026-11-03T14:49:35.638828Z		antichita-mobili-brescia.com
 lafenicelibriantichi.com	ADDED		ls_01m6h500mnevxv9w3aexqffkjn	pty_01m6h500m1e72r19k0w6fe28qd	2026-11-03T20:37:33.932830Z		
 lagalleriadeltempo.it	DEFERRED				2026-11-03T13:16:56.482916Z	TEMPLATE_CATALOGUE_CURRENT_STOCK_UNCONFIRMED	
@@ -271,13 +384,17 @@ lagallerya.it	ADDED	WOOCOMMERCE	ls_01m6k7pk14ej8stymnee38fre6	pty_01m6k7pk0kemmv
 lamobille.it	ADDED	WOOCOMMERCE	ls_01m6csqct5esqtjmjezyfke5qr	pty_01m6csqcshe8psyxcg9x8s6tra	2026-11-02T00:14:41.930863Z		
 lantica.it	ADDED	WORDPRESS	ls_01m6k72ndkecs9xt3pfs8nfksp	pty_01m6k72nd4eyjr7dvt1gh8pkhz	2026-11-04T12:03:29.887222Z		
 lantiquasi.it	ADDED		ls_01m6gqerqne7086kv9wgpa3g4r	pty_01m6gqerq5e42twhpp9fewd07e	2026-11-03T20:37:25.595223Z		
+lapinacoteca.it	ADDED	WORDPRESS	ls_01m8czk1rxeazvgvynrgft52sj	pty_01m8czk1rve228n91k9sp545be	2026-11-26T22:28:33.955604Z	PRICE_ON_REQUEST_RECHECK	
 laprimularossa.it	ADDED	SHOPIFY	ls_01m6cppyd6e609ym36peyskk82	pty_01m6cppycmex3scezfv0gar0jx	2026-11-01T23:22:01.961450Z		laprimularossaantiquariato.myshopify.com
+lapuntasecca.it	DEFERRED				2026-11-27T01:13:14.238551Z	OPERATOR_AND_ADDRESS_UNPUBLISHED	
 laquila.kece.it	DEFERRED				2026-11-03T14:24:04.802690Z	LOCAL_OPERATOR_AND_RETAIL_RESPONSIBILITY_UNCONFIRMED	
 laurarocca.com	DEFERRED				2026-11-02T13:46:28.961432Z	CURRENT_NATIVE_SOURCE_OPERATOR_AND_STOCK_UNVERIFIED	
 leardiniluperio.com	ADDED	WOOCOMMERCE	ls_01m6k8vw7kehtbf9bn8nv2591t	pty_01m6k8vw6tewc8h7j08tnjje4b	2026-11-04T12:34:43.861956Z		
 lecoseantiche.weebly.com	DEFERRED				2026-11-03T14:24:04.802690Z	EXACT_OPERATOR_AND_CURRENT_STOCK_UNCONFIRMED	
 lecuriositadelpassatoboutique.it	ADDED	PAGINESI_CMS	ls_01m6h7ergzeyvb1fmq2weksbas	pty_01m6h7erghefbrh1722t2jyc5a	2026-11-03T20:37:36.690820Z		
+lemuseonline.com	ADDED	WOOCOMMERCE	ls_01m8d917cmetd9h5k6tx4frbc9	pty_01m8d917cje18va68bpr6pya09	2026-11-27T01:13:35.612361Z		
 lentiniantichita.com	ADDED		ls_01m6ec63bmekebhq3b2d3wrexk	pty_01m6ec63b2e2c8qxwgwjrjj1kr	2026-11-03T20:37:23.228040Z		
+leonecei.com	EXCLUDED				2026-11-26T23:43:47.059786Z	NEW_GOODS_MIX	
 leonidegianluca.com	ADDED		ls_01m6h68n1me2htb9nxpmatfk60	pty_01m6h68n12enfaw9f7jh315myq	2026-11-03T20:37:35.483935Z		
 lesgaleriesduluxembourg.com	ADDED		ls_01m6k8w4v7ee7tnst1d8xf4nx4	pty_01m6k8w4tmemssa3jvkkqgwtjs	2026-11-04T12:34:52.699683Z		
 letteraturatattile.it	ADDED	WORDPRESS	ls_01m6dbr2kgec5rgdekve9qyny6	pty_01m6dbr2k4exf9jdcc6zjk7xqj	2026-11-02T05:29:38.487057Z		
@@ -294,14 +411,17 @@ libreriadelsalento.it	ADDED	FLAZIO	ls_01m6cvb8eaerxsq6xjyd4sb97z	pty_01m6cvb8dwe
 libreriadifrusaglia.it	ADDED	WOOCOMMERCE	ls_01m6dkp9cxe14bv66grbrq7nsj	pty_01m6dkp9ceeqmbsbfbrk7nkn7f	2026-11-02T07:48:29.121732Z		
 libreriadocet.it	ADDED	DUDA	ls_01m6gazdf7ek6rc0spfv9zbs25	pty_01m6gazdevena9nk675xe1s32b	2026-11-03T09:13:53.659258Z		www.libreriadocet.it
 libreriadrogheria28.it	ADDED	WORDPRESS	ls_01m6dc4rrce11adq3trg2trc3q	pty_01m6dc4rqweqxr6jg2zhrvdr1v	2026-11-02T05:36:35.037137Z		
+libreriaemiliana.com	ADDED	WORDPRESS	ls_01m8d43tz2e2nb4fe207a87s73	pty_01m8d43tz1e8gr7x91hnrt96hh	2026-11-26T23:47:38.251106Z		
+libreriafabiani.com	EXCLUDED				2026-11-27T00:15:12.616939Z	MARKETPLACE_ONLY_STOCK	
+libreriagalleriademetra.it	ADDED		ls_01m8czk2q6ejabez7vmeq4mdn3	pty_01m8czk2q5edqb59mg93fg6smn	2026-11-26T22:28:34.994154Z	PRICE_ON_REQUEST_RECHECK	
 libreriagovi.com	ADDED	TYPO3	ls_01m6d3mqrseassz3eg1v6c2za4	pty_01m6d3mqr7enr9nkta0jhqx6ac	2026-11-02T03:08:01.365188Z		
 libreriagrandangolo.it	ADDED	VIRTUEMART	ls_01m6gv0jfwenwbvy7dhf2vzkc6	pty_01m6gv0jf9ex0tsk9yatjpjdsp	2026-11-03T13:54:09.526213Z		
 libreriaitalica.it	ADDED		ls_01m6cx9ejze4yv4egyr6e6tma9	pty_01m6cx9ejgeynbk2cgcefdspfj	2026-11-03T20:37:09.145379Z		
 librerialafenice.it	ADDED		ls_01m6dbdeenexhrg83wd9n0e9rc	pty_01m6dbdee9ep8s14a4fkh4mgjh	2026-11-03T20:37:15.258065Z		
-librerialdrovandi.it	ADDED		ls_01m6cywt65eh8a4g4nes2cd1b4	pty_01m6cywt5je8t9tfbbchpp8e00	2026-11-03T20:37:11.222374Z		
+librerialdrovandi.it	EXCLUDED				2026-11-26T21:56:37.106150Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 librerialuigiportinaio.com	DEFERRED				2026-11-03T14:35:18.599717Z	CURRENT_INDIVIDUAL_HISTORICAL_STOCK_UNINSPECTABLE	
 libreriamalavasi.it	ADDED	VIRTUEMART	ls_01m6d2d0a1etj8208n2e44zz14	pty_01m6d2d09peh9r4b6vev9hsx52	2026-11-02T02:46:18.790456Z		
-libreriamarini.it	ADDED	TYPO3	ls_01m6czkx6ee61rm6w0c0kajm4h	pty_01m6czkx5xex89xjrjp4vzd1c6	2026-11-02T01:57:39.185210Z		
+libreriamarini.it	EXCLUDED	TYPO3			2026-11-26T21:56:37.131715Z	CONTEMPORARY_ART	
 libreriamediolanum.com	ADDED	WORDPRESS	ls_01m6czkvjte1yvf695s24nx17b	pty_01m6czkvj9e9cadgc0xhwdvdsc	2026-11-02T01:57:37.222611Z		
 libreriantiquaria.com	ADDED	WOOCOMMERCE	ls_01m6cmpybbe2ds0taa61zq0ym2	pty_01m6cmpyavef7vgnbd950v1b00	2026-11-01T22:47:04.765116Z		
 libreriapalatina.it	EXCLUDED				2026-11-02T02:44:29.148448Z		
@@ -310,63 +430,95 @@ libreriaperini.com	ADDED		ls_01m6dc4pp5efj8faaxx888dcn9	pty_01m6dc4pnpe9ta2hj121
 libreriapeyrot.com	ADDED	WEBSITE_X5	ls_01m6ddnnv7e0yaeq28gkj32e03	pty_01m6ddnntvea1r6vsa6hcmvzdd	2026-11-03T20:37:16.655545Z		
 libreriapiani.it	ADDED	LARAVEL	ls_01m6djfwmcer4af7t3m9955f3j	pty_01m6djfwkqezdbwrfszjjmdcwe	2026-11-03T20:37:17.525644Z		
 libreriapontremoli.it	ADDED		ls_01m6ce0mqjekd8jpaeq5327rjy	pty_01m6ce0mq3eravff9sedev8f76	2026-11-03T20:36:58.173973Z		
+libreriaportavenezia.com	ADDED	WOOCOMMERCE	ls_01m8cwmg9qef3ra9zkam4h8mh9	pty_01m8cwmg9pem2b1er54czch90f	2026-11-26T21:36:56.020637Z		
 libreriaprandi.it	ADDED	WORDPRESS	ls_01m6d3mtb4e0a9gckh48erdbyg	pty_01m6d3mtahe3097aevfzex257a	2026-11-02T03:08:03.718632Z		
 libreriasacchi.com	DEFERRED				2026-11-02T07:22:36.187805Z		
 libreriascriptorium.it	ADDED	WOOCOMMERCE	ls_01m6df754tesg9dym917p67wht	pty_01m6df7548e5dabc5n2jnqfrp4	2026-11-02T06:30:19.010046Z		
 libriantichionline.com	ADDED	TYPO3	ls_01m6d6bb60e299j6gd6ptz03ss	pty_01m6d6bb59e4rsxn5hk9tz9wf9	2026-11-02T03:55:19.223421Z		
 libriantichixodo.it	ADDED	DUDA	ls_01m6dtfm68erh9v6hheg2vem1k	pty_01m6dtfm5qepjvh252sjtg2z83	2026-11-02T09:47:11.201214Z		
-librietalia.it	ADDED	PRESTASHOP	ls_01m6chnh6eeh1b87ckkp3s9xgt	pty_01m6chnh5ze9jbmn2s026ndqbr	2026-11-01T21:53:52.750153Z		
+librietalia.it	EXCLUDED	PRESTASHOP			2026-11-26T21:56:36.915453Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 librinecessari.it	DEFERRED				2026-11-02T01:44:05.635858Z		
 librirarieantichi.it	ADDED	WOOCOMMERCE	ls_01m6dnh78zef18qakczz5qbkc8	pty_01m6dnh78fe85v1622aeb8y2y6	2026-11-02T08:20:40.250149Z		
 libriseab.it	ADDED	WOOCOMMERCE	ls_01m6cfvgafejyahb0322k840py	pty_01m6cfvg9tescrj2ndvbzvyazd	2026-11-01T21:22:11.567632Z		
 librisenzadata.it	ADDED	WORDPRESS	ls_01m6dmvk0me7pa45q09xj5xaap	pty_01m6dmvk01e7nrr378tfaz7208	2026-11-02T08:08:50.873514Z		
 libriusatisonnino.it	DEFERRED				2026-11-03T17:59:07.923989Z	CURRENT_HISTORICAL_STOCK_AND_OPERATOR_UNVERIFIED	
 libsoave.com	ADDED		ls_01m6dv4gr2excbty7wbzf6n53e	pty_01m6dv4gqne2r91e5asqgmmkfd	2026-11-03T20:37:20.176574Z		
+liliantappeti.it	EXCLUDED				2026-11-26T21:36:38.261542Z	NEW_GOODS_MIX	
 limantiqua.com	ADDED		ls_01m6dmvmwbeqy94vnnm9p238sq	pty_01m6dmvmvwetgtd8s8d9anx20t	2026-11-03T20:37:18.495396Z		limantiqua.eu;limantiqua.it
 lineadacqua.it	ADDED	WEBFLOW	ls_01m6dkp7ffe8gad796wacb78bw	pty_01m6dkp7eveysstxgp5ra2m5dx	2026-11-02T07:48:26.716818Z		it.lineadacqua.it
+longariartemilano.com	ADDED	WORDPRESS	ls_01m8czk3qteravzymmf84gxy9e	pty_01m8czk3qne8nrpbt4tj2dzzvh	2026-11-26T22:28:35.883915Z	PRICE_ON_REQUEST_RECHECK	
 loppis.it	DEFERRED				2026-11-03T15:36:02.239323Z	EXACT_CURRENT_NATIVE_OPERATOR_LINK_UNCONFIRMED	
 lottocentospoleto.it	ADDED	WOOCOMMERCE	ls_01m6ha8r5se5tawzxamsr435pv	pty_01m6ha8r5hed79zrp2a6nk3bq4	2026-11-03T18:20:46.145289Z		
+lucaburzio.com	DEFERRED				2026-11-26T22:07:58.675386Z	PRICE_ON_REQUEST_RECHECK	
 lvsantique.it	ADDED	SHOPIFY	ls_01m6cjjtgxe66a7wt5j3jza1v2	pty_01m6cjjtgbedfrm2xqvmcxg1ew	2026-11-01T22:09:52.611012Z		
 magnanet.it	DEFERRED	JOOMLA			2026-11-02T09:28:44.767726Z		
 magnoliaarte.com	EXCLUDED				2026-11-04T12:45:18.018112Z		
+maniavintage.it	EXCLUDED				2026-11-27T01:13:14.138843Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 margheriantichita.com	ADDED	WORDPRESS	ls_01m6cw5nwjefkaedz02zwxfq4g	pty_01m6cw5nw2efmbdy0wx8txzsmh	2026-11-02T00:57:27.501600Z		margheriantichita.it
 marri.it	ADDED	WIX_STORES	ls_01m6h45gcrezgs06q1fcs6s5aj	pty_01m6h45gcaevcr3801ev0smzh7	2026-11-03T16:34:08.140163Z		
 marziocinelli.it	ADDED	WOOCOMMERCE	ls_01m6k9vqzdeq7se8pvydfscbt5	pty_01m6k9vqyme319vkr2qd7vmrym	2026-11-04T12:52:08.337691Z		
 masperolibri.com	ADDED		ls_01m6d6kr6deyw9n494nf5k0p8c	pty_01m6d6kr60ef4r2xxvc12fjn4h	2026-11-03T20:37:13.877406Z		
 matheusgallery.com	ADDED	JOOMLA	ls_01m6g88vs3e34adk6xnafa8ntn	pty_01m6g88vrge9crsv3255qtze6v	2026-11-03T08:26:37.630233Z		www.matheusgallery.com
 matteocrespi.eu	ADDED	WORDPRESS	ls_01m6d885xye6z8dpg5m6nsh8za	pty_01m6d885xne3rbpxx81f5hc6np	2026-11-02T04:28:31.787587Z		
+matteolampertico.it	EXCLUDED				2026-11-26T21:36:38.361392Z	CONTEMPORARY_ART	
+maurizionobile.com	ADDED	ARTLOGIC	ls_01m8czk4k4e06v9e6q6dnt7t7j	pty_01m8czk4k3eb9swskqkrjwdjmv	2026-11-26T22:28:36.779118Z	PRICE_ON_REQUEST_RECHECK	
 mazzitelliantichita.it	ADDED	WORDPRESS	ls_01m6gqp6ktex08trevkfm3wgjp	pty_01m6gqp6k7e14rxhzqknpt50ea	2026-11-03T12:56:03.225849Z		
+mdaantiques.com	DEFERRED				2026-11-27T00:15:35.049764Z	OPERATOR_ADDRESS_UNPUBLISHED	
+mdpfinearts.com	ADDED	ARTLOGIC	ls_01m8czk6bse3c8xs1seayf97j2	pty_01m8czk6brettatn2xwb675a8d	2026-11-26T22:28:38.665560Z		
 mearinifineart.com	DEFERRED				2026-11-03T14:21:03.814760Z	LEGAL_IDENTITY_AND_ADDRESS_CONTRADICTIONS	
+medagliemonete.it	DEFERRED				2026-11-26T21:36:38.654845Z	AUCTION_SHARE_AMBIGUOUS	
+memmodernantiques.com	DEFERRED				2026-11-26T23:43:47.010169Z	LEGAL_OPERATOR_UNCONFIRMED	
+memoireverona.it	EXCLUDED				2026-11-27T01:13:13.977656Z	NO_INSPECTABLE_STOCK	
 memorabiliaantichita.com	ADDED		ls_01m6cf1z6ae7tbjwhzjdr75qr2	pty_01m6cf1z5teh198vxj5gtjey18	2026-11-03T20:36:59.595714Z		
+meravigli.it	EXCLUDED				2026-11-26T23:43:47.241451Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 mercalandia.it	ADDED	WOOCOMMERCE	ls_01m6gwkbhaegkb4ma2ryrndbx0	pty_01m6gwkbgpe7cayv9bh2etkmb9	2026-11-03T14:21:53.448626Z		
+mercand.it	EXCLUDED				2026-11-27T00:15:12.626166Z	NO_INSPECTABLE_STOCK	
 mercandstore.com	ADDED	SHOPIFY	ls_01m6cbvyhceev9hskrnahe67hn	pty_01m6cbvygresntq7hpyrtpe10b	2026-11-01T20:12:32.174439Z		
 mercatino-antiquariato.com	ADDED	WOOCOMMERCE	ls_01m6d0mhkyefk9gepsmtfn0k20	pty_01m6d0mhkherargqmanehzyht0	2026-11-02T02:15:28.819779Z		
 mercatodellepulcisassari.com	DEFERRED				2026-11-03T13:37:49.039714Z	CURRENT_SITE_INTEGRITY_CONCERNS	
 mgantichitabergamo.com	DEFERRED				2026-11-03T15:04:08.853639Z	CURRENT_STOCK_ASSET_INSPECTION_UNAVAILABLE	
 milaneantiques.com	ADDED	ANTICOANTICO	ls_01m6kaa5bxem585gg3d7kdg3yq	pty_01m6kaa5b9e308vsp0zsxzn5kw	2026-11-04T13:00:01.214707Z		
 milaniantichita.it	ADDED	WORDPRESS	ls_01m6kaafn0e659epgvfreqhvmt	pty_01m6kaafmcervrzts259b93hyc	2026-11-04T13:00:11.190065Z		milaniantichita.com
+militariaitalia.com	ADDED	WOOCOMMERCE	ls_01m8cxcjvaegttg6srfh5vtjhg	pty_01m8cxcjv9ektt7vb7z0rztqse	2026-11-26T21:50:05.185859Z		
 mirabilia.gallery	ADDED	WOOCOMMERCE	ls_01m6eaxabxef0v5ts20jgmt4d5	pty_01m6eaxabhe898v9kkqqygzz98	2026-11-02T15:17:24.309356Z		
+mircocattai.com	ADDED	WORDPRESS	ls_01m8czk5ffeambpe96kmk7f1wx	pty_01m8czk5fdejv84h45yh9bzhz9	2026-11-26T22:28:37.667113Z	PRICE_ON_REQUEST_RECHECK	
+miriamdipentafinearts.com	EXCLUDED				2026-11-26T22:28:42.820751Z	ALIAS_OF_EXISTING_SOURCE	
+mobilidellanonna.com	EXCLUDED				2026-11-26T21:36:38.331040Z	NEW_GOODS_MIX	
 mobilidelpassato.com	ADDED	WOOCOMMERCE	ls_01m6g570sce7x8ey421c5b49aj	pty_01m6g570rse87sn24xmxwjafdk	2026-11-03T07:39:51.216310Z		
 mobiliduchi.it	ADDED	WOOCOMMERCE	ls_01m6hb3ekbeddbv5wrvmzg6w3m	pty_01m6hb3ek4e74sy1n9hty1njnr	2026-11-03T18:35:20.226211Z		mobiliduchi.com
 mobilimerlin.com	ADDED		ls_01m6cj8kyyetqt7hsjc8kpvz2h	pty_01m6cj8kyderg89rxqg477cdgm	2026-11-03T20:37:01.513470Z		mobilimerlinshop.com
 mobilisisi.com	ADDED	WOOCOMMERCE	ls_01m6gr2h2netq8bk5ttn4j9nwr	pty_01m6gr2h23e9gr51pk42h03jm8	2026-11-03T13:02:47.622978Z		
 mondoanticomessina.it	DEFERRED				2026-11-03T20:44:58.979531Z	UNVERIFIED_LEGAL_OPERATOR	
+moneteraredacollezione.it	ADDED	WOOCOMMERCE	ls_01m8d916f3eecrcxx6c2jt5arh	pty_01m8d916eye5ws5gg94chwht6r	2026-11-27T01:13:34.671166Z		
+moronirenzo.it	DEFERRED				2026-11-26T21:46:12.819548Z	LEGAL_OPERATOR_UNPUBLISHED	
+mpreziosi.it	EXCLUDED				2026-11-27T01:13:14.118809Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 mrantichita.com	ADDED	ANTICOANTICO	ls_01m6kaqwnwe2vts1da360chzq7	pty_01m6kaqwn9e4qtzfyv5w9gwnh3	2026-11-04T13:07:30.485832Z		
 mtgallery.it	ADDED	WOOCOMMERCE	ls_01m6kar5e2ezt9a9f4w8zv1ajf	pty_01m6kar5deeewtfmnz7c5xvt6f	2026-11-04T13:07:39.420807Z		
 mvtirelliantiquario.it	ADDED	IONOS_MYWEBSITE	ls_01m6h0gvz6e2nr5namskvbq8fm	pty_01m6h0gvyvemq8jfqk6g7whg00	2026-11-03T15:30:25.659415Z		
 mybuildingarts.com	ADDED	WOOCOMMERCE	ls_01m6k01bgwevj8d2z92jdrcxg1	pty_01m6k01bg6e25trkryss3dd8pw	2026-11-04T10:00:26.233823Z		
+myitalianbazaar.com	EXCLUDED				2026-11-27T01:13:14.149208Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 n7antiquariato.it	ADDED		ls_01m6cbw6pcea585pr8b6sf4br8	pty_01m6cbw6nte14b0d2q4xfc1far	2026-11-03T20:36:54.702702Z		
+naintrading.it	EXCLUDED				2026-11-26T21:36:38.294805Z	NEW_GOODS_MIX	
+nerdzonemilano.com	EXCLUDED				2026-11-26T23:43:47.272125Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 nientedinuovo.it	DEFERRED	WOOCOMMERCE			2026-11-02T02:22:53.309122Z		
 nikearteantica.it	ADDED	WOOCOMMERCE	ls_01m6kq2zh9evb81v3xrsb72vt5	pty_01m6kq2zgjepz9ycz8qs9kzk7q	2026-11-04T16:43:16.705700Z		
 nostalgiantiquariato.com	ADDED	WORDPRESS	ls_01m6gr2k7bec5t7jqjgjekfjw0	pty_01m6gr2k6yefgtbrx0mjrvvesh	2026-11-03T13:02:49.365614Z		
 novarinofineart.it	ADDED	WOOCOMMERCE	ls_01m6g64dmve6zv0qbn9egx4sjb	pty_01m6g64dm9ev7v36kwk85hz2an	2026-11-03T12:47:41.020623Z		
+novecentocatania.it	DEFERRED				2026-11-27T00:15:12.733110Z	PRIMARY_SITE_UNAVAILABLE	
+numisleo.it	EXCLUDED				2026-11-26T21:46:12.643324Z	NEW_GOODS_MIX	
+numismaticafelsinea.it	EXCLUDED				2026-11-26T21:46:12.725734Z	NEW_GOODS_MIX	
+numismaticaranieri.it	EXCLUDED				2026-11-27T00:15:12.760168Z	NEW_GOODS_MIX	
+numismaticasperonari.it	EXCLUDED				2026-11-26T23:43:47.232226Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+numismaticavaresina.it	EXCLUDED				2026-11-26T21:46:12.735227Z	NEW_GOODS_MIX	
 oldera.it	DEFERRED				2026-11-03T17:25:36.493788Z	CURRENT_LEGAL_OPERATOR_NOT_CONFIDENTLY_RESOLVED	
 oldhouseantichita.it	ADDED	WIX	ls_01m6kbfz9pesrs5rcpbbdyqnm1	pty_01m6kbfz99e9jaj5kdma4hnz2j	2026-11-04T13:20:39.459759Z		
 oldisgoldantiques.com	ADDED	WOOCOMMERCE	ls_01m6gthaz1ejeaa0bgjn4crrzh	pty_01m6gthay9e4jryj2r9r3dgv2p	2026-11-03T13:45:50.585275Z		
 oldpaintingsonline.com	ADDED	SQUARESPACE_COMMERCE	ls_01m6kbga3vepka0mwhfrhjxdt1	pty_01m6kbga3fewwafdzrzmecfyd6	2026-11-04T13:20:50.891432Z		
 oldtimesrarebooks.com	EXCLUDED				2026-11-02T09:46:27.421192Z		
+oldtoys.it	EXCLUDED				2026-11-27T01:13:13.989782Z	NO_INSPECTABLE_STOCK	
 olimantiquariato.com	DEFERRED				2026-11-03T18:38:56.197989Z		
 olivastampeantiche.com	ADDED	WOOCOMMERCE	ls_01m6h1gatwesjv40gnb04wmeyn	pty_01m6h1gat8eahsfhhj281q1cdg	2026-11-03T15:47:36.860755Z		
+oreficerialupetta.it	EXCLUDED				2026-11-27T01:13:14.099802Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 orsilibri.com	ADDED		ls_01m6dpsggde27bwcb0acbnpgwt	pty_01m6dpsgg1exvtwgbtdp1pbdxd	2026-11-03T20:37:19.522272Z		
 orsiniartelibri.it	ADDED	WORDPRESS	ls_01m6dcvj5becpahvntdrzqygc6	pty_01m6dcvj51e5ktdaycqzfqy8x8	2026-11-02T05:49:01.589989Z		
 orvietoarte.it	ADDED	WORDPRESS	ls_01m6h9ye3teg19pe71c92z67ee	pty_01m6h9ye3bec99ycc3fsvea34r	2026-11-03T18:15:07.430913Z		
@@ -375,7 +527,10 @@ pagettoarte.it	DEFERRED				2026-11-03T16:38:32.697626Z
 paginescolpite.it	DEFERRED				2026-11-03T14:28:56.243310Z	CURRENT_EXACT_LEGAL_OPERATOR_UNCONFIRMED	
 palazzodelbuonsignore.com	DEFERRED				2026-11-04T13:37:44.486875Z		
 palazzotorlo.it	ADDED	ANTICOANTICO	ls_01m6kcgs2wemrtr2kchh0cqn4z	pty_01m6kcgs26e6p8f07tk6yy4ex0	2026-11-04T13:38:34.941443Z		
+paoloantonacci.com	ADDED	ARTLOGIC	ls_01m8cxbxdpe6wv8gtv401qzzps	pty_01m8cxbxdne1xrxcc86pber8y9	2026-11-26T21:49:43.197025Z		
 parino.it	ADDED	WOOCOMMERCE	ls_01m6d0akqfeb9se7qa243k3yze	pty_01m6d0akpwee4rdz1gex5hpsta	2026-11-02T02:10:03.595618Z		
+parvizyar.com	ADDED		ls_01m8d914dfex9vkhhx5gmqjan5	pty_01m8d914dae8naes25pfaa60h2	2026-11-27T01:13:32.565266Z		
+passioneantiqua.com	ADDED		ls_01m8cxcfqyey3t0q3fqwzfj8a1	pty_01m8cxcfqxe8gsgtws1tsea2q8	2026-11-26T21:50:02.008141Z		
 passiperduti.it	DEFERRED				2026-11-02T07:56:21.094243Z		
 pera.it	ADDED		ls_01m6dcvg6dembss0bdaah84m6e	pty_01m6dcvg63ecjs3aq8reprec0b	2026-11-03T20:37:16.174246Z		
 pernici.eu	ADDED	ANTICOANTICO	ls_01m6kf0ycyejerr1r2jq97zaqt	pty_01m6kf0ycqemx8vp9v1trr0gj8	2026-11-04T14:22:21.184555Z		
@@ -385,14 +540,19 @@ pescetta.it	ADDED	WOOCOMMERCE	ls_01m6chzqqpeyxr11df5p50s7q6	pty_01m6chzqq8e2da8t
 phidiasantiques.com	ADDED		ls_01m6kd11x0ewrthf6vrpy4m9mp	pty_01m6kd11wnej2a6984hjjh9zde	2026-11-04T13:47:28.185501Z		
 philobiblon.org	DEFERRED				2026-11-02T10:19:06.765281Z		
 pianosound.it	ADDED		ls_01m6kdhr3jerebaeqanjzw6p98	pty_01m6kdhr36esprtfzkdhk4egxb	2026-11-04T13:56:34.847376Z		
+picarobomboniere.com	EXCLUDED				2026-11-26T23:43:47.290072Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 pigozzofineart.it	ADDED	WORDPRESS	ls_01m6kdj07me0gv7dbyhz414mym	pty_01m6kdj071e779p1ck1fv5rt68	2026-11-04T13:56:43.750639Z		
 piumacciodoro.it	ADDED		ls_01m6crfkwse63samcrp6y1xxfw	pty_01m6crfkwbex4sgqx353161mtm	2026-11-03T20:37:04.978042Z		
+pivaec.it	EXCLUDED				2026-11-26T21:49:18.324232Z	ALIAS_OF_EXISTING_SOURCE	
 polifilo.com	DEFERRED				2026-11-02T04:55:14.306695Z		
+porcinigallery.com	EXCLUDED				2026-11-26T21:46:12.716593Z	NO_INSPECTABLE_ITEM_LEVEL_STOCK	
 portatemporum.com	ADDED	WIX	ls_01m6ke4eykeeqastpm0x5jej9k	pty_01m6ke4ey1ecc8ahq9x04at576	2026-11-04T14:06:48.545378Z		
-portobellocatanzaro.it	ADDED		ls_01m6gsv9syet1rmhfjrye49ed0	pty_01m6gsv9she4vawgr102jb52wa	2026-11-03T20:37:28.223902Z		
+portobellocatanzaro.it	EXCLUDED				2026-11-26T21:56:37.546638Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 portobellomolfetta.com	EXCLUDED				2026-11-03T17:39:17.117733Z	PRIVATE_TO_PRIVATE_BROKERAGE_OUTSIDE_OWN_STOCK_SCOPE	
 portobellorc.com	DEFERRED				2026-11-03T13:32:58.515011Z	EXACT_LEGAL_OPERATOR_UNCONFIRMED	
 portobellousato.jimdoweb.com	DEFERRED				2026-11-03T13:37:49.039714Z	CURRENT_QUALIFYING_STOCK_UNCONFIRMED	
+posterimage.it	ADDED		ls_01m8cxcexnesps4h889vsxp1k3	pty_01m8cxcexmefp85mqr040cm8fn	2026-11-26T21:50:00.783772Z		
+postermania.it	EXCLUDED				2026-11-26T21:46:12.753555Z	NEW_GOODS_MIX	
 pratoantichita.it	ADDED		ls_01m6h45jhbect9kk88101kkant	pty_01m6h45jgyeaese033tqrjnx71	2026-11-03T20:37:32.911341Z		
 preliber.com	ADDED	TYPO3	ls_01m6dxkdb9ea48p28eaphx5qzj	pty_01m6dxkdaseg3t84zj1hbhpz21	2026-11-02T10:41:40.749380Z		
 previtaliarte.com	DEFERRED				2026-11-02T12:47:25.358028Z	NATIVE_SOURCE_AND_LEGAL_OPERATOR_UNRECONCILED	
@@ -400,11 +560,15 @@ principessasissi.com	ADDED		ls_01m6chnkgde8y960451qf5g6m7	pty_01m6chnkfyejptd9t8
 priorfineartgallery.it	ADDED	WORDPRESS	ls_01m6kf0psse4sv6ngtrz4ptj98	pty_01m6kf0psjepeb5ey4zdkmhvf5	2026-11-04T14:22:13.788629Z		
 profumidantico.com	ADDED		ls_01m6grx3r5ej1vnwj7yqhsa6kn	pty_01m6grx3qje30rmgzd744600gd	2026-11-03T20:37:26.820278Z		
 prospero-libri.it	ADDED	VIRTUEMART	ls_01m6d7v11keq7s2k7gfvatzpfm	pty_01m6d7v112e14t885nap48qhxc	2026-11-02T15:17:21.461911Z		
+rachtian.it	ADDED	WOOCOMMERCE	ls_01m8d5vrg0ew89mv49k6sz6sa2	pty_01m8d5vrfzeraajjxrps71ez3v	2026-11-27T00:18:11.519582Z		
 rasoloantichita.com	ADDED		ls_01m6chznj0e9bvp033g704ye1x	pty_01m6chznhgetp8mszvzqv8jwr7	2026-11-03T20:37:01.068916Z		
 rebaldoria.com	DEFERRED				2026-11-01T21:32:44.472830Z		
 redibronzo.it	DEFERRED				2026-11-03T19:13:49.482901Z		
+resiantichitamilano.it	EXCLUDED				2026-11-26T23:43:47.151755Z	NO_INSPECTABLE_STOCK	
+restaurifelici.it	EXCLUDED				2026-11-26T23:43:47.175245Z	NO_INSPECTABLE_STOCK	
 restauriraia.com	DEFERRED				2026-11-01T23:07:03.845587Z		
 restauromobiliguidi.it	DEFERRED				2026-11-02T00:20:25.010164Z		
+reveartgallery.com	ADDED	WORDPRESS	ls_01m8czj6fjemvrhpvyts4hsdqt	pty_01m8czj6fgea7rsfccjg47mfqj	2026-11-26T22:28:05.885806Z	PRICE_ON_REQUEST_RECHECK	
 ricordidelpassato.com	DEFERRED				2026-11-01T22:55:31.041557Z		
 rigatteria.com	ADDED	WORDPRESS	ls_01m6cerq31e1yresgthx4swtzf	pty_01m6cerq2kea290xgvs54v8wzp	2026-11-01T21:03:10.865137Z		
 rigattieremantova.it	DEFERRED				2026-11-03T15:22:58.517243Z	QUALIFYING_CURRENT_HISTORICAL_STOCK_UNCONFIRMED	
@@ -412,154 +576,89 @@ ritatuci.com	ADDED	ANTICOANTICO	ls_01m6hq79bde5mv4gw5bnea126y	pty_01m6hq79axey7s
 rmantichita.com	ADDED		ls_01m6cnwbt6ehns1p6760ncyve2	pty_01m6cnwbste35syfw2yert2p64	2026-11-03T20:37:04.131016Z		
 robertoloriaantiquariato.it	DEFERRED				2026-11-01T20:18:16.452851Z	CURRENT_CATALOGUE_AND_LEGAL_REVIEW_INCOMPLETE	
 romaduearte.it	DEFERRED	ARUBA_SUPERSITE			2026-11-02T13:07:05.471949Z	CURRENT_LEGAL_OPERATOR_AND_AUCTION_SCOPE_UNRECONCILED	
+romanphil.com	EXCLUDED				2026-11-27T01:13:14.162286Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+romigioli.it	EXCLUDED				2026-11-26T21:46:12.655276Z	NO_INSPECTABLE_ONLINE_STOCK	
 rotanodarirestauri.com	DEFERRED				2026-11-03T15:04:08.853639Z	EXACT_CURRENT_OPERATOR_UNCONFIRMED	
+salamongallery.com	ADDED		ls_01m8cxbrsre2m81en7samzfh05	pty_01m8cxbrsmerhvqefc03w2qbcz	2026-11-26T21:49:38.479231Z		
 salottoviennese.it	ADDED	WOOCOMMERCE	ls_01m6gxsmd1eadtrnnp7g092z19	pty_01m6gxsmcme3kssft7pfzjezqp	2026-11-03T14:42:47.692491Z		
 sanseverinonapoli.it	EXCLUDED				2026-11-02T02:24:51.726343Z		
+sba.it	ADDED	WORDPRESS	ls_01m8czj793e94af1e8cgvf5kyv	pty_01m8czj791eaa8a5s5mzxdhtdc	2026-11-26T22:28:07.225451Z	PRICE_ON_REQUEST_RECHECK	
 sbadige.com	ADDED		ls_01m6cm346vejatyfpmbhaadt2a	pty_01m6cm346benb9vxw528j7yrb5	2026-11-03T20:37:03.518818Z		
+scattisparsi-libreria.com	EXCLUDED				2026-11-27T00:15:12.635586Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 schiavetto.com	ADDED	WEBSITE_X5	ls_01m6kg891bebyrdwpkazxjjdf8	pty_01m6kg8910eawswpc281t752bw	2026-11-04T14:43:50.791879Z		
+secolart.com	ADDED	WORDPRESS	ls_01m8cxcj0begbsxf4sffdqycj0	pty_01m8cxcj0begbsxf4sfbfa9p7a	2026-11-26T21:50:03.949193Z		
+segnineltempo.com	ADDED	WOOCOMMERCE	ls_01m8d915ate7v9abeb75hpj62y	pty_01m8d915ape8kbrwfxknqz27dd	2026-11-27T01:13:33.712200Z		
 sgantiques.com	ADDED	WOOCOMMERCE	ls_01m6ccg0phencvcxzh8p2erzw3	pty_01m6ccg0p1e81vs0tq7g4fnre2	2026-11-01T20:23:29.544203Z		
 shipinarte.com	ADDED	WOOCOMMERCE	ls_01m6khhp70eamrt86fy8twny65	pty_01m6khhp6de0xswghvjmvpkw5z	2026-11-04T15:06:27.257223Z		
 shop.antichitagiglio.it	ADDED		ls_01m6cd5th1eeg8dh23rtkedm1n	pty_01m6cd5tgmedmby67y8warada0	2026-11-03T20:36:57.096702Z		antichitagiglio.it
 shop.gallerialestampe.com	ADDED	SHOPIFY	ls_01m6eet76se56951nbenn6mxyr	pty_01m6eet76ee7s9es9n8t5ty4es	2026-11-02T15:42:29.840324Z		
+shop.ipzs.it	EXCLUDED				2026-11-26T23:43:47.299469Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 shop.tuttoantico.it	ADDED	SHOPIFY	ls_01m6kp6349emysfejma57e7gb2	pty_01m6kp633se37a5g2f01pgg0fk	2026-11-04T16:27:30.624400Z		
 sicilianeilibri.eu	DEFERRED				2026-11-03T14:35:18.599717Z	LEGAL_OPERATOR_AND_HISTORICAL_STOCK_UNCONFIRMED	lnx.sicilianeilibri.eu
 silviafranchini.it	ADDED	WOOCOMMERCE	ls_01m6cfc8ececcv8k22fdc789bp	pty_01m6cfc8dsepbvhxenfa3qpk7b	2026-11-01T21:13:51.870412Z		
 simonemarro.com	ADDED		ls_01m6kj1206eab90mtwn65bp35a	pty_01m6kj11zje4ra6ntwxbzh6dkf	2026-11-04T15:14:51.358275Z		simonemarro.it
+simonemarro.eu	EXCLUDED				2026-11-26T21:46:12.762991Z	ALIAS_OF_EXISTING_SOURCE	
 skvintage.it	ADDED	DUDA	ls_01m6h45e7veb7rdx4ynmnab86t	pty_01m6h45e7detvsgyn11sf26504	2026-11-03T16:34:05.936449Z		
-soloartepg.com	ADDED	WORDPRESS	ls_01m6cgh0hhe0tteeky1x2czyex	pty_01m6cgh0gzea3bf5bqm0xjbr38	2026-11-01T21:33:56.293637Z		
+softwareparadiso.it	EXCLUDED				2026-11-27T01:13:14.181743Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+soloartepg.com	EXCLUDED	WORDPRESS			2026-11-26T21:56:36.885113Z	MARKETPLACE_ONLY_STOCK	
+spaziopanaemporiodellusato.it	EXCLUDED				2026-11-27T00:15:12.645115Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+stampaantica.com	DEFERRED				2026-11-26T21:48:17.091667Z	CATALOGUE_ON_BLOCKED_OTHER_DOMAIN	
+stamperiastampeantiche.it	DEFERRED				2026-11-27T01:13:14.247806Z	NEW_GOODS_OWN_PUBLICATIONS_OWNER_DECISION	
 storeonlineshopgest.jimdofree.com	ADDED	JIMDO	ls_01m6cc758fe7wrv0xwtmwvsg06	pty_01m6cc7581e7eaveygj4z1bn4w	2026-11-03T20:36:55.169214Z		ilmobileanticomarket.com;ilmobileantico.com
 studiobenacense.it	ADDED	WOOCOMMERCE	ls_01m6cmhbm9ev1s895c2p99ydat	pty_01m6cmhbkre3b9svnfyprqd4js	2026-11-02T15:17:20.283847Z		
 studiolo.it	ADDED		ls_01m6kjgetdeb7b093a1f8a2345	pty_01m6kjgesxe3wv4m79b5cx7wr1	2026-11-04T15:23:15.401384Z		
 subert.it	ADDED	WORDPRESS	ls_01m6g8dnfpeq2rca48s07zw6c5	pty_01m6g8dnf2eq3tjw00de10zv8z	2026-11-03T08:29:15.076477Z		www.subert.it
 tabernalibraria.it	ADDED	WORDPRESS	ls_01m6dr3c4ve2m9fh79yf8kdgjj	pty_01m6dr3c48ek88ngv3mfwbz2n1	2026-11-02T09:05:32.182350Z		tabernalibraria.com
 tarlodoro.webnode.it	DEFERRED				2026-11-01T21:13:04.564438Z		
+tarlomagno.it	EXCLUDED				2026-11-27T00:15:12.658781Z	NO_INSPECTABLE_STOCK	
+teleartetv.it	EXCLUDED				2026-11-27T01:13:14.014060Z	AUCTION_BUSINESS	
 tempiantichi.com	ADDED	WOOCOMMERCE	ls_01m6kjgqdke5hted8650emy8wq	pty_01m6kjgqcxebsvtx03bd95wg5p	2026-11-04T15:23:24.255749Z		
+theantiquevenicemerchant.com	EXCLUDED				2026-11-27T00:15:12.668171Z	NEW_GOODS_MIX	
 tilacino.com	ADDED	WOOCOMMERCE	ls_01m6cerg76eqatbvzdv2zpvg9z	pty_01m6cerg6rexqvpff4tfctrfc0	2026-11-01T21:03:04.746698Z		
+tomasopiva.com	ADDED	WORDPRESS	ls_01m8cxbw47e0fbsnxcg8reaqkq	pty_01m8cxbw46e8vvsz88c0sdhzvz	2026-11-26T21:49:41.984746Z		
 toninieditore.com	ADDED	SQUARESPACE	ls_01m6dbr0wxevptq4zztc3kanc3	pty_01m6dbr0wgeg1aree98q9qnecy	2026-11-02T05:29:36.713257Z		studiobrunotonini.it
 tordi.com	ADDED	DUDA	ls_01m6h9gwt8e9hv4phewg8dw7z6	pty_01m6h9gwryeg28zznkwk1v3qj9	2026-11-03T18:07:43.681796Z		
+tornabuoniarte.it	EXCLUDED				2026-11-26T22:27:48.624778Z	NO_INSPECTABLE_STOCK	
+torreantichita.it	EXCLUDED				2026-11-27T00:15:12.677535Z	NO_INSPECTABLE_STOCK	
+tortona4arte.com	EXCLUDED				2026-11-26T21:46:12.666592Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+tribalarts.gallery	EXCLUDED				2026-11-26T21:48:17.136039Z	PARKED_DOMAIN_NO_BUSINESS	
 triestemodernariatoeantiquariato.it	ADDED	WOOCOMMERCE	ls_01m6cf1wtpevkbtd6jr8293tyv	pty_01m6cf1wt6ehs827yd8s73f7ya	2026-11-01T21:08:12.186058Z		
 trifoglioarte.it	EXCLUDED	WOOCOMMERCE			2026-11-24T21:24:48.756032Z	CONTEMPORARY_ART	
 trippini.it	ADDED		ls_01m6ddnqgqemxvpey8xfrpvc3h	pty_01m6ddnqgeeg59hzer57dcynr6	2026-11-03T20:37:17.083415Z		
 trodele.com	ADDED	JIMDO	ls_01m6gsera9ea1be82pynt91rmt	pty_01m6gser9tefm9fpw9k1qn03f8	2026-11-03T20:37:27.261336Z		
 trovatutto07.com	DEFERRED				2026-11-01T22:09:42.249044Z		trovatutto7.myshopify.com
 turchiantichita.com	ADDED	WIX	ls_01m6cs0679etfb482t2j9qadk1	pty_01m6cs065xerqbzx4k0t485nch	2026-11-02T00:02:01.899709Z		
+turintime.com	EXCLUDED				2026-11-27T01:13:14.109184Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 twpvintage.com	DEFERRED				2026-11-04T12:50:41.595810Z		
 uomoarte.com	ADDED	WIX	ls_01m6h2x3wpezevvr93sqrwvzcw	pty_01m6h2x3wee9n8pnvbhcarh563	2026-11-03T16:12:04.163649Z		
+vareseantichita.it	ADDED	WOOCOMMERCE	ls_01m8cxcgyxexg99ffm1cx2g7m5	pty_01m8cxcgyvexc8nyccmdw2ha0y	2026-11-26T21:50:03.106292Z		
 vassalloantiquesonline.it	ADDED	SHOPIFY	ls_01m6d0ap3kehgs6jp8r0pt34pn	pty_01m6d0ap2veaxsgdq4a9tb0jkh	2026-11-02T02:10:06.193540Z		vassallo-antiques-centro-restauro.myshopify.com
 vecchia-europa.com	ADDED	WOOCOMMERCE	ls_01m6h4eb76e5etw3eex0y492t7	pty_01m6h4eb6pe80tqxjac47406gc	2026-11-03T16:38:57.745692Z		
 vecchilibri.net	ADDED	SHOPIFY	ls_01m6cmhe5qeagtw5n0xxz0c3e0	pty_01m6cmhe55e2r96zknz5apgdw7	2026-11-02T15:46:03.727573Z		vecchilibri.lol;mpf7ac-vw.myshopify.com
+vecchioebello.it	ADDED		ls_01m8cxbqe5evn8hrcjwgztq70k	pty_01m8cxbqe4e1k915hys7xcah92	2026-11-26T21:49:37.271046Z		
 velonantichita.com	ADDED	SQUARESPACE	ls_01m6crfnjgedabgb5gg1v99wn9	pty_01m6crfnj2ezhsebsp8x2nk3kp	2026-11-01T23:53:00.278216Z		
+venditastampeantiche.com	ADDED	JOOMLA	ls_01m8d43vtdenesxx4js1x98q0x	pty_01m8d43vtbe6dsrv0ffdkff3pb	2026-11-26T23:47:39.369959Z		
+vendoantiquariato.it	DEFERRED				2026-11-27T00:15:35.102485Z	SECOND_STOREFRONT_OF_EXISTING_OPERATOR	
+vendomobiliantichi.it	ADDED	WOOCOMMERCE	ls_01m8d5vx1ae4vbzd5sjskpdpwn	pty_01m8d5vx19ed39ry75646rbsrj	2026-11-27T00:18:15.933686Z		
+venetoantiquariato.com	EXCLUDED				2026-11-26T21:46:12.675867Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
+venicegallery.it	EXCLUDED				2026-11-27T00:15:12.723636Z	CONTEMPORARY_ART	
+veroantico.altervista.org	DEFERRED				2026-11-26T21:46:12.772207Z	LEGAL_IDENTITY_AND_ADDRESS_UNPUBLISHED	
+viaggiandoneltempotorino.it	EXCLUDED				2026-11-27T00:15:12.686753Z	NO_INSPECTABLE_STOCK	
 viaggioneltempo.com	EXCLUDED				2026-11-01T20:35:00.760871Z	OPERATES_AUCTIONS	
 vicodeibolognesi.com	ADDED	WOOCOMMERCE	ls_01m6gwkdwdec59m6gctndxj6e8	pty_01m6gwkdvte5jtcr77ha05572v	2026-11-03T14:21:56.327943Z		
+victorianantiques.it	ADDED	WOOCOMMERCE	ls_01m8d5vye8e49v3xsvyb5zddw0	pty_01m8d5vye7ec68tjreckyrs6w9	2026-11-27T00:18:17.308583Z		
 viezziarte.it	ADDED	WOOCOMMERCE	ls_01m6kk3ykae35r3pfmy70aqb2q	pty_01m6kk3yjseqmr2xc98z2sybh6	2026-11-04T15:33:54.208597Z		
+vintage.antiquarioroma.com	EXCLUDED				2026-11-27T00:15:12.696005Z	OUTSIDE_SPECIALIST_ANTIQUES_SCOPE	
 vintail.it	ADDED	SHOPIFY	ls_01m6e3wt0wewka3zw9z362f45t	pty_01m6e3wt08ekdadnh7y4zt2kbb	2026-11-02T12:31:39.908447Z		
+vipgioielli.com	EXCLUDED				2026-11-26T21:46:12.684938Z	NEW_GOODS_MIX	
+vivioliarteantica.com	DEFERRED				2026-11-26T21:46:12.782783Z	OPERATOR_AND_PREMISES_UNVERIFIED	
+volumnia.space	ADDED	WORDPRESS	ls_01m8czj9j1e9fbngmbexvnhas3	pty_01m8czj9hzebrb9e8zwrwfe5dx	2026-11-26T22:28:09.189815Z	PRICE_ON_REQUEST_RECHECK	
+walterpadovani.com	ADDED	WORDPRESS	ls_01m8cxbsz8e01t72dmpfta7wr0	pty_01m8cxbsz7e1fsrv4kd70tjsvd	2026-11-26T21:49:39.536330Z		
+walterpadovani.it	EXCLUDED				2026-11-26T21:49:18.310968Z	ALIAS_OF_EXISTING_SOURCE	
+whitelands.it	ADDED	WOOCOMMERCE	ls_01m8cxa11wefs83ksmwvx1sn8w	pty_01m8cxa11vekftnmhtcsmg0paw	2026-11-26T21:48:41.085189Z		
 xelqurvani.shop	EXCLUDED				2026-11-01T22:26:35.385481Z	UNTRUSTWORTHY_IDENTITY_COPY	
 zanella-antiquariato.com	ADDED		ls_01m6gsets3ez59bg50a3rykj24	pty_01m6gsetrkefjb3zrfbea513se	2026-11-03T20:37:27.714749Z		
+zanella-arredo.com	EXCLUDED				2026-11-27T00:15:12.705230Z	NO_INSPECTABLE_STOCK	
 zanfrogninibooks.com	ADDED	WORDPRESS	ls_01m6dv4jg3eppvytaws081hcp4	pty_01m6dv4jfpepwt5gxb61kzd4br	2026-11-02T09:58:37.148575Z		
 zennaroantiquariato.it	ADDED		ls_01m6h0a14tejc82tw7f3gsjreb	pty_01m6h0a142efz8eq4shej25gam	2026-11-03T20:37:30.925869Z		
 zogia.it	ADDED	WOOCOMMERCE	ls_01m6cjytrjecxbhzn1crp7s6ak	pty_01m6cjytr3e3rtw23375r9xywv	2026-11-01T22:16:26.443473Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hmneb0eanaxq49cr3y21ap	pty_01m6hmneametzrrphkqygt6vpm	2026-11-03T21:22:27.057570Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kmqzfee2g9cq1ae23kznjn	pty_01m6kmqzeyepp9hc7m56nk7yh6	2026-11-04T16:02:19.047648Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hd4qyzejg8na5sb3ze3b8x	pty_01m6hd4qyjemm8ec5bkbmjqjcf	2026-11-03T20:37:41.745196Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hdj0p9eegbf4s2t5njsssc	pty_01m6hdj0npebk9t1jjnx73rpa9	2026-11-03T20:37:39.373214Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hdsvs3ezkbkefv7cqtnk4n	pty_01m6hdsvrqec2skqmv41ff47gd	2026-11-03T20:37:41.338137Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kmr6w3eq784cdasjvnwx5h	pty_01m6kmr6vqeskt3jcfymzc3339	2026-11-04T16:02:26.538758Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hdsnq8evtvr7v584m4qadw	pty_01m6hdsnpre7dbp1p030kkm2h3	2026-11-03T20:37:38.176853Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hcqyf5e7db5yj1xfbt2ghh	pty_01m6hcqyeqe8y873d1rhhpb07s	2026-11-03T20:37:40.961167Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kmre2nebm807k4t2dkse1c	pty_01m6kmre29e2pshwbv2wnkzk2j	2026-11-04T16:02:33.986325Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hc8dxae8ysb3g8dxmyqzmg	pty_01m6hc8dwveqfty706epd2t9cb	2026-11-03T20:37:39.817675Z		
-proantic.it	ADDED	PROANTIC	ls_01m6knp7cxepc8tqnftemfny81	pty_01m6knp7ceefpv5ck0e5ybey5k	2026-11-04T16:18:50.130484Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hkmz92e3tvnj8x72bn1mxf	pty_01m6hkmz8je5eawbxp4wpa9q6n	2026-11-03T21:04:44.168304Z		
-proantic.it	ADDED	PROANTIC	ls_01m6knce77e4naeqffgbxaj909	pty_01m6knce6gegztajk42dat4ex7	2026-11-04T16:13:30.250749Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6h8nfeceryabeahd2afzcc1	pty_01m6h8nfdveqet85rvkjkke8j7	2026-11-03T20:37:38.585059Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hs5v3te6ysgdgrrvgjh5px	pty_01m6hs5v35etdahq1afrfc4v18	2026-11-03T22:41:18.738463Z		
-anticoantico.com	DEFERRED				2026-11-03T19:43:57.176574Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kncz0xef89nberb23eb94n	pty_01m6kncyq2e27bz5cffgm690cn	2026-11-04T16:13:47.266376Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jyb65res6azwg8bmvfdvtc	pty_01m6jyb65cees9yhggyk0ck0m5	2026-11-04T09:30:51.152430Z		
-proantic.it	DEFERRED				2026-11-04T16:56:09.858155Z	CURRENT_LEGAL_OPERATOR_UNRESOLVED	
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hs5dtmej8a23eeqgf59zcg	pty_01m6hs5dt5egctqyqdjqnx4zqx	2026-11-03T22:41:05.181720Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hmqycqe6qtnqvg7r8aw76q	pty_01m6hmqyc2e4xayfgrhskgjpxm	2026-11-03T21:23:49.135590Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hpxf17e5qvayaq8fragrz8	pty_01m6hpxf0se928h688z8frqe7v	2026-11-03T22:01:47.031703Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hhjy0hebpa8qfhxz1q3sm6	pty_01m6hhjxzzewrb67ajp1kabgsj	2026-11-03T20:37:38.984459Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hqnmy1e349nyp31zmnkf2t	pty_01m6hqnmxke8kvyd0ycqsxrntg	2026-11-03T22:14:59.553835Z		
-proantic.it	DEFERRED				2026-11-04T16:33:12.181407Z	CURRENT_LEGAL_OPERATOR_RELATIONSHIP_UNRESOLVED	
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hqrnjre14tnkvd5xfhzhr1	pty_01m6hqrnj3edm9wa6pnhzwr46a	2026-11-03T22:17:56.301522+00:00		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hr1ncnet7av0h4k9145egs	pty_01m6hr1nc1e158nsrceprfck7a	2026-11-03T22:21:33.270775Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hr45c5em49f3hd9zj7q3pa	pty_01m6hr45bpekw9j8rwj2p6z6kf	2026-11-03T22:22:55.187185Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hrn0jfegnbagv4r579np37	pty_01m6hrn0hzeefs82zq1pfxgadh	2026-11-03T22:32:07.533103Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hrph9reyb92h774q7c2x4j	pty_01m6hrph9feka9gz8kdgtdk0xw	2026-11-03T22:32:57.008299Z		
-proantic.it	DEFERRED				2026-11-04T17:15:00.795159Z	CURRENT_INSPECTABLE_OWN_STOCK_UNRESOLVED	
-proantic.it	DEFERRED				2026-11-04T17:15:00.795159Z	CURRENT_LEGAL_OPERATOR_UNRESOLVED	
-proantic.it	ADDED	PROANTIC	ls_01m6krywvge389p4az58zxq569	pty_01m6krywtvevzsz04reqj4p1x2	2026-11-04T17:16:00.362520Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kncphdef080qyebjt1frn9	pty_01m6kncpgrejsaxaz7wxwbkqp2	2026-11-04T16:13:38.220405Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hsqz1gegsbdc1rd09h2n3b	pty_01m6hsqz0ze5q806evsr8ngke8	2026-11-03T22:51:12.599392Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jsnqc6exrbbeqdak6ne4jf	pty_01m6jsnqc0exqthkj47cvtnt3a	2026-11-04T08:09:13.487964Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jsnxb1ek3b5xetddxdvm76	pty_01m6jsnxape8q8f7hn5mxw51m7	2026-11-04T08:09:19.601784Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jsp39zejps0t3nxby4tz9n	pty_01m6jsp39qeq5ssyv6zwcmgcvb	2026-11-04T08:09:25.725892Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kse0d3ekwt91js9rmgqavg	pty_01m6kse0cveaq9skrm6endg09e	2026-11-04T17:24:15.037650Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k7351rektbw4mj8z1f3sgt	pty_01m6k73517eatt0t0gq2v5g50b	2026-11-04T12:03:45.143423Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jt2hczekzt702g2v7tmqe1	pty_01m6jt2hcpe62ve6d96gm4swef	2026-11-04T08:16:13.840434Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jtggr8e029es1cjc5t7r6m	pty_01m6jtggqwe188vj628zwxq9yf	2026-11-04T08:23:51.562206Z		
-anticoantico.com	DEFERRED				2026-11-04T08:22:55.774021Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6jv1b11ebmsz5wz1tx599a4	pty_01m6jv1b0ge7tvvpwzbhymk3ry	2026-11-04T08:33:02.845350Z		
-anticoantico.com	DEFERRED				2026-11-04T08:31:15.719225Z		
-anticoantico.com	DEFERRED				2026-11-04T08:46:38.678044Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k7q23yeartgzngk2448v9p	pty_01m6k7q23me06b2s9ej48zkzd1	2026-11-04T12:14:37.462369Z		
-proantic.it	ADDED	PROANTIC	ls_01m6knpegve3stm20q6y3a01ac	pty_01m6knpeg8em2s7sfr2tq92z13	2026-11-04T16:18:57.458745Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kqwac5e55s3rfvydvvt5c7	pty_01m6kqwabne9vr1r56v00hk1cp	2026-11-04T16:57:07.079847Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k01jsned1b9j71ktjrkc22	pty_01m6k01js5e4frnqvxy6t1ds2v	2026-11-04T10:00:34.169158Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hsqqw2e8vssjpcrps9x3pk	pty_01m6hsqqtye409pqffmp6tsfh7	2026-11-03T22:51:05.805295Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k0g79ee81baf3n72x6nt4j	pty_01m6k0g790enp9e9pxwgh4xqjy	2026-11-04T10:08:33.325205Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hs61bqe6ntkqef8czg0ec4	pty_01m6hs61b7ee39fkp07s238tgy	2026-11-03T22:41:25.178136Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k0x2w7emk86z8h3bzhqbjm	pty_01m6k0x2vrewhr4pm8qgnn2t7a	2026-11-04T10:15:34.697971Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kqwjbze86tkqmhxn8srg8t	pty_01m6kqwjbheprs5d9600110tbj	2026-11-04T16:57:15.271239Z		
-anticoantico.com	DEFERRED				2026-11-04T10:22:34.626434Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k25954ep6sj58c1rxh1wwf	pty_01m6k2594kekfah8pk4d96cssx	2026-11-04T10:37:31.995701Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k25g16e31shmawdkr863d8	pty_01m6k25g0tezztfc40gp4rzes1	2026-11-04T10:37:38.987854Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k37ebpe26t5vzkyrzrbp6h	pty_01m6k37eb9ejhrr87mgfw03dx2	2026-11-04T10:56:11.389970Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k37n5dew5vqbc5ewpz9kht	pty_01m6k37n50esxvenxnfah5v2sa	2026-11-04T10:56:18.378958Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hegeb7e0mr0jn8v68r24yt	pty_01m6hegeateqkr216vn2szwhjw	2026-11-03T20:37:42.314640Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k4k9f5ex08hf6w3kphd56b	pty_01m6k4k9erepfsjd1fs3s20qr3	2026-11-04T11:20:08.225054Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hjkf3peq4rnkq90pz3xe65	pty_01m6hjkf2wevkb6d5exajk58qt	2026-11-03T20:46:25.366225Z		
-anticoantico.com	DEFERRED				2026-11-04T11:31:02.245505Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k58p76efpr84nyx5ga3srq	pty_01m6k58p6re8ea6e3wanpwbqkv	2026-11-04T11:31:49.239887Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kp6mpgetdvp4mcz3mhhexh	pty_01m6kp6mp2eacs48x7vpnr3y5j	2026-11-04T16:27:48.036229Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k58x3neepb0019kmgjjzeb	pty_01m6k58x3bef2vyqpe4w6s1b5g	2026-11-04T11:31:56.349481Z		
-anticoantico.com	DEFERRED				2026-11-04T11:36:25.470173Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k5hy73et5spq4av6f7f3w6	pty_01m6k5hy6de5p8mjxvrtbdvppk	2026-11-04T11:36:52.618260Z		
-proantic.it	ADDED	PROANTIC	ls_01m6km13x6egg839rm4j20zdts	pty_01m6km13wmer8b9zm79rmhb7ds	2026-11-04T15:49:49.948408Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k61p0seaft2xa9zk8a1kh6	pty_01m6k61p01ex2r7c33p41kafbk	2026-11-04T11:45:27.839500Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k6ms8ke8gbn18n87t8bt5v	pty_01m6k6ms89e03bwy8xv4qakmxe	2026-11-04T11:55:54.183534Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k6n037e0mb4n3hgx5edtmn	pty_01m6k6n02xe13acc2806r8yavj	2026-11-04T11:56:01.441069Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k72xpdevrtykx9j7jmc7ww	pty_01m6k72xnveadt4jfn3q5639cj	2026-11-04T12:03:37.611687Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hegmhwe3n85p6yk0mg3ae9	pty_01m6hegmhges7b452crb7h9v9e	2026-11-03T20:37:40.352388Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k8wc2pe8vrgbv6akswy1fx	pty_01m6k8wc26eyzsctvv9mtk8bm9	2026-11-04T12:35:00.221710Z		
-anticoantico.com	DEFERRED				2026-11-04T11:14:59.361099Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k97ndre3kazesz1xfy115s	pty_01m6k97ndbe0avc2wcxznwfc7v	2026-11-04T12:41:10.608960Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k97x3re5vvzty4dca1mqfy	pty_01m6k97x35e31rv81cns9ha6xd	2026-11-04T12:41:18.395792Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k984rgej0tgmq50hfgv2nc	pty_01m6k984r0ey08sb1yhdrt524y	2026-11-04T12:41:25.709661Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k9ht42eh9an038tmpgsc0q	pty_01m6k9ht3keee9zptyeb60hvpw	2026-11-04T12:46:42.754825Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k9j20qefg9h7sazhc409e1	pty_01m6k9j209ewzt0tq2k4vcy1ew	2026-11-04T12:46:50.650641Z		
-proantic.it	ADDED	PROANTIC	ls_01m6kphasgepxb741a3y6gs3yy	pty_01m6kpharne82rd1n8fye84y5a	2026-11-04T16:33:38.416176Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k9w03aewmrc8qbmt2m5m6b	pty_01m6k9w024eagr2zftzcppsptn	2026-11-04T12:52:16.527678Z		
-proantic.com	ADDED	PROANTIC	ls_01m6jybcexeq3b0kgxz898153r	pty_01m6jybceheagt80zmax0e74vb	2026-11-04T09:30:57.601593Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6k0x9f4e6qsbzzxky9zkdwd	pty_01m6k0x9evew2ven9c5rrkgyh5	2026-11-04T10:15:41.420866Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kaaq89evb9cxskr44jb471	pty_01m6kaaq7seg9vbta1f6ycb3k5	2026-11-04T13:00:19.423212Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kg8h2de61r4x5aj2xhz43a	pty_01m6kg8h24edhv4rm6asq93pzd	2026-11-04T14:43:58.860660Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hqpmszefcb2kz1nxtkjptq	pty_01m6hqpmsee08sskvnmf3f3tfb	2026-11-03T22:15:32.099713Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kardateax8x0q3m1hraebm	pty_01m6kardaee3grvdr0m8adncjy	2026-11-04T13:07:47.470182Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hqa1hseyasx2zt4ynsrrm3	pty_01m6hqa1h9ehgshwcdxjzsrehd	2026-11-03T22:08:39.288496Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hr3dsce15r19j04pfbtxj7	pty_01m6hr3drye2f9fafamf5rd9h4	2026-11-03T22:22:31.046627Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hq85eqegj8kfj031kkqbse	pty_01m6hq85e8e4psq8msa5md6qhr	2026-11-03T22:07:37.717528Z		
-anticoantico.com	DEFERRED				2026-11-04T13:46:51.472905Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kdj8mae75r17t1de5n2khh	pty_01m6kdj8kyeaps8me8thje8kcm	2026-11-04T13:56:51.738548Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6ke4qz0ejqan06x51cwgxms	pty_01m6ke4qykemga9qxj7ccpyam5	2026-11-04T14:06:57.213568Z		
-anticoantico.com	DEFERRED				2026-11-04T14:42:00.684724Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6khhxyxe89rzvx3tyvfxnqk	pty_01m6khhxyde5gs48wg10nj3w7q	2026-11-04T15:06:35.131377Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6khj5r6ekn9keysf3e2ggxd	pty_01m6khj5qqenqs57cp3e5b2xjj	2026-11-04T15:06:43.311569Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kj19z9eads7s89w8q9s6qp	pty_01m6kj19yse8jv64v7z7ks05bf	2026-11-04T15:14:58.937791Z		
-anticoantico.com	DEFERRED				2026-11-04T15:14:23.669320Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kjh08recm99phfjgs6ez0s	pty_01m6kjh085e0m9vcrksb930h4g	2026-11-04T15:23:33.344537Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6hs5me0etb92fstdznajx4f	pty_01m6hs5mdherb8b5paaybchywh	2026-11-03T22:41:12.097245Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6kk46edeadahxxcmrhddb2f	pty_01m6kk46drey2sjx44pec00ckb	2026-11-04T15:34:02.245628Z		
-anticoantico.com	ADDED	ANTICOANTICO	ls_01m6km0vwdec0rzbb4mh8418z3	pty_01m6km0vw0e0mbxq5mwq30sek0	2026-11-04T15:49:41.765768Z		

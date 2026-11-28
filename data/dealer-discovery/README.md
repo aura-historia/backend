@@ -7,10 +7,11 @@ explain the onboarding operations. Discovery order is Germany → Central Europe
 rest of Europe → US → Canada; suitable incidental finds elsewhere are welcome.
 
 Add independent dealers, with first-party evidence and assessed confidence above 95%
-for every imported fact. Exclude marketplaces, all auction businesses and contemporary-art
-businesses (galleries of living artists, artists selling their own work, shops for new
+for every imported fact. Exclude marketplaces, businesses that mainly are auctions (a dealer
+with an own fixed-price shop and auctions on the side stays eligible, see the skill) and
+contemporary-art businesses (galleries of living artists, artists selling their own work, shops for new
 prints, editions or decor art; `EXCLUDED` with reason code `CONTEMPORARY_ART`, see the
-skill for the line). Historical militaria alone is not disqualifying. Do not contact
+skill for the line). Stock must be predominantly (more than half) antique or vintage (before about 1970), and a catalogue of 300,000 or more product listings is not onboarded (such dealers become partners later; `CATALOGUE_TOO_LARGE_PARTNER_CANDIDATE`), see the skill. Historical militaria alone is not disqualifying. Do not contact
 merchants or create partnerships.
 **Leave ingestion methods empty. Identify platform technology independently**, preferring
 the commerce platform over its underlying CMS. Unknown platform remains absent.

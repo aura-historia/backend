@@ -1,0 +1,20 @@
+domain	country	what the review found	decision
+stugalove.de	DE	Vintage furniture; a top-level 'Contemporary Art' page shows one living Bremen artist, no priced items	kept: trivial share
+vsnc.ch	CH	Vintage design shop; Kunst+Bilder ~8-12% of 227 items, about half post-1945, plus a living-artist page; no new goods	kept: judgement call, remove if you want strictly <=5%
+fichterart.de	DE	1650-1900 art on paper; ~78 own newly printed catalogues (books) and ~58 works of one living artist (~4-9% together)	kept: ancillary catalogues
+kult-und-krempel.de	DE	Antiques and house clearance; shop widget is JavaScript-only, stock could not be inspected (moderate confidence)	kept: not provable
+antike-wohntraeume24.de	DE	Genuine antique furniture; dedicated category with 3 furniture-care products and 1 declared replica table (~3%)	kept: trivial share
+jungi.com	CH	Art Deco originals gallery; separate domain artdeco-reedition.com sells made-to-measure new Art Deco furniture; 2 of 7 jukeboxes new/limited	kept: new goods live on another domain
+katharina-vintage.com	DE	Second-hand fashion/bags of the 1960s-early 2000s (mostly 80s/90s/Y2K); no new goods	kept: vintage clothing - your scope call
+nikonclassics-michalke.de	DE	Used classic (analog) camera gear	kept: used collectible cameras - your scope call
+porzellan-porcelain.de	DE	Used Meissen porcelain (§25a); most sampled pieces are modern production	kept: used modern porcelain - your scope call
+classiccoinsshop.ch	CH	Ancient/medieval coin specialist (2,287 items); ~5-10% coins minted after 2000, mint sets, silver bars	kept: at threshold
+swisswatches-andmore.com	CH	Watch-parts specialist; 176 NOS quartz movements (~13%) plus brand promo items	kept: NOS counted as old stock - your call
+retro-magazines.ch	CH	Gift service selling original used newspapers by date; no browsable catalogue	kept: not provable
+antikhalledresden.de	DE	Old-furniture hall, image-only catalogue; clearance service 'Antik bis Trödel'	kept: not provable
+lamers-hannover.de	DE	Antiques/coins/jewellery dealer; single sentence mentions auctioning house-clearance finds, no auction found	kept: no catalogue online
+historische-tueren.de	DE	Salvaged doors; only a commented-out 2019 auction notice	kept
+uhreneder.de	DE	Watchmaker/dealer; ~6% pre-owned post-2000 watches (added in the treg round)	kept: at threshold
+koerbertoys.com	DE	Vintage toys; ~2% repro spare parts (added)	kept: trivial share
+silbersuite.de	DE	Silver dealer; one unused handmade carafe pair (added)	kept: trivial share
+hanseatischer-wertsachen-handel.de	DE	Own shop fixed-price; eBay/Kleinanzeigen channels not checked for auction format (added)	kept: unverified channels

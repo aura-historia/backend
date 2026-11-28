@@ -27,9 +27,21 @@ buying data subscriptions or changing backend runtime code.
 ## Qualification and evidence
 
 - Include independent businesses selling genuine antiques, vintage, art or design
-  from their own stock. Exclude marketplaces, auctions, auction houses and platforms,
-  including businesses that also operate an auction house. Historical militaria alone
-  is not an exclusion. Exclude contemporary-art businesses (decided 2026-11-24): galleries
+  from their own stock. Exclude marketplaces and businesses that mainly are auctions
+  (decided 2026-11-26): auction houses and auctioneer-led operations, auction platforms,
+  auction brokerage, sellers whose stock is offered mainly in auction format, and a shop
+  that is only the retail corner of an auction house. A dealer who sells its own stock at
+  fixed prices through an own inspectable shop stays eligible when auctions are only a side
+  activity (occasional own auctions, an auction channel next to the shop, a sister auction
+  company with its own site, an auctioneer licence); record that activity in the basis. When
+  first-party pages cannot show which side applies, defer instead of guessing. Historical
+  militaria alone is not an exclusion. The stock must be predominantly (more than half)
+  antique or vintage, meaning made before about 1970 (decided 2026-11-26): general used goods,
+  used modern books and nostalgia items from the 1970s onward do not qualify even when part of
+  the stock is old; record `OUTSIDE_SPECIALIST_ANTIQUES_SCOPE`. Do not onboard a business whose
+  catalogue holds 300,000 or more product listings (decided 2026-11-26): such very large
+  catalogues become partners later; record `EXCLUDED` with `CATALOGUE_TOO_LARGE_PARTNER_CANDIDATE`
+  and the estimated size. Exclude contemporary-art businesses (decided 2026-11-24): galleries
   and dealers whose stock is mainly works by living or recently active artists (roughly
   post-1970), artists or studios selling their own current work, and shops selling new
   prints, editions, reproductions or decorative wall art. Judge by stock, not by

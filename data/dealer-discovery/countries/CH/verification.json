@@ -1,28 +1,28 @@
 {
-  "run": "2026-11-25-removal-refresh",
-  "verifiedAt": "2026-11-25T08:38:11.431503Z",
-  "scope": "FULL",
+  "run": "2026-11-26-dach-par-ch-coverage",
+  "verifiedAt": "2026-11-26T20:13:21.832431Z",
+  "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-25T08:38:11.431503Z",
-  "dealersCheckedThisRun": 211,
-  "dealersReused": 0,
+  "fullVerifiedAt": "2026-11-25T20:46:49.690103Z",
+  "dealersCheckedThisRun": 5,
+  "dealersReused": 227,
   "counts": {
-    "parties": 207,
-    "listingSources": 211,
-    "locations": 247,
-    "logos": 155,
-    "identifiedPlatforms": 165,
-    "deliveryProfiles": 117,
-    "emptyIngestionMethods": 2,
-    "ingestionConfigured": 209,
-    "excluded": 121,
-    "deferred": 326
+    "parties": 228,
+    "listingSources": 232,
+    "locations": 270,
+    "logos": 165,
+    "identifiedPlatforms": 183,
+    "deliveryProfiles": 135,
+    "emptyIngestionMethods": 52,
+    "ingestionConfigured": 180,
+    "excluded": 541,
+    "deferred": 154
   },
   "environmentCounts": {
-    "parties": 4428,
-    "listingSources": 4465
+    "parties": 4504,
+    "listingSources": 4547
   },
-  "paidDataSpendUsd": 0.0,
+  "paidDataSpendUsd": 1.12,
   "checks": [
     "Live managed Party contacts and ownership match reviewed evidence",
     "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
@@ -43,7 +43,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.228665Z",
+      "verifiedAt": "2026-11-25T20:46:28.562292Z",
       "observationDigest": "65fbcd303cc291dfc2d3c7b0b721a1de7f0d0544e86a76f768aa327e0a1c5e42"
     },
     {
@@ -58,7 +58,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.225848Z",
+      "verifiedAt": "2026-11-25T20:46:28.551637Z",
       "observationDigest": "1b1d99ced1f6c332db746e8d610755b4ab3be96973953cd53718024656e5e818"
     },
     {
@@ -73,7 +73,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.149629Z",
+      "verifiedAt": "2026-11-25T20:46:28.494320Z",
       "observationDigest": "0a29802b399bc8f96bbae5614e82dfe0b4cce1289a7433890e1d92f23fe8bfc8"
     },
     {
@@ -88,7 +88,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.484028Z",
+      "verifiedAt": "2026-11-25T20:46:28.769664Z",
       "observationDigest": "2b533c84095cb0712752bcc963cfc5f20360a0ef3480e70e7d1ea1e5d7cca403"
     },
     {
@@ -103,7 +103,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.577687Z",
+      "verifiedAt": "2026-11-25T20:46:28.794146Z",
       "observationDigest": "3ee227ed94f23b8fc8c21a35c1d54739f1798fbad384eb7792f74fb921cb8cdb"
     },
     {
@@ -118,7 +118,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.528701Z",
+      "verifiedAt": "2026-11-25T20:46:28.776946Z",
       "observationDigest": "5d141812611c5effdb5830a83cafde1ea78040b962f0ecedd02593951e5240c0"
     },
     {
@@ -133,7 +133,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.761859Z",
+      "verifiedAt": "2026-11-25T20:46:28.972627Z",
       "observationDigest": "cd50fadd0303c7af4f832e5c4fcb2f12b673d4a60827cc39a51404e097ff3345"
     },
     {
@@ -148,8 +148,34 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.805426Z",
+      "verifiedAt": "2026-11-25T20:46:28.980991Z",
       "observationDigest": "f0ccf5c7c707ce39e851a0a146431ba11fcf5d0adc9560bd2ae52cc8901ff1c1"
+    },
+    {
+      "domain": "neuffer-antiquites.ch",
+      "listingSourceId": "ls_01m89mptt5e7aasca15dqmwjvt",
+      "partyId": "pty_01m89mptt2e4vtp4rxa6kg4zg4",
+      "locations": 1,
+      "logo": false,
+      "platform": "JIMDO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:28.993834Z",
+      "observationDigest": "c571f6d536447949a14de9f0194abcd166a40b27b5a441020c3c61363f0fec23"
+    },
+    {
+      "domain": "cahn.ch",
+      "listingSourceId": "ls_01m8c83y33e69bapwm1xk7pqsq",
+      "partyId": "pty_01m8c83y2xekpsvz81mn88xa2p",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T16:05:54.007077Z",
+      "observationDigest": "760dff147d58b2e428d43cc122c517bce937dee55846428ecff037c0e3e5d616"
     },
     {
       "domain": "maisonpapon.ch",
@@ -163,7 +189,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:50.901513Z",
+      "verifiedAt": "2026-11-25T20:46:29.264782Z",
       "observationDigest": "9485055ea5dfab05e988eb852f5ef288fec5fa36b7471475122ec947ad803db7"
     },
     {
@@ -178,7 +204,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.038669Z",
+      "verifiedAt": "2026-11-25T20:46:29.208466Z",
       "observationDigest": "eca76e6cdc6d572d8e82f0a8c47200a390d560d0e5389d5d9d82e07245db1219"
     },
     {
@@ -193,7 +219,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.078361Z",
+      "verifiedAt": "2026-11-25T20:46:29.231782Z",
       "observationDigest": "6fe88343358a638112d312151a6854a9d1a8810c5ca4875034f02a105548f161"
     },
     {
@@ -208,7 +234,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.174710Z",
+      "verifiedAt": "2026-11-25T20:46:29.445413Z",
       "observationDigest": "6ee933db9cf0ad0bdc60e57a8a5df26c550c6ff4e554b68a28fa7e539fbaa18d"
     },
     {
@@ -223,7 +249,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.314829Z",
+      "verifiedAt": "2026-11-25T20:46:29.477999Z",
       "observationDigest": "0dca2f486077df687ba2ff4cb8143d5868c960ca723d8369f30011694bc2e896"
     },
     {
@@ -238,7 +264,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.404839Z",
+      "verifiedAt": "2026-11-25T20:46:29.543145Z",
       "observationDigest": "ed5a60033fae3d7af2fccb1a71762e79fdc77086cc19340a5bdc7f93d866ab5d"
     },
     {
@@ -253,7 +279,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.441667Z",
+      "verifiedAt": "2026-11-25T20:46:29.667896Z",
       "observationDigest": "414f5fa15da423526b56b4e7402a87a722fa8cda34ebc5712c29c0b278adaa3b"
     },
     {
@@ -268,7 +294,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.587937Z",
+      "verifiedAt": "2026-11-25T20:46:29.693933Z",
       "observationDigest": "ce5c947234d82b8d69cb6084df10cbc838ed3b94f5040505dfe865a1cbfa7e3e"
     },
     {
@@ -283,7 +309,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.679191Z",
+      "verifiedAt": "2026-11-25T20:46:29.757340Z",
       "observationDigest": "66ffaa6ccb5f715e15054a8cfedd91e37c04ba4d52166de6121722f8621e8560"
     },
     {
@@ -298,7 +324,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.718789Z",
+      "verifiedAt": "2026-11-25T20:46:29.871175Z",
       "observationDigest": "947601d68b0ff2f1509eb4cceec114716c6784c0838478b3e4b42b0fd894b0fb"
     },
     {
@@ -313,7 +339,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.861002Z",
+      "verifiedAt": "2026-11-25T20:46:29.898598Z",
       "observationDigest": "d54f52e333282cd0097fa423cd55a5fd1b631c015b023fb52df1c679dc4f4eb6"
     },
     {
@@ -328,7 +354,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:51.961277Z",
+      "verifiedAt": "2026-11-25T20:46:29.972902Z",
       "observationDigest": "1e40346d0dcd4e659736842a386472a2b39284af64bbec68571a0ac494782db2"
     },
     {
@@ -343,7 +369,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.022652Z",
+      "verifiedAt": "2026-11-25T20:46:30.125276Z",
       "observationDigest": "bf9366a116e96939a62a61581e1c9cb9c2534d3165c4028035cd8766b7739352"
     },
     {
@@ -358,7 +384,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.181749Z",
+      "verifiedAt": "2026-11-25T20:46:30.191551Z",
       "observationDigest": "3ec1f87c01a8e61c0c5dad9e03030b76452131763e934f5b20f1a63bca5913c5"
     },
     {
@@ -373,7 +399,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.287907Z",
+      "verifiedAt": "2026-11-25T20:46:30.264415Z",
       "observationDigest": "3628d55bd8611de444b7ba7b57d9081c5971220a153b6a15bd53bd34557958df"
     },
     {
@@ -388,7 +414,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.272184Z",
+      "verifiedAt": "2026-11-25T20:46:30.342137Z",
       "observationDigest": "206bebe0b07dfe0a7e0f84869918ac444845c97a064b45e2b8c7d91dc4a1867e"
     },
     {
@@ -403,7 +429,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.503248Z",
+      "verifiedAt": "2026-11-25T20:46:30.433402Z",
       "observationDigest": "05887032d02683249ed53192bff24055531d1514146a80eba4f5e2b5f2fb8d3f"
     },
     {
@@ -418,8 +444,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.545816Z",
+      "verifiedAt": "2026-11-25T20:46:30.478254Z",
       "observationDigest": "c042891068ed08aed98bede5d4a0a0aed4c9a3329900cdb11f2c6ea42f959dcd"
+    },
+    {
+      "domain": "antiquariat-libelle.ch",
+      "listingSourceId": "ls_01m89m67e8evsaww1pcy2srzr0",
+      "partyId": "pty_01m89m67e6enxa5gfzz5caxmex",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:30.590802Z",
+      "observationDigest": "846059c0bb7a318b74332b453c4af98babdad1128a81636cc0a767da456b58e7"
     },
     {
       "domain": "guenther-rarebooks.com",
@@ -433,23 +472,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.598299Z",
+      "verifiedAt": "2026-11-25T20:46:30.665897Z",
       "observationDigest": "89d9a42d326bc8d07355e1f1d22b484152ff934874a5d30508005175daab3953"
-    },
-    {
-      "domain": "amrein-antiquitaten-kunst.webnode.page",
-      "listingSourceId": "ls_01m6ggcmdeeh8r5e2ygen6802q",
-      "partyId": "pty_01m6ggcmd7ee1rxjns4jxq3jjw",
-      "locations": 1,
-      "logo": false,
-      "platform": "WEBNODE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.828409Z",
-      "observationDigest": "f7a0daeb6210e9337e45d3b61c6c61b6cafa8b32516def365c1bae12ac726036"
     },
     {
       "domain": "retrovare.ch",
@@ -463,7 +487,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.864443Z",
+      "verifiedAt": "2026-11-25T20:46:30.853471Z",
       "observationDigest": "4526e31cb2192b14c2c310725ef2d3ea0053e6bcfc28f9d367a727f9ff461f73"
     },
     {
@@ -478,23 +502,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:52.870176Z",
+      "verifiedAt": "2026-11-25T20:46:30.878057Z",
       "observationDigest": "1f78f92c9c9c1823db146997bbe1c89c2cd1b4cb2a5f3e5431b8c93d962ff0a6"
-    },
-    {
-      "domain": "dierking.ch",
-      "listingSourceId": "ls_01m6gh6bxde79tq9pmv5sbtdwy",
-      "partyId": "pty_01m6gh6bwter19c9qa0fyjpenh",
-      "locations": 1,
-      "logo": true,
-      "platform": "TYPO3",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.095217Z",
-      "observationDigest": "c980d2d8b55eca28af443ebae83f740f918a55b4dac906e1da696a1b1a80ac0a"
     },
     {
       "domain": "perlerofen.ch",
@@ -508,7 +517,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.135463Z",
+      "verifiedAt": "2026-11-25T20:46:31.076582Z",
       "observationDigest": "5e4a26d1d3c0ddad493c4a6143ba075c2435b2bddbb007bf602e46db9932dd00"
     },
     {
@@ -523,7 +532,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.138811Z",
+      "verifiedAt": "2026-11-25T20:46:31.096700Z",
       "observationDigest": "6263579acd123783c9f3d73423457b3623ab3112369826c1be16f226a42f6a12"
     },
     {
@@ -538,7 +547,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.373401Z",
+      "verifiedAt": "2026-11-25T20:46:31.160285Z",
       "observationDigest": "dc80d73b809cfdaddfe98f4f209cc2a61be9fbce5366b69725249e5b999be3e1"
     },
     {
@@ -553,7 +562,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.413393Z",
+      "verifiedAt": "2026-11-25T20:46:31.276885Z",
       "observationDigest": "d7f9252c143f655decde49a8e4fa95d3253bbd284448277d192e61627657a527"
     },
     {
@@ -568,7 +577,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.415215Z",
+      "verifiedAt": "2026-11-25T20:46:31.298930Z",
       "observationDigest": "b2e642c698cf5120478bce45eca08099d6cb08c04bc2d47c2b24729ce774eba5"
     },
     {
@@ -583,7 +592,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.790758Z",
+      "verifiedAt": "2026-11-25T20:46:31.486161Z",
       "observationDigest": "5bbd94383352fcf53241383a45311dff250ff9fa1893583644605cd9528754e8"
     },
     {
@@ -598,7 +607,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.783821Z",
+      "verifiedAt": "2026-11-25T20:46:31.580055Z",
       "observationDigest": "3b1c2843e255bf6973c5da2514c17a80b9ac7307e5397b1bf554d8c06bd934ec"
     },
     {
@@ -613,7 +622,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:53.688906Z",
+      "verifiedAt": "2026-11-25T20:46:31.509700Z",
       "observationDigest": "38e3c76b55b58a49107dc3a5df0d8e6ba5a03e9882a38df7a0e155b66518af86"
     },
     {
@@ -628,7 +637,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.008604Z",
+      "verifiedAt": "2026-11-25T20:46:31.726068Z",
       "observationDigest": "457c848171c0d896b7ad8ae45848ce153f5c4e8a20ec394dff15d1908f74dc05"
     },
     {
@@ -643,7 +652,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.057447Z",
+      "verifiedAt": "2026-11-25T20:46:31.721863Z",
       "observationDigest": "7d6abcb00d342c3e448554c96186051eb0ff33346de460ccd45e1c2d3f75d02b"
     },
     {
@@ -658,7 +667,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.062569Z",
+      "verifiedAt": "2026-11-25T20:46:31.787392Z",
       "observationDigest": "f6d27ad4d87e959d1baa82fb9e996c9ede7877e1ae7ea23e5dd5f291b4cf3ec4"
     },
     {
@@ -673,7 +682,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.343280Z",
+      "verifiedAt": "2026-11-25T20:46:31.973196Z",
       "observationDigest": "acca10662f0ab4e6316d0a3b0193c27e9bb0764e59759a14cb8543c62ade81cc"
     },
     {
@@ -688,7 +697,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.390689Z",
+      "verifiedAt": "2026-11-25T20:46:31.982599Z",
       "observationDigest": "25ff6d177047195dafc8163cdd84ba04e587ac425637a16d4b9ebb59951b9b34"
     },
     {
@@ -703,7 +712,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.338974Z",
+      "verifiedAt": "2026-11-25T20:46:31.997883Z",
       "observationDigest": "4100f62342fbb8a53d98e392550f2defa5810eb22f0f32acf20816cb130ebef9"
     },
     {
@@ -718,7 +727,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.612162Z",
+      "verifiedAt": "2026-11-25T20:46:32.181927Z",
       "observationDigest": "de19340fa9bf8085a445f4dd669b36dd07abd2eb5ec3268759650ab4d11805a5"
     },
     {
@@ -733,7 +742,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.614611Z",
+      "verifiedAt": "2026-11-25T20:46:32.184828Z",
       "observationDigest": "8a241bae3bfe6d4105ae58dec28e829718873793dcc2f63f9a27a5411bc4643f"
     },
     {
@@ -748,7 +757,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.712444Z",
+      "verifiedAt": "2026-11-25T20:46:32.241404Z",
       "observationDigest": "13490b0b68ce858dbc0aba4bb0e24f71d84afac5a8e9fe69fafe0223f603ae66"
     },
     {
@@ -763,7 +772,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.897771Z",
+      "verifiedAt": "2026-11-25T20:46:32.394854Z",
       "observationDigest": "8b0bb9039127e6b756af63692559ae18c29e1b00b12fbf4d63c6189c7a337e91"
     },
     {
@@ -778,7 +787,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.948326Z",
+      "verifiedAt": "2026-11-25T20:46:32.444326Z",
       "observationDigest": "0036f46bff688638b69dfec68d11a2d28d9127a5a2688f24c56f5ce9e4d65e27"
     },
     {
@@ -793,7 +802,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:54.992224Z",
+      "verifiedAt": "2026-11-25T20:46:32.450850Z",
       "observationDigest": "0e946e39de3a5680233413fa5aff853c01615225b713f5fe6b16b77362a1bd40"
     },
     {
@@ -808,7 +817,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.167558Z",
+      "verifiedAt": "2026-11-25T20:46:32.601765Z",
       "observationDigest": "95e52f4bfd271b5de4338f58e89a2a69758ccce6bb8e87afcc994c645b2b8eb7"
     },
     {
@@ -823,8 +832,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.303674Z",
+      "verifiedAt": "2026-11-25T20:46:32.714426Z",
       "observationDigest": "76fada44b32cf7f8a9bb87d2147218cc92a26c622065e1541b7c5519f2327915"
+    },
+    {
+      "domain": "galerieportfranc.ch",
+      "listingSourceId": "ls_01m89mzxmne5h8c7mec2d65x6b",
+      "partyId": "pty_01m89mzxmke9vt38b05d9vjmyh",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:32.850933Z",
+      "observationDigest": "3baf3fd0ef51749da57bbaad360ec08a42fdb86909fd18167efeee7ddbc94c93"
     },
     {
       "domain": "le-bonheur-toujours.ch",
@@ -838,7 +860,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.253161Z",
+      "verifiedAt": "2026-11-25T20:46:32.875752Z",
       "observationDigest": "371fcf7686d5254b1b8b8962814425fe8c2814e68c2c23430fe9f99db10c188f"
     },
     {
@@ -853,7 +875,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.471863Z",
+      "verifiedAt": "2026-11-25T20:46:32.977076Z",
       "observationDigest": "c59ed61ec1419a31aa8cc8b2d208cb9e442f668ccfcf0e43d2d35c29b9e7a8db"
     },
     {
@@ -868,7 +890,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.559425Z",
+      "verifiedAt": "2026-11-25T20:46:33.102370Z",
       "observationDigest": "faa08b1a239ba623ac4b2df66d0b1d2c8383654c2bb273cd7671d9abe0a32cf0"
     },
     {
@@ -883,7 +905,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.611303Z",
+      "verifiedAt": "2026-11-25T20:46:33.129023Z",
       "observationDigest": "dfd4945b96c33be705b1d78106526d4f546a64c9d23d281148305fd590a6e334"
     },
     {
@@ -898,7 +920,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.797609Z",
+      "verifiedAt": "2026-11-25T20:46:33.235421Z",
       "observationDigest": "149e82629d7b4baa80709ca28be2ef65698f42f5d3f51523c257d0f619556ce4"
     },
     {
@@ -913,7 +935,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.893078Z",
+      "verifiedAt": "2026-11-25T20:46:33.352046Z",
       "observationDigest": "e43b1df636e345018ec70eca70e2d8f829cf6ad3764dc03371af5fa335ae2607"
     },
     {
@@ -928,23 +950,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:55.932599Z",
+      "verifiedAt": "2026-11-25T20:46:33.403994Z",
       "observationDigest": "0a22e35d986389471f54b321101c24b2403fbc1e1b8ddfa97c4c52514b73b7e1"
-    },
-    {
-      "domain": "schweizergeld.ch",
-      "listingSourceId": "ls_01m6gn3g24eqkbhv39db9aytz3",
-      "partyId": "pty_01m6gn3g1teqc9hvkdbvhjxaxq",
-      "locations": 2,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.174012Z",
-      "observationDigest": "ba65d5a12d3c7c7db490fbbfd1ad16a5fc5444e7c562efab8b8ca5994edfba33"
     },
     {
       "domain": "rutishauserantiquitaeten.ch",
@@ -958,7 +965,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.178747Z",
+      "verifiedAt": "2026-11-25T20:46:33.567187Z",
       "observationDigest": "43979101106b1eb3cd3b56ff7f64b96cb20bf40d38d8beed135b7dfd1b555c64"
     },
     {
@@ -973,7 +980,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.252298Z",
+      "verifiedAt": "2026-11-25T20:46:33.649635Z",
       "observationDigest": "000ef251e02e46eb322afec38d0ce84dfdf1e19915b37ed47d15dfd9ec57aab6"
     },
     {
@@ -988,7 +995,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.508551Z",
+      "verifiedAt": "2026-11-25T20:46:33.784903Z",
       "observationDigest": "23e10ea4282c25f26d21fded75ad0b3266d18951e3990f4b1f43f9f84647a176"
     },
     {
@@ -1003,7 +1010,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.500799Z",
+      "verifiedAt": "2026-11-25T20:46:33.807613Z",
       "observationDigest": "59a911212c9cc9987fc637ba192072ead76c01221c3b947f968f1b8d448fbaa7"
     },
     {
@@ -1018,7 +1025,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.525688Z",
+      "verifiedAt": "2026-11-25T20:46:33.866848Z",
       "observationDigest": "2bfe3bede65cbe60b76250b5e8fbf5b7db9ea161b3fdf9837f90f6cfe76744e0"
     },
     {
@@ -1033,7 +1040,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.784647Z",
+      "verifiedAt": "2026-11-25T20:46:34.002939Z",
       "observationDigest": "cae47fe5634b404fb52af55ce4c738407670db62d53cda50268caace189e9d8b"
     },
     {
@@ -1048,7 +1055,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.877233Z",
+      "verifiedAt": "2026-11-25T20:46:34.108189Z",
       "observationDigest": "a33623b1e396df1a379b7ae2dd40f92dbbae0f3331b4ef2cb6faecd77451f5b2"
     },
     {
@@ -1063,7 +1070,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:56.798827Z",
+      "verifiedAt": "2026-11-25T20:46:34.077106Z",
       "observationDigest": "724a4b59812815425981478168531861445939cfdb97ed8f3cce8c6f7842cad0"
     },
     {
@@ -1078,7 +1085,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.116053Z",
+      "verifiedAt": "2026-11-25T20:46:34.257455Z",
       "observationDigest": "64f4868bccc4ae8d3b5d196e2e37952d01262ae84497d46a092104fd1f2afe97"
     },
     {
@@ -1087,14 +1094,14 @@
       "partyId": "pty_01m6grpxwwejj8thpcdpstrw8n",
       "locations": 1,
       "logo": false,
-      "platform": null,
+      "platform": "SNIPCART",
       "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.120794Z",
-      "observationDigest": "59196c12770a2515576c985a07c1ee88867bb9fa5b7e7900a52b2b015ed01c3b"
+      "verifiedAt": "2026-11-25T20:46:34.333714Z",
+      "observationDigest": "e64f3b3ab137457fcdf2fe987040a652504a55b979612226e26662d889dc0d13"
     },
     {
       "domain": "abc-buch.ch",
@@ -1108,7 +1115,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.215902Z",
+      "verifiedAt": "2026-11-25T20:46:34.359447Z",
       "observationDigest": "8f8c197868b01866889257e8106c128c9127db37972cf65f817feaa8ffddfd58"
     },
     {
@@ -1123,7 +1130,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.455283Z",
+      "verifiedAt": "2026-11-25T20:46:34.502318Z",
       "observationDigest": "58a5ade495f2182845ad2c2d6f7588497af8050e6d23018d577b1bee9610ff68"
     },
     {
@@ -1138,7 +1145,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.454181Z",
+      "verifiedAt": "2026-11-25T20:46:34.580806Z",
       "observationDigest": "b191055e525cbac9c47033b8fb3529fdd8478b8ecac9711d94c6079814e8b657"
     },
     {
@@ -1153,7 +1160,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.539256Z",
+      "verifiedAt": "2026-11-25T20:46:34.611815Z",
       "observationDigest": "699d6399a90413d96d744ded575b050c406483ec05a0a698e60e3cbdc4b58349"
     },
     {
@@ -1168,7 +1175,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.790443Z",
+      "verifiedAt": "2026-11-25T20:46:34.757827Z",
       "observationDigest": "403a2c3c670b93a34e4d6d8aed75f68bdb687e8995511a03bbecc7947c86817f"
     },
     {
@@ -1183,7 +1190,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.795819Z",
+      "verifiedAt": "2026-11-25T20:46:34.831671Z",
       "observationDigest": "4464043180c6be4550d91fdfc9f2638724f5c5906bf5966e8913041618da4632"
     },
     {
@@ -1198,7 +1205,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:57.861519Z",
+      "verifiedAt": "2026-11-25T20:46:34.854890Z",
       "observationDigest": "f13bed683ade347aaba343d0ec0f12f93ea0166d151a3927df515f3fb6e4b583"
     },
     {
@@ -1213,7 +1220,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.079072Z",
+      "verifiedAt": "2026-11-25T20:46:35.008386Z",
       "observationDigest": "6101454052b5fcd5ae934eaace117c7faf839799ed24eecede2caccb3de9c10e"
     },
     {
@@ -1228,7 +1235,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.085214Z",
+      "verifiedAt": "2026-11-25T20:46:35.088363Z",
       "observationDigest": "dbc07159fef26471bf7a000e66eb3427afbcb8d2c916a0b57229d8ad92a1fabb"
     },
     {
@@ -1243,7 +1250,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.148224Z",
+      "verifiedAt": "2026-11-25T20:46:35.098846Z",
       "observationDigest": "ec6cc06260150a62e47abc8fdfbfff2da382fa55b8b0d74094b4c2386ec0ffd6"
     },
     {
@@ -1258,7 +1265,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.394970Z",
+      "verifiedAt": "2026-11-25T20:46:35.273058Z",
       "observationDigest": "25d6db3cb7f973f65e66af8c2e91dfa744ea5d71a4ec2e1a3976e1d4fcbf39b0"
     },
     {
@@ -1273,7 +1280,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.350187Z",
+      "verifiedAt": "2026-11-25T20:46:35.308106Z",
       "observationDigest": "7f7da44bb5f9b86bc1bf124abb3abf69f26f4d1d130e495643761001555b391f"
     },
     {
@@ -1288,7 +1295,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.461340Z",
+      "verifiedAt": "2026-11-25T20:46:35.355008Z",
       "observationDigest": "66d01584a3d230b26b1bb737bdf6ddb5a35ed970fd61a01ddf69a506c62443bd"
     },
     {
@@ -1303,23 +1310,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.665385Z",
+      "verifiedAt": "2026-11-25T20:46:35.530151Z",
       "observationDigest": "ce6a268c282ce1669a67a5a3703386b19af54fd7a1596b4e36b70b6d84799bf3"
-    },
-    {
-      "domain": "swisswatches-andmore.com",
-      "listingSourceId": "ls_01m6gx6wkcefpb8gjfv43j9fk1",
-      "partyId": "pty_01m6gx6wk3e048prsyc98edqdj",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.712537Z",
-      "observationDigest": "bdfe3da1fedb98c1fb9d5e0d06bd95bc8ef3999cef1fd2cd7f866d6c562c626d"
     },
     {
       "domain": "galleria13.jimdofree.com",
@@ -1333,7 +1325,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.808003Z",
+      "verifiedAt": "2026-11-25T20:46:35.643830Z",
       "observationDigest": "16e21bedfc58fd9bab5e6449b740de76a89e2238a5c2747f2f55a119b07f3481"
     },
     {
@@ -1348,7 +1340,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:58.992859Z",
+      "verifiedAt": "2026-11-25T20:46:35.770504Z",
       "observationDigest": "f5719ce0e7e374ac552797874ed67f0c53aa429df3d4a2e9cfb704a7aec2ab1f"
     },
     {
@@ -1363,7 +1355,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.064975Z",
+      "verifiedAt": "2026-11-25T20:46:35.849527Z",
       "observationDigest": "e3c16f5e25481713f10e83d6692cc671b6ccfaa6855766a64f154ad204b24b41"
     },
     {
@@ -1378,7 +1370,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.103019Z",
+      "verifiedAt": "2026-11-25T20:46:35.888978Z",
       "observationDigest": "46c67d7fe015fcaf1b30f503e16133e5a38d473d0fa3bf0a178285817f2816dd"
     },
     {
@@ -1393,7 +1385,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.298923Z",
+      "verifiedAt": "2026-11-25T20:46:36.054419Z",
       "observationDigest": "8fd8dcab449e7b4bc3fcb9f3d7f8a86c9ac9ae4338fbb28c08940c97144ef4ce"
     },
     {
@@ -1408,7 +1400,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.351575Z",
+      "verifiedAt": "2026-11-25T20:46:36.097069Z",
       "observationDigest": "68c7102c3998ac196d0910a67245acf0cb57ab498dfc397cf4de67c6c1c68b44"
     },
     {
@@ -1423,7 +1415,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.343521Z",
+      "verifiedAt": "2026-11-25T20:46:36.114711Z",
       "observationDigest": "6e0579f57d550943d0afa98d6e027da840a997d69b857de94e0441ab15017023"
     },
     {
@@ -1438,7 +1430,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.588690Z",
+      "verifiedAt": "2026-11-25T20:46:36.262063Z",
       "observationDigest": "ebbec288b812687217cdd7144e5b2e2df9c568e5cf2d577f821a89dd1bad2a4d"
     },
     {
@@ -1453,7 +1445,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.665734Z",
+      "verifiedAt": "2026-11-25T20:46:36.354945Z",
       "observationDigest": "32949ca385a4a8400778b1dc6696fb992f789619731bd6e19e7d7b132fdebc63"
     },
     {
@@ -1462,14 +1454,14 @@
       "partyId": "pty_01m6gyzm99er2tx9k5z1w5whhw",
       "locations": 1,
       "logo": false,
-      "platform": null,
+      "platform": "MICROSOFT_FRONTPAGE",
       "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.682070Z",
-      "observationDigest": "cbfd58998e3e29613d21fea39245c8fd0ec993c4f60b6d3eaf0ccdd3ad9b7158"
+      "verifiedAt": "2026-11-25T20:46:36.376482Z",
+      "observationDigest": "61cfbc9f06be4e0ec61939b7f69e24889e48caf58ccb5ad0035d677ef3f80675"
     },
     {
       "domain": "violondingres.ch",
@@ -1483,23 +1475,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.915439Z",
+      "verifiedAt": "2026-11-25T20:46:36.537137Z",
       "observationDigest": "b1d41e80305869f4fb78a87b1de2518b6c87be1587205e239ed0c08be478610b"
-    },
-    {
-      "domain": "oddsandendsshop.mycommerce.shop",
-      "listingSourceId": "ls_01m6gyzs2qegtv1txxvkfgzd7x",
-      "partyId": "pty_01m6gyzs23e8cr17fd29d375jp",
-      "locations": 1,
-      "logo": true,
-      "platform": "ECWID",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.939252Z",
-      "observationDigest": "cc4b8d45eaf9cbd05cf8bd11ac72cd66873a13858173821f3e588bcf49d25e0e"
     },
     {
       "domain": "beceren.ch",
@@ -1513,7 +1490,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:37:59.958126Z",
+      "verifiedAt": "2026-11-25T20:46:36.590416Z",
       "observationDigest": "6c7cd51cd3c91dab364c77e37d86694558e7f5099edf789d1232b3f6c0472fe6"
     },
     {
@@ -1526,7 +1503,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.142544Z",
+      "verifiedAt": "2026-11-25T20:46:36.714424Z",
       "observationDigest": "d03e9e46934d9cd9533e6783079629185f555162bc57594d009c7dc16dd52761"
     },
     {
@@ -1541,7 +1518,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.217520Z",
+      "verifiedAt": "2026-11-25T20:46:36.780809Z",
       "observationDigest": "5cf49cad6f82b916de52f23fe80dc18f701fc90cfd922d474300e73191bf7499"
     },
     {
@@ -1556,38 +1533,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.401221Z",
+      "verifiedAt": "2026-11-25T20:46:36.904571Z",
       "observationDigest": "3032764e217c5fd059543252fcfe85f61fc50e6cef7a1bf18d1f284fba29e863"
-    },
-    {
-      "domain": "flohmarkt-walensee.ch",
-      "listingSourceId": "ls_01m6h1adx9enwsbj5njmhy8yg8",
-      "partyId": "pty_01m6h1adwpecraaj5det1sw565",
-      "locations": 1,
-      "logo": false,
-      "platform": "BASEKIT",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.410732Z",
-      "observationDigest": "59974902d9c33ad2ca9b915c68ff6e6dd3da440a3c8e348e2679984af5e9d73e"
-    },
-    {
-      "domain": "bliss-shop.ch",
-      "listingSourceId": "ls_01m6h1h8qcecx9fsn33gspv5qc",
-      "partyId": "pty_01m6h1h8pse2ftp74cwwr5tj41",
-      "locations": 2,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.578918Z",
-      "observationDigest": "ac9748037481d98cd50636dba01b96e68a33bb7d7703df34130fb6dde0dc125a"
     },
     {
       "domain": "heydaymoebel.com",
@@ -1601,7 +1548,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.649725Z",
+      "verifiedAt": "2026-11-25T20:46:37.117475Z",
       "observationDigest": "ffad692bf5721f0a10e8d98016ab9b08c35d4db632b670aa10ff0ecfcb876221"
     },
     {
@@ -1616,7 +1563,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.703370Z",
+      "verifiedAt": "2026-11-25T20:46:37.174330Z",
       "observationDigest": "ec9a0259154d0a49c9ec7c41f486630f099ed6e78247d5b32393b57fc05c12b3"
     },
     {
@@ -1631,7 +1578,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.845415Z",
+      "verifiedAt": "2026-11-25T20:46:37.278353Z",
       "observationDigest": "75ccea76562037b4475d3c60793d5d48f5ceafe6ac5bff265668e6a19dea3e93"
     },
     {
@@ -1646,7 +1593,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.975017Z",
+      "verifiedAt": "2026-11-25T20:46:37.387289Z",
       "observationDigest": "ccb1f20cb2cad81307b381a26eb63e881a4fc111053616bdd7dfccfee2d6a3f0"
     },
     {
@@ -1661,7 +1608,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:00.978642Z",
+      "verifiedAt": "2026-11-25T20:46:37.408422Z",
       "observationDigest": "0622ecc34fd716c674c37b7756614c924a19a9c75a63f17b4b3013dee789651c"
     },
     {
@@ -1676,7 +1623,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.165791Z",
+      "verifiedAt": "2026-11-25T20:46:37.634723Z",
       "observationDigest": "255494dcfffad6ae4744a5f7ebb178e22f09c066a61d754d096c77f9198df04d"
     },
     {
@@ -1691,7 +1638,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.293187Z",
+      "verifiedAt": "2026-11-25T20:46:37.645646Z",
       "observationDigest": "2e2ee9d19b0f39b23968a209ff2936aad949680f025aadf77d496ddb6ec0c847"
     },
     {
@@ -1706,7 +1653,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.342322Z",
+      "verifiedAt": "2026-11-25T20:46:38.080288Z",
       "observationDigest": "6f67ea68955ae6af4e16a0358f805b553a08a07f4e4dc942d886e0f452e430f9"
     },
     {
@@ -1721,23 +1668,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.454596Z",
+      "verifiedAt": "2026-11-25T20:46:37.891377Z",
       "observationDigest": "05234196d0a768bde01e8e46b410eba66b631c4255367364b8c2d0e9ca237b08"
-    },
-    {
-      "domain": "schatzsuche.ch",
-      "listingSourceId": "ls_01m6h2pg07et8r5p4q2nmxpz3y",
-      "partyId": "pty_01m6h2pfzze89rcxmzpb2zkxz8",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.604427Z",
-      "observationDigest": "a6240e62b8c6480ab0c6001c00d62e6eeeccec8eba7d542f6855a23625032e13"
     },
     {
       "domain": "bockantik.ch",
@@ -1751,8 +1683,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.625228Z",
+      "verifiedAt": "2026-11-25T20:46:38.096462Z",
       "observationDigest": "6e44f916ab89a9584721509ad75a59de04b73e3a1d5545e6518fbff0e7bcde2a"
+    },
+    {
+      "domain": "salledesventes.ch",
+      "listingSourceId": "ls_01m89mpwm4e5jajyjtrfawz5kr",
+      "partyId": "pty_01m89mpwm1exf95r7c4ragbmga",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:38.122719Z",
+      "observationDigest": "3d59bc4ea1c546e57a045c5cc170ebe1d656e599006fc02e5aa08a0db70f01ce"
     },
     {
       "domain": "gurtentischlerei.ch",
@@ -1766,7 +1711,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.718941Z",
+      "verifiedAt": "2026-11-25T20:46:38.285974Z",
       "observationDigest": "d3998b215ebb84fafbc7568583b4be645d65adb2227c3d2b2d1ea767f8a165cd"
     },
     {
@@ -1781,7 +1726,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.893675Z",
+      "verifiedAt": "2026-11-25T20:46:38.334044Z",
       "observationDigest": "00387f3661a55f1f82f5d50cae539c2f54fbe2c92e6457206ffe693c0045ab0f"
     },
     {
@@ -1791,13 +1736,13 @@
       "locations": 2,
       "logo": false,
       "platform": null,
-      "deliveryProfile": false,
+      "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.915507Z",
-      "observationDigest": "730854bfc225f58cea5c39fcc47ebed5336899e6a0e0cd4bf3828b11ad7c8a3b"
+      "verifiedAt": "2026-11-25T20:46:38.409928Z",
+      "observationDigest": "47654ad1566f2e2836b13cd824b9a42ec2f91195323e1aa8d085c86b3b3ea6d4"
     },
     {
       "domain": "antiquiteslefoyer.ch",
@@ -1811,7 +1756,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:01.980895Z",
+      "verifiedAt": "2026-11-25T20:46:38.549406Z",
       "observationDigest": "74af399d742fcbe6fdc5b25031c71f153e9dfb3bd5cef776f11b85861cfdcf2a"
     },
     {
@@ -1826,7 +1771,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.209932Z",
+      "verifiedAt": "2026-11-25T20:46:38.618689Z",
       "observationDigest": "437d4bbddd78410ec4fb33279c7045d938d986f59b42b062032dd8c1e513089c"
     },
     {
@@ -1841,7 +1786,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.242894Z",
+      "verifiedAt": "2026-11-25T20:46:38.669903Z",
       "observationDigest": "34d885dc807e96461a73d6f6cb02a5930dc18888ff6d4ae64d5a3092917b0562"
     },
     {
@@ -1856,23 +1801,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.292628Z",
+      "verifiedAt": "2026-11-25T20:46:38.809238Z",
       "observationDigest": "3dc73e005bbfa1c0804eddcb2bc9e3845e33c694f9e2028abe19ab5db60a1c75"
-    },
-    {
-      "domain": "ateliertilija.com",
-      "listingSourceId": "ls_01m6h60drfe6j9dvdyxrzb949t",
-      "partyId": "pty_01m6h60dr4e5nstbswyxnr7kq7",
-      "locations": 1,
-      "logo": true,
-      "platform": "SHOPIFY",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.531958Z",
-      "observationDigest": "2c5ada1f718432c183d3386ed3e41c24d7cb39e99229f1a121416a8195f1ae86"
     },
     {
       "domain": "nouchka-nougat.ch",
@@ -1886,7 +1816,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.561703Z",
+      "verifiedAt": "2026-11-25T20:46:38.920285Z",
       "observationDigest": "37cbd1a8e9a3cfbe394546121dafe10c5840fa5f6a90e28e5e0bae67d9fc89ff"
     },
     {
@@ -1901,8 +1831,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.612129Z",
+      "verifiedAt": "2026-11-25T20:46:39.050111Z",
       "observationDigest": "2fcde6796aab7de8be1e270c664b8c4606cd9fd2324f6ed109e7b94a4f1d3ae5"
+    },
+    {
+      "domain": "sammelbecken.ch",
+      "listingSourceId": "ls_01m89na62sepjanyvgbnp98c8c",
+      "partyId": "pty_01m89na62qe35b7kk3ccb17k65",
+      "locations": 2,
+      "logo": false,
+      "platform": "ECWID",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:39.133658Z",
+      "observationDigest": "6ef0431e113837de16a80e2bf977ca67f569d2b270e5aede76ac007f4064fe68"
     },
     {
       "domain": "renov-atelierbrocante.ch",
@@ -1916,23 +1859,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.840134Z",
+      "verifiedAt": "2026-11-25T20:46:39.164547Z",
       "observationDigest": "d3eb56b884763d92803d052a38bfd29cbfac150807bd901c7270cb8279c42f2d"
-    },
-    {
-      "domain": "recyclage-market.ch",
-      "listingSourceId": "ls_01m6h6p2f8eehtxr54fgnh3yxv",
-      "partyId": "pty_01m6h6p2eze0589m49c2fxwq03",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:02.883585Z",
-      "observationDigest": "de58aea1fd537747919a76a7857bee7f2ffc814c5750d31c6e3828d2bfde7ed1"
     },
     {
       "domain": "emmaus-ne.ch",
@@ -1946,23 +1874,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.023911Z",
+      "verifiedAt": "2026-11-25T20:46:39.474395Z",
       "observationDigest": "19438f77c9002db62b23c4b4bb0e6b844983abb1b17268d222106c607b7f58a1"
-    },
-    {
-      "domain": "bogen33.ch",
-      "listingSourceId": "ls_01m6h71c7we6cs1qfhe5zn2h7t",
-      "partyId": "pty_01m6h71c7fece9t35hwa0zyzhm",
-      "locations": 3,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.259842Z",
-      "observationDigest": "4b209e7c2a982de1c07cad1a1510203aa7970b4b0c999931268acf1283265e94"
     },
     {
       "domain": "usgsuechts.ch",
@@ -1976,23 +1889,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.205246Z",
+      "verifiedAt": "2026-11-25T20:46:39.547779Z",
       "observationDigest": "6fbd390b3398ffe1d8cb8053f7765d09f78b30aeb347ebd217bf787752ccc3e7"
     },
     {
-      "domain": "viadukt3.ch",
-      "listingSourceId": "ls_01m6h7eg8aeqeat7ej13axebxp",
-      "partyId": "pty_01m6h71c7fece9t35hwa0zyzhm",
-      "locations": 3,
+      "domain": "leroideloccas.ch",
+      "listingSourceId": "ls_01m89m4ynnep6bhwsy6hrvpyzd",
+      "partyId": "pty_01m89m4ynger3r6r85e7sqkdty",
+      "locations": 1,
       "logo": true,
       "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
+      "deliveryProfile": true,
+      "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.396582Z",
-      "observationDigest": "c93e5dba28d782f526a52f7a85a33c8b3ff043f650c6fdb7ac71fbd531313ce7"
+      "verifiedAt": "2026-11-25T20:46:39.758597Z",
+      "observationDigest": "ab90ed23b62b3154cbf4e12b3e9dd44d139b4adb6b4024dd82d97eb39f9d7327"
     },
     {
       "domain": "cmgleal.ch",
@@ -2006,7 +1917,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.538453Z",
+      "verifiedAt": "2026-11-25T20:46:39.802163Z",
       "observationDigest": "c46d6a3a5ab65e8b66fd6ec1b2ad4b25bfb477c2716de64e412195f69de674b5"
     },
     {
@@ -2021,7 +1932,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.582616Z",
+      "verifiedAt": "2026-11-25T20:46:40.021362Z",
       "observationDigest": "2143ccf98f8215e7c9f055da209e97481e0e18af4a53bb70cecfbf2968350767"
     },
     {
@@ -2036,7 +1947,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.694814Z",
+      "verifiedAt": "2026-11-25T20:46:40.059250Z",
       "observationDigest": "b287a6a58abf50180eb4e549d5d86626b412475d803b7cef5944b957bcc7614e"
     },
     {
@@ -2051,7 +1962,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.868493Z",
+      "verifiedAt": "2026-11-25T20:46:40.207696Z",
       "observationDigest": "074a49eeabce6a34add8f2fe1f468db8d5d082c691d8bcdf817641409cf0abb9"
     },
     {
@@ -2066,7 +1977,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.866392Z",
+      "verifiedAt": "2026-11-25T20:46:40.276436Z",
       "observationDigest": "f43739f113293187464fea339c00fc2e88f953e037685e8b18a4a7176bb5e532"
     },
     {
@@ -2081,7 +1992,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:03.995921Z",
+      "verifiedAt": "2026-11-25T20:46:40.309395Z",
       "observationDigest": "685c9355d21be97eb7137fb75bf8348f2eca6b08511ac6da20eeab6f1d383e41"
     },
     {
@@ -2096,7 +2007,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.111348Z",
+      "verifiedAt": "2026-11-25T20:46:40.426351Z",
       "observationDigest": "6e621eb4455b7d724362dd1eac83385427827d6ba39a219b286ffa8d2dd25a06"
     },
     {
@@ -2111,23 +2022,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.158956Z",
+      "verifiedAt": "2026-11-25T20:46:40.552757Z",
       "observationDigest": "d28ef0aec9108163050bb16e1daefbdd5c30c7eae2ba0172de94ff8f4e655bc7"
     },
     {
-      "domain": "baillygallery.com",
-      "listingSourceId": "ls_01m6hc11pcee1vdasq6ynbbebp",
-      "partyId": "pty_01m6hc11nwe09tfs8z050147qy",
-      "locations": 1,
-      "logo": false,
-      "platform": "ARTLOGIC",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
+      "domain": "moebel-zuerich.ch",
+      "listingSourceId": "ls_01m89na4vaeb6rbt3rf60ppwgw",
+      "partyId": "pty_01m89na4v5ekxb3t47jexczaz1",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.241419Z",
-      "observationDigest": "5d11d43efc5f62df06a7682d5120f594151e1498d82d54dccd85ce183ea90662"
+      "verifiedAt": "2026-11-25T20:46:40.556269Z",
+      "observationDigest": "ac28e99c63c06f27d116414d69e35cc185041a2399f25db590f05a89e4cf8b28"
     },
     {
       "domain": "hehegalerie.ch",
@@ -2141,7 +2050,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.400135Z",
+      "verifiedAt": "2026-11-25T20:46:40.802306Z",
       "observationDigest": "9b64a8974032d9ac66e727a82de44b40f7416c01352f0dd62b1bb7e7e0d10d8d"
     },
     {
@@ -2156,7 +2065,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.436602Z",
+      "verifiedAt": "2026-11-25T20:46:40.810239Z",
       "observationDigest": "c96a9e2dd35d7ba3036800ed7f91dc22f0fc8d30fe678b411f012c72b763eb37"
     },
     {
@@ -2171,7 +2080,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.468221Z",
+      "verifiedAt": "2026-11-25T20:46:40.850270Z",
       "observationDigest": "93267ce7c3dedc47510c6c295828fe1eb1137a8d3f051428172869c76605d509"
     },
     {
@@ -2186,23 +2095,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.668200Z",
+      "verifiedAt": "2026-11-25T20:46:41.007038Z",
       "observationDigest": "d4ee03e582ed13cbf6581e9e7ea2fa8fdf61c1cabe9049cee2f8f478783c3268"
-    },
-    {
-      "domain": "gewoelbegalerie.ch",
-      "listingSourceId": "ls_01m6hedfpmecrr10sh78c8etwn",
-      "partyId": "pty_01m6hedfp2emg8yhj478mngj47",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.684785Z",
-      "observationDigest": "f62b9d796977f6b62664ed530bbcf196fe6e41a84236f2c089e222348169c15f"
     },
     {
       "domain": "antico-dd.ch",
@@ -2216,23 +2110,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.728966Z",
+      "verifiedAt": "2026-11-25T20:46:41.054203Z",
       "observationDigest": "66b9b8c2f3a65087d981bb29a35a2b5abf6fb0b0a0dd97d8d9c89cc37c0cf8a6"
-    },
-    {
-      "domain": "thorens-gallery.com",
-      "listingSourceId": "ls_01m6hen836e9kbewyt5nrb3zwj",
-      "partyId": "pty_01m6hen82qerx9ph4cg0tm8zw7",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.940445Z",
-      "observationDigest": "91814fe56caa47bfd90c024952e02c0fc8204717b8ec18572478623546137d4b"
     },
     {
       "domain": "galerieheim.com",
@@ -2246,7 +2125,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:04.954814Z",
+      "verifiedAt": "2026-11-25T20:46:41.231354Z",
       "observationDigest": "cf5a59dd9c202cb5d722fc4a9511f09b689594c962450e930c2366ee0e5fdf64"
     },
     {
@@ -2261,23 +2140,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.048642Z",
+      "verifiedAt": "2026-11-25T20:46:41.311680Z",
       "observationDigest": "3a9ecc6149c2cf543e39293cd851e26904696463a68ba67ae74f26056ef62bae"
-    },
-    {
-      "domain": "galerie-wos.com",
-      "listingSourceId": "ls_01m6hf2rqbekpvgaa3astzvbh4",
-      "partyId": "pty_01m6hf2rpveh4rbnz30m9bnxqk",
-      "locations": 2,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.262860Z",
-      "observationDigest": "6c5df3633ac6c329441cca1a3b52f2af7481f5f79008f085e679d41548ad79bf"
     },
     {
       "domain": "galeriedesannonciades.ch",
@@ -2291,7 +2155,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.286998Z",
+      "verifiedAt": "2026-11-25T20:46:41.496176Z",
       "observationDigest": "07868786a770ba5918190fb59fb7eba10852aa5a1b93ec2c5f67dac85e29da45"
     },
     {
@@ -2299,15 +2163,15 @@
       "listingSourceId": "ls_01m6hfjr2jemmv5nbhykzsm35t",
       "partyId": "pty_01m6hfjr21egp9sathmwgnva51",
       "locations": 1,
-      "logo": false,
-      "platform": null,
+      "logo": true,
+      "platform": "MODX",
       "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.366469Z",
-      "observationDigest": "414f4a7fcf12af6722f594dc52050ca1413b9e8ae40a6691a5e3b1019e5bcfeb"
+      "verifiedAt": "2026-11-25T20:46:41.554707Z",
+      "observationDigest": "e96b255b5304b5a5adac74f9ce4bddab915bb91d15072afd296483596559004e"
     },
     {
       "domain": "antiquitesrigaldo.ch",
@@ -2321,7 +2185,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.625687Z",
+      "verifiedAt": "2026-11-25T20:46:41.769291Z",
       "observationDigest": "7cf528ee0eb414288ab141023c3cb7b18f3c671352b9edd81c297747e9feeccf"
     },
     {
@@ -2336,7 +2200,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.553148Z",
+      "verifiedAt": "2026-11-25T20:46:41.706455Z",
       "observationDigest": "3069e2b7e7ef2a3e9cab3935908722696ba596ad546079671d6cd5ab0f50df5a"
     },
     {
@@ -2351,7 +2215,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.684669Z",
+      "verifiedAt": "2026-11-25T20:46:41.824336Z",
       "observationDigest": "8d055c4ba6b8a4f3206e128de6fd7357d7c3064161542a61675d9cbc045d5397"
     },
     {
@@ -2366,7 +2230,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.873131Z",
+      "verifiedAt": "2026-11-25T20:46:41.958750Z",
       "observationDigest": "aac92580fe8c6aa867c2456d138916aa99dccc89df556f9875f41571b16492fa"
     },
     {
@@ -2381,8 +2245,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.950508Z",
+      "verifiedAt": "2026-11-25T20:46:42.023197Z",
       "observationDigest": "059a4e6f6eba112d61653b13e0792a9ac1de1e5998adec41de8e7e3bdd67ccef"
+    },
+    {
+      "domain": "swissposterart.com",
+      "listingSourceId": "ls_01m8c83vcde11t4sqxrmge4jch",
+      "partyId": "pty_01m8c83vc1e98raa59aw1y0rk0",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T16:05:54.067931Z",
+      "observationDigest": "89875ec8669491d3b99c0f56d5b57f9d73562e7d5176d23ace375dcc1a8947e1"
     },
     {
       "domain": "art3000.ch",
@@ -2396,7 +2273,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:05.961189Z",
+      "verifiedAt": "2026-11-25T20:46:42.034634Z",
       "observationDigest": "29d3b8ef5b3c51b0a4c106e2b7ba54fdc6c4270fab58fa226ef2edd4bb5be7c4"
     },
     {
@@ -2411,7 +2288,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.190408Z",
+      "verifiedAt": "2026-11-25T20:46:42.223178Z",
       "observationDigest": "c21fb85acd86c18fa7b7d3becab0fc2a05cbe7026a50fa1c734141c86c1c5a68"
     },
     {
@@ -2426,23 +2303,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.273306Z",
+      "verifiedAt": "2026-11-25T20:46:42.265415Z",
       "observationDigest": "f21ff7a809290bad6dcc2adfb0f947dd6ffe269dd80e9230e7bab6b80c299184"
-    },
-    {
-      "domain": "kunsthandelschmeh.ch",
-      "listingSourceId": "ls_01m6hh68hkemb8n2hs97kcrp18",
-      "partyId": "pty_01m6hh68h1e68tnknempwp8s9j",
-      "locations": 1,
-      "logo": false,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.229945Z",
-      "observationDigest": "e3fc632f7287d85bac767bb859f3a3907b0df83724cc5878b78e3789f29b0dca"
     },
     {
       "domain": "antikgalerie.ch",
@@ -2454,7 +2316,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.366388Z",
+      "verifiedAt": "2026-11-25T20:46:42.364705Z",
       "observationDigest": "4295dc804caeadf216c41809ecdf0870bd9236bef2ea20ea4ca2da1478a68949"
     },
     {
@@ -2462,15 +2324,15 @@
       "listingSourceId": "ls_01m6hhyen2extawe1h2kkpcn2d",
       "partyId": "pty_01m6hhyemne0jtcmfrbkmkcc3j",
       "locations": 1,
-      "logo": false,
+      "logo": true,
       "platform": "WOOCOMMERCE",
-      "deliveryProfile": false,
+      "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.508682Z",
-      "observationDigest": "4dab9584dedefed0572f71b5bbe382b93c80abde906b4d9903a6fd0b64a5deb0"
+      "verifiedAt": "2026-11-25T20:46:42.507877Z",
+      "observationDigest": "8a1474a6c9e453bd0e179f57a837e7209a7fc766388ac8cb570e8790065b226f"
     },
     {
       "domain": "artrust.ch",
@@ -2484,7 +2346,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.547244Z",
+      "verifiedAt": "2026-11-25T20:46:42.498392Z",
       "observationDigest": "070e13f2996d928e8939e5e05a696c21a9d44a9139dee033d822b8860943b851"
     },
     {
@@ -2499,53 +2361,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.671839Z",
+      "verifiedAt": "2026-11-25T20:46:42.626609Z",
       "observationDigest": "eef7a7dcd3226453402e24fd40aa29830723fec435d716c5015a91157c90c399"
-    },
-    {
-      "domain": "galeriehilt.ch",
-      "listingSourceId": "ls_01m6hk295pe93854z8rmnny1ea",
-      "partyId": "pty_01m6hk2957eq8tenectrxpnf7m",
-      "locations": 1,
-      "logo": true,
-      "platform": "ZETA_PRODUCER",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.766300Z",
-      "observationDigest": "7af042a0c34d4e2b52a173667d890986bb9dbe1ddd3b6fe9b65fa1df0c1073bb"
-    },
-    {
-      "domain": "revoc.ch",
-      "listingSourceId": "ls_01m6hkme5we0kve8rk8jzz7cs4",
-      "partyId": "pty_01m6hkme5fe8kagqtzvptm24e4",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.808791Z",
-      "observationDigest": "ef7156addf3f2de9957cd3f9c33928c7ef5c4ec7432a012e1a60d5fe95e8704a"
-    },
-    {
-      "domain": "swiss-rarity-clocks.ch",
-      "listingSourceId": "ls_01m6hkzt3zersr7ggf7ga3zkzr",
-      "partyId": "pty_01m6hkzt3hedmskpvxd1p7f5e2",
-      "locations": 1,
-      "logo": true,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:06.972533Z",
-      "observationDigest": "101b0dd0a858cd38ac2abfc446e63f27cdd78b2ce93f0dcbc0b2a968b188bba9"
     },
     {
       "domain": "kunstfinden.ch",
@@ -2559,7 +2376,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.109378Z",
+      "verifiedAt": "2026-11-25T20:46:43.003880Z",
       "observationDigest": "5c50d55c838d475360d320dc8021dc89343466b4122209d18ba9c9c526fdfaf6"
     },
     {
@@ -2574,7 +2391,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.143484Z",
+      "verifiedAt": "2026-11-25T20:46:43.024949Z",
       "observationDigest": "aa2a8146901a2dc3e4981965cf6897864e8195fb7d40057e8280847f9018fe99"
     },
     {
@@ -2589,7 +2406,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.307244Z",
+      "verifiedAt": "2026-11-25T20:46:43.155977Z",
       "observationDigest": "6f5a6ffeb634fb955dad44c2a09951be8a2479798e5d9429e27694b7578e55a6"
     },
     {
@@ -2604,7 +2421,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.480081Z",
+      "verifiedAt": "2026-11-25T20:46:43.305055Z",
       "observationDigest": "585fff55a928d4be5b5ec1df484a4a1accf94289a384187241a84017bfcd1b6e"
     },
     {
@@ -2619,7 +2436,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.410529Z",
+      "verifiedAt": "2026-11-25T20:46:43.237491Z",
       "observationDigest": "293c2ecbafc71dbb0131d6febcd44daf1e57fb9c48f3a7a20134abbd59629f35"
     },
     {
@@ -2634,8 +2451,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.631961Z",
+      "verifiedAt": "2026-11-25T20:46:43.430322Z",
       "observationDigest": "86aa72baf1ba6e137ddcb03d6b69716196093de36e6c1afa1885ce84ace1afd2"
+    },
+    {
+      "domain": "antiqueskishop.com",
+      "listingSourceId": "ls_01m89m6698e668b34v8eb3hf3x",
+      "partyId": "pty_01m89m6697epmv1f2q2x0w4p1h",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:43.489110Z",
+      "observationDigest": "cd61ab15a756c736eb00fc57d01e2f980a3608f95c469258b22ac6376f0cb642"
     },
     {
       "domain": "thalie-vintage.com",
@@ -2649,23 +2479,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.729934Z",
+      "verifiedAt": "2026-11-25T20:46:43.553628Z",
       "observationDigest": "0e2d6870b53c926873ea132f96da80c2abda6fd8169b1f6d732236b258748fcd"
-    },
-    {
-      "domain": "figuren-antike.ch",
-      "listingSourceId": "ls_01m6hssskseb9874pwwgkte8xp",
-      "partyId": "pty_01m6hsssk5eevsdtjt0j0bzh6v",
-      "locations": 1,
-      "logo": true,
-      "platform": "SHOPIFY",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.797473Z",
-      "observationDigest": "dc4ee87c12abe6bb8f051c39c0e4d227c426119b6832638ef0bba20b02184de0"
     },
     {
       "domain": "amiba-shop.ch",
@@ -2679,23 +2494,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:07.915646Z",
+      "verifiedAt": "2026-11-25T20:46:43.739288Z",
       "observationDigest": "ba75373800a0d7cadbf989901b2c0bba5f9dec43fdc9def6f889c4339caaba00"
-    },
-    {
-      "domain": "kunstverkauf.ch",
-      "listingSourceId": "ls_01m6ht6bh6erdrv2qm9609maqz",
-      "partyId": "pty_01m6ht6bgve9rt1ezzan5y4y76",
-      "locations": 2,
-      "logo": false,
-      "platform": null,
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.002281Z",
-      "observationDigest": "e990adfc25733ae7782362148f0d724db0d2d5d7c8c312538f735aa720605977"
     },
     {
       "domain": "olivierlegrandluthier.ch",
@@ -2709,23 +2509,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.088053Z",
+      "verifiedAt": "2026-11-25T20:46:43.934311Z",
       "observationDigest": "89efb1d0ac48cc94cfedeb4ba521efc634f54088d5703077b1e726319a907f7c"
-    },
-    {
-      "domain": "tapisfou.ch",
-      "listingSourceId": "ls_01m6jsryjxemrssh9hm9j2n4jp",
-      "partyId": "pty_01m6jsryj6ebhb605ra6rygvf1",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.180939Z",
-      "observationDigest": "c4b2079ae136df3b3be59e2884ade80fa5982c6ca641057aa8a1760bbaf2f2aa"
     },
     {
       "domain": "stichkabinett.ch",
@@ -2739,23 +2524,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.286205Z",
+      "verifiedAt": "2026-11-25T20:46:44.032360Z",
       "observationDigest": "aba3c21300c5c56ec09b9a2da54f695a507a4d6b95bbb26ae1c36d84f97e0cfe"
     },
     {
-      "domain": "pavy-art.ch",
-      "listingSourceId": "ls_01m6jtnbgaezg8caw1ys6bs0y8",
-      "partyId": "pty_01m6jtnbfxerht5hne7eqr2t0n",
+      "domain": "comtoise.ch",
+      "listingSourceId": "ls_01m89m68hge02se9wd1fgdex3w",
+      "partyId": "pty_01m89m68hbegb9zv9qekgaw4gp",
       "locations": 1,
       "logo": false,
-      "platform": "DJ_CATALOG2",
+      "platform": "WIX",
       "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
+      "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.429400Z",
-      "observationDigest": "30bd2d2e41bf7eb50f25067b299af2f0909e9ff024cb79dd2855842889af09f9"
+      "verifiedAt": "2026-11-25T20:46:44.197821Z",
+      "observationDigest": "7585907820e95f137e1e45aa2dfe67cee323843a7639b7c90a67c083be43502c"
     },
     {
       "domain": "panasia.ch",
@@ -2769,38 +2552,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.516623Z",
+      "verifiedAt": "2026-11-25T20:46:44.293691Z",
       "observationDigest": "6a16714ec1674d3ff63edfecf453311696f2146cd92b2cbfdab7d461d226d8cc"
-    },
-    {
-      "domain": "bazarouchy.com",
-      "listingSourceId": "ls_01m6jvkrp3ekp83ppvhf7hfb7x",
-      "partyId": "pty_01m6jvkrnhebpr1xcv3k3csv88",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.621897Z",
-      "observationDigest": "8d0650d7a8d3705be630049e8a9beafb0a6258d02eca556e24fbba2148512986"
-    },
-    {
-      "domain": "artbassinfrancogenevois.jimdofree.com",
-      "listingSourceId": "ls_01m6jvktk1e36ts5y1r3jc29re",
-      "partyId": "pty_01m6jvktjhe9x9h4h6fgrakdv1",
-      "locations": 1,
-      "logo": false,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.755033Z",
-      "observationDigest": "2141d39668f5c1244276b999c200c039cc043c966f3c40c4d52660dac3044ccc"
     },
     {
       "domain": "handgschnitzt.ch",
@@ -2814,8 +2567,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.838451Z",
+      "verifiedAt": "2026-11-25T20:46:44.551082Z",
       "observationDigest": "15d31be5cb54da9282d2fb4f736978302fb071f8899715a330b3463e292399f1"
+    },
+    {
+      "domain": "antik-unique.ch",
+      "listingSourceId": "ls_01m8c83wnke43aenp5agpwn2qg",
+      "partyId": "pty_01m8c83wn3evqre86x4dyp1q7s",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T16:05:54.062757Z",
+      "observationDigest": "cfc1068bfc9ff196ec201b642bf0178266ca39a54fab8b4f971b9f251f6a8e59"
     },
     {
       "domain": "romano.swiss",
@@ -2829,7 +2595,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:08.939154Z",
+      "verifiedAt": "2026-11-25T20:46:44.729582Z",
       "observationDigest": "a0492eca14c192d93cb97b6459e6695b4ecf3e0cf6d21573d31776e9e66e313d"
     },
     {
@@ -2844,7 +2610,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.075330Z",
+      "verifiedAt": "2026-11-25T20:46:44.767876Z",
       "observationDigest": "0b11b575c4742de619b2da81c2e2ec8ed3fe4850d9ca3dfb68e0b238137eb00d"
     },
     {
@@ -2859,7 +2625,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.117262Z",
+      "verifiedAt": "2026-11-25T20:46:44.772396Z",
       "observationDigest": "46d020a5fbfda51d6ce65ebab67ef99205a703dd0e5f0a1e4bd6a48c9a28449e"
     },
     {
@@ -2874,7 +2640,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.291143Z",
+      "verifiedAt": "2026-11-25T20:46:45.040797Z",
       "observationDigest": "6bf6dfb6701f84450e4a96a9edf5a6818bf085820ca678056765781f0d678e70"
     },
     {
@@ -2889,7 +2655,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.322867Z",
+      "verifiedAt": "2026-11-25T20:46:45.003649Z",
       "observationDigest": "e62843b8f704bfb048c0579c38dcf1837ff68aaea452227b505f94fee4114bc9"
     },
     {
@@ -2904,7 +2670,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.413787Z",
+      "verifiedAt": "2026-11-25T20:46:45.047627Z",
       "observationDigest": "84564c4b4f69bab5a8f5b6ddb971f9b0f1fc65116dff57deb857cada8cc01474"
     },
     {
@@ -2919,7 +2685,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.603540Z",
+      "verifiedAt": "2026-11-25T20:46:45.256300Z",
       "observationDigest": "c0a9bbf8be36cfc91b971a83e3dac57ede9170fb791a3c420aa69e53c3af850d"
     },
     {
@@ -2934,7 +2700,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.640141Z",
+      "verifiedAt": "2026-11-25T20:46:45.289360Z",
       "observationDigest": "b7323961ec08dd9b27453f28cfcc30e66d1efd61be50f4d8669da0e231b17588"
     },
     {
@@ -2949,7 +2715,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.771154Z",
+      "verifiedAt": "2026-11-25T20:46:45.341332Z",
       "observationDigest": "c6dc771cd16def9ae28e1195f61fd1ea2af8822e396ef1f767fb9c0298424780"
     },
     {
@@ -2964,7 +2730,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.966813Z",
+      "verifiedAt": "2026-11-25T20:46:45.550610Z",
       "observationDigest": "6660ddf87a664396cbb0fdbf24e5f2410bb584cba50a417034625c49541bfdf6"
     },
     {
@@ -2979,7 +2745,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:09.969145Z",
+      "verifiedAt": "2026-11-25T20:46:45.535141Z",
       "observationDigest": "dbb96a87e84cb44445d3ec0ba584c78c90341fbe6d1953d32d1366cf15380e2e"
     },
     {
@@ -2994,7 +2760,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.091600Z",
+      "verifiedAt": "2026-11-25T20:46:45.580951Z",
       "observationDigest": "c2880c283ade8b5f43e90735252b25974a7fa61a447ddb63c8fe31f0af332eb9"
     },
     {
@@ -3009,7 +2775,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.294621Z",
+      "verifiedAt": "2026-11-25T20:46:45.780276Z",
       "observationDigest": "46e6ad0708f3bc78fcf56cc2f5b62b80919294d75bae370ab7586ee072f1933f"
     },
     {
@@ -3024,7 +2790,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.342804Z",
+      "verifiedAt": "2026-11-25T20:46:45.845233Z",
       "observationDigest": "6304f8619ff9d41143f86d3fc6bf520280fcce1694e08a754d258a87be14b9d0"
     },
     {
@@ -3039,23 +2805,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.408382Z",
+      "verifiedAt": "2026-11-25T20:46:45.824157Z",
       "observationDigest": "28619940f89eb3b9ea161cae59cfad6ecce3e48f383950b20406e70b7cbb20fe"
-    },
-    {
-      "domain": "galerieglaab.com",
-      "listingSourceId": "ls_01m6k7pbwdet6v5rwqp7cf6wew",
-      "partyId": "pty_01m6k7pbvweb6tnmarfqnxs58g",
-      "locations": 1,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.566691Z",
-      "observationDigest": "5ebd877bca588f278f9e8d3179c21135a2a457c7a54c3701b398a61b8098ed80"
     },
     {
       "domain": "damihi.com",
@@ -3069,23 +2820,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.614483Z",
+      "verifiedAt": "2026-11-25T20:46:46.040411Z",
       "observationDigest": "f31fe8a91bccf2ad7ce28dbdb6329ba93ebe966866b0c4099e9b8d267f10b635"
-    },
-    {
-      "domain": "galerie-marc-triebold.ch",
-      "listingSourceId": "ls_01m6k93fqvehes4gzpcezsehd0",
-      "partyId": "pty_01m6k93fqeezptpmyyasy1chq3",
-      "locations": 1,
-      "logo": false,
-      "platform": "ARTBUTLER",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.685310Z",
-      "observationDigest": "ead428e0d3782aceb444f785705b9d2966e5556ca9ee1a2b021431b703295cae"
     },
     {
       "domain": "gmurzynska.com",
@@ -3099,23 +2835,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.854063Z",
+      "verifiedAt": "2026-11-25T20:46:46.215291Z",
       "observationDigest": "df51945d14573f1507deb79dab5df30015af63c6200b5d7c31cc44c3e119255b"
-    },
-    {
-      "domain": "hodler-thun.ch",
-      "listingSourceId": "ls_01m6ke42yze9sbxegqdxnjyc6c",
-      "partyId": "pty_01m6ke42yaeh59kyx6dhpfmhxk",
-      "locations": 1,
-      "logo": true,
-      "platform": "JIMDO",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.883854Z",
-      "observationDigest": "420078a5376be729df5feab2cd3515fe7052448bbcd5f2c2c4d8b466babbd61c"
     },
     {
       "domain": "brossy-et-fils.ch",
@@ -3129,7 +2850,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:10.958473Z",
+      "verifiedAt": "2026-11-25T20:46:46.267024Z",
       "observationDigest": "dac55e62949b5b111e69059b79ebbd0758e2a793348f2b4d17eab11cf52db7d7"
     },
     {
@@ -3144,7 +2865,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:11.122839Z",
+      "verifiedAt": "2026-11-25T20:46:46.471770Z",
       "observationDigest": "0d515cf09d29dbf345ff5517633f2bea402673327021b2b5a9273a294d093505"
     },
     {
@@ -3159,8 +2880,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:11.105977Z",
+      "verifiedAt": "2026-11-25T20:46:46.447877Z",
       "observationDigest": "cf4ca61690c5bbdece499a89cd1bbc194f32e015ac21bd8a79ad1078a8fbc5ad"
+    },
+    {
+      "domain": "ludins-raritaeten.ch",
+      "listingSourceId": "ls_01m89m4zvsee3r672115cg16cg",
+      "partyId": "pty_01m89m4zvme8vr5dj1y35s4cw2",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:46.482118Z",
+      "observationDigest": "a99b75c69d6a00ff5d1323467759de30ffb9174da37c2de7cc170cffa3cad274"
     },
     {
       "domain": "foxartscomics.ch",
@@ -3174,7 +2908,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:11.288706Z",
+      "verifiedAt": "2026-11-25T20:46:46.705241Z",
       "observationDigest": "874127d680bc3d7e09373bb970b7cde40c2bab095b9a0dd492f7e320c251fd4c"
     },
     {
@@ -3189,8 +2923,489 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:38:11.420833Z",
+      "verifiedAt": "2026-11-25T20:46:46.733969Z",
       "observationDigest": "419d2684118f2f2e2f4e5e6ab07893ffaf9f0aa425968ae9cbdd93d06588f8cf"
+    },
+    {
+      "domain": "lesilluminesdesign.ch",
+      "listingSourceId": "ls_01m89m4rcheysvhkthz3fyrste",
+      "partyId": "pty_01m89m4rcfe77rfe58azaprfav",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:46.707969Z",
+      "observationDigest": "84e70ba20448bdc13b6296cba1b0c3b26633467232ff198c7feaa5181d8c5fd3"
+    },
+    {
+      "domain": "fermedelafontaine.ch",
+      "listingSourceId": "ls_01m89pf0weeegvnzfq0z31t11m",
+      "partyId": "pty_01m89pf0w4ew9benacnydxnfs6",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:46.932958Z",
+      "observationDigest": "53cddbb16ce6d70bebb0a4aa79cb1e3225231eddc7e71b3a966d4a0090de5475"
+    },
+    {
+      "domain": "mundart.ch",
+      "listingSourceId": "ls_01m89pf1wme5kaqatve45r73cc",
+      "partyId": "pty_01m89pf1whezzv21aa30dqbgjn",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:46.970664Z",
+      "observationDigest": "fe9721ef4ba5ddbeac4cc85732a5ff247a9b47eb84fdc7af0c874735a5f906f7"
+    },
+    {
+      "domain": "madayancarpets.ch",
+      "listingSourceId": "ls_01m89q91qde57ar45sqbkgywqx",
+      "partyId": "pty_01m89q91qaex9vcg9tq6sj74ay",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.019762Z",
+      "observationDigest": "5b0005af165e1411e94c8c0692ca25a1e924c0522936e006c37815980be83a2d"
+    },
+    {
+      "domain": "antike-uhren.ch",
+      "listingSourceId": "ls_01m89q937gew1rb07w88d0qmkk",
+      "partyId": "pty_01m89q9372ejare5vpg1b71fmf",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.149720Z",
+      "observationDigest": "0629dabb53d07a2fb62fa6d7ea173a491eda868f306680b234ed05720b518493"
+    },
+    {
+      "domain": "antikuhrenatelier.ch",
+      "listingSourceId": "ls_01m89q9451ertt7vb9j62y5z65",
+      "partyId": "pty_01m89q9450eqxv0tg4h31hgzye",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.178413Z",
+      "observationDigest": "d05ae0def196800da8c323d2693c797fb59125db7d5a069437c9f54e5225c2f1"
+    },
+    {
+      "domain": "antiquariat-thomi.ch",
+      "listingSourceId": "ls_01m89q954nexxv26tx6v8ame2p",
+      "partyId": "pty_01m89q954meagrx90ka0ap4tea",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPFACTORY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.261501Z",
+      "observationDigest": "b8b913459c9e6c9dd6e32162cf1b1ec76d1b8e55bc59a0a301706581cecf339c"
+    },
+    {
+      "domain": "jungi.com",
+      "listingSourceId": "ls_01m89t5gxqea5sk7ww9t7psgkp",
+      "partyId": "pty_01m89t5gxmebh9yw68jf9km7pt",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.365442Z",
+      "observationDigest": "76d3135cb7d4e965194696a17fe8842915e232aa5fa6b476749b432c599ffa9c"
+    },
+    {
+      "domain": "cooper73.ch",
+      "listingSourceId": "ls_01m89t5hteeyrtd9bpfnphxqnd",
+      "partyId": "pty_01m89t5htbey9rphtp63a21aa2",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.391217Z",
+      "observationDigest": "9bc5df34851d53d5dec8172ca8fde8d8979565f65b56a4e63cd946b11f4dfe5a"
+    },
+    {
+      "domain": "pps-vintagedesign.ch",
+      "listingSourceId": "ls_01m89t5jsveada5e6y3y4n0e8n",
+      "partyId": "pty_01m89t5jsre1f9y54gr8sdmq5d",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.523185Z",
+      "observationDigest": "cf37dba9c797b4642ea77599cb051c5e14ba62a5580428339401c7f737ddc749"
+    },
+    {
+      "domain": "vintagelamps.ch",
+      "listingSourceId": "ls_01m89t5m1verkvtj73tgxn0f9e",
+      "partyId": "pty_01m89t5m1resx9fvs8vvc2ggbx",
+      "locations": 2,
+      "logo": true,
+      "platform": "WEBSITE_X5",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.626246Z",
+      "observationDigest": "cab59f0e7c9194930e39f61c18be565c1b6d87ef6b7f4cdd11cbcccab0e06dc1"
+    },
+    {
+      "domain": "moebel-mueller.ch",
+      "listingSourceId": "ls_01m89t5n9jeaj9jd7apnd8m0mw",
+      "partyId": "pty_01m89t5n9hed592vc4d01w1vkv",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.622359Z",
+      "observationDigest": "0bb2d69b04778743022ded6746df43b4176626faf60bb93dc75d163661d847f3"
+    },
+    {
+      "domain": "militaria-schweiz.ch",
+      "listingSourceId": "ls_01m89t5p9qe43r41tpgd07ypcr",
+      "partyId": "pty_01m89t5p9me9rrk0tp4vjtpgtv",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.788354Z",
+      "observationDigest": "81de8166b36a613696b00d390d1ce4a5ef7a138901504b40031fa80949acda73"
+    },
+    {
+      "domain": "antike-stiche.ch",
+      "listingSourceId": "ls_01m89t6c2senfrz5j9gdf6x521",
+      "partyId": "pty_01m89t6c2reeeb07njn7f8mnqt",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:47.849441Z",
+      "observationDigest": "bf76077f78847afe3049f9877594eedf6bac01aa0aa19d962c3b886429a09230"
+    },
+    {
+      "domain": "deuxieme.shop",
+      "listingSourceId": "ls_01m89t6d12ejpt62tcsske9608",
+      "partyId": "pty_01m89t6d0ye2dtfj0knc7q4d4g",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.040542Z",
+      "observationDigest": "4699dc2f18cb22ad6473294467807ac683f4ff82bc02fca618244fd09c65ea75"
+    },
+    {
+      "domain": "varr.ch",
+      "listingSourceId": "ls_01m89t6e8wee9avt2rme5d9e6h",
+      "partyId": "pty_01m89t6e8tekn9vtqmpxqnd2gx",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.092820Z",
+      "observationDigest": "5b284983ac3841ef86b1e77384a3ecf2d8eec820d358b491b4b566ee74b0beae"
+    },
+    {
+      "domain": "kargandmore.ch",
+      "listingSourceId": "ls_01m89t6fjcehytjackp03em3zt",
+      "partyId": "pty_01m89t6fj4etm82vmx9hz2ttrc",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.096213Z",
+      "observationDigest": "5fe5ae30d8c651ef70ae87936aabddab640c6131535bd749c2b5db829e0bacdb"
+    },
+    {
+      "domain": "chgallery.ch",
+      "listingSourceId": "ls_01m89t6gfper5sz9dtjx2be1r1",
+      "partyId": "pty_01m89t6gfneaavyhc9v7j0amkf",
+      "locations": 2,
+      "logo": false,
+      "platform": "DRUPAL",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.282525Z",
+      "observationDigest": "1302659edfdfd140a176d6586be8d54108d9e4de09a228c9b4c95ecfe311543d"
+    },
+    {
+      "domain": "chwarehouse.ch",
+      "listingSourceId": "ls_01m8a3t5grefqrvx0dpwsx2vgv",
+      "partyId": "pty_01m89t6gfneaavyhc9v7j0amkf",
+      "locations": 2,
+      "logo": false,
+      "platform": "DRUPAL",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.374823Z",
+      "observationDigest": "182b539e8bebfbee24af8241c56deb61b7385cbcbfeee4ec06d239250c1d2b43"
+    },
+    {
+      "domain": "perpetuummoebel.com",
+      "listingSourceId": "ls_01m8a3znfhe8h85h43vbzmdsa0",
+      "partyId": "pty_01m8a3znf8efvrhfzdqmga64fs",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.634360Z",
+      "observationDigest": "0fd2a0dc86c4abc32fa8c181bab3ef350cca78afe67ea9faf35f559b1549be95"
+    },
+    {
+      "domain": "numismagna.ch",
+      "listingSourceId": "ls_01m8a45p24e70v6m47daz10nw7",
+      "partyId": "pty_01m8a45p1sedtt903npcxc306z",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.736628Z",
+      "observationDigest": "b9aab0a95ad21e9dfd7b80e225c4a48122572736ce8edcd02f2c071880af810f"
+    },
+    {
+      "domain": "china-wohnkultur.ch",
+      "listingSourceId": "ls_01m8a4de9fetfv0036h763ne7c",
+      "partyId": "pty_01m8a4de98e6dady83ct72eej8",
+      "locations": 2,
+      "logo": true,
+      "platform": "VIRTUEMART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.927647Z",
+      "observationDigest": "0f8b59a2255c82ecdfc8a005c842533e582d5e74154d34a11c198cf64f4d9082"
+    },
+    {
+      "domain": "ansichtskarten-center.ch",
+      "listingSourceId": "ls_01m8a5nz9nezwr8pdna9zpx6rz",
+      "partyId": "pty_01m8a5nz9hedbsk1gefrxphnng",
+      "locations": 1,
+      "logo": false,
+      "platform": "MALISTO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:48.992281Z",
+      "observationDigest": "0d4d9a910868cf87242d74630b3324816601a3721c869befb481d3b507de6d90"
+    },
+    {
+      "domain": "ak-fundus.ch",
+      "listingSourceId": "ls_01m8a5p0kre17bp7prma2ba3qh",
+      "partyId": "pty_01m8a5p0kmeqfafz9ag0m75jce",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.101591Z",
+      "observationDigest": "979c055ea66c602140526cb950edf20e39623c1b3f713380f24706c23a274998"
+    },
+    {
+      "domain": "swisscarta.com",
+      "listingSourceId": "ls_01m8a5p1w0esmtjnkvn9pb7t3n",
+      "partyId": "pty_01m8a5p1vtewdrs57a93j0f6vz",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.185909Z",
+      "observationDigest": "be13c095a5a2848ac652fd506f5a45f92da1345b13d0d2abd7d70035e2d0ce11"
+    },
+    {
+      "domain": "origoni.ch",
+      "listingSourceId": "ls_01m8a5p376ebkambnr8cvk76y6",
+      "partyId": "pty_01m8a5p371eatr8rnqk1b2qx3g",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.206436Z",
+      "observationDigest": "2af56f774e48aad069e71d000b444fb85c7f28a1c11edf05969fd47916989e50"
+    },
+    {
+      "domain": "holz-apfel.ch",
+      "listingSourceId": "ls_01m8a5p4a5etprpk6a0nx8pbrf",
+      "partyId": "pty_01m8a5p4a1emkt1d7r4ah1ht3f",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.341516Z",
+      "observationDigest": "2a5a9a832e9d6e947e64c21467a1e006abe48d7cb6486b51e466b113a5591875"
+    },
+    {
+      "domain": "booksimonin.ch",
+      "listingSourceId": "ls_01m8a5p5deeecskqt382e2e3wr",
+      "partyId": "pty_01m8a5p5d9e038d3pwq5sjhw0p",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.459094Z",
+      "observationDigest": "7849e0db6ef08babffd707f0e7c3cc68f3b8e7289e73cc2a2053fde97fa83055"
+    },
+    {
+      "domain": "brunnen-skulpturen.ch",
+      "listingSourceId": "ls_01m8a5p6pde3ztypznbc9n3sdq",
+      "partyId": "pty_01m8a5p6p8eq7s8mmfe0b003wr",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.432873Z",
+      "observationDigest": "f313f3610dc129de8640d8e3ae47cf9547b80d4196c98638a8fe0b1acc6eead5"
+    },
+    {
+      "domain": "sportantiquariat.ch",
+      "listingSourceId": "ls_01m8a6kykmez8sgm93at12xn42",
+      "partyId": "pty_01m8a6kykgewys2a9kybjk3qer",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:49.685306Z",
+      "observationDigest": "452244f460803091f515ed5098626e9da057ca5fd863dec264290581873e08e8"
+    },
+    {
+      "domain": "lodeco.ch",
+      "listingSourceId": "ls_01m8bgbyrnenpbd9rkb1hktx9h",
+      "partyId": "pty_01m8bgbyrkebttj0ycf59sd7qe",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T08:54:27.826717Z",
+      "observationDigest": "a2d17b3bc7880767bab4c57fce11a76c0c910415c2ead24fceccc50086215133"
+    },
+    {
+      "domain": "poster-auctioneer.com",
+      "listingSourceId": "ls_01m8c9m712e3hs9by2z23brrqf",
+      "partyId": "pty_01m8c83vc1e98raa59aw1y0rk0",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T16:05:54.279484Z",
+      "observationDigest": "81b7d95d451753eca25ca3e37d5fff7a9384bdc515ff7348379dcb4e9041acee"
+    },
+    {
+      "domain": "allerdingsantiquariat.ch",
+      "listingSourceId": "ls_01m8cqn8m6er5tfkgxtmv99t4w",
+      "partyId": "pty_01m8cqn8m5ers8m1vhvn59y2gn",
+      "locations": 1,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T20:13:21.522171Z",
+      "observationDigest": "f37713aecdcafcdda10386cf42d52148220e8fbbc6b178a048927d65655c9147"
+    },
+    {
+      "domain": "fabulafero.ch",
+      "listingSourceId": "ls_01m8cqn9rkeh5vabg8ca9gzd8n",
+      "partyId": "pty_01m8cqn9rheg6vkpx3kkmcp2hr",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T20:13:21.559826Z",
+      "observationDigest": "c77887b51250496f16bbfc25d2962f7f0b0b757561d2b59a6cae42ec86227f62"
+    },
+    {
+      "domain": "uhren-brunner.ch",
+      "listingSourceId": "ls_01m8cqnb7zemzrt1zac7med7s3",
+      "partyId": "pty_01m8cqnb7vecfb14gn2yevavdy",
+      "locations": 1,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T20:13:21.516012Z",
+      "observationDigest": "6742f728b82e0cec796591c79c6c4b7da92fcad98566edbba0703b964aa22678"
+    },
+    {
+      "domain": "shop.brockiwolf.ch",
+      "listingSourceId": "ls_01m8cqh72wev89vefnv18123gm",
+      "partyId": "pty_01m8cqh72ves9bzbv651qb5xdh",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T20:13:21.824721Z",
+      "observationDigest": "59f1386e5b03f5e3398736b610350418e5e8a3e5a273b2d2e510a90197434da3"
+    },
+    {
+      "domain": "uhrmacheratelier.ch",
+      "listingSourceId": "ls_01m8cqh86ve6vadp5sae9c87v5",
+      "partyId": "pty_01m8cqh86peggs0n0vb1js0rn1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T20:13:21.829260Z",
+      "observationDigest": "e9ec2d5c3154f9b98163e919c5335bcff582b62331511a8979338d251cc4f1cf"
     }
   ]
 }

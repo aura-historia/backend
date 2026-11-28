@@ -1,28 +1,28 @@
 {
-  "run": "2026-11-25-removal-refresh",
-  "verifiedAt": "2026-11-25T08:40:52.697669Z",
-  "scope": "FULL",
+  "run": "2026-11-26-dach-par-at-coverage",
+  "verifiedAt": "2026-11-26T20:13:15.814365Z",
+  "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-25T08:40:52.697669Z",
-  "dealersCheckedThisRun": 137,
-  "dealersReused": 0,
+  "fullVerifiedAt": "2026-11-25T20:47:09.058471Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 140,
   "counts": {
-    "parties": 135,
-    "listingSources": 137,
-    "locations": 170,
-    "logos": 116,
-    "identifiedPlatforms": 112,
-    "deliveryProfiles": 77,
-    "emptyIngestionMethods": 1,
-    "ingestionConfigured": 136,
-    "excluded": 118,
-    "deferred": 218
+    "parties": 141,
+    "listingSources": 141,
+    "locations": 168,
+    "logos": 112,
+    "identifiedPlatforms": 115,
+    "deliveryProfiles": 84,
+    "emptyIngestionMethods": 37,
+    "ingestionConfigured": 104,
+    "excluded": 459,
+    "deferred": 162
   },
   "environmentCounts": {
-    "parties": 4428,
-    "listingSources": 4465
+    "parties": 4504,
+    "listingSources": 4547
   },
-  "paidDataSpendUsd": 0.0,
+  "paidDataSpendUsd": 1.12,
   "checks": [
     "Live managed Party contacts and ownership match reviewed evidence",
     "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
@@ -32,49 +32,19 @@
   ],
   "dealers": [
     {
-      "domain": "kolhammer.com",
-      "listingSourceId": "ls_01m6gdwnx1eteaykhk0g00adkx",
-      "partyId": "pty_01m6gdwnwberavqcqjwsa71qam",
-      "locations": 2,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.398626Z",
-      "observationDigest": "189c26d1d380297845c010bb25511c8d064a462a9c09f69befc924c23c964853"
-    },
-    {
-      "domain": "nostalgie-salzburg.at",
-      "listingSourceId": "ls_01m6gdws6hej4afr5dm1d4r9jv",
-      "partyId": "pty_01m6gdws5xeamvpgkf0sm7ys6n",
-      "locations": 1,
-      "logo": true,
-      "platform": "SHOPIFY",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.356727Z",
-      "observationDigest": "74e7ddd3e62d8388842c0a9a20454c72e379b53e0efde834a46ee2bab41a72e1"
-    },
-    {
       "domain": "artheum.at",
       "listingSourceId": "ls_01m6ge2cz9e7makz029j3m50wt",
       "partyId": "pty_01m6ge2cyje53bkmqd60fh5h8h",
       "locations": 2,
-      "logo": false,
+      "logo": true,
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.396053Z",
-      "observationDigest": "8426d2cded202e80f13e474e3bf8c34e10789dc0d960885a69225efb434315ac"
+      "verifiedAt": "2026-11-25T20:46:54.778839Z",
+      "observationDigest": "4da6bc9df826a71c31566bd4e4a697a029c4f7e584870e390beae1270fd4721f"
     },
     {
       "domain": "apfel-antik.com",
@@ -86,7 +56,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.586608Z",
+      "verifiedAt": "2026-11-25T20:46:54.923995Z",
       "observationDigest": "1175d9a1f298f1616e92ab3f05b7c106173dfda2f991ad2dec2e94e07b33ae9d"
     },
     {
@@ -101,7 +71,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.674193Z",
+      "verifiedAt": "2026-11-25T20:46:54.989992Z",
       "observationDigest": "1036456bf30ab4374ee9d96238b2021cc6a6e67a9e9365cfe189e2e010e3f560"
     },
     {
@@ -116,7 +86,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.768885Z",
+      "verifiedAt": "2026-11-25T20:46:55.085565Z",
       "observationDigest": "d3ce93131ae68d02f1bbc92393fa8e71e46abc3bb7584461b4a8992824e337bf"
     },
     {
@@ -131,23 +101,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:39.863287Z",
+      "verifiedAt": "2026-11-25T20:46:55.162108Z",
       "observationDigest": "7de80e1af3d5e61ccc1baa2f76eff546357e519b526c6f2aeaa0aef51ea781d7"
-    },
-    {
-      "domain": "runge.at",
-      "listingSourceId": "ls_01m6gee3f6ezmbbrce73885db7",
-      "partyId": "pty_01m6gee3etemeae5vjagwk8235",
-      "locations": 2,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.004013Z",
-      "observationDigest": "74191769f0331cce04ff377ee3bb8eb4151853681d1757af378279bc7bda1ac0"
     },
     {
       "domain": "ifantik.at",
@@ -161,7 +116,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.102291Z",
+      "verifiedAt": "2026-11-25T20:46:55.365171Z",
       "observationDigest": "4b2a39b695e7d77f1bea100cc6935c94dd536134ef942703e266945bc3b66eab"
     },
     {
@@ -176,38 +131,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.193842Z",
+      "verifiedAt": "2026-11-25T20:46:55.454726Z",
       "observationDigest": "fbc01b7bf897ad5fd33d54f5973cc259605b144d9781dd68d563ad3b578a6829"
-    },
-    {
-      "domain": "retro-moebel.at",
-      "listingSourceId": "ls_01m6geea2he2xasqs9z9bsm94t",
-      "partyId": "pty_01m6geea24eanbnh34937wvegc",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.323896Z",
-      "observationDigest": "9aa27e77d4c5787907991255a46aa85ca4a7c6a44ccdfd52a100db5286307e89"
-    },
-    {
-      "domain": "szaal.at",
-      "listingSourceId": "ls_01m6gek70getc8whymdhpxyc5g",
-      "partyId": "pty_01m6gek701ej0b5xg95b956dnt",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.375272Z",
-      "observationDigest": "38fa8e4cf0ca0efca2c8794dcc4a1d6ed0302688b9f2d4cab864ee56df618d10"
     },
     {
       "domain": "kunsthandel-freller.at",
@@ -221,8 +146,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.466032Z",
+      "verifiedAt": "2026-11-25T20:46:55.661274Z",
       "observationDigest": "6322003ca1252bf57e4b55eb3599543537666cc077737d7626b8fa63e05dbcec"
+    },
+    {
+      "domain": "vetter-antiquitaeten.at",
+      "listingSourceId": "ls_01m8c8q55rezc8kdadhc7zrjpp",
+      "partyId": "pty_01m8c8q55pe6wscwf7bhh34t4s",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T16:05:53.822751Z",
+      "observationDigest": "731fd584b7c58b55f5a57858f855d808668d07f4236760fce0f892ac68f2c26e"
     },
     {
       "domain": "beletage.com",
@@ -236,7 +174,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.636152Z",
+      "verifiedAt": "2026-11-25T20:46:55.746742Z",
       "observationDigest": "7da4d5fd69507925fdf7fefafb7270e0075be2567c0735637cde8747014e9bab"
     },
     {
@@ -245,44 +183,14 @@
       "partyId": "pty_01m6gews00epea4dqpffmatmhf",
       "locations": 1,
       "logo": true,
-      "platform": null,
+      "platform": "GRAV",
       "deliveryProfile": false,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.643848Z",
-      "observationDigest": "6deee78ed11a13fca67bb5ffec261e03d03690c5a3fe44a77d9a4ea5cdc35e37"
-    },
-    {
-      "domain": "kovacek-zetter.at",
-      "listingSourceId": "ls_01m6gewtpnehmvwfq83kmc9vx8",
-      "partyId": "pty_01m6gewtpcek7brfmrq9rgxwcw",
-      "locations": 3,
-      "logo": true,
-      "platform": "DRUPAL",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.827986Z",
-      "observationDigest": "20acfa758c8479eedf3a7cccc923a1b0e4622afbaf1be33cdee8628224aeed6e"
-    },
-    {
-      "domain": "gieseundschweiger.at",
-      "listingSourceId": "ls_01m6gewwz6ekca6wxdznrtt5t0",
-      "partyId": "pty_01m6gewwytey7b7yrx73qxqq79",
-      "locations": 1,
-      "logo": true,
-      "platform": "ARTLOGIC",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.915507Z",
-      "observationDigest": "b55c10edd02a78b2bc1c256b550e2dc565cefef2624beb3d49960a85e113b913"
+      "verifiedAt": "2026-11-25T20:46:55.822623Z",
+      "observationDigest": "50d9148a47fd16bebb1df7c88ad6aaf80da5c9ae01d9b46551eece6ddf99e20b"
     },
     {
       "domain": "szaal.com",
@@ -296,7 +204,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:40.917557Z",
+      "verifiedAt": "2026-11-25T20:46:56.050922Z",
       "observationDigest": "db6b8c42f5f86dfbc9ced1ea58c2b8907622383a032d35b212b609bcf623dfe1"
     },
     {
@@ -311,7 +219,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.090897Z",
+      "verifiedAt": "2026-11-25T20:46:56.298878Z",
       "observationDigest": "9afba0fe2145921a78ef0d3b72e573012073a69429ef7c879119c5b9ebd0ef3a"
     },
     {
@@ -326,23 +234,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.183406Z",
+      "verifiedAt": "2026-11-25T20:46:56.286184Z",
       "observationDigest": "a9874f9c9f861f3d0ed692068e993ce78e697088f57379b9f3911ee5a259980c"
-    },
-    {
-      "domain": "antikmarkt-tirol.at",
-      "listingSourceId": "ls_01m6gf8nbveq38d1c1fc0xwgv3",
-      "partyId": "pty_01m6gf8nbde4s9abxmjy6fs0pe",
-      "locations": 1,
-      "logo": true,
-      "platform": "PRESTASHOP",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.138570Z",
-      "observationDigest": "39ad57042d3ce4c116cd6a1e889387a397529ab1eb877169b0a88c18e27dd7e7"
     },
     {
       "domain": "antiquitaeten-moskat.at",
@@ -356,7 +249,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.371030Z",
+      "verifiedAt": "2026-11-25T20:46:56.521347Z",
       "observationDigest": "5cc7bc36d7de2caefbe781ce3ce4894759592c9f228e290168513da50822d676"
     },
     {
@@ -364,45 +257,15 @@
       "listingSourceId": "ls_01m6gfd8m0eq9vtqweny3fj1jh",
       "partyId": "pty_01m6gfd8kdeewrt5ch0j8rfg4h",
       "locations": 2,
-      "logo": false,
+      "logo": true,
       "platform": "TYPO3",
       "deliveryProfile": true,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.511372Z",
-      "observationDigest": "a6291c2c6ca5a5d4c5cef1f9660d46ce113c7ee7dfbc93bc3977fdb1f86f2c82"
-    },
-    {
-      "domain": "antik-zone.at",
-      "listingSourceId": "ls_01m6gfdb7qesm8626pxdh3yrgw",
-      "partyId": "pty_01m6gfdb72e03bcyb6248ag9t3",
-      "locations": 2,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.545978Z",
-      "observationDigest": "f1641044d11a15fd2ac096700a6f5bcd91f12e7e1d9baa38defa0628820b0395"
-    },
-    {
-      "domain": "kunsthaus-wiesinger.at",
-      "listingSourceId": "ls_01m6gfpa95ektry2hzjf1ek6sg",
-      "partyId": "pty_01m6gfpa8kej4b54tva5nnxygs",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.645636Z",
-      "observationDigest": "f6597620b63c1e7e1979abbdd810f1bd39a5de249e6a9b93857eb961a9b406a0"
+      "verifiedAt": "2026-11-25T20:46:56.649213Z",
+      "observationDigest": "0093c4bcb79fc298b9a6209a6da998eccdb423da132a5de41432323c716fd6a4"
     },
     {
       "domain": "antiquitaeten-reisch.com",
@@ -416,7 +279,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.808792Z",
+      "verifiedAt": "2026-11-25T20:46:56.835278Z",
       "observationDigest": "3aad4887a21ae030becbcf6be43ade91826a15015b0d6a23e71dbd086b95cfae"
     },
     {
@@ -431,7 +294,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.918080Z",
+      "verifiedAt": "2026-11-25T20:46:56.973111Z",
       "observationDigest": "f6fbe369484ac2cf6ace79733623ad7dc787fa48312a2e966e889f234645b6ff"
     },
     {
@@ -446,23 +309,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:41.914774Z",
+      "verifiedAt": "2026-11-25T20:46:56.965096Z",
       "observationDigest": "d17646cedc37dfcdfbcb20bd46005dcb99dee21ea155f4417416b62b7c372fc5"
     },
     {
-      "domain": "leskovarfineart.at",
-      "listingSourceId": "ls_01m6gfv7cqe02seqcwvcszngnq",
-      "partyId": "pty_01m6gfv7caevaadfgrdtxrm2ex",
+      "domain": "artfigl.at",
+      "listingSourceId": "ls_01m89m5nx8eak93sya9537m2ns",
+      "partyId": "pty_01m89m5nx0eys9xn5j7507d8vp",
       "locations": 1,
       "logo": true,
       "platform": "WORDPRESS",
       "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
+      "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.056376Z",
-      "observationDigest": "89fa55f037632ffc37121afeece32795beabe25bd3e2cfc4ea9272239352113c"
+      "verifiedAt": "2026-11-25T20:46:57.177559Z",
+      "observationDigest": "703c0ded09d70ef4123a34a376b02687c98ccb909512b36a1e214232f1e92062"
     },
     {
       "domain": "sanctlucas.com",
@@ -476,23 +337,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.126408Z",
+      "verifiedAt": "2026-11-25T20:46:57.190548Z",
       "observationDigest": "2c713fa581be0d0dda3105f2b7fa8101e83f7cbca16d944f833bb1fdf13b4926"
-    },
-    {
-      "domain": "schuetzartsociety.at",
-      "listingSourceId": "ls_01m6gg0db7eqetekek5k9y0sbe",
-      "partyId": "pty_01m6gg0datef29vdtmydeqfacp",
-      "locations": 1,
-      "logo": true,
-      "platform": "TYPO3",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.129561Z",
-      "observationDigest": "ad1fda85c8a67e1f55d1f88b67866b413dd83e97e0a357fb02696c4dd2a7a07a"
     },
     {
       "domain": "kunsthandel-pichler.at",
@@ -506,7 +352,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.334372Z",
+      "verifiedAt": "2026-11-25T20:46:57.434801Z",
       "observationDigest": "52c3e1587b16f94f0d07eea8539f962ce17980ca81725dca1a16e3b1a29e1bb2"
     },
     {
@@ -521,7 +367,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.474829Z",
+      "verifiedAt": "2026-11-25T20:46:57.478448Z",
       "observationDigest": "ade54afeda736a00cdb47e17a3cbad7b09306b3163a0d064c915146d79b516c4"
     },
     {
@@ -536,7 +382,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.383359Z",
+      "verifiedAt": "2026-11-25T20:46:57.494275Z",
       "observationDigest": "44e10881704fcd9aab735a08b7f9f7640977f005fd0580c88402928b0fd5cfe1"
     },
     {
@@ -551,7 +397,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.662681Z",
+      "verifiedAt": "2026-11-25T20:46:57.706271Z",
       "observationDigest": "c49975ec6b1ec490f1aa1c73229c0303118350ea3bd3a40a99a608ac4d9b5550"
     },
     {
@@ -566,7 +412,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.658819Z",
+      "verifiedAt": "2026-11-25T20:46:57.711447Z",
       "observationDigest": "35c74394065acf1524afabdbcff25ed5a847505d38a507316254b5c56a0aa6f3"
     },
     {
@@ -581,7 +427,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.747141Z",
+      "verifiedAt": "2026-11-25T20:46:57.722886Z",
       "observationDigest": "8491f6f76f5654c9ac9cf7e05da5de16ae1384e5c821d330bec3806cf01efcff"
     },
     {
@@ -596,38 +442,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.982679Z",
+      "verifiedAt": "2026-11-25T20:46:57.969166Z",
       "observationDigest": "346e6de70fcc045289ab02c421364f6680b551e08c66750331ebf993ce62d852"
-    },
-    {
-      "domain": "hieke-art.com",
-      "listingSourceId": "ls_01m6ggnkhfewns1mw03xzjwq96",
-      "partyId": "pty_01m6ggnkgze5ctdjcxg4k8zfmx",
-      "locations": 1,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:42.976831Z",
-      "observationDigest": "9cf2cc7379aee08d0bc58ec73766ffcddfdace036b3da5128142a2577e1c3afc"
-    },
-    {
-      "domain": "w-k.art",
-      "listingSourceId": "ls_01m6ggnnwaefwryw10n3nfcsf8",
-      "partyId": "pty_01m6ggnnvxe20ttkwec451758s",
-      "locations": 2,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.075727Z",
-      "observationDigest": "6bf2115fd34956cb6fe75431a6f247fbc11975e7dd315d153892254d7f704120"
     },
     {
       "domain": "antikstadl.com",
@@ -641,7 +457,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.252417Z",
+      "verifiedAt": "2026-11-25T20:46:58.183161Z",
       "observationDigest": "d051b2fb66fb79b2c12944c4afe665070b56aa8e48ed66220a51ef89fdd61c41"
     },
     {
@@ -656,7 +472,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.274661Z",
+      "verifiedAt": "2026-11-25T20:46:58.186856Z",
       "observationDigest": "7bb886fe421a8228e67814f3d3045f19a2786e2e668c2bf8cc4fd5750f410a84"
     },
     {
@@ -671,23 +487,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.326004Z",
+      "verifiedAt": "2026-11-25T20:46:58.202047Z",
       "observationDigest": "9e7dff6c2b85f49887e9b3bb8142640bf07fbc07c578a43b3e7b714fd4b0f885"
-    },
-    {
-      "domain": "galerie-kaiblinger.at",
-      "listingSourceId": "ls_01m6ghahaje4pswpp9h8prj04b",
-      "partyId": "pty_01m6ghah9xeht88jmmf89astng",
-      "locations": 2,
-      "logo": true,
-      "platform": "TYPO3",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.549741Z",
-      "observationDigest": "6cbe5290d0ad0bcb8ad37ddc58241159711f0d9eea8851051396bd0f7064c912"
     },
     {
       "domain": "altekunst-vienna.com",
@@ -701,7 +502,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.583602Z",
+      "verifiedAt": "2026-11-25T20:46:58.455387Z",
       "observationDigest": "5127c557ba1e8a406e1cd5a94e7c31edb8fa7196070a02bf1d9d9e70252f79f4"
     },
     {
@@ -716,7 +517,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.589835Z",
+      "verifiedAt": "2026-11-25T20:46:58.431200Z",
       "observationDigest": "8487def5626a7f39f13b93a6c8b36f88bbe968b3490b2938fee72a173e76ae64"
     },
     {
@@ -731,7 +532,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.818539Z",
+      "verifiedAt": "2026-11-25T20:46:58.649864Z",
       "observationDigest": "a04008fa68286f1abb3b6408ca39ee7705be14329191abd08bc1f285585e194e"
     },
     {
@@ -746,7 +547,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.939340Z",
+      "verifiedAt": "2026-11-25T20:46:58.731555Z",
       "observationDigest": "4517c7bb57c9ddf38bbe6e0630eb1aae0b5fe18db3227020db5e8768ebf70c1f"
     },
     {
@@ -761,7 +562,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:43.905733Z",
+      "verifiedAt": "2026-11-25T20:46:58.705916Z",
       "observationDigest": "ade5876df1273d72796f973dc4ad31d321ff47c471e7f2c789b55aad98d736b6"
     },
     {
@@ -776,7 +577,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.136449Z",
+      "verifiedAt": "2026-11-25T20:46:58.888801Z",
       "observationDigest": "6ab295f718a81c013119ae3b544f6df72e2fc6e1be0f97340757c4dc24516616"
     },
     {
@@ -791,7 +592,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.174891Z",
+      "verifiedAt": "2026-11-25T20:46:58.901754Z",
       "observationDigest": "cc1f9f35361b6db40702be102dc48db362659970169cfd2acc04c55902a195b1"
     },
     {
@@ -806,7 +607,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.253656Z",
+      "verifiedAt": "2026-11-25T20:46:58.966728Z",
       "observationDigest": "f20ac34fc5e334631840db5c1690a45300603a6ba75f466ccb396dddad349559"
     },
     {
@@ -821,23 +622,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.404459Z",
+      "verifiedAt": "2026-11-25T20:46:59.123992Z",
       "observationDigest": "102238600c57d231cb08e7d73773b4ddea0259e1ce37b6edbb60acab62fa10c4"
-    },
-    {
-      "domain": "ruberl.at",
-      "listingSourceId": "ls_01m6gka1z2ewvbb4wqgq9b8gty",
-      "partyId": "pty_01m6gka1ydeaet8agk7ede16fr",
-      "locations": 1,
-      "logo": true,
-      "platform": "CRAFT_CMS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.444671Z",
-      "observationDigest": "d211d463b22e6dd234b75659620200c249aec5c1804b4b2c884b62ab61e2b771"
     },
     {
       "domain": "antik-stein.at",
@@ -851,7 +637,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.550724Z",
+      "verifiedAt": "2026-11-25T20:46:59.252602Z",
       "observationDigest": "44449426411e2bfeaf77812e3b34b83699b89eaef5e29454d0b1c225fea71939"
     },
     {
@@ -866,23 +652,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.696467Z",
+      "verifiedAt": "2026-11-25T20:46:59.429660Z",
       "observationDigest": "397914fa0e9d89a182af0d371e2c4ed30b244accef88a0ae6efc44f9b35ef561"
-    },
-    {
-      "domain": "antikebaustoffe.at",
-      "listingSourceId": "ls_01m6gkw2szebtvt8ntkn72er5f",
-      "partyId": "pty_01m6gkw2skegh8nff0dcapcky6",
-      "locations": 1,
-      "logo": false,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.659431Z",
-      "observationDigest": "c9feb6d9f07aff4f00efe555f2c6933134f6b76903bb9f727487a23af429e748"
     },
     {
       "domain": "pammersteine.at",
@@ -896,7 +667,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.766243Z",
+      "verifiedAt": "2026-11-25T20:46:59.489147Z",
       "observationDigest": "615db7f7536a92110c0f32763be83e3c5f4ef9dd3b0afece4b4990bf4efda7e6"
     },
     {
@@ -911,7 +682,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:44.960578Z",
+      "verifiedAt": "2026-11-25T20:46:59.646558Z",
       "observationDigest": "e8ab02e83edcc471b8a6eb2cfa63b83390a244583734dcfb534bfdfb6265e37f"
     },
     {
@@ -926,7 +697,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.011057Z",
+      "verifiedAt": "2026-11-25T20:46:59.707644Z",
       "observationDigest": "8ff483fa214633e0c29e1dbb235134de7ae311e6f22b61684423e2e4f7f0f82c"
     },
     {
@@ -941,8 +712,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.084892Z",
+      "verifiedAt": "2026-11-25T20:46:59.759128Z",
       "observationDigest": "f925ea26fc6e8f721a5e6add991000454d329aaac519dd69a1b1fcb4aa91d88a"
+    },
+    {
+      "domain": "antikundco.com",
+      "listingSourceId": "ls_01m89m6wgge9hr87y5a8dqwdxr",
+      "partyId": "pty_01m89m6wgfebwsmqeeq4gayexw",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:46:59.861534Z",
+      "observationDigest": "2b86e8d45d0b5b294218a0a3484e3a50c85f6fa5b18eea52fae070628f640ca1"
     },
     {
       "domain": "antikshop-riegersburg.at",
@@ -956,7 +740,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.286920Z",
+      "verifiedAt": "2026-11-25T20:46:59.969184Z",
       "observationDigest": "d2427159cabea987c8b68ed728a3bf07441fd4828c451c84955ae32ba4992c8e"
     },
     {
@@ -971,7 +755,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.332611Z",
+      "verifiedAt": "2026-11-25T20:47:00.015528Z",
       "observationDigest": "d8d02404ec3ee3b72257c07232c6c71ff8401e8276b61cdf4edb68e9caded033"
     },
     {
@@ -986,7 +770,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.406279Z",
+      "verifiedAt": "2026-11-25T20:47:00.118902Z",
       "observationDigest": "3321ad9920952b64d4c1fd78ec1cda6286e5d3ff83d9a41a135a094a45a0e1f0"
     },
     {
@@ -1001,7 +785,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.616169Z",
+      "verifiedAt": "2026-11-25T20:47:00.209802Z",
       "observationDigest": "ec52a514b502bfa2d59299f7a4500bde503b17d327ab491ea740861bba1e024a"
     },
     {
@@ -1009,15 +793,15 @@
       "listingSourceId": "ls_01m6gpa4rcefvsdhvhmxbtv0n6",
       "partyId": "pty_01m6gpa4r0ezht5586rjfq5n4x",
       "locations": 1,
-      "logo": false,
+      "logo": true,
       "platform": "CM4ALL",
       "deliveryProfile": false,
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.602452Z",
-      "observationDigest": "d325bdf88602c95f8bb4ece5f8d49bfce9421502556d97f62abc79102e93f720"
+      "verifiedAt": "2026-11-25T20:47:00.221132Z",
+      "observationDigest": "91aab44e4d40fd736fd98b4f23d5772ac2b31c4c37ccb770bca54d3955b3c27d"
     },
     {
       "domain": "antiquariat-ms.at",
@@ -1031,7 +815,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.678913Z",
+      "verifiedAt": "2026-11-25T20:47:00.338523Z",
       "observationDigest": "d87f44d5baa7be8b520c916c3e3f57e3650c7088555c9072c4884ca49643c8b5"
     },
     {
@@ -1046,7 +830,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.960305Z",
+      "verifiedAt": "2026-11-25T20:47:00.534028Z",
       "observationDigest": "bab7e2f9619d6734c021477a42cdfa440df130ab4b99388d3601b49e5518f866"
     },
     {
@@ -1061,7 +845,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.923676Z",
+      "verifiedAt": "2026-11-25T20:47:00.480713Z",
       "observationDigest": "b433df9ff5bbbc09fa4f9bf1e10cc56bb8974cbf4e02604318a5ac3c93cb2575"
     },
     {
@@ -1076,7 +860,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:45.948127Z",
+      "verifiedAt": "2026-11-25T20:47:00.573030Z",
       "observationDigest": "97e7210e1f3976e4dd629a356260b56da33aadb8a660176b8706508d9f160868"
     },
     {
@@ -1091,7 +875,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.234776Z",
+      "verifiedAt": "2026-11-25T20:47:00.739492Z",
       "observationDigest": "7b2a25e907809dca31eec9c8946656e856a35303465db37351962ed7b6f7f1fa"
     },
     {
@@ -1106,23 +890,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.265581Z",
+      "verifiedAt": "2026-11-25T20:47:00.796423Z",
       "observationDigest": "e0951bf5849f735301442bfa230e085b00ede255816daa6202f5c3a54521d11a"
     },
     {
-      "domain": "vintagetoysnnerdstuff.at",
-      "listingSourceId": "ls_01m6gs5rn0e45bhkx2w2b8ksb6",
-      "partyId": "pty_01m6gs5rmgejxsez38eyqm9wcb",
+      "domain": "antiquariat-krikl.co.at",
+      "listingSourceId": "ls_01m89m5mkzetham6mxef5rmcx4",
+      "partyId": "pty_01m89m5mkvef2ayk45dgpxvbe8",
       "locations": 1,
-      "logo": true,
-      "platform": "WEBADOR",
+      "logo": false,
+      "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
+      "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.273775Z",
-      "observationDigest": "8d84bf11a5fa50deac0e44b0f82eb78b71e414c6cd93a4f7b16d4069ea6bd137"
+      "verifiedAt": "2026-11-25T20:47:00.832842Z",
+      "observationDigest": "4a3a754e945769950d3b225169d9450dc8a56a0f081122f195fccb693e0ab2d3"
     },
     {
       "domain": "shop.buerscher.com",
@@ -1136,7 +918,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.601297Z",
+      "verifiedAt": "2026-11-25T20:47:01.096106Z",
       "observationDigest": "a27416cb8c6cc4cb01f1e56ecd557154b8d7de39c81d695c2915d78d876e9a71"
     },
     {
@@ -1151,7 +933,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.582322Z",
+      "verifiedAt": "2026-11-25T20:47:01.089324Z",
       "observationDigest": "15d506b3e0744e1058e22cbb02b08f795c9d6b0651342f61183007a987d48a65"
     },
     {
@@ -1166,7 +948,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.635754Z",
+      "verifiedAt": "2026-11-25T20:47:01.322757Z",
       "observationDigest": "6f8ee02440f526fb1ed8dc2425b86e2106995437be47a609f550bcf275b26747"
     },
     {
@@ -1181,7 +963,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.911564Z",
+      "verifiedAt": "2026-11-25T20:47:01.345365Z",
       "observationDigest": "4cb01f0c27af64197f436fbefba52a6e3c0af1303cb1b172cd0be8a83a4b51d3"
     },
     {
@@ -1196,7 +978,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.916290Z",
+      "verifiedAt": "2026-11-25T20:47:01.351630Z",
       "observationDigest": "5dd3a85ee2c1155dfc1a1772b8a9126a3c8c97861aae80848d21e9403dc47ec5"
     },
     {
@@ -1211,7 +993,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:46.905382Z",
+      "verifiedAt": "2026-11-25T20:47:01.537406Z",
       "observationDigest": "9fe67f87a521b0166b779a045d82c1a76832ed11555e053a98474557ceb006c6"
     },
     {
@@ -1226,7 +1008,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.237386Z",
+      "verifiedAt": "2026-11-25T20:47:01.600022Z",
       "observationDigest": "8ec0fe21bb64a5f44369464b2c8c83afeff896ffa7404b86176b77b90803f042"
     },
     {
@@ -1241,7 +1023,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.292220Z",
+      "verifiedAt": "2026-11-25T20:47:01.681930Z",
       "observationDigest": "616b24016a85efa42717fe402ec74ca84c648f4e143eefd22e6d69d0277eae1e"
     },
     {
@@ -1256,7 +1038,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.240847Z",
+      "verifiedAt": "2026-11-25T20:47:01.805223Z",
       "observationDigest": "d8fd2fc3a0e2390ff9585a344e43cba506d7eab3f2db3b88c4c9d9248e9484be"
     },
     {
@@ -1271,38 +1053,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.489783Z",
+      "verifiedAt": "2026-11-25T20:47:01.819788Z",
       "observationDigest": "c6831319f8c5a0a562b64b271ff1d334068dfd2ccdd94b7c959cbce0b95defc1"
-    },
-    {
-      "domain": "deco50.at",
-      "listingSourceId": "ls_01m6gzx04peh3b2b9cx86042hb",
-      "partyId": "pty_01m6geea24eanbnh34937wvegc",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.538386Z",
-      "observationDigest": "a4392273665ff5a7d1018cbb57adbefdfcd12427e69ab4bb8d6c1159f27dbbe3"
-    },
-    {
-      "domain": "buecherbuben.at",
-      "listingSourceId": "ls_01m6h0c734ezystp169nqxqpty",
-      "partyId": "pty_01m6h0c72restaran0y2vgaaqj",
-      "locations": 2,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.629276Z",
-      "observationDigest": "1312ca5c88eee9fce73a6d8c7dd2f7ed705c654d3b36d462bbfc4f0c6521d770"
     },
     {
       "domain": "antiquariat-loewenstein.at",
@@ -1316,7 +1068,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.792622Z",
+      "verifiedAt": "2026-11-25T20:47:02.101048Z",
       "observationDigest": "4c07111a4a3f9b1769f9b868b3fa42c0dcf850aed8f5b91aeb4ec6c62e4bae07"
     },
     {
@@ -1331,23 +1083,21 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.842966Z",
+      "verifiedAt": "2026-11-25T20:47:02.212866Z",
       "observationDigest": "c8df7d961b936a48b02d110b178ae72cea2ca62b233a54a06557acb367ccc6f4"
     },
     {
-      "domain": "orientteppich-koppensteiner.com",
-      "listingSourceId": "ls_01m6h1r1mfenebeswamthxtcv2",
-      "partyId": "pty_01m6h1r1kve888a6fbenvne3r0",
+      "domain": "matern.at",
+      "listingSourceId": "ls_01m89mjbq5epssdbmr2k92cwrw",
+      "partyId": "pty_01m89mjbq1ey3931dg2xwf2y5x",
       "locations": 1,
-      "logo": true,
+      "logo": false,
       "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
+      "deliveryProfile": true,
+      "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:47.889232Z",
-      "observationDigest": "1f456c335042857b5528d47e3ccb01e223b3f28c40dd7fddc6e5448abcb4d763"
+      "verifiedAt": "2026-11-25T20:47:02.366064Z",
+      "observationDigest": "f0e6c72462effe454122f3e8fe1e514eaca096133065f949aaaf3ee3adb399c3"
     },
     {
       "domain": "asiatikavienna.com",
@@ -1361,7 +1111,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.035262Z",
+      "verifiedAt": "2026-11-25T20:47:02.467865Z",
       "observationDigest": "990ada8eac0bebc256ad395e059b472423ed00fdf845fb57eb87c3062c339af9"
     },
     {
@@ -1376,7 +1126,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.103916Z",
+      "verifiedAt": "2026-11-25T20:47:02.620117Z",
       "observationDigest": "8eeb32e196f638f01126e995e85ab99c2a75f3a4569e8774d47b059653af34ea"
     },
     {
@@ -1391,7 +1141,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.106036Z",
+      "verifiedAt": "2026-11-25T20:47:02.587880Z",
       "observationDigest": "1827a22f1a8eb3cb6e360ea6dba9e04f0e9d74aeaee18304ffc43a995c1fe006"
     },
     {
@@ -1406,7 +1156,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.289537Z",
+      "verifiedAt": "2026-11-25T20:47:02.710151Z",
       "observationDigest": "5e03fd03133d7fbd77b617d117c27bb59f3d72cdc773bea22e696008758182f0"
     },
     {
@@ -1421,38 +1171,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.359026Z",
+      "verifiedAt": "2026-11-25T20:47:02.829636Z",
       "observationDigest": "f97f47f1d1222a628c3cf8527341809631a419f8118f497a2fb0943aa11ec0f9"
-    },
-    {
-      "domain": "uhren-mikl.com",
-      "listingSourceId": "ls_01m6h2pg89ec8aq9fwkjgxktqh",
-      "partyId": "pty_01m6h2pg80e7tbbfh6ay18dzzd",
-      "locations": 1,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.326688Z",
-      "observationDigest": "41a15b9596995d28fd38bdc641f0acc9f39afb8d8e491740241795d454fa8acd"
-    },
-    {
-      "domain": "edlezeitmesser.at",
-      "listingSourceId": "ls_01m6h2phwpeqhvcnrqqq7qqbgq",
-      "partyId": "pty_01m6h2phw1ejvra393gbscvfcj",
-      "locations": 1,
-      "logo": false,
-      "platform": "WIX",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.535606Z",
-      "observationDigest": "90f42369a1949f8d6576e375d6a921c41b1a3772eeaae827bd230454a543479c"
     },
     {
       "domain": "goldinvest.at",
@@ -1466,7 +1186,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.592975Z",
+      "verifiedAt": "2026-11-25T20:47:03.090189Z",
       "observationDigest": "10958c5cebfb0f0191a3486a1de9abd13584ddc4e5fce6f75f2977cf8a565324"
     },
     {
@@ -1481,7 +1201,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.644781Z",
+      "verifiedAt": "2026-11-25T20:47:03.086057Z",
       "observationDigest": "7fd897df11e9eed50e1185dcd1841caf2d0b47a2c40e8a79f80dcfa63c45a90e"
     },
     {
@@ -1496,7 +1216,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.841641Z",
+      "verifiedAt": "2026-11-25T20:47:03.244116Z",
       "observationDigest": "9bd27885f36a6bb7ace37b045d57f5b16167d4620c66710a57f2443229dccbf3"
     },
     {
@@ -1511,7 +1231,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.875639Z",
+      "verifiedAt": "2026-11-25T20:47:03.365462Z",
       "observationDigest": "d50171decbed1d7cfd811a6320457e6e3f13d499b3c4a157715d19937f958287"
     },
     {
@@ -1526,7 +1246,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:48.921424Z",
+      "verifiedAt": "2026-11-25T20:47:03.358749Z",
       "observationDigest": "af028c7f9c7fdcab6a040f5308c687fa420d68775ac36af9e3deae1b03668f9c"
     },
     {
@@ -1541,7 +1261,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.193993Z",
+      "verifiedAt": "2026-11-25T20:47:03.547305Z",
       "observationDigest": "152dce7fbad01d4bb8b1939fe203c1dd3994a87d6e2bcc81043973b91af35c4d"
     },
     {
@@ -1556,7 +1276,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.145411Z",
+      "verifiedAt": "2026-11-25T20:47:03.581668Z",
       "observationDigest": "ca15085b1ab41a3e6323d9d019263e4ac3957e5565da6d6f2253af16831d52b0"
     },
     {
@@ -1571,7 +1291,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.196167Z",
+      "verifiedAt": "2026-11-25T20:47:03.590239Z",
       "observationDigest": "d81318ad37e2c32cadacb722ce863ba51fb77ca7479aff8bb92757089c8490dc"
     },
     {
@@ -1586,7 +1306,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.414261Z",
+      "verifiedAt": "2026-11-25T20:47:03.776630Z",
       "observationDigest": "4a56b2bb74bf31e31bb7b90e1ab41256988e4455dbece2552c4e224d496314a8"
     },
     {
@@ -1601,7 +1321,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.516192Z",
+      "verifiedAt": "2026-11-25T20:47:03.891982Z",
       "observationDigest": "e5647c88c5417f9f85da2d49f976728ba30ed4165f80128612a76b65a74beb56"
     },
     {
@@ -1616,7 +1336,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.483323Z",
+      "verifiedAt": "2026-11-25T20:47:03.852111Z",
       "observationDigest": "e922a2a2ee6c1e91c6dd4b57e6cc87059bcd1901e00b28adc708e8975460ac72"
     },
     {
@@ -1631,7 +1351,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.671615Z",
+      "verifiedAt": "2026-11-25T20:47:04.053307Z",
       "observationDigest": "de7d3803abd8a46e05427a7bcc9d76c0b1755937d733be54a05db5875e6125f8"
     },
     {
@@ -1646,7 +1366,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.719938Z",
+      "verifiedAt": "2026-11-25T20:47:04.082254Z",
       "observationDigest": "6caa5426389ce22e769b7f61a8e4e3dbdb23479d5aec6f1162f1e8c062702006"
     },
     {
@@ -1661,7 +1381,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.818851Z",
+      "verifiedAt": "2026-11-25T20:47:04.166715Z",
       "observationDigest": "84706f5de8d2f5ae8838a28a59395926074c15a8aefb6fa3debfcefa2b1b0b09"
     },
     {
@@ -1676,38 +1396,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.036985Z",
+      "verifiedAt": "2026-11-25T20:47:04.348524Z",
       "observationDigest": "e1900a1230e9a53466ed4bd9f73548a45d5a49d9ae176da89fdcd219e0c0b957"
-    },
-    {
-      "domain": "flashmusic.at",
-      "listingSourceId": "ls_01m6h7cqzde6f92p88kgz55daw",
-      "partyId": "pty_01m6h7cqz0eh4ayk6c1zzhnd76",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:49.987911Z",
-      "observationDigest": "572f4e5a95421a9dc3bdfd806b0c49ccc8a089c9c560d35373be694296825d22"
-    },
-    {
-      "domain": "guitarox.com",
-      "listingSourceId": "ls_01m6h7kyvcejwb2rkcn6638f1z",
-      "partyId": "pty_01m6h7kytzeyarhv4mx36fs50s",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.133497Z",
-      "observationDigest": "0f9078c609252f416d2b04002f5376382ba40dca14155f8d36412b9f06124583"
     },
     {
       "domain": "antik-kabinett.at",
@@ -1721,23 +1411,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.257363Z",
+      "verifiedAt": "2026-11-25T20:47:04.536154Z",
       "observationDigest": "a58a59eca385174e3702d2bc4ba872b5353458155532f5ca785229ce52cfe54e"
-    },
-    {
-      "domain": "katharina-vintage.com",
-      "listingSourceId": "ls_01m6h89t12e7er7y36e1bsjt1c",
-      "partyId": "pty_01m6h89t0gewns2kxqa1tgr0nd",
-      "locations": 1,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.335862Z",
-      "observationDigest": "2d4fc7a4a3624a21cfa20eeb6562661fa97e7f6cc9c745a8e6591e461a7f9bc2"
     },
     {
       "domain": "somethingvintage.com",
@@ -1751,7 +1426,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.433612Z",
+      "verifiedAt": "2026-11-25T20:47:04.681068Z",
       "observationDigest": "f293d1d20da742574f2b1eec1cce0dd4f7f590f4967a21ccd13987c577d1d201"
     },
     {
@@ -1766,7 +1441,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.599517Z",
+      "verifiedAt": "2026-11-25T20:47:04.810258Z",
       "observationDigest": "d1803b8cdb56cf02227f57a9cf0c34a3bd9e2efb171ad7886e8aa675776cdd10"
     },
     {
@@ -1781,7 +1456,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.662769Z",
+      "verifiedAt": "2026-11-25T20:47:04.854324Z",
       "observationDigest": "501acda2a042cc448808f236803630cbdb74893e149acca153a60fb2835b5f41"
     },
     {
@@ -1796,23 +1471,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.761003Z",
+      "verifiedAt": "2026-11-25T20:47:04.921322Z",
       "observationDigest": "5c4180fd6e768a0789a0f1767bf71c14863067f587b720a830e6fc3093bb2d84"
-    },
-    {
-      "domain": "bonbon-interior.at",
-      "listingSourceId": "ls_01m6harym4eensns8p01zae4gs",
-      "partyId": "pty_01m6harykpe4sbnhpxwzwq6nv1",
-      "locations": 2,
-      "logo": true,
-      "platform": "SQUARESPACE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.964209Z",
-      "observationDigest": "532c17b4da52e18bbe6c54e29c587161a2d9c51cdae4bac33804686f22e67d8f"
     },
     {
       "domain": "bananas.at",
@@ -1826,7 +1486,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:50.976716Z",
+      "verifiedAt": "2026-11-25T20:47:05.093818Z",
       "observationDigest": "a36bb10f92ece61e6a185d1546d47d3c1d4f006608dda733266d0768d1257e6b"
     },
     {
@@ -1841,23 +1501,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.088273Z",
+      "verifiedAt": "2026-11-25T20:47:05.205666Z",
       "observationDigest": "c8340bd13cc5774e16ab7a75c8855a26f7525577a49fbc6713a945de0fa70750"
-    },
-    {
-      "domain": "antik-art.at",
-      "listingSourceId": "ls_01m6hbzn17exnvpew8w695xkxc",
-      "partyId": "pty_01m6hbzn0mex8rhcxvk2bpy373",
-      "locations": 2,
-      "logo": true,
-      "platform": "WOOCOMMERCE",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.272305Z",
-      "observationDigest": "5fde8ef48ea53b152695777bbdb8c3c57b5bfc31397a91617da582d51eda8283"
     },
     {
       "domain": "ankauf-demolsky.at",
@@ -1871,7 +1516,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.191162Z",
+      "verifiedAt": "2026-11-25T20:47:05.298370Z",
       "observationDigest": "726cff64b7fd4ed931e2cad0a447a6b71e675519432dfd8c0ff1fb1ffee91138"
     },
     {
@@ -1886,23 +1531,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.373451Z",
+      "verifiedAt": "2026-11-25T20:47:05.453114Z",
       "observationDigest": "02b946203dec27a56b8688ec12384e8d6ac10846c9869ae014c0871ab94c472e"
-    },
-    {
-      "domain": "galerie-altnoeder.com",
-      "listingSourceId": "ls_01m6hdgwq8e4cbes74y1gv1pt8",
-      "partyId": "pty_01m6hdgwpve4t8hwgv1t08dshd",
-      "locations": 1,
-      "logo": true,
-      "platform": null,
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.466555Z",
-      "observationDigest": "e43b55c171aaf4d89c7ed8c4fd5da679bb25e6274135cccd49279e1dbf8468f0"
     },
     {
       "domain": "xn--antiquitten-reich-xqb.at",
@@ -1916,23 +1546,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.546505Z",
+      "verifiedAt": "2026-11-25T20:47:05.561372Z",
       "observationDigest": "e93ef590f6ccecad998e6392062fa0664260eafdd4ccff40c27c4b006762630b"
-    },
-    {
-      "domain": "artziwna.com",
-      "listingSourceId": "ls_01m6hdvzh4e7tsrcvsdvk7c3vz",
-      "partyId": "pty_01m6hdvzgqewkvwedv1b1f7v4s",
-      "locations": 2,
-      "logo": false,
-      "platform": "JIMDO",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.685065Z",
-      "observationDigest": "898c6fb968e5a8aa7d26021733709da6035bc1d77921bbcbbf7372b8513fd13a"
     },
     {
       "domain": "galerie10.at",
@@ -1946,7 +1561,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.756441Z",
+      "verifiedAt": "2026-11-25T20:47:05.745775Z",
       "observationDigest": "e798a7d71a732b5f9b016c398629790a7f9ac3ca9efb5ff0c2072b07ae3377e7"
     },
     {
@@ -1961,7 +1576,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.857830Z",
+      "verifiedAt": "2026-11-25T20:47:05.860041Z",
       "observationDigest": "b220afb6839f00be39493b3a54026970ea8566d8d8623c8e8237d110b5a2f002"
     },
     {
@@ -1976,7 +1591,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:51.898057Z",
+      "verifiedAt": "2026-11-25T20:47:05.945200Z",
       "observationDigest": "55bc320b3c36a165d1cb7a18fa3c2e7b4481ae4cf2ddf60ded00476b92427b31"
     },
     {
@@ -1991,7 +1606,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.039781Z",
+      "verifiedAt": "2026-11-25T20:47:05.984749Z",
       "observationDigest": "718966ef3d775e04e671ede241055be8f1ab80e38a74f791e8c046e50d08bdfd"
     },
     {
@@ -2006,23 +1621,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.089179Z",
+      "verifiedAt": "2026-11-25T20:47:06.028686Z",
       "observationDigest": "dc6017461eed4352550359d2e26712c0e2e781513f4cfa026e33b2abf31371c7"
-    },
-    {
-      "domain": "galerie-albertina.at",
-      "listingSourceId": "ls_01m6k1fzbkexqbc9nj729zq9sy",
-      "partyId": "pty_01m6k1fzb1ebataa5w5myp4sff",
-      "locations": 1,
-      "logo": true,
-      "platform": "WORDPRESS",
-      "deliveryProfile": false,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.185562Z",
-      "observationDigest": "e38a9508ac1cf540d52e7b6aac21698c243760cec84c86d9b143e7a8344effd7"
     },
     {
       "domain": "ikonen-mautner.com",
@@ -2036,23 +1636,8 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.367066Z",
+      "verifiedAt": "2026-11-25T20:47:06.226317Z",
       "observationDigest": "74dcc4a4350880f1aa87ae0541cb3e364058ad95f3e8dd8eb20bc36aa9c59bfd"
-    },
-    {
-      "domain": "edelwerkstatt.at",
-      "listingSourceId": "ls_01m6kbcwqxe42v6xyn4nbjcyjv",
-      "partyId": "pty_01m6kbcwqdegmvs162bpa9gxgk",
-      "locations": 3,
-      "logo": true,
-      "platform": "JIMDO",
-      "deliveryProfile": true,
-      "ingestionMethods": [
-        "WEB_CRAWL"
-      ],
-      "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.509733Z",
-      "observationDigest": "7ea61ad1cbaab6fba2eca444a6798b111103cec49cb3c55fd1cbedceebdc0658"
     },
     {
       "domain": "kunstkauf-online.at",
@@ -2066,7 +1651,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.512520Z",
+      "verifiedAt": "2026-11-25T20:47:06.407545Z",
       "observationDigest": "02e9cf3de356cd672c154ca2ff00f7591f1fdd0b0a1f4acb89c04a714baf6bf5"
     },
     {
@@ -2081,8 +1666,411 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-25T08:40:52.687971Z",
+      "verifiedAt": "2026-11-25T20:47:06.457532Z",
       "observationDigest": "b53d35636eb06b8e3ea4fec198c7f5b6d12aa8dcc3986840a07092606b01a45a"
+    },
+    {
+      "domain": "ulrichhofstaetter.com",
+      "listingSourceId": "ls_01m89mfg0eedd94zf40r02aye1",
+      "partyId": "pty_01m89mfg0ce75thsyjyxrxzn90",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:06.546354Z",
+      "observationDigest": "c06e7fbd67f1f8c6a386c056da096fd7af03ced11e9bbfe24ab2aa1a15d3d460"
+    },
+    {
+      "domain": "zoechmann-art.com",
+      "listingSourceId": "ls_01m89m4rgwetea2gsy0qzzx6wv",
+      "partyId": "pty_01m89m4rgpem5b9mdp46a1g8a6",
+      "locations": 1,
+      "logo": true,
+      "platform": "JIMDO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:06.610119Z",
+      "observationDigest": "3f308a6abc006943d8a698f89ec3ca12c1911b01973ce4118478d1a8461c65c4"
+    },
+    {
+      "domain": "andreewitch.com",
+      "listingSourceId": "ls_01m89m4sedemb9xde43e458r35",
+      "partyId": "pty_01m89m4seaeqbv5n1sdg6c08sd",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:06.701644Z",
+      "observationDigest": "7a38843f6adfeca383d1d8a2005c38c8028de6137e892fc7bffaafc5ab62fb81"
+    },
+    {
+      "domain": "militaria-antik.at",
+      "listingSourceId": "ls_01m89m4th1ea0bb53vmq1j3v25",
+      "partyId": "pty_01m89m4tgwev6thtvzb0fmww3s",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:06.828600Z",
+      "observationDigest": "e66b24895e4cab70ba8cc4e0b7132ce15b0c96a496a6c261469a2cdc54fd3848"
+    },
+    {
+      "domain": "kunstvoll-baden.at",
+      "listingSourceId": "ls_01m89nakfpey38bzcjejj3npkn",
+      "partyId": "pty_01m89nakfne8ab258azpybyxcz",
+      "locations": 1,
+      "logo": false,
+      "platform": "IONOS_MYWEBSITE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:06.838757Z",
+      "observationDigest": "4a61ef5813cb073fd69416fed302f0b4b26bb5d1ad2cab3894052b04f37297f1"
+    },
+    {
+      "domain": "restaurator-hofer.at",
+      "listingSourceId": "ls_01m89nameseb09pn2syzs0n1tx",
+      "partyId": "pty_01m89nameqeqwaqk1462kjsg6y",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:06.974979Z",
+      "observationDigest": "85746e7aef33c15dae5f7efa8dc13a3f5ec5fcaea2b154d0151a9e2c60076539"
+    },
+    {
+      "domain": "kica-jugendstil.at",
+      "listingSourceId": "ls_01m89nanhpe198qqm00y2dz72s",
+      "partyId": "pty_01m89nanhhezganp0sja020v4x",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.069152Z",
+      "observationDigest": "ec1a47b914779dfe0bdbf317889a65ba5e5085a3f49aaa1db6d040012c948a49"
+    },
+    {
+      "domain": "nostalgiecorner.at",
+      "listingSourceId": "ls_01m89napgwetb9q40tvge7f8r1",
+      "partyId": "pty_01m89napgvee4t9cp54568dp1s",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.077570Z",
+      "observationDigest": "c0ebf10003e0f41dab827f1175b066885b65e7fe1ba1700471dbf4feda2bc1d6"
+    },
+    {
+      "domain": "antik-moebel.at",
+      "listingSourceId": "ls_01m89naqerejv94h0e923qath6",
+      "partyId": "pty_01m89naqemeex98xsbcr46mjxp",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.313905Z",
+      "observationDigest": "8602f3c8aa1401f70a0c0d20841ed053d170aaccf68b40d202a3573b423b07a3"
+    },
+    {
+      "domain": "tschechisches-wohndesign.at",
+      "listingSourceId": "ls_01m89nh0pgetm8z9sb06bsy9vb",
+      "partyId": "pty_01m89nh0peer5rd3bbe6xmtnzn",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.289560Z",
+      "observationDigest": "27644b7e4c9c3a5cf49c36b0900e39f246902ec1c4ee7ef3498fa8557e4b543d"
+    },
+    {
+      "domain": "wimstore.com",
+      "listingSourceId": "ls_01m89p86m4e05s8et3xajq41kd",
+      "partyId": "pty_01m89p86kyehprwbtr7d9qe8qw",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.365891Z",
+      "observationDigest": "00a9ac122bb2529e8e2a70191ef275402f2ec32e6a89505e45a55a8ce3405788"
+    },
+    {
+      "domain": "g-riedmann.at",
+      "listingSourceId": "ls_01m89p87xzetar51zf9szbze3m",
+      "partyId": "pty_01m89p87xweb8t44aygm7gapyy",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.533060Z",
+      "observationDigest": "f1c5b999de380ca2acc255055dddf9813f76b1ea7f2a223fb979427a2505557e"
+    },
+    {
+      "domain": "susannebauer.com",
+      "listingSourceId": "ls_01m89peqebeyq9acn72qy3esya",
+      "partyId": "pty_01m89peqe4engsf5hxgnewfge7",
+      "locations": 1,
+      "logo": true,
+      "platform": "JOOMLA",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.555395Z",
+      "observationDigest": "a0f16ce77b2bd3e2cc9a9f07264557e13c5142be28e0b78bfb6e9e4890512956"
+    },
+    {
+      "domain": "antikseger.com",
+      "listingSourceId": "ls_01m89pjxrne29s77s48zjd58xw",
+      "partyId": "pty_01m89pjxrjeb7amr0614q44q5g",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.576377Z",
+      "observationDigest": "c083aca591f178803ae79c46b8986d8c3debbf08ebf71776ae11f9a6f148d160"
+    },
+    {
+      "domain": "gkmilitaria.at",
+      "listingSourceId": "ls_01m89pjythemptm9mb32wt11sv",
+      "partyId": "pty_01m89pjytges5bnvhz1y11y1r9",
+      "locations": 1,
+      "logo": false,
+      "platform": "CONCEPT500",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.781712Z",
+      "observationDigest": "637d5b99360a956a138ff796bbbe7c97682f42bdde6de7477961a5aa08f0ef37"
+    },
+    {
+      "domain": "michaelabauer.com",
+      "listingSourceId": "ls_01m89pdabbe298ngdrjjrttdb0",
+      "partyId": "pty_01m89pdab6evg8xrt6b5svq7c4",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.795739Z",
+      "observationDigest": "3bb090a29bd9ff247e32430a91e4166db0265f3c10d1b87ec288888fc863b291"
+    },
+    {
+      "domain": "revenda.at",
+      "listingSourceId": "ls_01m89pdbj8ex6r0m7e1qe9w3tw",
+      "partyId": "pty_01m89pdbj4egc8yw57k5ss77xq",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:07.819241Z",
+      "observationDigest": "9eb2fa0fd24a3df3338c73e02e0ac1b538226b2292e3347306df568c21610bd0"
+    },
+    {
+      "domain": "wernerhoertnagl.at",
+      "listingSourceId": "ls_01m89pdcpdem7bdnesz2dmtqck",
+      "partyId": "pty_01m89pdcpcev78nng99fjeptah",
+      "locations": 1,
+      "logo": false,
+      "platform": "JIMDO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.186475Z",
+      "observationDigest": "dd776c51758f1ca427de18aea51cee6a5252dcf920a606e4bea720b469ccc683"
+    },
+    {
+      "domain": "suedsteiermarkversand.at",
+      "listingSourceId": "ls_01m89skrkje6v9c6cbshv2kq7k",
+      "partyId": "pty_01m89skrkee9za9hm1x6vvb2zg",
+      "locations": 1,
+      "logo": true,
+      "platform": "OPENCART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.282397Z",
+      "observationDigest": "e64b9fee913f5743d48042ab6e3a037981cf692a2f7ecc37b2a818d37e3f4eb4"
+    },
+    {
+      "domain": "kuettner-kuettner.com",
+      "listingSourceId": "ls_01m89skss1edvrv4krcb5mnxcp",
+      "partyId": "pty_01m89sksrxe73vdta9kr35ecs0",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.389246Z",
+      "observationDigest": "50ee1f88ecb8f450c7ed8c929cfebb4f132e1e991bd421eb236aa0e0d45130f5"
+    },
+    {
+      "domain": "salzburger-muenzhandlung.at",
+      "listingSourceId": "ls_01m8c8q695ejg8x1amn6asdmmh",
+      "partyId": "pty_01m8c8q690ectrrxk2pd2h9mej",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T16:05:53.851845Z",
+      "observationDigest": "c0a8625a90cb8652d494b2bde35561f003b524fe7b3c021d40e63fadb5f2dc99"
+    },
+    {
+      "domain": "internumis.at",
+      "listingSourceId": "ls_01m8a47abfebk8xx2am42yp3e6",
+      "partyId": "pty_01m8a47abee9k8qp0mky5fb99z",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.483174Z",
+      "observationDigest": "76880e4028d6e4f28a9fc822416aa34de2ee4d5a227cfda785539bc2565e384e"
+    },
+    {
+      "domain": "xn--mnzhandel-wolf-gsb.com",
+      "listingSourceId": "ls_01m8a47bb0ead9759awk1c2f23",
+      "partyId": "pty_01m8a47batef2rcnswk5sg690q",
+      "locations": 1,
+      "logo": false,
+      "platform": "GAMBIO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.568661Z",
+      "observationDigest": "d10271b0d6defc0c311a2e6c1326c4fe6a1c2b700d2fd5706711e6fdf4c2ed63"
+    },
+    {
+      "domain": "annette-ahrens.at",
+      "listingSourceId": "ls_01m8a47cpee3v81q91134vqy8w",
+      "partyId": "pty_01m8a47cp4e3evm5dxb5dmaw24",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.641027Z",
+      "observationDigest": "8dce5ca395fa85fd153d23b05d419df1ce490e6c16189aef0a99ecdfe4afe3ba"
+    },
+    {
+      "domain": "ansichtskarten-postcards.at",
+      "listingSourceId": "ls_01m8a5bh0med2t1vpzqj3wzckc",
+      "partyId": "pty_01m8a5bh0aessb952kvb2v660e",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.727761Z",
+      "observationDigest": "57448d459cb44c4717cffc6ad65b5e9592745241149d3f0b46bd660bdb4f4747"
+    },
+    {
+      "domain": "die-gute-alte-zeit.at",
+      "listingSourceId": "ls_01m8a5bjdveyqt7ax97nqqt2cf",
+      "partyId": "pty_01m8a5bjdqectadfhbt9wx17vj",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:08.820340Z",
+      "observationDigest": "1b64b1d1353d6b7fbbc2161fbef226c8256a38baf4f87f25b1c26b848e6362a9"
+    },
+    {
+      "domain": "rajofot-21.at",
+      "listingSourceId": "ls_01m8a6k1aseps8r07nng7tkt6a",
+      "partyId": "pty_01m8a6k1akedg9erry66jaky0p",
+      "locations": 1,
+      "logo": true,
+      "platform": "IONOS_MYWEBSITE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-25T20:47:09.054954Z",
+      "observationDigest": "6f50d88d4686a499bf660a90f907a880e6fbdab23e4b5704173860e01df15c59"
+    },
+    {
+      "domain": "erlach.shop",
+      "listingSourceId": "ls_01m8bge57qe9hsvqbkyy35yr5b",
+      "partyId": "pty_01m8bge57me2g9mpmkjx7tapqh",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T08:54:32.882474Z",
+      "observationDigest": "7ab706d605fe3794b6eb72f9a5e765044fd55f5ba69c0565f913347dd5e978f0"
+    },
+    {
+      "domain": "antike-kacheloefen.at",
+      "listingSourceId": "ls_01m8bjh49webjavjy171dx8e1d",
+      "partyId": "pty_01m8bjh49teatrhadyqnzr1kak",
+      "locations": 2,
+      "logo": true,
+      "platform": "JIMDO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T09:49:41.416056Z",
+      "observationDigest": "58a97156fb19a205d5016cef0a99f4315327d72c9a65285b38acacad79318d8b"
+    },
+    {
+      "domain": "gablitzer-antiquariat.at",
+      "listingSourceId": "ls_01m8cmxgdnedttweq5m1n8c45h",
+      "partyId": "pty_01m8cmxgd8e4ws81b8azqsk6zv",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T19:22:42.439324Z",
+      "observationDigest": "901420cd7dc9bd4d8101b4ef5fffec99dc558705640e8f563f1cbb8f5a335c19"
+    },
+    {
+      "domain": "traudeskinder.com",
+      "listingSourceId": "ls_01m8cqfdeseyxswsenedw6wd86",
+      "partyId": "pty_01m8cqfdepehxs8s23rfxc0tgv",
+      "locations": 2,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-26T20:13:15.811457Z",
+      "observationDigest": "8f8b3f3f030827ccd59b25d0deab1cde2de6b965cc0d388d2954013db571278f"
     }
   ]
 }
