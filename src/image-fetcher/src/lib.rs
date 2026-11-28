@@ -18,10 +18,28 @@ const IMAGE_FETCH_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
 const IMAGE_FETCH_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const IMAGE_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The identity every image request sends: the crawler's `AuraHistoriaBot` product token, because
+/// the images are the ones the crawler captured from the same shops, so a shop that allow-lists
+/// the crawler admits both (`docs/crawler/networking.md#crawler-identity`). The version is this
+/// crate's. Some image hosts refuse every request without a user agent.
+const IMAGE_FETCH_USER_AGENT: &str = concat!(
+    "AuraHistoriaBot/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://aura-historia.com)"
+);
+
+/// The image formats every consumer decodes, preferred over anything else. Hosts that pick a
+/// format from `Accept` switch to one only when it is named, so naming these instead of `image/*`
+/// keeps them from serving AVIF, HEIC or GIF in place of an original JPEG. The `*/*` fallback
+/// keeps hosts that serve another original, or label images `application/octet-stream`,
+/// answering.
+const IMAGE_FETCH_ACCEPT: &str = "image/jpeg,image/png,image/webp,*/*;q=0.8";
+
 /// Fetches external images after validating every network hop.
 ///
 /// Only HTTP(S) hosts resolving exclusively to public IP addresses are requested. Redirects,
-/// response bytes, and request duration are bounded. A failed fetch returns an [`ImageFetchError`];
+/// response bytes, and request duration are bounded. Every request, redirect hops included,
+/// identifies the fetcher with the crawler's user agent and names the accepted image formats. A failed fetch returns an [`ImageFetchError`];
 /// callers degrade to their remaining evidence and log its [`ImageFetchDiagnostics`].
 pub struct ImageFetcher {
     request_timeout: Duration,
@@ -237,6 +255,11 @@ fn build_image_fetch_client(
         .timeout(request_timeout)
         .connect_timeout(request_timeout)
         .no_proxy()
+        .user_agent(IMAGE_FETCH_USER_AGENT)
+        .default_headers(reqwest::header::HeaderMap::from_iter([(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static(IMAGE_FETCH_ACCEPT),
+        )]))
         .no_gzip()
         .no_brotli()
         .no_deflate()
@@ -766,6 +789,47 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn should_identify_every_image_request_to_hosts_that_refuse_anonymous_requests()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let png = b"\x89PNG\r\n\x1a\n";
+        let identified = |response| {
+            requiring_headers(
+                response,
+                &[
+                    ("user-agent", IMAGE_FETCH_USER_AGENT),
+                    ("accept", IMAGE_FETCH_ACCEPT),
+                ],
+            )
+        };
+        let server = spawn_mock_image_server(vec![
+            identified(image_response(png)),
+            identified(redirect_response("/image")),
+            identified(image_response(png)),
+        ])
+        .await?;
+        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
+
+        // A request without a user agent is refused, as by the image hosts that motivated it.
+        let anonymous = reqwest::Client::builder()
+            .no_proxy()
+            .build()?
+            .get(server.url.clone())
+            .header(reqwest::header::ACCEPT, IMAGE_FETCH_ACCEPT)
+            .send()
+            .await?;
+        assert_eq!(anonymous.status(), reqwest::StatusCode::FORBIDDEN);
+
+        let image = fetcher.fetch_once(&server.url).await?;
+
+        assert_eq!(image.base64_data, BASE64.encode(png));
+        assert_eq!(
+            server.finish().await?,
+            vec!["/".to_owned(), "/".to_owned(), "/image".to_owned()]
+        );
+        Ok(())
+    }
+
     fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
         std::iter::successors(Some(error), |error| error.source())
             .map(ToString::to_string)
@@ -776,6 +840,8 @@ mod tests {
     struct MockResponse {
         bytes: Vec<u8>,
         delay: Duration,
+        /// Header names (lowercase) and exact values; a request missing any is answered 403.
+        required_headers: Vec<(&'static str, &'static str)>,
     }
 
     struct MockImageServer {
@@ -803,14 +869,20 @@ mod tests {
                 let (mut socket, _) = listener.accept().await?;
                 let mut buffer = [0_u8; 1024];
                 let read = socket.read(&mut buffer).await?;
-                let path = String::from_utf8_lossy(&buffer[..read])
+                let head = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                let path = head
                     .split_whitespace()
                     .nth(1)
                     .unwrap_or_default()
                     .to_owned();
                 requests_for_task.lock().await.push(path);
                 tokio::time::sleep(response.delay).await;
-                let _ = socket.write_all(&response.bytes).await;
+                let bytes = if has_headers(&head, &response.required_headers) {
+                    response.bytes
+                } else {
+                    http_response("403 Forbidden", &[("Content-Length", "0")], &[]).bytes
+                };
+                let _ = socket.write_all(&bytes).await;
             }
             Ok(())
         });
@@ -849,6 +921,28 @@ mod tests {
         )
     }
 
+    fn requiring_headers(
+        mut response: MockResponse,
+        headers: &[(&'static str, &'static str)],
+    ) -> MockResponse {
+        response.required_headers = headers.to_vec();
+        response
+    }
+
+    fn has_headers(request_head: &str, required: &[(&str, &str)]) -> bool {
+        let headers = request_head
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim()))
+            .collect::<Vec<_>>();
+        required.iter().all(|(name, value)| {
+            headers
+                .iter()
+                .any(|(present, present_value)| present == name && present_value == value)
+        })
+    }
+
     fn delayed(mut response: MockResponse, delay: Duration) -> MockResponse {
         response.delay = delay;
         response
@@ -864,6 +958,7 @@ mod tests {
         MockResponse {
             bytes,
             delay: Duration::ZERO,
+            required_headers: Vec::new(),
         }
     }
 }
