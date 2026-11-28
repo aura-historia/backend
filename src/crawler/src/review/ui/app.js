@@ -992,8 +992,7 @@ function columnChartSvg(width, groups) {
             if (!bar.value) return '';
             const height = Math.max(2, bar.value / top * CHART_PLOT_HEIGHT);
             const x = start + position * (barWidth + 2);
-            const radius = Math.min(4, barWidth / 2, height);
-            return `<path class="chart-bar series-${bar.series}${bar.partial ? ' partial' : ''}" d="M${x},${bottom}V${bottom - height + radius}Q${x},${bottom - height} ${x + radius},${bottom - height}H${x + barWidth - radius}Q${x + barWidth},${bottom - height} ${x + barWidth},${bottom - height + radius}V${bottom}Z"/>`;
+            return `<path class="chart-bar series-${bar.series}${bar.partial ? ' partial' : ''}" d="${columnPath(x, barWidth, bottom, height)}"/>`;
         }).join('');
         const tip = {title: group.title, rows: [...group.bars.map(bar => [formatCount(bar.value), bar.name, bar.series]), ...(group.notes || []).map(([value, name]) => [value, name, null])]};
         const center = left + slot / 2;
@@ -1002,6 +1001,14 @@ function columnChartSvg(width, groups) {
         return `<g class="chart-mark" data-tip="${escapeHtmlAttr(JSON.stringify(tip))}"><rect class="chart-hit" x="${left}" y="${CHART_TOP}" width="${slot}" height="${CHART_PLOT_HEIGHT}"/>${bars}</g>${tick}`;
     }).join('');
     return `<svg width="${width}" height="${bottom + CHART_AXIS_BAND}" viewBox="0 0 ${width} ${bottom + CHART_AXIS_BAND}" aria-hidden="true" focusable="false">${grid}${marks}<line class="chart-axis" x1="${gutter}" x2="${width}" y1="${bottom}" y2="${bottom}"/></svg>`;
+}
+
+// The outline of a column `width` wide standing at `x` on `base`, `height` tall, with a rounded
+// data end.
+function columnPath(x, width, base, height) {
+    const radius = Math.min(4, width / 2, height);
+    const top = base - height;
+    return `M${x},${base}V${top + radius}Q${x},${top} ${x + radius},${top}H${x + width - radius}Q${x + width},${top} ${x + width},${top + radius}V${base}Z`;
 }
 
 // One whole split into `parts` ({key, name, value}): a thin bar with rounded ends and a gap
