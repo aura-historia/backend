@@ -799,96 +799,23 @@ where
         let refs = selected
             .as_ref()
             .ok_or(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch)?;
-        let mut evaluations = Vec::new();
-        let mut deterministic = Vec::new();
+        let mut candidates = Vec::new();
         for reference in refs {
             if let Some(source) = eligible_source(reference, &sources, report)? {
-                if semantic {
-                    evaluations.push(ProductListingMatchEvaluationRequest {
-                        key: *reference,
-                        product: source,
-                        intent,
-                        evidence_policy: filter.matching_evidence_policy,
-                        correlation_id: Some(format!(
-                            "{}:{}:{}:{}:{}",
-                            filter.search_filter_id,
-                            filter.version,
-                            window_end.unix_timestamp(),
-                            reference.product_listing_id,
-                            reference.event_id
-                        )),
-                    });
-                } else {
-                    deterministic.push(
-                        crate::product_match_evaluator::ProductListingMatchEvaluationResult {
-                            key: *reference,
-                            outcome: ProductListingMatchEvaluationOutcome::Matched,
-                        },
-                    );
-                }
+                candidates.push(source);
             }
         }
-        report.classification_requests += evaluations.len();
-        let evaluations = evaluate_product_matches(
-            &self.evaluator,
-            evaluations,
-            self.policy.classification_concurrency,
-            self.policy.classification_batch_candidates,
-            self.policy.should_show_threshold,
-        )
-        .await;
-        let mut retryable = false;
-        let mut accepted = Vec::new();
-        for evaluation in evaluations.into_iter().chain(deterministic) {
-            match evaluation.outcome {
-                ProductListingMatchEvaluationOutcome::Matched => {
-                    report.candidates_accepted += 1;
-                    let source = sources.get(&evaluation.key).ok_or(
-                        RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
-                    )?;
-                    let valuation = filter
-                        .search
-                        .price_query
-                        .as_ref()
-                        // Eligible candidates are discoverable, so never sold: the price
-                        // filter compared their current asking price.
-                        .map(|_| PriceMatchValuation {
-                            basis: ProductListingPriceValuationBasis::Current,
-                            fx_rate_id: price_filter_plan.fx_rate_id,
-                        });
-                    accepted.push(SearchFilterProductListingMatch {
-                        user_id: filter.user_id,
-                        user_search_filter_id: filter.search_filter_id,
-                        user_search_filter_name: Some(filter.name.clone()),
-                        product_listing_id: source.product_listing_id,
-                        origin_event_id: source.event_id,
-                        price_match_valuation: valuation,
-                        shipping_match_valuation: filter
-                            .search
-                            .shipping
-                            .as_ref()
-                            .filter(|query| query.fx_converted())
-                            .and_then(|query| query.maximum_per_item())
-                            .map(
-                                |maximum_per_item| search_filter_core::ShippingMatchValuation {
-                                    fx_rate_id: snapshot.id(),
-                                    captured_at: snapshot.captured_at(),
-                                    maximum_per_item,
-                                },
-                            ),
-                        feedback: None,
-                    });
-                }
-                ProductListingMatchEvaluationOutcome::Rejected => report.candidates_rejected += 1,
-                ProductListingMatchEvaluationOutcome::PermanentFailure(_) => {
-                    report.permanent_evaluation_failures += 1
-                }
-                ProductListingMatchEvaluationOutcome::RetryableFailure(_) => {
-                    report.retryable_evaluation_failures += 1;
-                    retryable = true;
-                }
-            }
-        }
+        let decision = MatchDecisionContext {
+            filter,
+            intent,
+            semantic,
+            window_end,
+            price_filter_plan: &price_filter_plan,
+            snapshot,
+        };
+        let (accepted, retryable) = self
+            .classify_candidates(&decision, &candidates, report)
+            .await;
         if retryable || report.permanent_evaluation_failures > 0 {
             tracing::warn!(search_filter_id = %filter.search_filter_id, selected = refs.len(),
                 stop_reason = "technical_incomplete", retryable_failures = report.retryable_evaluation_failures,
@@ -906,6 +833,63 @@ where
                 outcome
             },
         )
+    }
+
+    /// Decides eligible candidates and counts each outcome; the flag reports retryable failures.
+    async fn classify_candidates(
+        &self,
+        decision: &MatchDecisionContext<'_>,
+        candidates: &[&ProductListingSearchFilterMatchSource],
+        report: &mut FilterAttemptReport,
+    ) -> (Vec<SearchFilterProductListingMatch>, bool) {
+        let outcomes = if decision.semantic {
+            let evaluations = candidates
+                .iter()
+                .enumerate()
+                .map(|(index, source)| ProductListingMatchEvaluationRequest {
+                    key: index,
+                    product: source,
+                    intent: decision.intent,
+                    evidence_policy: decision.filter.matching_evidence_policy,
+                    correlation_id: Some(decision.correlation_id(source)),
+                })
+                .collect::<Vec<_>>();
+            report.classification_requests += evaluations.len();
+            evaluate_product_matches(
+                &self.evaluator,
+                evaluations,
+                self.policy.classification_concurrency,
+                self.policy.classification_batch_candidates,
+                self.policy.should_show_threshold,
+            )
+            .await
+            .into_iter()
+            .map(|evaluation| (evaluation.key, evaluation.outcome))
+            .collect::<Vec<_>>()
+        } else {
+            (0..candidates.len())
+                .map(|index| (index, ProductListingMatchEvaluationOutcome::Matched))
+                .collect()
+        };
+        let mut retryable = false;
+        let mut accepted = Vec::new();
+        for (index, outcome) in outcomes {
+            match outcome {
+                ProductListingMatchEvaluationOutcome::Matched => {
+                    report.candidates_accepted += 1;
+                    accepted.push(decision.accepted_match(candidates[index]));
+                }
+                ProductListingMatchEvaluationOutcome::Rejected => report.candidates_rejected += 1,
+                ProductListingMatchEvaluationOutcome::PermanentFailure(_) => {
+                    report.permanent_evaluation_failures += 1
+                }
+                ProductListingMatchEvaluationOutcome::RetryableFailure(_) => {
+                    report.retryable_evaluation_failures += 1;
+                    retryable = true;
+                }
+            }
+        }
+        (accepted, retryable)
     }
 
     async fn load_sources(
@@ -1040,6 +1024,65 @@ where
         report.matches_inserted += persisted.inserted;
         report.matches_duplicate += persisted.already_exists;
         Ok(FilterOutcome::Completed)
+    }
+}
+
+/// What one filter attempt decides candidates with.
+struct MatchDecisionContext<'a> {
+    filter: &'a PeriodicSearchFilterCandidate,
+    intent: MatchIntent<'a>,
+    semantic: bool,
+    window_end: OffsetDateTime,
+    price_filter_plan: &'a ProductListingPriceFilterPlan,
+    snapshot: &'a FxRateSnapshot,
+}
+
+impl MatchDecisionContext<'_> {
+    fn correlation_id(&self, source: &ProductListingSearchFilterMatchSource) -> String {
+        format!(
+            "{}:{}:{}:{}:{}",
+            self.filter.search_filter_id,
+            self.filter.version,
+            self.window_end.unix_timestamp(),
+            source.product_listing_id,
+            source.event_id
+        )
+    }
+
+    fn accepted_match(
+        &self,
+        source: &ProductListingSearchFilterMatchSource,
+    ) -> SearchFilterProductListingMatch {
+        let filter = self.filter;
+        SearchFilterProductListingMatch {
+            user_id: filter.user_id,
+            user_search_filter_id: filter.search_filter_id,
+            user_search_filter_name: Some(filter.name.clone()),
+            product_listing_id: source.product_listing_id,
+            origin_event_id: source.event_id,
+            // Eligible candidates are discoverable, so never sold: the price filter compared
+            // their current asking price.
+            price_match_valuation: filter.search.price_query.as_ref().map(|_| {
+                PriceMatchValuation {
+                    basis: ProductListingPriceValuationBasis::Current,
+                    fx_rate_id: self.price_filter_plan.fx_rate_id,
+                }
+            }),
+            shipping_match_valuation: filter
+                .search
+                .shipping
+                .as_ref()
+                .filter(|query| query.fx_converted())
+                .and_then(|query| query.maximum_per_item())
+                .map(
+                    |maximum_per_item| search_filter_core::ShippingMatchValuation {
+                        fx_rate_id: self.snapshot.id(),
+                        captured_at: self.snapshot.captured_at(),
+                        maximum_per_item,
+                    },
+                ),
+            feedback: None,
+        }
     }
 }
 
