@@ -1,5 +1,6 @@
 use crate::match_candidates::{
-    CandidateEligibility, candidate_eligibility, has_semantic_intent, retrieve_candidates,
+    CandidateEligibility, MatchEvidenceChange, candidate_eligibility, has_semantic_intent,
+    match_evidence_change, retrieve_candidates,
 };
 use crate::ports::{
     ExistingSearchFilterMatchReader, PeriodicSearchFilterCandidate,
@@ -31,10 +32,10 @@ use notification_service::saved_search_digest::{
 };
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
-    CompiledProductListingSearch, ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
-    ProductListingCurrentEventGuardFactory, ProductListingCurrentEventRef,
-    ProductListingPriceFilterPlan, ProductListingSearchFilterMatchSource,
-    ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
+    CompiledProductListingSearch, ProductListingCurrentEventGuard,
+    ProductListingCurrentEventGuardFactory, ProductListingPriceFilterPlan,
+    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
+    ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
     ProductListingSearchReadError, ProductListingSearchReader,
 };
@@ -93,6 +94,12 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub candidates_duplicate: usize,
     pub candidates_existing: usize,
     pub candidates_missing_source: usize,
+    /// Accepted candidates whose listing moved on during the run without changing what was
+    /// decided, as when its embedding landed; they commit at the listing's current event.
+    pub candidates_revalidated: usize,
+    /// Accepted candidates classified again because their English title changed during the run,
+    /// as when a title translation landed.
+    pub candidates_reclassified: usize,
     pub candidates_stale: usize,
     /// Withdrawn candidates and those no longer discoverable (sold out, out of stock or
     /// unavailable); the name predates the wider rule and stays for report stability.
@@ -115,6 +122,8 @@ struct FilterAttemptReport {
     candidates_duplicate: usize,
     candidates_existing: usize,
     candidates_missing_source: usize,
+    candidates_revalidated: usize,
+    candidates_reclassified: usize,
     candidates_stale: usize,
     candidates_withdrawn: usize,
     candidates_rejected: usize,
@@ -135,6 +144,8 @@ impl PeriodicSearchFilterMatchingReport {
         self.candidates_duplicate += attempt.candidates_duplicate;
         self.candidates_existing += attempt.candidates_existing;
         self.candidates_missing_source += attempt.candidates_missing_source;
+        self.candidates_revalidated += attempt.candidates_revalidated;
+        self.candidates_reclassified += attempt.candidates_reclassified;
         self.candidates_stale += attempt.candidates_stale;
         self.candidates_withdrawn += attempt.candidates_withdrawn;
         self.candidates_rejected += attempt.candidates_rejected;
@@ -449,6 +460,8 @@ where
             candidates_duplicate: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
+            candidates_revalidated: 0,
+            candidates_reclassified: 0,
             candidates_stale: 0,
             candidates_withdrawn: 0,
             candidates_rejected: 0,
@@ -642,6 +655,8 @@ where
             candidates_rejected = report.candidates_rejected,
             candidates_duplicate = report.candidates_duplicate,
             candidates_existing = report.candidates_existing,
+            candidates_revalidated = report.candidates_revalidated,
+            candidates_reclassified = report.candidates_reclassified,
             candidates_stale = report.candidates_stale,
             candidates_missing_source = report.candidates_missing_source,
             filters_candidate_cap = report.filters_candidate_cap,
@@ -682,9 +697,22 @@ where
             None
         };
         let Some(search) = periodic_search(filter, window_end, self.policy.replay_overlap) else {
-            return self
-                .commit_filter(filter, window_end, Vec::new(), true, report)
-                .await;
+            return match self
+                .commit_filter(
+                    filter,
+                    window_end,
+                    Vec::new(),
+                    true,
+                    TitleChangeHandling::Ignore,
+                    report,
+                )
+                .await?
+            {
+                CommitAttempt::Finished(outcome) => Ok(outcome),
+                CommitAttempt::Reclassify { .. } => {
+                    unreachable!("a commit without accepted candidates has nothing to reclassify")
+                }
+            };
         };
         let price_filter_plan = ProductListingPriceFilterPlan::compile(
             snapshot.clone(),
@@ -813,7 +841,7 @@ where
             price_filter_plan: &price_filter_plan,
             snapshot,
         };
-        let (accepted, retryable) = self
+        let (mut accepted, mut retryable) = self
             .classify_candidates(&decision, &candidates, report)
             .await;
         if retryable || report.permanent_evaluation_failures > 0 {
@@ -823,9 +851,42 @@ where
                 advance_progress = !retryable,
                 "search_filter.periodic_match.incomplete");
         }
-        let outcome = self
-            .commit_filter(filter, window_end, accepted, !retryable, report)
-            .await?;
+        let mut title_changes = if semantic {
+            TitleChangeHandling::Reclassify
+        } else {
+            TitleChangeHandling::Ignore
+        };
+        let outcome = loop {
+            match self
+                .commit_filter(
+                    filter,
+                    window_end,
+                    accepted,
+                    !retryable,
+                    title_changes,
+                    report,
+                )
+                .await?
+            {
+                CommitAttempt::Finished(outcome) => break outcome,
+                CommitAttempt::Reclassify {
+                    kept,
+                    title_changed,
+                } => {
+                    // The new decisions replace the accepted ones made on the earlier title.
+                    report.candidates_accepted -= title_changed.len();
+                    report.candidates_reclassified += title_changed.len();
+                    let title_changed = title_changed.iter().collect::<Vec<_>>();
+                    let (reclassified, reclassified_retryable) = self
+                        .classify_candidates(&decision, &title_changed, report)
+                        .await;
+                    accepted = kept;
+                    accepted.extend(reclassified);
+                    retryable |= reclassified_retryable;
+                    title_changes = TitleChangeHandling::Drop;
+                }
+            }
+        };
         Ok(
             if matches!(outcome, FilterOutcome::Completed) && retryable {
                 FilterOutcome::Retryable
@@ -841,7 +902,7 @@ where
         decision: &MatchDecisionContext<'_>,
         candidates: &[&ProductListingSearchFilterMatchSource],
         report: &mut FilterAttemptReport,
-    ) -> (Vec<SearchFilterProductListingMatch>, bool) {
+    ) -> (Vec<AcceptedCandidate>, bool) {
         let outcomes = if decision.semantic {
             let evaluations = candidates
                 .iter()
@@ -877,7 +938,11 @@ where
             match outcome {
                 ProductListingMatchEvaluationOutcome::Matched => {
                     report.candidates_accepted += 1;
-                    accepted.push(decision.accepted_match(candidates[index]));
+                    let source = candidates[index];
+                    accepted.push(AcceptedCandidate {
+                        product_match: decision.accepted_match(source),
+                        evidence: source.clone(),
+                    });
                 }
                 ProductListingMatchEvaluationOutcome::Rejected => report.candidates_rejected += 1,
                 ProductListingMatchEvaluationOutcome::PermanentFailure(_) => {
@@ -925,10 +990,11 @@ where
         &self,
         filter: &PeriodicSearchFilterCandidate,
         window_end: OffsetDateTime,
-        matches: Vec<SearchFilterProductListingMatch>,
+        accepted: Vec<AcceptedCandidate>,
         advance_progress: bool,
+        title_changes: TitleChangeHandling,
         report: &mut FilterAttemptReport,
-    ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
+    ) -> Result<CommitAttempt, RunPeriodicSearchFilterMatchingError> {
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
                 source: box_error(source),
@@ -948,47 +1014,32 @@ where
         {
             PeriodicSearchFilterProgressLockOutcome::Current { matched_through } => matched_through,
             PeriodicSearchFilterProgressLockOutcome::AlreadyCovered => {
-                return Ok(FilterOutcome::AlreadyCovered);
+                return Ok(FilterOutcome::AlreadyCovered.into());
             }
             PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive => {
-                return Ok(FilterOutcome::ChangedOrInactive);
+                return Ok(FilterOutcome::ChangedOrInactive.into());
             }
         };
         if matched_through != filter.matched_through {
-            return Ok(FilterOutcome::ProgressSuperseded);
+            return Ok(FilterOutcome::ProgressSuperseded.into());
         }
         if window_end <= matched_through {
-            return Ok(FilterOutcome::AlreadyCovered);
+            return Ok(FilterOutcome::AlreadyCovered.into());
         }
-        let refs = matches
-            .iter()
-            .map(|item| ProductListingCurrentEventRef {
-                product_listing_id: item.product_listing_id,
-                expected_event_id: item.origin_event_id,
-            })
-            .collect::<Vec<_>>();
-        let checks = self
-            .current_event_guard
-            .in_transaction(&mut tx)
-            .lock_and_check_all(&refs)
-            .await
-            .map_err(|source| {
-                RunPeriodicSearchFilterMatchingError::ProductListingCurrentEventCheckFailed {
-                    source: box_error(source),
-                }
-            })?;
-        let matches = matches
+        let revalidation = self
+            .revalidate_accepted(&mut tx, accepted, title_changes, report)
+            .await?;
+        if !revalidation.title_changed.is_empty() {
+            // Rolls back: the caller classifies the changed titles before committing again.
+            return Ok(CommitAttempt::Reclassify {
+                kept: revalidation.current,
+                title_changed: revalidation.title_changed,
+            });
+        }
+        let matches = revalidation
+            .current
             .into_iter()
-            .filter(|item| {
-                let current = checks.get(&ProductListingCurrentEventRef {
-                    product_listing_id: item.product_listing_id,
-                    expected_event_id: item.origin_event_id,
-                }) == Some(&ProductListingCurrentEventCheck::Current);
-                if !current {
-                    report.candidates_stale += 1;
-                }
-                current
-            })
+            .map(|candidate| candidate.product_match)
             .collect::<Vec<_>>();
         let persisted = if matches.is_empty() {
             Default::default()
@@ -1009,10 +1060,10 @@ where
             match progress {
                 PeriodicSearchFilterProgressWriteOutcome::Advanced => {}
                 PeriodicSearchFilterProgressWriteOutcome::AlreadyCovered => {
-                    return Ok(FilterOutcome::AlreadyCovered);
+                    return Ok(FilterOutcome::AlreadyCovered.into());
                 }
                 PeriodicSearchFilterProgressWriteOutcome::Superseded => {
-                    return Ok(FilterOutcome::ProgressSuperseded);
+                    return Ok(FilterOutcome::ProgressSuperseded.into());
                 }
             }
         }
@@ -1023,7 +1074,135 @@ where
         })?;
         report.matches_inserted += persisted.inserted;
         report.matches_duplicate += persisted.already_exists;
-        Ok(FilterOutcome::Completed)
+        Ok(FilterOutcome::Completed.into())
+    }
+
+    /// Locks the accepted listings until `tx` ends and keeps each decision whose evidence the
+    /// listing still holds, moved to the listing's current event. Enrichment such as an
+    /// embedding advances the current event without changing what was decided.
+    async fn revalidate_accepted(
+        &self,
+        tx: &mut U::Tx,
+        accepted: Vec<AcceptedCandidate>,
+        title_changes: TitleChangeHandling,
+        report: &mut FilterAttemptReport,
+    ) -> Result<Revalidation, RunPeriodicSearchFilterMatchingError> {
+        let product_listing_ids = accepted
+            .iter()
+            .map(|candidate| candidate.product_match.product_listing_id)
+            .collect::<Vec<_>>();
+        let current_events = self
+            .current_event_guard
+            .in_transaction(tx)
+            .lock_current_events(&product_listing_ids)
+            .await
+            .map_err(|source| {
+                RunPeriodicSearchFilterMatchingError::ProductListingCurrentEventCheckFailed {
+                    source: box_error(source),
+                }
+            })?;
+        let moved = accepted
+            .iter()
+            .filter_map(|candidate| {
+                let current_event_id =
+                    *current_events.get(&candidate.product_match.product_listing_id)?;
+                (current_event_id != candidate.product_match.origin_event_id).then_some(
+                    ProductListingSearchFilterMatchSourceRef {
+                        product_listing_id: candidate.product_match.product_listing_id,
+                        event_id: current_event_id,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let current_sources = if moved.is_empty() {
+            HashMap::new()
+        } else {
+            self.sources
+                .in_transaction(tx)
+                .find_sources(&moved)
+                .await
+                .map_err(product_source_error)?
+        };
+        let mut revalidation = Revalidation::default();
+        for mut candidate in accepted {
+            let product_listing_id = candidate.product_match.product_listing_id;
+            let Some(&current_event_id) = current_events.get(&product_listing_id) else {
+                report.candidates_stale += 1;
+                continue;
+            };
+            if current_event_id == candidate.product_match.origin_event_id {
+                revalidation.current.push(candidate);
+                continue;
+            }
+            let reference = ProductListingSearchFilterMatchSourceRef {
+                product_listing_id,
+                event_id: current_event_id,
+            };
+            let CandidateEligibility::Eligible(current) =
+                candidate_eligibility(&reference, &current_sources).map_err(|_| {
+                    RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch
+                })?
+            else {
+                report.candidates_stale += 1;
+                continue;
+            };
+            match (
+                match_evidence_change(&candidate.evidence, current),
+                title_changes,
+            ) {
+                (MatchEvidenceChange::Unchanged, _)
+                | (MatchEvidenceChange::ClassifierTitle, TitleChangeHandling::Ignore) => {
+                    report.candidates_revalidated += 1;
+                    candidate.product_match.origin_event_id = current_event_id;
+                    candidate.evidence = current.clone();
+                    revalidation.current.push(candidate);
+                }
+                (MatchEvidenceChange::ClassifierTitle, TitleChangeHandling::Reclassify) => {
+                    revalidation.title_changed.push(current.clone());
+                }
+                (MatchEvidenceChange::ClassifierTitle, TitleChangeHandling::Drop)
+                | (MatchEvidenceChange::Decision, _) => report.candidates_stale += 1,
+            }
+        }
+        Ok(revalidation)
+    }
+}
+
+/// An accepted decision and the listing evidence it was made on.
+struct AcceptedCandidate {
+    product_match: SearchFilterProductListingMatch,
+    evidence: ProductListingSearchFilterMatchSource,
+}
+
+/// What a commit does with an accepted listing whose English title changed after its decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TitleChangeHandling {
+    /// No classifier read the title: deterministic filters keep the decision.
+    Ignore,
+    /// Hand the listing back to be classified on its current title before committing.
+    Reclassify,
+    /// The run already classified again once; the next window decides the listing.
+    Drop,
+}
+
+#[derive(Default)]
+struct Revalidation {
+    current: Vec<AcceptedCandidate>,
+    title_changed: Vec<ProductListingSearchFilterMatchSource>,
+}
+
+enum CommitAttempt {
+    Finished(FilterOutcome),
+    /// Nothing was committed; `title_changed` holds the current sources to classify again.
+    Reclassify {
+        kept: Vec<AcceptedCandidate>,
+        title_changed: Vec<ProductListingSearchFilterMatchSource>,
+    },
+}
+
+impl From<FilterOutcome> for CommitAttempt {
+    fn from(outcome: FilterOutcome) -> Self {
+        Self::Finished(outcome)
     }
 }
 
@@ -1385,7 +1564,8 @@ mod tests {
     #[derive(Debug)]
     struct State {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
-        current_event_check: ProductListingCurrentEventCheck,
+        /// Listing changes that land before each commit, one entry per commit attempt.
+        moves_before_commit: std::collections::VecDeque<Vec<ProductListingSearchFilterMatchSource>>,
         product_listing_search_result: Option<ProductListingSearchReadResult>,
         /// One entry per candidate retrieval: `true` when it was hybrid.
         hybrid_retrievals: Vec<bool>,
@@ -1721,12 +1901,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingCurrentEventGuard for CheckingCurrentEvents<'_> {
-        async fn lock_and_check(
+        async fn lock_current_events(
             &mut self,
-            _product_listing_id: ProductListingId,
-            _expected_event_id: EventId,
+            product_listing_ids: &[ProductListingId],
         ) -> Result<
-            ProductListingCurrentEventCheck,
+            HashMap<ProductListingId, EventId>,
             product_listing_service::ports::ProductListingCurrentEventCheckError,
         > {
             let mut state = self.0.lock().map_err(|_| {
@@ -1735,8 +1914,44 @@ mod tests {
                 }
             })?;
             state.event_checks += 1;
-            Ok(state.current_event_check)
+            for listing in state.moves_before_commit.pop_front().unwrap_or_default() {
+                apply_move(&mut state, listing);
+            }
+            Ok(state
+                .sources
+                .values()
+                .filter(|source| product_listing_ids.contains(&source.product_listing_id))
+                .map(|source| (source.product_listing_id, source.current_event_id))
+                .collect())
         }
+    }
+
+    /// Makes `listing` the current event of its listing, as a committed listing write would.
+    fn apply_move(state: &mut State, listing: ProductListingSearchFilterMatchSource) {
+        for source in state.sources.values_mut() {
+            if source.product_listing_id == listing.product_listing_id {
+                source.current_event_id = listing.event_id;
+            }
+        }
+        state.sources.insert(
+            ProductListingSearchFilterMatchSourceRef {
+                product_listing_id: listing.product_listing_id,
+                event_id: listing.event_id,
+            },
+            listing,
+        );
+    }
+
+    /// The listing's state after a later event that `change` describes.
+    fn moved(
+        source: &ProductListingSearchFilterMatchSource,
+        change: impl FnOnce(&mut ProductListingSearchFilterMatchSource),
+    ) -> ProductListingSearchFilterMatchSource {
+        let mut moved = source.clone();
+        moved.event_id = EventId::new();
+        moved.current_event_id = moved.event_id;
+        change(&mut moved);
+        moved
     }
 
     impl ProductListingCurrentEventGuardFactory<FakeTransaction> for FakeCurrentEvents {
@@ -1900,7 +2115,7 @@ mod tests {
     fn state(lock_outcome: PeriodicSearchFilterProgressLockOutcome) -> Arc<Mutex<State>> {
         Arc::new(Mutex::new(State {
             lock_outcome,
-            current_event_check: ProductListingCurrentEventCheck::Current,
+            moves_before_commit: Default::default(),
             product_listing_search_result: None,
             hybrid_retrievals: Vec::new(),
             policy_change_during_evaluation: false,
@@ -2229,16 +2444,49 @@ mod tests {
         )
     }
 
-    fn accepted_match(filter: &PeriodicSearchFilterCandidate) -> SearchFilterProductListingMatch {
-        SearchFilterProductListingMatch {
-            user_id: filter.user_id,
-            user_search_filter_id: filter.search_filter_id,
-            user_search_filter_name: Some(filter.name.clone()),
-            product_listing_id: ProductListingId::new(),
-            origin_event_id: EventId::new(),
-            price_match_valuation: None,
-            shipping_match_valuation: None,
-            feedback: None,
+    /// An accepted decision on a listing that is current in `state`.
+    fn accepted(
+        state: &Arc<Mutex<State>>,
+        filter: &PeriodicSearchFilterCandidate,
+    ) -> AcceptedCandidate {
+        let source = crate::product_match_evaluator::tests::product().unwrap();
+        apply_move(&mut state.lock().unwrap(), source.clone());
+        AcceptedCandidate {
+            product_match: SearchFilterProductListingMatch {
+                user_id: filter.user_id,
+                user_search_filter_id: filter.search_filter_id,
+                user_search_filter_name: Some(filter.name.clone()),
+                product_listing_id: source.product_listing_id,
+                origin_event_id: source.event_id,
+                price_match_valuation: None,
+                shipping_match_valuation: None,
+                feedback: None,
+            },
+            evidence: source,
+        }
+    }
+
+    async fn commit(
+        handler: &Handler,
+        filter: &PeriodicSearchFilterCandidate,
+        window_end: OffsetDateTime,
+        accepted: Vec<AcceptedCandidate>,
+        advance_progress: bool,
+        report: &mut FilterAttemptReport,
+    ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
+        match handler
+            .commit_filter(
+                filter,
+                window_end,
+                accepted,
+                advance_progress,
+                TitleChangeHandling::Ignore,
+                report,
+            )
+            .await?
+        {
+            CommitAttempt::Finished(outcome) => Ok(outcome),
+            CommitAttempt::Reclassify { .. } => panic!("ignored title changes never reclassify"),
         }
     }
 
@@ -2263,6 +2511,8 @@ mod tests {
             candidates_duplicate: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
+            candidates_revalidated: 0,
+            candidates_reclassified: 0,
             candidates_stale: 0,
             candidates_withdrawn: 0,
             candidates_rejected: 0,
@@ -2350,15 +2600,15 @@ mod tests {
         let filter = filter();
         let mut attempt_report = FilterAttemptReport::default();
 
-        let outcome = handler
-            .commit_filter(
-                &filter,
-                OffsetDateTime::UNIX_EPOCH + Duration::seconds(2),
-                vec![accepted_match(&filter)],
-                true,
-                &mut attempt_report,
-            )
-            .await?;
+        let outcome = commit(
+            &handler,
+            &filter,
+            OffsetDateTime::UNIX_EPOCH + Duration::seconds(2),
+            vec![accepted(&state, &filter)],
+            true,
+            &mut attempt_report,
+        )
+        .await?;
 
         let state = state
             .lock()
@@ -2379,15 +2629,15 @@ mod tests {
         let filter = filter();
         let mut attempt_report = FilterAttemptReport::default();
 
-        let outcome = handler
-            .commit_filter(
-                &filter,
-                OffsetDateTime::UNIX_EPOCH,
-                vec![accepted_match(&filter)],
-                true,
-                &mut attempt_report,
-            )
-            .await?;
+        let outcome = commit(
+            &handler,
+            &filter,
+            OffsetDateTime::UNIX_EPOCH,
+            vec![accepted(&state, &filter)],
+            true,
+            &mut attempt_report,
+        )
+        .await?;
 
         let state = state
             .lock()
@@ -2409,25 +2659,26 @@ mod tests {
         });
         let handler = handler(Arc::clone(&state))?;
         let filter = filter();
-        let accepted = accepted_match(&filter);
+        let accepted = accepted(&state, &filter);
+        let expected = accepted.product_match.clone();
         let mut attempt_report = FilterAttemptReport::default();
 
-        let outcome = handler
-            .commit_filter(
-                &filter,
-                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
-                vec![accepted.clone()],
-                false,
-                &mut attempt_report,
-            )
-            .await?;
+        let outcome = commit(
+            &handler,
+            &filter,
+            OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+            vec![accepted],
+            false,
+            &mut attempt_report,
+        )
+        .await?;
 
         let state = state
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::Completed);
         assert_eq!(state.event_checks, 1);
-        assert_eq!(state.persisted, vec![accepted]);
+        assert_eq!(state.persisted, vec![expected]);
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 1);
         assert_eq!(attempt_report.matches_inserted, 1);
@@ -2435,28 +2686,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_skip_stale_current_product_listing_match_and_advance_progress()
+    async fn should_skip_a_match_whose_listing_is_gone_and_advance_progress()
     -> Result<(), RunPeriodicSearchFilterMatchingError> {
         let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
             matched_through: OffsetDateTime::UNIX_EPOCH,
         });
-        state
-            .lock()
-            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?
-            .current_event_check = ProductListingCurrentEventCheck::Stale;
         let handler = handler(Arc::clone(&state))?;
         let filter = filter();
+        let accepted = accepted(&state, &filter);
+        state.lock().unwrap().sources.clear();
         let mut attempt_report = FilterAttemptReport::default();
 
-        let outcome = handler
-            .commit_filter(
-                &filter,
-                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
-                vec![accepted_match(&filter)],
-                true,
-                &mut attempt_report,
-            )
-            .await?;
+        let outcome = commit(
+            &handler,
+            &filter,
+            OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+            vec![accepted],
+            true,
+            &mut attempt_report,
+        )
+        .await?;
 
         let state = state
             .lock()
@@ -2472,6 +2721,171 @@ mod tests {
         Ok(())
     }
 
+    /// Runs one semantic candidate whose listing changes as `change` describes after it was
+    /// selected, once before each commit attempt, with the given classifier decisions.
+    async fn run_with_listing_changes(
+        filter: &PeriodicSearchFilterCandidate,
+        decisions: &[bool],
+        changes: &[fn(&mut ProductListingSearchFilterMatchSource)],
+    ) -> (
+        FilterOutcome,
+        FilterAttemptReport,
+        Vec<EventId>,
+        Arc<Mutex<State>>,
+    ) {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let refs = seed_candidates(&state, 1);
+        let mut events = Vec::new();
+        {
+            let mut state = state.lock().unwrap();
+            state.evaluator_results = decisions
+                .iter()
+                .map(|accepted| decision(*accepted))
+                .collect();
+            let mut listing = state.sources[&refs[0]].clone();
+            for change in changes {
+                listing = moved(&listing, change);
+                events.push(listing.event_id);
+                state.moves_before_commit.push_back(vec![listing.clone()]);
+            }
+        }
+        let mut report = FilterAttemptReport::default();
+        let outcome = full_budget_handler(Arc::clone(&state))
+            .process_filter(
+                filter,
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                &mut None,
+                &mut report,
+            )
+            .await
+            .unwrap();
+        (outcome, report, events, state)
+    }
+
+    fn embed(source: &mut ProductListingSearchFilterMatchSource) {
+        source.embedding = Some(vec![0.2; embedding::EMBEDDING_DIMENSIONS]);
+    }
+
+    fn translate_title(source: &mut ProductListingSearchFilterMatchSource) {
+        source
+            .titles
+            .insert(Language::En, "Translated candidate".into());
+    }
+
+    fn translate_title_again(source: &mut ProductListingSearchFilterMatchSource) {
+        source
+            .titles
+            .insert(Language::En, "Retranslated candidate".into());
+    }
+
+    fn change_description(source: &mut ProductListingSearchFilterMatchSource) {
+        source.product_description = Some(localization::Localized::new(
+            Language::En,
+            "Now a reproduction".into(),
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_commit_at_the_current_event_when_an_embedding_lands_during_the_run() {
+        let (outcome, report, events, state) =
+            run_with_listing_changes(&ordinary_filter(), &[true], &[embed]).await;
+        let state = state.lock().unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(1, state.evaluator_calls);
+        assert_eq!(1, state.persisted.len());
+        assert_eq!(events[0], state.persisted[0].origin_event_id);
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(1, report.candidates_revalidated);
+        assert_eq!(0, report.candidates_stale);
+        assert_eq!(1, report.matches_inserted);
+    }
+
+    #[tokio::test]
+    async fn should_classify_again_when_a_title_translation_lands_during_the_run() {
+        let (outcome, report, events, state) =
+            run_with_listing_changes(&ordinary_filter(), &[true, true], &[translate_title, embed])
+                .await;
+        let state = state.lock().unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(2, state.evaluator_calls);
+        assert!(
+            state.evaluator_requests[1]
+                .state
+                .to_string()
+                .contains("Translated candidate")
+        );
+        assert_eq!(1, state.persisted.len());
+        assert_eq!(events[1], state.persisted[0].origin_event_id);
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(1, report.candidates_reclassified);
+        assert_eq!(1, report.candidates_revalidated);
+        assert_eq!(1, report.candidates_accepted);
+        assert_eq!(2, report.classification_requests);
+        assert_eq!(0, report.candidates_stale);
+    }
+
+    #[tokio::test]
+    async fn should_not_match_when_the_translated_title_is_rejected() {
+        let (outcome, report, _, state) =
+            run_with_listing_changes(&ordinary_filter(), &[true, false], &[translate_title]).await;
+        let state = state.lock().unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert!(state.persisted.is_empty());
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(0, report.candidates_accepted);
+        assert_eq!(1, report.candidates_rejected);
+    }
+
+    #[tokio::test]
+    async fn should_leave_to_the_next_window_a_title_that_changes_again_during_reclassification() {
+        let (outcome, report, _, state) = run_with_listing_changes(
+            &ordinary_filter(),
+            &[true, true],
+            &[translate_title, translate_title_again],
+        )
+        .await;
+        let state = state.lock().unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(2, state.evaluator_calls);
+        assert!(state.persisted.is_empty());
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(1, report.candidates_stale);
+    }
+
+    #[tokio::test]
+    async fn should_drop_a_match_whose_decided_facts_changed_during_the_run() {
+        let (outcome, report, _, state) =
+            run_with_listing_changes(&ordinary_filter(), &[true], &[change_description]).await;
+        let state = state.lock().unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(1, state.evaluator_calls);
+        assert!(state.persisted.is_empty());
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(1, report.candidates_stale);
+    }
+
+    #[tokio::test]
+    async fn should_keep_a_deterministic_match_when_a_title_translation_lands_during_the_run() {
+        let (outcome, report, events, state) =
+            run_with_listing_changes(&filter(), &[], &[translate_title]).await;
+        let state = state.lock().unwrap();
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(0, state.evaluator_calls);
+        assert_eq!(1, state.persisted.len());
+        assert_eq!(events[0], state.persisted[0].origin_event_id);
+        assert_eq!(1, report.candidates_revalidated);
+        assert_eq!(0, report.candidates_reclassified);
+    }
+
     #[tokio::test]
     async fn should_persist_accepted_work_only_after_current_filter_revalidation()
     -> Result<(), RunPeriodicSearchFilterMatchingError> {
@@ -2480,25 +2894,26 @@ mod tests {
         });
         let handler = handler(Arc::clone(&state))?;
         let filter = filter();
-        let accepted = accepted_match(&filter);
+        let accepted = accepted(&state, &filter);
+        let expected = accepted.product_match.clone();
         let mut attempt_report = FilterAttemptReport::default();
 
-        let outcome = handler
-            .commit_filter(
-                &filter,
-                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
-                vec![accepted.clone()],
-                true,
-                &mut attempt_report,
-            )
-            .await?;
+        let outcome = commit(
+            &handler,
+            &filter,
+            OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+            vec![accepted],
+            true,
+            &mut attempt_report,
+        )
+        .await?;
 
         let state = state
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::Completed);
         assert_eq!(state.event_checks, 1);
-        assert_eq!(state.persisted, vec![accepted]);
+        assert_eq!(state.persisted, vec![expected]);
         assert_eq!(state.checkpoints, 1);
         assert_eq!(state.commits, 1);
         assert_eq!(attempt_report.matches_inserted, 1);

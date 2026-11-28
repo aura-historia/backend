@@ -79,9 +79,8 @@ pub use product_listing_content_assessment_writer::{
     ProductListingContentAssessmentWriterFactory,
 };
 pub use product_listing_current_event_guard::{
-    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
-    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
-    ProductListingCurrentEventRef,
+    ProductListingCurrentEventCheckError, ProductListingCurrentEventGuard,
+    ProductListingCurrentEventGuardFactory,
 };
 pub use product_listing_details_batch_reader::{
     ProductListingDetailsBatchReadError, ProductListingDetailsBatchReadRequest,

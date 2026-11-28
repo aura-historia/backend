@@ -348,6 +348,16 @@ the same selected identities. This is bounded best-effort discovery: exhaustion,
 cap and scan cap are reported separately. Advancing a window does not prove catalogue
 coverage; the unselected tail has no guaranteed later opportunity.
 
+A commit locks each accepted listing and compares its current state with the evidence the decision
+used. Changes no decision reads, such as an embedding, other-language title translations or
+freshness, keep the match, which records the listing's current event. A changed English title,
+which the classifier reads (for example a title translation that lands during the run), is
+classified once more on the current state before the commit. Any other change, such as a
+structured fact retrieval filtered on, the description or the images, drops the match as stale,
+and so does a title that changes again during that second classification. The listing's advanced
+`updated` puts it into a later window without a guaranteed slot. Reports count revalidated,
+reclassified and stale candidates separately.
+
 The evaluator includes complete base-query alternatives and permitted enhanced instructions,
 keeps requirements/exclusions distinct from preferences and treats listing/image text as
 untrusted evidence. It favours precision, because a wrong alert costs more trust than a missed

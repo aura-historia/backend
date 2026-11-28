@@ -177,6 +177,8 @@ mod tests {
             candidates_duplicate: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
+            candidates_revalidated: 0,
+            candidates_reclassified: 0,
             candidates_stale: 0,
             candidates_withdrawn: 0,
             candidates_rejected: 0,
