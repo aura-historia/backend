@@ -94,7 +94,7 @@ x-listing-environment: &listing-environment
 x-classifier-environment: &classifier-environment
   CLASSIFIER_MODEL_PROVIDER: cloudflare
   CLASSIFIER_MODEL: clef
-  SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: "5000"
+  SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: "7000"
 
 x-email-environment: &email-environment
   NOTIFICATION_EMAIL_CONFIGURATION_SET: aura-historia-prod-email

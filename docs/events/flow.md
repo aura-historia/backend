@@ -356,7 +356,8 @@ print or other related item, and an explicit enhanced requirement counts only wh
 supports it; preferences may stay unmet. Images cannot establish authenticity, provenance,
 authorship or age without supporting evidence.
 `should_show >= SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS / 10000` accepts an alert
-(default 0.5, inclusive); the score is a decision signal, not a calibrated probability.
+(default 0.7, inclusive); the score is a decision signal, not a calibrated probability.
+Wrong alerts cluster between 0.5 and 0.8, while almost every correct alert scores above 0.8.
 Every listing has exactly one `should_show` question. Text-only, one-image and four-image
 requests may have different score behavior and require separate evaluation fixtures.
 

@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-28 — Stricter saved-search matching
+
+- **Behavior change:** saved-search matching and `POST /v1/me/search-filters/preview` accept a listing only when the classifier is more confident that it fits the search (threshold raised from 0.5 to 0.7). Users get fewer listings that only resemble what they searched for, such as an icon or print for an oil-painting search, and slightly fewer borderline correct ones. Request and response shapes are unchanged; existing matches stay.
+
 ## 2026-11-24 — Listings stay in semantic search while their content changes (#3115)
 
 - **Behavior change:** after a title, description or image change, a listing keeps its previous embedding until the new one is ready, instead of losing it until then. Semantic product search, saved-search matching and `GET /v1/product-listings/{productListingId}/similar` (MCP `getSimilarProductListings`) therefore keep finding the listing, and its similar listings keep answering `200` rather than `202 Accepted` (MCP: `EMBEDDING_PENDING`), while the change is processed.

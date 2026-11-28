@@ -36,7 +36,7 @@ use std::{
 const MAX_HYBRID_SCAN_LIMIT: usize = 100;
 const DEFAULT_CLASSIFIER_PROVIDER: &str = "cloudflare";
 const DEFAULT_CLASSIFIER_MODEL: &str = "clef";
-const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
+const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 7_000;
 /// One pooled connection, unless `POSTGRES_MAX_CONNECTIONS` says otherwise; the run lock holds
 /// its own connection beside the pool.
 const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 1;
