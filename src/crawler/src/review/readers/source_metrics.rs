@@ -7,7 +7,7 @@ use super::listing_source_overview::{OVERVIEW_CTES, RANKED_SELECT, order_by};
 use crate::review::model::{
     AgeDistribution, CRAWL_RUN_HOURS, CrawlFreshness, FailureKindCount, FailureKinds, Freshness,
     HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES, PageFreshness, STALE_AFTER_DAYS,
-    SortDirection, SourceSort, Throughput,
+    SortDirection, SourceFunnel, SourceSort, Throughput,
 };
 use crate::review::repository::listing_source_id_from_uuid;
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
@@ -47,6 +47,7 @@ pub struct SourceMetrics {
     pub health: HealthCounts,
     pub freshness: Freshness,
     pub throughput: Throughput,
+    pub funnel: SourceFunnel,
     pub crawls: CrawlFreshness,
     pub pages: PageFreshness,
 }
@@ -97,6 +98,16 @@ impl ListingSourceOverviewReader {
                 crawls_finished_1h: row.try_get("crawls_finished_1h")?,
                 crawls_finished_24h: row.try_get("crawls_finished_24h")?,
                 crawl_runs_by_hour: crawl_runs_by_hour(&row)?,
+            },
+            funnel: SourceFunnel {
+                total: row.try_get("funnel_total")?,
+                in_scope: row.try_get("funnel_in_scope")?,
+                awaiting_qualification: row.try_get("funnel_awaiting_qualification")?,
+                qualification_needs_human: row.try_get("funnel_qualification_needs_human")?,
+                qualified: row.try_get("funnel_qualified")?,
+                crawl_enabled: crawl_sources,
+                with_schema: row.try_get("funnel_with_schema")?,
+                labelled: row.try_get("labelled")?,
             },
             crawls: CrawlFreshness {
                 total: crawl_sources,
@@ -200,6 +211,14 @@ fn source_metrics_sql() -> String {
                 COALESCE(SUM(overdue_pages) FILTER (WHERE crawl_enabled), 0)::BIGINT
                     AS pages_overdue,
                 COUNT(*) FILTER (WHERE crawl_enabled) AS crawl_sources,
+                COUNT(*) AS funnel_total,
+                COUNT(*) FILTER (WHERE in_crawl_scope) AS funnel_in_scope,
+                COUNT(*) FILTER (WHERE in_crawl_scope AND qualification IS NULL)
+                    AS funnel_awaiting_qualification,
+                COUNT(*) FILTER (WHERE qualification = 'NEEDS_HUMAN')
+                    AS funnel_qualification_needs_human,
+                COUNT(*) FILTER (WHERE qualification = 'QUALIFIED') AS funnel_qualified,
+                COUNT(*) FILTER (WHERE crawl_enabled AND has_product_schemas) AS funnel_with_schema,
                 COUNT(*) FILTER (WHERE crawl_enabled AND last_complete_crawl IS NULL)
                     AS never_complete,
                 COUNT(*) FILTER (WHERE crawl_enabled

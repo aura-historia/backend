@@ -67,6 +67,13 @@ pub enum SourceStatus {
     /// Crawl-enabled, and its latest spider run was cut short by its time budget or bounded by
     /// its page budget, so it did not crawl the shop completely.
     Truncated,
+    /// The scope admits it to crawling with a crawl root; a label or a missing qualification may
+    /// still keep it from being crawled.
+    InScope,
+    /// Crawling is switched on.
+    CrawlEnabled,
+    /// Crawl-enabled, with live product schemas the scraper captures its pages with.
+    WithSchema,
 }
 
 /// How many days a crawl-enabled ListingSource may go without a scraped page or a spider run
@@ -94,6 +101,9 @@ impl QueryValue for SourceStatus {
         ("rate_limited", Self::RateLimited),
         ("scrape_paused", Self::ScrapePaused),
         ("truncated", Self::Truncated),
+        ("in_scope", Self::InScope),
+        ("crawl_enabled", Self::CrawlEnabled),
+        ("with_schema", Self::WithSchema),
     ];
 }
 

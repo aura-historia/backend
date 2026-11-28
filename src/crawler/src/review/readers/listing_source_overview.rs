@@ -116,6 +116,12 @@ pub(super) const OVERVIEW_CTES: &str = "WITH first_schema_waits AS NOT MATERIALI
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
         s.last_complete_crawl_at AS last_complete_crawl,
+        EXISTS (
+            SELECT 1 FROM listing_source_product_schemas ps
+            WHERE ps.listing_source_id = s.listing_source_id
+              AND (jsonb_typeof(ps.product_schema) <> 'array'
+                   OR jsonb_array_length(ps.product_schema) > 0)
+        ) AS has_product_schemas,
         s.last_crawl_outcome IN ('HARD_TIMEOUT_TRUNCATED', 'PAGE_BUDGET_REACHED')
             AS last_run_truncated,
         s.last_crawl_outcome,
@@ -429,6 +435,9 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::RateLimited => "rate_limited",
         SourceStatus::ScrapePaused => "scrape_paused",
         SourceStatus::Truncated => "truncated",
+        SourceStatus::InScope => "in_scope",
+        SourceStatus::CrawlEnabled => "crawl_enabled",
+        SourceStatus::WithSchema => "with_schema",
     }
 }
 
@@ -492,7 +501,10 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'rate_limited' AND crawl_enabled
                         AND crawl_rate_limited_until > NOW())
                     OR ($8 = 'scrape_paused' AND crawl_enabled AND scrape_paused_until > NOW())
-                    OR ($8 = 'truncated' AND crawl_enabled AND last_run_truncated))
+                    OR ($8 = 'truncated' AND crawl_enabled AND last_run_truncated)
+                    OR ($8 = 'in_scope' AND in_crawl_scope)
+                    OR ($8 = 'crawl_enabled' AND crawl_enabled)
+                    OR ($8 = 'with_schema' AND crawl_enabled AND has_product_schemas))
                AND ($11::text IS NULL OR source_label = $11)
          ), ordered AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching

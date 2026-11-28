@@ -40,7 +40,7 @@ pub use console_overview::{
     ACTIVITY_HOURS, ActivityHistory, AgeDistribution, CRAWL_RUN_HOURS, ConsoleOverview,
     CrawlFreshness, DailyReviewFlow, FailureKindCount, FailureKinds, Freshness, HourlyActivity,
     HourlyCrawlRuns, IdleSource, LONGEST_IDLE_SOURCES, PageFreshness, PendingByArtifact,
-    REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts, Throughput,
+    REVIEW_FLOW_DAYS, ReviewCounts, ReviewFlow, SourceCounts, SourceFunnel, Throughput,
 };
 pub use list_window::{ListPage, ListWindow};
 pub use listing_source_detail::{

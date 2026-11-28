@@ -64,6 +64,7 @@ impl ConsoleOverviewReader {
             },
             freshness: metrics.freshness,
             throughput: metrics.throughput,
+            funnel: metrics.funnel,
             crawls: metrics.crawls,
             pages: metrics.pages,
             failures,

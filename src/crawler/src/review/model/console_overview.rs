@@ -13,6 +13,7 @@ pub struct ConsoleOverview {
     pub sources: SourceCounts,
     pub freshness: Freshness,
     pub throughput: Throughput,
+    pub funnel: SourceFunnel,
     pub crawls: CrawlFreshness,
     pub pages: PageFreshness,
     pub failures: FailureKinds,
@@ -122,6 +123,26 @@ pub struct HourlyCrawlRuns {
     pub hour: OffsetDateTime,
     /// Sources whose last spider run ended in the hour.
     pub sources: i64,
+}
+
+/// How far the ListingSources got towards being scraped, each stage as its list counts it: why a
+/// source the crawler knows is not scraped. The stages narrow, but not strictly: a labelled or
+/// disqualified source leaves the way after the scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SourceFunnel {
+    pub total: i64,
+    /// Admitted to crawling by the scope, with a crawl root (`in_scope`).
+    pub in_scope: i64,
+    /// In scope, waiting for their qualification (`unqualified`).
+    pub awaiting_qualification: i64,
+    /// Whose qualification waits for a human (`qualification_needs_human`).
+    pub qualification_needs_human: i64,
+    pub qualified: i64,
+    pub crawl_enabled: i64,
+    /// Crawl-enabled with live product schemas (`with_schema`).
+    pub with_schema: i64,
+    /// Labelled, so not crawled (`labelled`).
+    pub labelled: i64,
 }
 
 /// The crawl-enabled ListingSources by their last complete crawl: a full crawl that ran out of
@@ -350,6 +371,16 @@ mod tests {
                 crawls_finished_24h: 30,
                 crawl_runs_by_hour,
             },
+            funnel: SourceFunnel {
+                total: 120,
+                in_scope: 90,
+                awaiting_qualification: 12,
+                qualification_needs_human: 2,
+                qualified: 70,
+                crawl_enabled: 40,
+                with_schema: 33,
+                labelled: 15,
+            },
             crawls: CrawlFreshness {
                 total: 40,
                 full_crawl_interval_days: 7,
@@ -432,6 +463,11 @@ mod tests {
                     "pages_scraped_1h": 120, "pages_scraped_24h": 2400,
                     "product_urls_found_24h": 35, "crawls_finished_1h": 2,
                     "crawls_finished_24h": 30, "crawl_runs_by_hour": null
+                },
+                "funnel": {
+                    "total": 120, "in_scope": 90, "awaiting_qualification": 12,
+                    "qualification_needs_human": 2, "qualified": 70, "crawl_enabled": 40,
+                    "with_schema": 33, "labelled": 15
                 },
                 "crawls": {
                     "total": 40, "full_crawl_interval_days": 7, "complete": 30,

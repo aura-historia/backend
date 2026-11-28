@@ -679,12 +679,34 @@ function headNote(text) {
     return `<span class="small muted">${escapeHtml(text)}</span>`;
 }
 
+// How far the sources got towards being scraped, one row per stage with its share of all sources
+// as a thin bar; each row links to the list of exactly what it counts.
+function funnelCardHtml(funnel) {
+    const stages = [
+        ['All sources', funnel.total, '#sources', 0],
+        ['In crawl scope', funnel.in_scope, '#sources&status=in_scope', 0],
+        ['Awaiting qualification', funnel.awaiting_qualification, '#sources&status=unqualified', 1],
+        ['Qualification: needs a human', funnel.qualification_needs_human, '#sources&status=qualification_needs_human', 1],
+        ['Qualified', funnel.qualified, '#sources&status=qualified', 0],
+        ['Crawl-enabled', funnel.crawl_enabled, '#sources&status=crawl_enabled', 0],
+        ['With live schemas', funnel.with_schema, '#sources&status=with_schema', 0],
+        ['Labelled, not crawled', funnel.labelled, '#sources&status=labelled', 1]
+    ];
+    const rows = stages.map(([label, count, href, aside]) => {
+        const width = funnel.total ? Math.max(count ? 1 : 0, Math.round(count / funnel.total * 100)) : 0;
+        const body = `<span class="count-label">${escapeHtml(label)}</span><span class="funnel-track" aria-hidden="true"><span class="funnel-bar" style="width:${width}%"></span></span><span class="count-value">${formatCount(count)}</span>`;
+        const row = count ? `<a class="count-row" href="${escapeHtmlAttr(href)}">${body}</a>` : `<div class="count-row zero">${body}</div>`;
+        return `<li${aside ? ' class="funnel-aside"' : ''}>${row}</li>`;
+    }).join('');
+    return overviewCard('Sources', headNote('from known to scraped'), `<ul class="count-list funnel-list">${rows}</ul>`);
+}
+
 function overviewCardsHtml() {
     if (overviewCounts === undefined) return `<div class="card">${stateBlock('loading', 'Loading')}</div>`;
     if (overviewCounts === null) return '';
     const o = overviewCounts;
     return `<div class="overview-cols">
-        <div class="overview-col">${crawlFreshnessCardHtml(o.crawls)}${attentionCardHtml(o)}${reviewQueueCardHtml(o)}</div>
+        <div class="overview-col">${crawlFreshnessCardHtml(o.crawls)}${attentionCardHtml(o)}${funnelCardHtml(o.funnel)}${reviewQueueCardHtml(o)}</div>
         <div class="overview-col">${pageFreshnessCardHtml(o.pages, o.freshness)}${activityCardHtml(o)}${idleSourcesCardHtml(o.freshness, o.sources)}</div>
       </div>`;
 }

@@ -701,3 +701,14 @@ rect.chart-mark:hover { opacity: 0.8; }
     .tiles.tiles-six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ───────────────────────────── 20. Source funnel ───────────────────────────── */
+/* One row per stage: label, a thin bar of its share of all sources, the count. Side stages, which
+   leave the way, are indented. */
+.funnel-list .count-label { flex: 0 0 15em; }
+.funnel-track { flex: 1; height: 6px; min-width: 40px; border-radius: 0 3px 3px 0; background: var(--surface-2); }
+.funnel-bar { display: block; height: 100%; border-radius: 0 3px 3px 0; background: var(--chart-1, var(--accent)); }
+.funnel-list .count-value { min-width: 3.5em; text-align: right; }
+.funnel-aside .count-label { padding-left: var(--s-3); color: var(--ink-2); }
+.funnel-aside .funnel-bar { background: var(--line-strong); }
+@media (max-width: 719px) { .funnel-list .count-label { flex-basis: 10em; } }

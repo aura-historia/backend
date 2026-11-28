@@ -1084,6 +1084,11 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
                 "pages_scraped_1h": 0, "pages_scraped_24h": 0, "product_urls_found_24h": 0,
                 "crawls_finished_1h": 1, "crawls_finished_24h": 1, "crawl_runs_by_hour": null
             },
+            "funnel": {
+                "total": 4, "in_scope": 0, "awaiting_qualification": 0,
+                "qualification_needs_human": 0, "qualified": 0, "crawl_enabled": 3,
+                "with_schema": 0, "labelled": 0
+            },
             "crawls": {
                 "total": 3, "full_crawl_interval_days": 7, "complete": 0,
                 "complete_before": 0, "never_complete": 3, "last_run_truncated": 0
@@ -1951,4 +1956,116 @@ async fn should_list_the_held_removals_of_a_listing_source() {
     );
     assert_eq!((second.total, second.items.len()), (2, 1));
     assert_eq!(second.items[0].url, "https://shop.example.com/older");
+}
+
+/// Every stage of the Overview's source funnel counts what its list shows.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_each_funnel_stage_as_its_list_shows_it() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 1);
+    let scraping = source(&pool, "Scraping", "scraping.example.com", true).await;
+    let no_schema = source(&pool, "No schema", "no-schema.example.com", true).await;
+    let waiting = source(&pool, "Waiting", "waiting.example.com", false).await;
+    let unsure = source(&pool, "Unsure", "unsure.example.com", false).await;
+    let labelled = source(&pool, "Labelled", "labelled.example.com", false).await;
+    source(&pool, "Outside", "outside.example.com", false).await;
+    for (id, set) in [
+        (scraping, "in_crawl_scope = TRUE"),
+        (no_schema, "in_crawl_scope = TRUE"),
+        (waiting, "in_crawl_scope = TRUE"),
+        (unsure, "in_crawl_scope = TRUE"),
+        (
+            labelled,
+            "in_crawl_scope = TRUE, source_label = 'NOT_AN_ESHOP', \
+             source_labelled_at = NOW(), source_labelled_by = 'HUMAN'",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for (id, qualification) in [
+        (scraping, "QUALIFIED"),
+        (no_schema, "QUALIFIED"),
+        (labelled, "QUALIFIED"),
+        (unsure, "NEEDS_HUMAN"),
+    ] {
+        sqlx::query(
+            "UPDATE listing_sources
+             SET qualification = $2, qualification_note = 'checked', qualified_at = NOW(),
+                 qualified_by = 'HUMAN'
+             WHERE listing_source_id = $1",
+        )
+        .bind(id.as_uuid())
+        .bind(qualification)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for (id, schemas) in [
+        (scraping, json!([{ "title": "h1" }])),
+        (no_schema, json!([])),
+    ] {
+        sqlx::query(
+            "INSERT INTO listing_source_product_schemas
+             (listing_source_id, product_schema, created, updated)
+             VALUES ($1, $2, NOW(), NOW())",
+        )
+        .bind(id.as_uuid())
+        .bind(schemas)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let funnel = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap()
+        .funnel;
+
+    let listed = |status| {
+        let pool = pool.clone();
+        async move {
+            list_sources(
+                &pool,
+                ListingSourceQuery {
+                    status,
+                    ..ListingSourceQuery::default()
+                },
+            )
+            .await
+            .total
+        }
+    };
+    assert_eq!(
+        serde_json::to_value(funnel).unwrap(),
+        json!({
+            "total": 6, "in_scope": 5, "awaiting_qualification": 1,
+            "qualification_needs_human": 1, "qualified": 3, "crawl_enabled": 2,
+            "with_schema": 1, "labelled": 1
+        })
+    );
+    for (status, counted) in [
+        (None, funnel.total),
+        (Some(SourceStatus::InScope), funnel.in_scope),
+        (
+            Some(SourceStatus::Unqualified),
+            funnel.awaiting_qualification,
+        ),
+        (
+            Some(SourceStatus::QualificationNeedsHuman),
+            funnel.qualification_needs_human,
+        ),
+        (Some(SourceStatus::Qualified), funnel.qualified),
+        (Some(SourceStatus::CrawlEnabled), funnel.crawl_enabled),
+        (Some(SourceStatus::WithSchema), funnel.with_schema),
+        (Some(SourceStatus::Labelled), funnel.labelled),
+    ] {
+        assert_eq!(listed(status).await, counted, "{status:?}");
+    }
 }
